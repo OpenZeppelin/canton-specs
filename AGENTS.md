@@ -1,9 +1,15 @@
-# AGENTS.md - canton-contracts
+# AGENTS.md - canton-specs
 
 ## Role
 
-This repo is the canonical reusable Daml contracts library for the Canton
-workspace. Keep changes small, auditable, and tied to M1 library deliverables.
+This repo is the home for the OpenZeppelin Canton **CIP-0112 / Token Standard V2
+settlement specs and reference-implementation scaffold**. It was seeded from the
+`canton-contracts` branch `wip/cip0112-m1-settlement-amarzeppelin` (closed
+PR #13) and carries the settlement experiments, architecture/decision docs, and
+the supporting access-control / ownable / pausable primitives that branch held.
+Keep changes small, auditable, and tied to M1 settlement/specs deliverables. The
+reusable library primitives also live in `canton-contracts`; prefer evolving them
+there and treating their presence here as the snapshot this RI work builds on.
 
 ## Read Order
 
