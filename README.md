@@ -1,13 +1,17 @@
-# canton-contracts
+# canton-specs
 
-Reusable Daml contracts library scaffold for the OpenZeppelin Canton ecosystem
-workspace.
+CIP-0112 / Token Standard V2 settlement specs, reference-implementation
+scaffold, and the supporting OpenZeppelin Canton Daml primitives.
 
-Status: M0 scaffold + the first reusable access-control primitives (slice AL-7,
-see [Access Control Library](#access-control-library-al-7) below), plus a
-non-public experimental CIP-0112 / Token Standard V2 settlement scaffold. The
-M1 target is now CIP-112 settlement, not the superseded CIP-56 token foundation.
-No stable M1 public API, CIP-0112 conformance, audit readiness, production
+> Seeded from `OpenZeppelin/canton-contracts` branch
+> `wip/cip0112-m1-settlement-amarzeppelin` (closed PR #13). The reusable
+> access-control / ownable / pausable primitives also live in `canton-contracts`;
+> this repo is the home for the CIP-0112 settlement specs and RI work.
+
+Status: experimental. The M1 target is the CIP-0112 settlement primitive (not the
+superseded CIP-56 token foundation), alongside the reusable access-control
+primitives (slice AL-7, see [Access Control Library](#access-control-library-al-7)
+below). No stable M1 public API, CIP-0112 conformance, audit readiness, production
 readiness, or release readiness is claimed.
 
 ## Scope
