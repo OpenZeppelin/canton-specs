@@ -78,7 +78,7 @@ bounded by the promotion ADR, but the ADR is not a stability claim.
 | B4 | Bounded by acceptance note | **CIP-0086 / CIP-0103 / CIP-0104 M1 criteria.** These CIPs are accepted for M1 only as interoperability evidence against the CIP-112 settlement surface. They do not add production middleware, wallet-provider, Scan/SV reward, custody, KYC, sanctions, hosted-service, or standalone CIP-56-token scope. | Use the acceptance note for downstream docs and review packets. |
 | Q1 | Open | **D1 attestation shape.** D1 is decided no-cache / fail-closed / node-side. Open: does the contract stay oblivious to the result (off-ledger gate), or verify a signed node attestation at exercise time? Shapes the audit story. | OZ architecture. |
 | Q2 | Open after DAR gate | **EventLog adoption implementation.** The ADR treats Token Standard V2 `EventLog_HoldingsChange` as the promoted reporting route, but implementation still waits on the transfer-events DAR boundary. | OZ architecture after DAR/import evidence. |
-| Q3 | Open | **Legacy package naming.** Public docs now use `canton-contracts`, but M0 package/DAR names still contain `oz-daml-contracts`. Renaming packages is a separate compatibility decision. | OZ architecture. |
+| Q3 | Resolved 2026-06-21 | **Legacy package naming.** Renamed the M0 root and proof packages `oz-daml-contracts` → `oz-canton-specs` and `oz-daml-contracts-hello-world-proof` → `oz-canton-specs-hello-world-proof` (matching the repo and the `oz-` sibling convention); `proof` dependency path, README DAR paths, and the recorded checksums/package IDs were regenerated. | Done. |
 
 ---
 

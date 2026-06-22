@@ -71,19 +71,19 @@ The production package is the repo root DPM package. It intentionally has no
 
 Current M0 production DAR:
 
-- Path: `.daml/dist/oz-daml-contracts-0.0.0.dar`
+- Path: `.daml/dist/oz-canton-specs-0.0.0.dar`
 - SHA-256:
-  `54741b03baadcc9b0ac4ddeb7abb4128edec52d0c553f53298c35234cd9b62c5`
+  `ae5419a2b4a6748af3f4ec77736b46d3b9ca40c82f7df8aa1229dff5f71f48d8`
 - Main package ID:
-  `8a4ff09828c0cb27ec9291721524aa6ec88958dd4aac2b9ee725e180ad338a60`
+  `c14e2d83f3454f4c70fe9ef4c78818afce121129e195573914d0fa2d32a93ea0`
 
 Current M0 proof DAR:
 
-- Path: `proof/.daml/dist/oz-daml-contracts-hello-world-proof-0.0.0.dar`
+- Path: `proof/.daml/dist/oz-canton-specs-hello-world-proof-0.0.0.dar`
 - SHA-256:
-  `d3a4d14d4ebccf3b2594ff2ae6ffce4a115d52adf48adf28776345bdd9ff7887`
+  `b76122f152fcd8df4a87c4a5de3cf989af3a5402b406ee89cd8638558a7bcaf2`
 - Main package ID:
-  `9b11bf9f0d678e581c846772196bc5dd79b263e4b6dc75c234c52bfe6e0649f3`
+  `81ccf8122e709a188c0ec2d9759b8f0c9c8601d483967be8114fca9492c8cf84`
 
 The root and scaffold scripts use `OZ_DAML_TOOLCHAIN=auto` by default. Auto
 selection requires DPM and does not fall back to Daml Assistant. The scripts

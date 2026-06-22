@@ -4,7 +4,7 @@
 # workflow tests.
 
 sdk-version: "<accepted-daml-sdk-version>"
-name: oz-daml-contracts
+name: oz-canton-specs
 source: daml
 version: 0.0.0
 dependencies:
