@@ -90,6 +90,58 @@ new ground truth arrives.
 - Mermaid in fenced ```mermaid``` blocks (validatable with
   `canton-settlement-explorer`); render externally for Docs.
 
+## Living documents: direct code references & refresh
+
+These reports are **living documents** tied to the RI implementation code in this
+repo. Two conventions keep them honest and easy to refresh from the code as
+written:
+
+**1. Direct code references are checkable links.** Every reference to a real
+template / choice / data type / helper or library symbol is a markdown link
+whose text is the exact symbol and whose target is the real source file, with a
+line anchor for in-file symbols:
+
+```text
+[`SettlementFactory_SettleBatch`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L288)
+[`requireRole`](../../access-control/daml/OpenZeppelin/AccessControl.daml)   # file-level, no line anchor
+```
+
+Only real symbols are linked. Evidence-repo and `[FUTURE]` symbols (e.g.
+`Vault`, `CredentialGatedActionRequest`, a yet-to-be-built `Pool`) stay as plain
+backticked text — linking them would imply code that is not in this repo.
+
+**2. Every report carries an `## Implementation Status (Code Map)` section**
+(immediately before *Open Questions*) with a per-RI table that makes
+done-vs-pending obvious. Status legend:
+
+- ✅ implemented in the promoted library surface (`oz-access-control` /
+  `oz-ownable` / `oz-pausable`) **or** verified passing tests.
+- 🟡 implemented in the **experimental settlement scaffold**
+  (`experiments/cip112-settlement/…/Cip112.daml`) — real, tested code not yet
+  promoted out of the experimental surface (includes the `ToyHolding` stand-in).
+- ⬜ planned RI-level design, not built in M1 (each RI's own business logic,
+  the real TSv2 holding interface, node-applied D1 attestation, cross-synchronizer
+  operation, on-ledger multi-sig).
+
+The canonical, suite-wide anchor list lives in
+[`00-portfolio.md`](./00-portfolio.md) §2a; the per-RI tables and the
+[`cip0112-m1-ri-spec.md`](../architecture/cip0112-m1-ri-spec.md) §3a Code Map
+draw from it.
+
+**3. Refresh with [`scripts/refresh-ri-anchors.sh`](../../scripts/refresh-ri-anchors.sh).**
+Line numbers drift as the scaffold evolves; the script resolves every link,
+checks the target exists, and verifies each `#L` anchor's symbol is still at the
+cited line, across all reports and the architecture spec:
+
+```sh
+scripts/refresh-ri-anchors.sh         # validate (non-zero exit on drift/error)
+scripts/refresh-ri-anchors.sh --fix   # rewrite drifted line numbers in place
+```
+
+After editing the scaffold (or any report), run `--fix`, then re-run plain to
+confirm `0 drift, 0 error`. This is the mechanism that lets the reports be
+refreshed from the RI as-written rather than hand-maintained.
+
 ## Cross-Synchronizer Domain Extension section (all RIs)
 
 Cross-synchronizer (cross-domain) operation is **out of scope for the initial

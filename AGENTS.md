@@ -2,14 +2,21 @@
 
 ## Role
 
-This repo is the home for the OpenZeppelin Canton **CIP-0112 / Token Standard V2
-settlement specs and reference-implementation scaffold**. It was seeded from the
-`canton-contracts` branch `wip/cip0112-m1-settlement-amarzeppelin` (closed
-PR #13) and carries the settlement experiments, architecture/decision docs, and
-the supporting access-control / ownable / pausable primitives that branch held.
-Keep changes small, auditable, and tied to M1 settlement/specs deliverables. The
-reusable library primitives also live in `canton-contracts`; prefer evolving them
-there and treating their presence here as the snapshot this RI work builds on.
+This repo is the home for **all** OpenZeppelin Canton docs, specs, and Reference
+Implementations (RIs): the **CIP-0112 / Token Standard V2 settlement specs and
+the RI implementation code** (the experimental settlement scaffold plus the
+compliance/identity experiments), the architecture/decision docs, and the four
+RI architecture reports. Keep changes small, auditable, and tied to M1
+settlement/specs/RI deliverables.
+
+The decoupled, ergonomic general library (`oz-access-control` / `oz-ownable` /
+`oz-pausable`) is owned by `canton-contracts` — that repo is the **source of
+truth** for the reusable primitives and contains no RI/specs code. The RI here
+**consumes** the library and builds against a vendored snapshot of those
+primitives: evolve a primitive in `canton-contracts`, then refresh the snapshot
+here; do not fork the library design in this repo. A primitive graduates from
+the RI scaffold into the `canton-contracts` library only via the CIP-0112
+promotion-boundary ADR.
 
 This repo also carries the migrated RI architecture documentation:
 
@@ -41,9 +48,16 @@ available, read this file, repo-local `PLAN.md`, and `README.md` in that order.
 
 ## Boundaries
 
+In scope here: the CIP-0112 settlement RI scaffold, the compliance/identity
+experiments, the specs/architecture docs, and the four RI architecture reports.
+
 Do not add:
 
-- Reference-implementation-specific business logic.
+- The four RIs' own business logic (DEX AMM, lending vaults, stablecoin
+  orchestration, sealed-bid auction) — those are M2–M4 implementation, not M1;
+  M1 builds the shared settlement primitive and documents the RI designs.
+- The decoupled library's design — evolve `oz-access-control` / `oz-ownable` /
+  `oz-pausable` in `canton-contracts` and refresh the snapshot here.
 - Production private integrations.
 - Full relayer infrastructure.
 - Year 2 components before scope review approval.

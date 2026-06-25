@@ -41,18 +41,29 @@ these are described once here and only elaborated per-RI where the application
 differs. (Owners: `PLAN.md` Decision Log, `AGENTS.md` §Decision Authority.)
 
 - **Settlement spine** `[IMPLEMENTED]` —
-  `OpenZeppelin.Experimental.Settlement.Cip112`. Atomic delivery-vs-payment is
-  **only** `SettlementFactory_SettleBatch` (one Daml transaction over many
-  allocations); the direct `Allocation_Settle` path proves authorization, not
-  atomic co-settlement. CIP-56 is superseded.
-- **AL-7 primitives** `[IMPLEMENTED]` — `oz-access-control` / `oz-ownable` /
-  `oz-pausable`, via the `roleId : MyRole -> Text` closed-sum wrapper.
+  [`OpenZeppelin.Experimental.Settlement.Cip112`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml).
+  Atomic delivery-vs-payment is **only**
+  [`SettlementFactory_SettleBatch`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L288)
+  (one Daml transaction over many allocations); the direct
+  [`Allocation_Settle`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L483)
+  path proves authorization, not atomic co-settlement. CIP-56 is superseded.
+- **AL-7 primitives** `[IMPLEMENTED]` —
+  [`oz-access-control`](../../access-control/daml/OpenZeppelin/AccessControl.daml) /
+  [`oz-ownable`](../../ownable/daml/OpenZeppelin/Ownable.daml) /
+  [`oz-pausable`](../../pausable/daml/OpenZeppelin/Pausable.daml), via the
+  `roleId : MyRole -> Text` closed-sum wrapper.
 - **Decided rails (D1–D4):** D1 compliance on every leg, no-cache, fail-closed,
-  node-applied (optional `D1ComplianceHook` **data record**, Shape B chosen);
-  D2 lock-and-sweep to an admin-preset `custodianDestination` (not burn, not
-  return-to-sender), `BurnerCapability`-gated, transfer *failures* return to
-  sender; D3 single-domain v1, cross-domain deferred but SCU-forward-compatible;
-  D4 single-admin capability (multi-sig → M3).
+  node-applied (optional
+  [`D1ComplianceHook`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L103)
+  **data record**, Shape B chosen); D2 lock-and-sweep to an admin-preset
+  `custodianDestination`
+  ([`D2SeizureHook`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L108);
+  not burn, not return-to-sender),
+  [`BurnerCapability`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L160)-gated
+  via
+  [`Allocation_SweepD2InFlightSeizure`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L552),
+  transfer *failures* return to sender; D3 single-domain v1, cross-domain
+  deferred but SCU-forward-compatible; D4 single-admin capability (multi-sig → M3).
 - **SCU rule:** never mutate an existing choice's args to require a new field;
   extend via appended `Optional` fields, new serializable types, and new choices.
 - **Priority order:** Readability → Simplicity → Security → Auditability.
@@ -65,6 +76,44 @@ differs. (Owners: `PLAN.md` Decision Log, `AGENTS.md` §Decision Authority.)
   verification primitives (`CredentialGatedActionRequest`,
   `MockVerificationResult`, `CredentialRevocationStatus`) `[EVIDENCE]`.
 - **Validation ladder:** `daml-lint` → `daml-props` → `daml-verify`.
+
+## 2a. Implementation Status (Code Map) — canonical for the suite
+
+> **Living document.** This is the suite-wide anchor list every per-RI report's
+> own *Implementation Status (Code Map)* section draws from. Each row links to
+> real source; refresh the anchors with `scripts/refresh-ri-anchors.sh` (see
+> [`README.md`](./README.md)). Status:
+> ✅ implemented in the promoted library surface (or verified passing tests) ·
+> 🟡 implemented in the **experimental settlement scaffold** (real code, not yet
+> promoted; includes toy stand-ins) · ⬜ planned, not built in M1.
+
+**Shared settlement spine** — `experiments/cip112-settlement/.../Cip112.daml`,
+exercised by [`Cip112Settlement` tests](../../test/daml/OpenZeppelin/Test/Cip112Settlement.daml) (✅, 20 scripts):
+
+| Shared capability (reused by all four RIs) | Source anchor | Status |
+|---|---|---|
+| Settlement factory / entrypoints | [`SettlementFactory`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L236) | 🟡 |
+| Atomic multi-leg DvP | [`SettlementFactory_SettleBatch`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L288) | 🟡 |
+| Allocation request lifecycle | [`AllocationRequest`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L326) | 🟡 |
+| Allocation instruction (+ D1 hook) | [`AllocationInstruction`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L383) | 🟡 |
+| Ready-to-settle allocation | [`Allocation`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L468) | 🟡 |
+| Settlement evidence | [`SettlementReceipt`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L585) | 🟡 |
+| D1 compliance hook (reference field) | [`D1ComplianceHook`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L103) | 🟡 (node-applied signed attestation ⬜) |
+| D2 lock-and-sweep seizure | [`Allocation_MarkD2InFlightSeizure`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L543) + [`Allocation_SweepD2InFlightSeizure`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L552) | 🟡 |
+| Single-admin authority (D4) | [`BurnerCapability`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L160) | 🟡 |
+| Unit of value | [`ToyHolding`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L195) | 🟡 toy stand-in (real TSv2 holding interface ⬜) |
+| Spine test coverage (20 scripts) | [`Cip112Settlement.daml`](../../test/daml/OpenZeppelin/Test/Cip112Settlement.daml) | ✅ |
+| Access control / ownership / pause | [`oz-access-control`](../../access-control/daml/OpenZeppelin/AccessControl.daml) · [`oz-ownable`](../../ownable/daml/OpenZeppelin/Ownable.daml) · [`oz-pausable`](../../pausable/daml/OpenZeppelin/Pausable.daml) | ✅ |
+
+**Per-RI rollup** — every RI reuses the spine above (✅/🟡); each RI's own
+business logic is `[FUTURE]` (⬜), built in its impl. milestone:
+
+| RI | Reuses shared spine | RI-specific business logic | Detail |
+|---|---|---|---|
+| DEX | ✅ spine + AL-7 | ⬜ constant-product AMM, swap, LP, fees | [`01` Code Map](./01-dex.md#implementation-status-code-map) |
+| Lending | ✅ spine + AL-7 | ⬜ vault, interest accrual, liquidation engine | [`02` Code Map](./02-lending.md#implementation-status-code-map) |
+| Stablecoin | ✅ spine + AL-7 | ⬜ cross-chain orchestration, messaging gateway, cross-synchronizer | [`03` Code Map](./03-cross-chain-stablecoin.md#implementation-status-code-map) |
+| Auction | ✅ spine + AL-7 | ⬜ sealed-bid commit-reveal, confidential clearing | [`04` Code Map](./04-confidential-auction.md#implementation-status-code-map) |
 
 ## 3. How the four compose (inter-RI relationships)
 
@@ -83,7 +132,8 @@ rows are forward-compatibility paths surfaced in each report's §9.
 | **Liquidation fair-value recovery** | Lending → Auction | route seized collateral to a sealed-bid auction | `02` §9 (composability) |
 
 All seven relationships are realized through the **same** spine entrypoint
-(`SettlementFactory_SettleBatch`) and the **same** D1–D4 attachment points — no
+([`SettlementFactory_SettleBatch`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L288))
+and the **same** D1–D4 attachment points — no
 RI invents a parallel settlement or compliance path to interoperate with another.
 
 ## 4. Cumulative scope (union across the suite)
@@ -190,4 +240,5 @@ terminology drift, consistent source-grounding tags. Review record:
   component/API map: [`../research/RI_RESEARCH_BRIEFING.md`](../research/RI_RESEARCH_BRIEFING.md)
   (Part A7 = primitive→RI mapping).
 - Settlement spine `[IMPLEMENTED]`:
-  `canton-specs/experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml`.
+  [`experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml)
+  — see the canonical Code Map in §2a for per-symbol anchors and status.

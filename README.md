@@ -1,12 +1,23 @@
 # canton-specs
 
-CIP-0112 / Token Standard V2 settlement specs, reference-implementation
-scaffold, and the supporting OpenZeppelin Canton Daml primitives.
+The home for **all** OpenZeppelin Canton docs, specs, and Reference
+Implementations (RIs): the CIP-0112 / Token Standard V2 settlement specs, the
+RI implementation code (the experimental settlement scaffold and the
+compliance/identity experiments), the four RI architecture reports, scope locks,
+research, and review provenance.
 
-> Seeded from `OpenZeppelin/canton-contracts` branch
-> `wip/cip0112-m1-settlement-amarzeppelin` (closed PR #13). The reusable
-> access-control / ownable / pausable primitives also live in `canton-contracts`;
-> this repo is the home for the CIP-0112 settlement specs and RI work.
+> **Repo split.** The decoupled, ergonomic general Daml contracts library
+> (`oz-access-control` / `oz-ownable` / `oz-pausable`) is owned by
+> [`OpenZeppelin/canton-contracts`](https://github.com/OpenZeppelin/canton-contracts).
+> That repo is the **source of truth** for the reusable primitives and contains
+> no RI/specs code. This repo holds the RI implementation that **consumes** the
+> library and builds against a vendored snapshot of those primitives (evolve the
+> primitives in `canton-contracts`, then refresh the snapshot here). The RI
+> architecture reports in [`docs/ri-reports/`](docs/ri-reports/) are living
+> documents that link directly into the RI code (refresh with
+> [`scripts/refresh-ri-anchors.sh`](scripts/refresh-ri-anchors.sh)). Originally
+> seeded from `canton-contracts` branch `wip/cip0112-m1-settlement-amarzeppelin`
+> (closed PR #13).
 
 Status: experimental. The M1 target is the CIP-0112 settlement primitive (not the
 superseded CIP-56 token foundation), alongside the reusable access-control

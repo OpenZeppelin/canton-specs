@@ -61,7 +61,7 @@ from the gateway does **not** mint-and-broadcast an asset in one global update.
 Instead the gateway drives an isolated, recipient-targeted allocation on the
 spine; because Daml-LF 2.1 is **keyless** (archive-and-recreate, not mutation),
 the atomic delivery-vs-payment archives the inbound request and creates a
-`SettlementReceipt` visible only to the recipient, the relayer, and the required
+[`SettlementReceipt`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L585) visible only to the recipient, the relayer, and the required
 compliance verifiers. Cross-chain settlement thereby inherits Canton's data
 compartmentalization.
 
@@ -79,9 +79,9 @@ an explicit extension point or out-of-scope.
 
 | Feature Category | In-Scope | Out-of-Scope (Excluded) |
 |---|---|---|
-| Atomic Settlement | Private on-Canton settlement of inbound stablecoin payments via `SettlementFactory_SettleBatch` (atomic DvP). | Custom settlement primitives, fallback matching engines, fragmented parallel liquidity pools. |
+| Atomic Settlement | Private on-Canton settlement of inbound stablecoin payments via [`SettlementFactory_SettleBatch`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L288) (atomic DvP). | Custom settlement primitives, fallback matching engines, fragmented parallel liquidity pools. |
 | Cross-Chain Bridge | An inbound/outbound bridge **interface** (the Standardized Messaging Gateway) as a **bounded, verifiable mock**. | Production bridge/relayer nodes, external oracle infra, validator networks, cryptographic light-client proofs. |
-| Compliance & Control | D1 fail-closed verification on every leg (`CredentialGatedActionRequest` + `TrustedIssuerRegistry`); D2 lock-and-sweep via `BurnerCapability`. | Off-ledger caching of compliance status, probabilistic risk scoring, heuristic filtering. |
+| Compliance & Control | D1 fail-closed verification on every leg (`CredentialGatedActionRequest` + `TrustedIssuerRegistry`); D2 lock-and-sweep via [`BurnerCapability`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L160). | Off-ledger caching of compliance status, probabilistic risk scoring, heuristic filtering. |
 | Identity Framework | Single-domain v1, issuer-held KYC, deterministic claims. | Cross-domain identity resolution (ONCHAINID / ERC-3643 / Chainlink CCID) — deferred, SCU-forward-compatible only. |
 | Asset Issuance | The integration **shape** for an existing Canton stablecoin (USDCx) as the settled instrument. | The stablecoin issuance / peg / CDP mechanism itself. |
 
@@ -101,9 +101,9 @@ state transition without the required co-authorization.
 When a cross-chain locking event occurs externally, the gateway (holding a
 `RoleGrant` as relayer) emits an `InboundMessage` on Canton. Rather than a
 direct transfer — which would violate Canton's co-authorization model — the
-relayer drives the spine: `SettlementFactory_CreateAllocationInstruction` →
-(recipient accept) `AllocationInstruction_Accept` → `Allocation`, plus a
-recipient-targeted `AllocationRequest`.
+relayer drives the spine: [`SettlementFactory_CreateAllocationInstruction`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L267) →
+(recipient accept) [`AllocationInstruction_Accept`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L396) → [`Allocation`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L468), plus a
+recipient-targeted [`AllocationRequest`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L326).
 
 ### Party and Role Model
 
@@ -121,7 +121,7 @@ Topology is defined per contract by which nodes participate. Because Daml uses
 per-party projection, the settlement is fractured into bilateral requests: the
 BridgeRelayer and Recipient are the only initial observers of the
 `AllocationRequest`; the StablecoinAdmin and Custodian stay blind to intent
-until needed. At `SettlementFactory_SettleBatch`, the StablecoinAdmin's node is
+until needed. At [`SettlementFactory_SettleBatch`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L288), the StablecoinAdmin's node is
 enlisted only to validate fund conservation and run the `SimpleTokenRules`
 3-way dispatch.
 
@@ -143,11 +143,11 @@ CIP-0112 spine.
    payload, external sender id, and Canton recipient. Keyless archive-and-recreate
    makes it a one-time consumed artifact (replay protection).
 2. **Allocate + D1 check.** The relayer drives
-   `SettlementFactory_CreateAllocationInstruction` toward the recipient. Before
+   [`SettlementFactory_CreateAllocationInstruction`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L267) toward the recipient. Before
    it can target the recipient it must pass the **D1 compliance check**. The RI
    selects **Shape B** (signed node attestation) over Shape A (off-ledger gate):
    off-ledger gates add async caching vulnerabilities and break atomic
-   composability within one Daml transaction. The on-ledger `D1ComplianceHook`
+   composability within one Daml transaction. The on-ledger [`D1ComplianceHook`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L103)
    requires referencing a valid `MockVerificationResult` /
    `CredentialGatedActionRequest` signed by a party in the
    `TrustedIssuerRegistry`. Without a valid, unexpired `KycClaim`, the hook fails
@@ -157,16 +157,16 @@ CIP-0112 spine.
    corporate treasury that cannot provide a live interactive signature, the
    recipient's wallet pre-establishes a `TransferPreapproval` for the USDCx
    instrument. The relayer leverages it to complete the recipient's required
-   accept in a single atomic submission, converting the `AllocationInstruction`
-   into a committed `Allocation`. *(This delegated-accept pattern is what makes
+   accept in a single atomic submission, converting the [`AllocationInstruction`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L383)
+   into a committed [`Allocation`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L468). *(This delegated-accept pattern is what makes
    the flow work for cold/offline recipients; it is not a workaround for any
    fixed transaction-timeout.)*
-4. **Atomic DvP.** The relayer packages the `Allocation` into the single
-   `SettlementFactory_SettleBatch` entrypoint. The factory enforces funding
+4. **Atomic DvP.** The relayer packages the [`Allocation`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L468) into the single
+   [`SettlementFactory_SettleBatch`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L288) entrypoint. The factory enforces funding
    conservation via `nextIterationFunding` and verifies inputs match the required
    transfer legs; remaining balance returns as a single new holding (reducing
-   fragmentation). On success the `Allocation` is archived and a
-   `SettlementReceipt` + `SimpleHolding` are created for the recipient only.
+   fragmentation). On success the [`Allocation`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L468) is archived and a
+   [`SettlementReceipt`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L585) + `SimpleHolding` are created for the recipient only.
 
 ### D1–D4 Attachment
 
@@ -174,9 +174,9 @@ CIP-0112 spine.
   *(Open, non-blocking: contract-oblivious vs on-ledger attestation
   verification.)*
 - **D2 — seizure (lock-and-sweep).** Under mandate, the Custodian uses the
-  single-admin `BurnerCapability` to sweep a targeted holding to an admin-preset
+  single-admin [`BurnerCapability`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L160) to sweep a targeted holding to an admin-preset
   `custodianDestination`. For in-flight allocations this is the spine's
-  `Allocation_MarkD2InFlightSeizure` → `Allocation_SweepD2InFlightSeizure`; for
+  [`Allocation_MarkD2InFlightSeizure`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L543) → [`Allocation_SweepD2InFlightSeizure`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L552); for
   settled holdings the forced-burn-to-custodian path
   (`LockedSimpleHolding_ForcedBurn` evidence). It **does not** burn the asset and
   **does not** return it to the sender. Ordinary transfer *failures* do return to
@@ -383,14 +383,14 @@ sequenceDiagram
 
 | Component | Source Package | Usage | Tag |
 |---|---|---|---|
-| `oz-access-control` | `canton-specs` / `canton-contracts` | AL-7 `RoleGrant`/`requireRole` gating the gateway; D4 single-admin authority. | `[IMPLEMENTED]` |
-| `oz-ownable` | `canton-specs` / `canton-contracts` | Ownership over hooks/factories; secure handoff. | `[IMPLEMENTED]` |
-| `oz-pausable` | `canton-specs` / `canton-contracts` | `PauseState` halts inbound requests during anomalies. | `[IMPLEMENTED]` |
-| `SettlementFactory` (CIP-0112 spine) | `canton-specs` | Allocation generation + `SettleBatch` DvP. | `[IMPLEMENTED]` (experimental) |
+| `oz-access-control` | `canton-specs` / `canton-contracts` | AL-7 [`RoleGrant`](../../access-control/daml/OpenZeppelin/AccessControl.daml)/[`requireRole`](../../access-control/daml/OpenZeppelin/AccessControl.daml) gating the gateway ([`hasRole`](../../access-control/daml/OpenZeppelin/AccessControl.daml), [`RoleAdmin`](../../access-control/daml/OpenZeppelin/AccessControl.daml)); D4 single-admin authority. | `[IMPLEMENTED]` |
+| `oz-ownable` | `canton-specs` / `canton-contracts` | [`Ownership`](../../ownable/daml/OpenZeppelin/Ownable.daml) over hooks/factories; secure handoff via [`OwnershipOffer`](../../ownable/daml/OpenZeppelin/Ownable.daml). | `[IMPLEMENTED]` |
+| `oz-pausable` | `canton-specs` / `canton-contracts` | [`PauseState`](../../pausable/daml/OpenZeppelin/Pausable.daml) ([`whenNotPaused`](../../pausable/daml/OpenZeppelin/Pausable.daml)) halts inbound requests during anomalies. | `[IMPLEMENTED]` |
+| [`SettlementFactory`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L236) (CIP-0112 spine) | `canton-specs` | Allocation generation + [`SettlementFactory_SettleBatch`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L288) DvP. | `[IMPLEMENTED]` (experimental) |
 | `TransferPreapproval` | `canton-token-template` (`SimpleToken.Preapproval`) | Delegated recipient accept for offline treasuries. | `[EVIDENCE]` |
 | `SimpleHolding` / `SimpleTokenRules` / `LockedSimpleHolding` / `*_ForcedBurn` | `canton-token-template` | Asset representation, 3-way dispatch, D2 evidence. | `[EVIDENCE]` |
 | `CredentialGatedActionRequest` / `MockVerificationResult` | `zk-credential-gateway` | D1 credential gating. | `[EVIDENCE]` |
-| `KycClaim` / `TrustedIssuerRegistry` | `canton-specs` identity-hook Shape-B | Typed D3 identity for D1 Shape-B node attestation. | `[IMPLEMENTED]` (experimental) |
+| `KycClaim` / `TrustedIssuerRegistry` | `canton-specs` identity-hook Shape-B | Typed D3 identity for D1 Shape-B node attestation (spine reference field [`D1ComplianceHook`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L103)). | `[IMPLEMENTED]` (experimental) |
 
 > **Attribution note:** `KycClaim` / `TrustedIssuerRegistry` are
 > `canton-specs` identity-hook-shape-b types, **not** `zk-credential-gateway`
@@ -512,6 +512,41 @@ audit-readiness claim.
 
 ---
 
+## Implementation Status (Code Map)
+
+> **Living document.** Each row links to real source. Refresh the anchors with
+> `scripts/refresh-ri-anchors.sh` (see [`README.md`](./README.md)). Status:
+> ✅ implemented in the promoted library surface (or verified passing tests) ·
+> 🟡 implemented in the **experimental settlement scaffold** (real code, not
+> yet promoted; includes toy stand-ins) · ⬜ planned, not built in M1.
+
+| RI capability | Source anchor | Status |
+|---|---|---|
+| Settlement spine factory (reused for payment legs) | [`SettlementFactory`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L236) | 🟡 |
+| Atomic batch DvP entrypoint (inbound payment settle) | [`SettlementFactory_SettleBatch`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L288) | 🟡 |
+| Allocation request creation | [`SettlementFactory_CreateAllocationRequest`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L244) | 🟡 |
+| Allocation instruction creation | [`SettlementFactory_CreateAllocationInstruction`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L267) | 🟡 |
+| Allocation request lifecycle (accept / reject / withdraw) | [`AllocationRequest_Accept`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L340) · [`AllocationRequest_Reject`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L347) · [`AllocationRequest_Withdraw`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L354) | 🟡 |
+| Allocation instruction lifecycle (delegated accept / withdraw) | [`AllocationInstruction_Accept`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L396) · [`AllocationInstruction_Withdraw`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L414) | 🟡 |
+| Committed allocation + settle | [`Allocation`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L468) · [`Allocation_Settle`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L483) | 🟡 |
+| Allocation cancel / withdraw | [`Allocation_Cancel`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L526) · [`Allocation_Withdraw`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L534) | 🟡 |
+| Settlement receipt (private credit artifact) | [`SettlementReceipt`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L585) | 🟡 |
+| D1 compliance hook (reference field on the spine) | [`D1ComplianceHook`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L103) | 🟡 |
+| Node-applied signed D1 attestation | [`D1ComplianceHook`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L103) | ⬜ `[FUTURE]` |
+| D2 lock-and-sweep seizure (in-flight) | [`Allocation_MarkD2InFlightSeizure`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L543) · [`Allocation_SweepD2InFlightSeizure`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L552) | 🟡 |
+| D2 seizure data record + burner capability | [`D2SeizureHook`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L108) · [`BurnerCapability`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L160) | 🟡 |
+| Settlement helpers (lock / archive / unlock holdings) | [`lockInputHoldings`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L682) · [`archiveHoldings`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L706) · [`unlockHoldings`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L714) | 🟡 |
+| Transfer-leg model + experimental gating flag | [`TransferLeg`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L67) · [`experimentalFeatureFlag`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L133) | 🟡 |
+| Toy holding (stand-in for real TSv2 holding) | [`ToyHolding`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L195) | 🟡 |
+| Spine test suite (20 scripts) | [`Cip112Settlement.daml`](../../test/daml/OpenZeppelin/Test/Cip112Settlement.daml) | ✅ |
+| AL-7 access control (relayer / seizer roles, D4 authority) | [`RoleGrant`](../../access-control/daml/OpenZeppelin/AccessControl.daml) · [`requireRole`](../../access-control/daml/OpenZeppelin/AccessControl.daml) · [`hasRole`](../../access-control/daml/OpenZeppelin/AccessControl.daml) · [`RoleAdmin`](../../access-control/daml/OpenZeppelin/AccessControl.daml) | ✅ |
+| Ownable (hook / factory ownership handoff) | [`Ownership`](../../ownable/daml/OpenZeppelin/Ownable.daml) · [`OwnershipOffer`](../../ownable/daml/OpenZeppelin/Ownable.daml) | ✅ |
+| Pausable (halt inbound requests) | [`PauseState`](../../pausable/daml/OpenZeppelin/Pausable.daml) · [`whenNotPaused`](../../pausable/daml/OpenZeppelin/Pausable.daml) | ✅ |
+| Real TSv2 holding interface | — (pending import) | ⬜ `[FUTURE]` |
+| On-ledger multi-sig authority (D4 → M3) | — (planned) | ⬜ `[FUTURE]` |
+| Cross-synchronizer / cross-domain operation (D3 deferred; single-domain v1, no multi-synchronizer machinery in the scaffold — see §8) | — (planned) | ⬜ `[FUTURE]` |
+| Cross-chain orchestration / bridge / identity-claim business logic (gateway mock + orchestrator) | — (planned) | ⬜ `[FUTURE]` |
+
 ## 9. Open Questions
 
 - **Standardized Messaging Gateway (planned, absent).** The gateway is a
@@ -556,7 +591,9 @@ this workspace (verified 2026-06-24), except components explicitly marked
 planned/external.
 
 - **Settlement spine** `[IMPLEMENTED]` —
-  `canton-specs/experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml`.
+  [`Cip112.daml`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml)
+  (key choices: [`SettlementFactory_SettleBatch`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L288),
+  [`Allocation_Settle`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L483)).
 - **Holdings / rules / preapproval / forced-burn** `[EVIDENCE]` —
   `canton-token-template/simple-token/daml/SimpleToken/{Holding,Rules,Preapproval}.daml`
   (`TransferPreapproval` + `TransferPreapproval_Send`/`_MintInto`;

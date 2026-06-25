@@ -23,10 +23,19 @@ deliverables.
 > paragraph style to the fenced code blocks after import.
 
 > **Source-grounding tags used throughout:**
-> `[IMPLEMENTED]` real code in `canton-contracts` (the M1 library base) ·
+> `[IMPLEMENTED]` real code in the M1 base — the CIP-0112 settlement RI scaffold
+> in **this repo** (`canton-specs`,
+> [`experiments/cip112-settlement/…/Cip112.daml`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml))
+> plus the decoupled library packages it consumes from `canton-contracts`
+> (`oz-access-control` / `oz-ownable` / `oz-pausable`, mirrored here) ·
 > `[EVIDENCE]` real code in `canton-token-template` (migration/evidence source,
 > *not* the M1 surface) · `[UPSTREAM]` Splice reference, not vendored here ·
 > `[FUTURE]` not built in M1 scope.
+>
+> Code references below link directly to source with `#Lnn` anchors; refresh
+> them with `scripts/refresh-ri-anchors.sh` (see
+> [`../ri-reports/README.md`](../ri-reports/README.md)). Line numbers are
+> advisory — the refresh script re-validates the symbol-at-anchor.
 
 ---
 
@@ -42,9 +51,12 @@ re-scoped to interoperate with this settlement surface.
 
 What exists today, in code:
 
-- `canton-contracts` — an experimental settlement scaffold
-  (`experiments/cip112-settlement`) modeling the V2 allocation/settlement
-  lifecycle with optional D1 (compliance) and D2 (seizure) extension points.
+- `canton-specs` (this repo) — the experimental settlement RI scaffold
+  ([`experiments/cip112-settlement`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml))
+  modeling the V2 allocation/settlement lifecycle with optional D1 (compliance)
+  and D2 (seizure) extension points. It **consumes** the decoupled
+  `canton-contracts` library (access-control / ownable / pausable) and does not
+  re-implement those primitives.
 - `canton-token-template` — prior CIP-0112 evidence: a `HoldingV1`/`HoldingV2`
   interface holding with an embedded `Lock`, a `SimpleEventLog` implementing the
   V2 `EventLog`, a capability-based admin layer, and in-flight seizure of locked
@@ -106,8 +118,11 @@ choice does **not** accept caller-asserted peer sides — peer authorization mus
 come from *fetched* peer allocations or prior receipts, and atomic
 multi-allocation settlement is a property of the batch entrypoint.
 
+See [`TransferSide`/`TransferLegSide`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L62)
+`[IMPLEMENTED]`:
+
 ```
--- [IMPLEMENTED] canton-contracts/experiments/cip112-settlement/.../Cip112.daml
+-- [IMPLEMENTED] canton-specs/experiments/cip112-settlement/.../Cip112.daml
 -- TransferLegSides with explicit polarity (replaces V1 TransferLegs)
 data TransferSide = SenderSide | ReceiverSide
 data TransferLegSide = TransferLegSide with
@@ -189,6 +204,37 @@ interface instance TransferEventsV2.EventLog for SimpleEventLog where
 Upstream, this lives in `splice-api-token-transfer-events-v2`; the promotion ADR
 treats it as the promoted reporting route, with implementation still gated by
 the transfer-events DAR boundary (**Q2**).
+
+---
+
+## 3a. Implementation Status (Code Map)
+
+> **Living document.** Each row links to the real settlement scaffold in this
+> repo. Refresh the anchors with `scripts/refresh-ri-anchors.sh` (see
+> [`../ri-reports/README.md`](../ri-reports/README.md)). Status:
+> ✅ implemented in the promoted library surface (or verified passing tests) ·
+> 🟡 implemented in the **experimental settlement scaffold** (real code, not yet
+> promoted; includes toy stand-ins) · ⬜ planned, not built in M1. Scaffold path:
+> `experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml`.
+
+| M1 capability | Source anchor | Status |
+|---|---|---|
+| Settlement factory entrypoints | [`SettlementFactory`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L236) (`SettlementFactory_CreateAllocationRequest`@L244, `SettlementFactory_CreateAllocationInstruction`@L267) | 🟡 |
+| Atomic multi-leg settlement | [`SettlementFactory_SettleBatch`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L288) | 🟡 |
+| Allocation request lifecycle | [`AllocationRequest`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L326) (Accept@L340 / Reject@L347 / Withdraw@L354) | 🟡 |
+| Allocation instruction lifecycle | [`AllocationInstruction`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L383) (Accept@L396 / Withdraw@L414) | 🟡 |
+| Ready-to-settle allocation | [`Allocation`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L468) (Settle@L483 / Cancel@L526 / Withdraw@L534) | 🟡 |
+| Settlement evidence | [`SettlementReceipt`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L585) | 🟡 |
+| D1 compliance hook (reference field) | [`D1ComplianceHook`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L103) | 🟡 — node-applied signed attestation ⬜ (Q1) |
+| D2 lock-and-sweep seizure | [`Allocation_MarkD2InFlightSeizure`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L543) + [`Allocation_SweepD2InFlightSeizure`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L552) + [`D2SeizureHook`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L108) | 🟡 |
+| Single-admin authority (D4) | [`BurnerCapability`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L160) | 🟡 |
+| Unit of value | [`ToyHolding`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L195) | 🟡 toy stand-in |
+| Spine test coverage (20 scripts) | [`Cip112Settlement.daml`](../../test/daml/OpenZeppelin/Test/Cip112Settlement.daml) | ✅ |
+| Access control / ownership / pause | [`oz-access-control`](../../access-control/daml/OpenZeppelin/AccessControl.daml) · [`oz-ownable`](../../ownable/daml/OpenZeppelin/Ownable.daml) · [`oz-pausable`](../../pausable/daml/OpenZeppelin/Pausable.daml) | ✅ (library) |
+| Real TSv2 holding interface | replaces `ToyHolding`; Splice DAR import gate | ⬜ |
+| `EventLog_HoldingsChange` in M1 surface | carried as `[EVIDENCE]` only (Q2) | ⬜ |
+| Cross-synchronizer / cross-domain (D3) | not in scaffold; additive SCU path | ⬜ |
+| On-ledger multi-sig authority | single-admin in M1; multi-sig → M3 (D4) | ⬜ |
 
 ---
 
