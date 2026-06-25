@@ -46,6 +46,27 @@ Before changing this repo:
 For standalone GitHub review where the `cantonator` umbrella workspace is not
 available, read this file, repo-local `PLAN.md`, and `README.md` in that order.
 
+**Reviewing the M1 settlement work?** Start with the review entry points:
+
+1. [`docs/architecture/M1_DELIVERABLE_STATUS.md`](docs/architecture/M1_DELIVERABLE_STATUS.md)
+   — what is implemented (🟡 experimental / ✅ tested) vs gated/deferred (⬜).
+2. [`docs/architecture/cip0112-audit-readiness.md`](docs/architecture/cip0112-audit-readiness.md)
+   — per-template authority/lifecycle matrix, D1–D4 control map, test-coverage map.
+3. [`docs/architecture/cip0112-threat-model.md`](docs/architecture/cip0112-threat-model.md)
+   — assets, trust boundaries, abuse cases → negative tests.
+4. [`docs/architecture/cip0112-m1-ri-spec.md`](docs/architecture/cip0112-m1-ri-spec.md)
+   and [`docs/ri-reports/`](docs/ri-reports/) — the living architecture docs;
+   every code reference is a line-anchored link, refreshable with
+   `scripts/refresh-ri-anchors.sh`.
+5. The code: `experiments/cip112-settlement/` (engine), `experiments/token-standard-v2-mock/`
+   (mock V2 interfaces), `experiments/settlement-exemplar/` (end-to-end consumer),
+   `test/daml/OpenZeppelin/Test/Cip112Settlement.daml` (spine suite).
+
+Build/verify locally: `OZ_DAML_TOOLCHAIN=dpm dpm build --all`, then
+`cd test && dpm test` (and the exemplar package's scripts), and
+`scripts/refresh-ri-anchors.sh` (expect `0 drift, 0 error`). Everything here is
+the **experimental** surface — no public-API/conformance/audit/production claim.
+
 ## Boundaries
 
 In scope here: the CIP-0112 settlement RI scaffold, the compliance/identity
