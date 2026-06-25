@@ -14,91 +14,23 @@
 -- scoping decision in root PLAN.md and the promotion boundary ADR.
 module OpenZeppelin.Experimental.Settlement.Cip112 where
 
-data Metadata = Metadata with
-    entries : [(Text, Text)]
-  deriving (Eq, Ord, Show)
-
-emptyMetadata : Metadata
-emptyMetadata = Metadata with entries = []
-
-data InstrumentId = InstrumentId with
-    admin : Party
-    id : Text
-  deriving (Eq, Ord, Show)
-
-data Account = Account with
-    owner : Optional Party
-    provider : Optional Party
-    id : Text
-  deriving (Eq, Ord, Show)
-
-basicAccount : Party -> Account
-basicAccount owner = Account with
-  owner = Some owner
-  provider = None
-  id = ""
-
-data Lock = Lock with
-    holders : [Party]
-    expiresAt : Optional Time
-    context : Optional Text
-  deriving (Eq, Show)
-
-data Reference = Reference with
-    id : Text
-    -- Local stand-in for CIP-0112's optional AnyContractId reference. This
-    -- package avoids importing the Splice preview DARs, so contract references
-    -- are represented textually in the experiment only.
-    cidText : Optional Text
-  deriving (Eq, Show)
-
-data SettlementInfo = SettlementInfo with
-    executors : [Party]
-    settlementRef : Reference
-    settlementDeadline : Optional Time
-    meta : Metadata
-  deriving (Eq, Show)
-
-data TransferSide
-  = SenderSide
-  | ReceiverSide
-  deriving (Eq, Ord, Show)
-
-data TransferLeg = TransferLeg with
-    transferLegId : Text
-    sender : Account
-    receiver : Account
-    amount : Decimal
-    instrumentId : Text
-    meta : Metadata
-  deriving (Eq, Ord, Show)
-
-data TransferLegSide = TransferLegSide with
-    transferLegId : Text
-    side : TransferSide
-    otherside : Account
-    amount : Decimal
-    instrumentId : Text
-    meta : Metadata
-  deriving (Eq, Ord, Show)
-
-data RequestedAllocation = RequestedAllocation with
-    admin : Party
-    transferLegSides : [TransferLegSide]
-    nextIterationFunding : Optional [(Text, Decimal)]
-    committed : Bool
-    meta : Metadata
-  deriving (Eq, Show)
-
-data AllocationSpecification = AllocationSpecification with
-    settlement : SettlementInfo
-    admin : Party
-    authorizer : Account
-    transferLegSides : [TransferLegSide]
-    nextIterationFunding : Optional [(Text, Decimal)]
-    committed : Bool
-    meta : Metadata
-  deriving (Eq, Show)
+-- Shared Token Standard V2 types come from the experimental mock interface layer
+-- (`experiments/token-standard-v2-mock`), which mirrors the seven
+-- `splice-api-token-*-v2` packages 1:1. The `Allocation`/`SettlementFactory`
+-- interfaces are imported only where needed (qualified) to avoid clashing with
+-- this module's `Allocation`/`SettlementFactory` templates; here we take only the
+-- shared data types unqualified.
+import OpenZeppelin.Experimental.TokenStandard.V2.Metadata
+import OpenZeppelin.Experimental.TokenStandard.V2.Holding
+import OpenZeppelin.Experimental.TokenStandard.V2.Allocation
+  ( Reference(..)
+  , SettlementInfo(..)
+  , TransferSide(..)
+  , TransferLeg(..)
+  , TransferLegSide(..)
+  , RequestedAllocation(..)
+  , AllocationSpecification(..)
+  )
 
 data D1ComplianceHook = D1ComplianceHook with
     hookRef : Text
@@ -205,6 +137,17 @@ template ToyHolding
     signatory admin, accountParties admin account
     observer lockObservers lock
     ensure amount > 0.0 && featureFlag == experimentalFeatureFlag
+
+    -- Implements the mock Token Standard V2 `Holding` interface so settlement
+    -- outputs and event logs can refer to holdings by interface (swappable for
+    -- the real `splice-api-token-holding-v2` package once imported).
+    interface instance Holding for ToyHolding where
+      view = HoldingView with
+        account = account
+        instrumentId = instrumentId
+        amount = amount
+        lock = lock
+        meta = meta
 
 -- | Experimental settlement factory covering request, instruction, allocation,
 -- and batch settlement entrypoints.
@@ -513,6 +456,13 @@ template Allocation
         assertMsg eAllocationLegMismatch (allAllocationSidesBackedByLegs transferLegs authorizedSides)
         assertMsg eAllocationLegMismatch (allAuthorizerLegSidesPresent allocation.authorizer transferLegs localSides)
         archiveHoldings lockedHoldingCids
+        -- Receiver crediting: for each ReceiverSide leg of this authorizer, mint a
+        -- replacement holding at the authorizer's account. This is authorized by
+        -- the allocation's own signatories (admin + authorizer), so no extra
+        -- authority is needed; across a SettleBatch — where every counterparty
+        -- has its own allocation — this yields true delivery-versus-payment (each
+        -- party is debited for SenderSide legs and credited for ReceiverSide legs).
+        _ <- creditReceiverSides allocation.admin allocation.authorizer featureFlag localSides
         create SettlementReceipt with
           admin = allocation.admin
           authorizer = allocation.authorizer
@@ -710,6 +660,31 @@ archiveHoldings cids =
     cid :: rest -> do
       archive cid
       archiveHoldings rest
+
+-- | Credit the settlement authorizer for each of its ReceiverSide legs by
+-- creating a fresh (unlocked) holding at the authorizer's account. Authorized by
+-- the enclosing `Allocation`'s signatories (admin + authorizer account parties),
+-- so it needs no extra authority. SenderSide legs create nothing here — the
+-- sender's value left via the archived locked input holdings.
+creditReceiverSides : Party -> Account -> Text -> [TransferLegSide] -> Update [ContractId ToyHolding]
+creditReceiverSides admin authorizer flag sides =
+  case sides of
+    [] -> pure []
+    side :: rest -> do
+      created <- case side.side of
+        ReceiverSide -> do
+          cid <- create ToyHolding with
+            admin
+            account = authorizer
+            instrumentId = InstrumentId with admin; id = side.instrumentId
+            amount = side.amount
+            lock = None
+            meta = side.meta
+            featureFlag = flag
+          pure [cid]
+        SenderSide -> pure []
+      restCids <- creditReceiverSides admin authorizer flag rest
+      pure (created ++ restCids)
 
 unlockHoldings : [ContractId ToyHolding] -> Update [ContractId ToyHolding]
 unlockHoldings cids =

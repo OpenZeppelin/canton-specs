@@ -15,6 +15,7 @@ data-dependencies:
   - ../experiments/identity-hook-shape-a/.daml/dist/oz-experimental-identity-hook-shape-a-0.1.0.dar
   - ../experiments/identity-hook-shape-b/.daml/dist/oz-experimental-identity-hook-shape-b-0.1.0.dar
   - ../experiments/identity-hook-upgrade-v2/.daml/dist/oz-experimental-identity-hook-upgrade-0.2.0.dar
+  - ../experiments/token-standard-v2-mock/.daml/dist/oz-experimental-token-standard-v2-mock-0.1.0.dar
   - ../experiments/cip112-settlement/.daml/dist/oz-experimental-cip112-settlement-0.1.0.dar
 build-options:
   - --target=2.1

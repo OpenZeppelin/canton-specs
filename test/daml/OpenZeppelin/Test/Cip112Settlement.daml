@@ -7,6 +7,18 @@ import DA.Time (time)
 import Daml.Script
 
 import OpenZeppelin.Experimental.Settlement.Cip112
+-- Shared Token Standard V2 types now live in the mock interface layer.
+import OpenZeppelin.Experimental.TokenStandard.V2.Metadata
+import OpenZeppelin.Experimental.TokenStandard.V2.Holding
+import OpenZeppelin.Experimental.TokenStandard.V2.Allocation
+  ( Reference(..)
+  , SettlementInfo(..)
+  , TransferSide(..)
+  , TransferLeg(..)
+  , TransferLegSide(..)
+  , RequestedAllocation(..)
+  , AllocationSpecification(..)
+  )
 
 t0 : Time
 t0 = time (date 2026 Jan 1) 0 0 0
@@ -230,6 +242,28 @@ test_cip112Settlement_requestInstructionAllocationSettle = script do
       receipt.settledTransferLegIds === [transferLeg.transferLegId]
       receipt.d1ComplianceRef === Some "fresh-node-side-check-cip112-happy"
     [] -> fail "expected at least one settlement receipt"
+
+-- | Settlement moves value: bob's ReceiverSide leg mints a new unlocked holding
+-- at bob's account for the leg amount, and alice's locked input holding is
+-- consumed. This is the receiver-crediting behaviour (true DvP across the batch),
+-- not merely an authorization-proof receipt.
+test_cip112Settlement_settleCreditsReceiver : Script ()
+test_cip112Settlement_settleCreditsReceiver = script do
+  SettlementScenario{..} <- setupScenario "cip112-credit" True True
+  _ <- submit (actAs app <> discloseMany [factoryDisclosure]) do
+    exerciseCmd factory SettlementFactory_SettleBatch with
+      settlement
+      transferLegs = [transferLeg]
+      allocationCids
+      actors = [app]
+      d1ComplianceRef = Some "fresh-node-side-check-cip112-credit"
+  -- Bob is credited exactly one new unlocked USD holding for the leg amount.
+  bobHoldings <- query @ToyHolding bob
+  let bobCredited = filter (\(_, h) -> h.amount == 10.0 && h.lock == None && h.instrumentId.id == "USD") bobHoldings
+  length bobCredited === 1
+  -- Alice's input holding was consumed (locked then archived on settle).
+  aliceHoldings <- query @ToyHolding alice
+  length aliceHoldings === 0
 
 -- | The optional D1 hook is fail-closed when configured and no per-settlement
 -- reference is supplied. This is an extension point, not the final D1
