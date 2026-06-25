@@ -284,6 +284,96 @@ test_cip112Settlement_settleEmitsHoldingsChange = script do
   let credited = filter (\(_, e) -> not (null e.event.outputHoldingCids)) entries
   length credited === 1
 
+-- Build a trusted-attester registry plus a signed node attestation, returning
+-- the cids and their disclosures for the settlement executor.
+mkAttestation
+  : Party -> Party -> [Party] -> Text -> Time -> Time
+  -> Script (ContractId NodeComplianceAttestation, ContractId TrustedAttesterRegistry, [Disclosure])
+mkAttestation admin attester attesters ref issued expires = do
+  registry <- submit admin do
+    createCmd TrustedAttesterRegistry with
+      admin
+      attesters
+      featureFlag = experimentalFeatureFlag
+  attestation <- submit attester do
+    createCmd NodeComplianceAttestation with
+      attester
+      attestationObservers = [admin]
+      settlementRef = ref
+      claimKind = "OFAC_CLEARED"
+      issuedAt = issued
+      expiresAt = expires
+      featureFlag = experimentalFeatureFlag
+  Some regDisc <- queryDisclosure @TrustedAttesterRegistry admin registry
+  Some attDisc <- queryDisclosure @NodeComplianceAttestation attester attestation
+  pure (attestation, registry, [regDisc, attDisc])
+
+-- | Typed node-attestation path: a valid signed attestation from a registry-
+-- trusted attester settles the batch (Daml-visible D1, layered on the hook).
+test_cip112Settlement_attestedSettlePositive : Script ()
+test_cip112Settlement_attestedSettlePositive = script do
+  SettlementScenario{..} <- setupScenario "cip112-attest" True True
+  attester <- allocateParty "cip112-attest-attester"
+  (attestation, registry, discs) <- mkAttestation admin attester [attester] settlement.settlementRef.id t0 t1
+  receiptCids <- submit (actAs app <> discloseMany ([factoryDisclosure] <> discs)) do
+    exerciseCmd factory SettlementFactory_SettleBatchWithAttestation with
+      settlement
+      transferLegs = [transferLeg]
+      allocationCids
+      actors = [app]
+      attestationCid = attestation
+      registryCid = registry
+  length receiptCids === 2
+
+-- | An attester absent from the registry cannot satisfy the typed D1 path.
+test_cip112Settlement_attestedSettleUntrustedFails : Script ()
+test_cip112Settlement_attestedSettleUntrustedFails = script do
+  SettlementScenario{..} <- setupScenario "cip112-attest-untrusted" True True
+  attester <- allocateParty "cip112-attest-untrusted-attester"
+  (attestation, registry, discs) <- mkAttestation admin attester [] settlement.settlementRef.id t0 t1
+  submitMustFail (actAs app <> discloseMany ([factoryDisclosure] <> discs)) do
+    exerciseCmd factory SettlementFactory_SettleBatchWithAttestation with
+      settlement
+      transferLegs = [transferLeg]
+      allocationCids
+      actors = [app]
+      attestationCid = attestation
+      registryCid = registry
+  pure ()
+
+-- | An attestation that does not cover this settlement reference is rejected.
+test_cip112Settlement_attestedSettleWrongRefFails : Script ()
+test_cip112Settlement_attestedSettleWrongRefFails = script do
+  SettlementScenario{..} <- setupScenario "cip112-attest-wrongref" True True
+  attester <- allocateParty "cip112-attest-wrongref-attester"
+  (attestation, registry, discs) <- mkAttestation admin attester [attester] "some-other-settlement" t0 t1
+  submitMustFail (actAs app <> discloseMany ([factoryDisclosure] <> discs)) do
+    exerciseCmd factory SettlementFactory_SettleBatchWithAttestation with
+      settlement
+      transferLegs = [transferLeg]
+      allocationCids
+      actors = [app]
+      attestationCid = attestation
+      registryCid = registry
+  pure ()
+
+-- | An expired attestation (now past expiresAt) is rejected at settle time.
+test_cip112Settlement_attestedSettleExpiredFails : Script ()
+test_cip112Settlement_attestedSettleExpiredFails = script do
+  SettlementScenario{..} <- setupScenario "cip112-attest-expired" True True
+  attester <- allocateParty "cip112-attest-expired-attester"
+  (attestation, registry, discs) <- mkAttestation admin attester [attester] settlement.settlementRef.id t0 t0
+  setTime t1
+  submitMustFail (actAs app <> discloseMany ([factoryDisclosure] <> discs)) do
+    exerciseCmd factory SettlementFactory_SettleBatchWithAttestation with
+      settlement
+      transferLegs = [transferLeg]
+      allocationCids
+      actors = [app]
+      attestationCid = attestation
+      registryCid = registry
+  pure ()
+
 -- | The optional D1 hook is fail-closed when configured and no per-settlement
 -- reference is supplied. This is an extension point, not the final D1
 -- attestation shape.

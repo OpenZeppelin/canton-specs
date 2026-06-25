@@ -252,6 +252,30 @@ template SettlementFactory
         assertMsg eSettlementMissingAuthorization (allTransferLegsAuthorized transferLegs authorizedSides)
         settleAllocations (admin :: actors) settlement transferLegs d1ComplianceRef [] allocationCids
 
+    -- Typed, node-applied D1 path (additive; SCU-safe new choice — SettleBatch is
+    -- unchanged). Verifies a signed NodeComplianceAttestation from a trusted
+    -- attester covering this settlement, then settles. This is the Daml-visible
+    -- node-attestation shape (Q1), layered on top of the reference-field hook.
+    nonconsuming choice SettlementFactory_SettleBatchWithAttestation : [ContractId SettlementReceipt]
+      with
+        settlement : SettlementInfo
+        transferLegs : [TransferLeg]
+        allocationCids : [ContractId Allocation]
+        actors : [Party]
+        attestationCid : ContractId NodeComplianceAttestation
+        registryCid : ContractId TrustedAttesterRegistry
+      controller actors
+      do
+        requireExperimentalFlag featureFlag
+        assertMsg eExecutorsMismatch (actors == settlement.executors)
+        assertMsg eNoTransferLegs (not (null transferLegs))
+        assertMsg eBadTransferLegAmount (allTransferLegAmountsPositive transferLegs)
+        att <- requireNodeAttestation registryCid attestationCid settlement.settlementRef.id
+        allocationValues <- fetchAllocations allocationCids
+        let authorizedSides = collectAllocationSides allocationValues
+        assertMsg eSettlementMissingAuthorization (allTransferLegsAuthorized transferLegs authorizedSides)
+        settleAllocations (admin :: actors) settlement transferLegs (Some att.claimKind) [] allocationCids
+
 -- | Request emitted by a settlement app/executor asking an account to create
 -- allocations.
 --
@@ -627,6 +651,62 @@ emitHoldingsChange admin account observers inputs outputs sides flag =
       observers
       meta = emptyMetadata
     featureFlag = flag
+
+-- | Admin-owned registry of trusted node attesters. Mirrors the identity-hook
+-- Shape-B TrustedIssuerRegistry pattern, applied to D1 node-side compliance.
+--
+-- Signatories: `admin`. Observers: `attesters`. Choices: none. The registry is
+-- the on-ledger trust anchor for which parties may sign compliance attestations.
+template TrustedAttesterRegistry
+  with
+    admin : Party
+    attesters : [Party]
+    featureFlag : Text
+  where
+    signatory admin
+    observer attesters
+    ensure featureFlag == experimentalFeatureFlag
+
+-- | A signed, typed node compliance attestation. Its existence proves the
+-- `attester` signed it (the attester is the sole signatory). This is the
+-- Daml-visible alternative to the contract-oblivious D1 reference hook: the node
+-- emits this and settlement verifies it at exercise time.
+--
+-- Signatories: `attester`. Observers: none. Choices: none. Privacy: held by the
+-- attester and disclosed to the settlement executor when settling.
+template NodeComplianceAttestation
+  with
+    attester : Party
+    attestationObservers : [Party]
+    settlementRef : Text
+    claimKind : Text
+    issuedAt : Time
+    expiresAt : Time
+    featureFlag : Text
+  where
+    signatory attester
+    -- The registry admin / settlement executors observe the attestation so the
+    -- settlement transaction can fetch and verify it at exercise time.
+    observer attestationObservers
+    ensure featureFlag == experimentalFeatureFlag
+
+-- | Verify a typed node attestation: signer is a registry-trusted attester, it
+-- covers this settlement reference, and it is within its validity window. Returns
+-- the attestation so the caller can carry its claim kind as the D1 reference.
+requireNodeAttestation
+  : ContractId TrustedAttesterRegistry
+  -> ContractId NodeComplianceAttestation
+  -> Text
+  -> Update NodeComplianceAttestation
+requireNodeAttestation registryCid attestationCid settlementRefId = do
+  registry <- fetch registryCid
+  att <- fetch attestationCid
+  now <- getTime
+  assertMsg eD1AttesterNotTrusted (att.attester `elem` registry.attesters)
+  assertMsg eD1AttestationSettlementMismatch (att.settlementRef == settlementRefId)
+  assertMsg eD1AttestationNotYetValid (now >= att.issuedAt)
+  assertMsg eD1AttestationExpired (now <= att.expiresAt)
+  pure att
 
 requireExperimentalFlag : Text -> Update ()
 requireExperimentalFlag flag =
@@ -1079,6 +1159,18 @@ ePeerReceiptMismatch = "Cip112Settlement: peer receipt proof must match settleme
 
 eAllocationLegMismatch : Text
 eAllocationLegMismatch = "Cip112Settlement: allocation transfer-leg sides do not match settlement legs"
+
+eD1AttesterNotTrusted : Text
+eD1AttesterNotTrusted = "Cip112Settlement: node attestation signer is not in the trusted-attester registry"
+
+eD1AttestationSettlementMismatch : Text
+eD1AttestationSettlementMismatch = "Cip112Settlement: node attestation does not cover this settlement reference"
+
+eD1AttestationNotYetValid : Text
+eD1AttestationNotYetValid = "Cip112Settlement: node attestation is not yet valid"
+
+eD1AttestationExpired : Text
+eD1AttestationExpired = "Cip112Settlement: node attestation has expired"
 
 eSettlementMismatch : Text
 eSettlementMismatch = "Cip112Settlement: allocation settlement mismatch"
