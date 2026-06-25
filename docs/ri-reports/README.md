@@ -102,7 +102,7 @@ whose text is the exact symbol and whose target is the real source file, with a
 line anchor for in-file symbols:
 
 ```text
-[`SettlementFactory_SettleBatch`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L288)
+[`SettlementFactory_SettleBatch`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L237)
 [`requireRole`](../../access-control/daml/OpenZeppelin/AccessControl.daml)   # file-level, no line anchor
 ```
 

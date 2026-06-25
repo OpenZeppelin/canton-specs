@@ -15,8 +15,15 @@ Reference Implementations (RIs), **including the RI implementation code**:
 - the CIP-0112 / Token Standard V2 settlement specs and architecture/decision
   notes (`docs/architecture/`);
 - the **RI implementation code** — the experimental settlement scaffold
-  (`experiments/cip112-settlement/`) and the compliance/identity experiments
+  (`experiments/cip112-settlement/`), the mock Token Standard V2 interface layer
+  (`experiments/token-standard-v2-mock/`, mirroring the seven
+  `splice-api-token-*-v2` packages), the deep settlement exemplar
+  (`experiments/settlement-exemplar/`), and the compliance/identity experiments
   (`experiments/`), with their tests under `test/`;
+- the audit-readiness package and threat model
+  (`docs/architecture/cip0112-audit-readiness.md`,
+  `docs/architecture/cip0112-threat-model.md`) and the M1 deliverable status
+  tracker (`docs/architecture/M1_DELIVERABLE_STATUS.md`);
 - the four Year-1 RI architecture reports plus the portfolio synthesis
   (`docs/ri-reports/`), the per-RI scope locks (`M2_DEX_SCOPE.md`,
   `M3_LENDING_SCOPE.md`, `M4_STABLECOIN_SCOPE.md`, `M4_AUCTION_SCOPE.md`), the

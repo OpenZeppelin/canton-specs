@@ -2,8 +2,10 @@
 
 The home for **all** OpenZeppelin Canton docs, specs, and Reference
 Implementations (RIs): the CIP-0112 / Token Standard V2 settlement specs, the
-RI implementation code (the experimental settlement scaffold and the
-compliance/identity experiments), the four RI architecture reports, scope locks,
+RI implementation code (the experimental settlement scaffold, a mock Token
+Standard V2 interface layer mirroring the `splice-api-token-*-v2` packages, a
+deep settlement exemplar, and the compliance/identity experiments), the four RI
+architecture reports, the audit-readiness package + threat model, scope locks,
 research, and review provenance.
 
 > **Repo split.** The decoupled, ergonomic general Daml contracts library
