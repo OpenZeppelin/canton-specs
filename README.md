@@ -25,6 +25,23 @@ M1 target scope:
 - CIP-104 rewards support components scoped to the settlement surface.
 - Documentation, tests, security notes, and compatibility evidence.
 
+Repository-local planning and report surfaces:
+
+- [`PLAN.md`](PLAN.md) records the repo-local D1-D4 decision snapshot, migration
+  status, and no-claim boundaries for standalone GitHub review.
+- [`docs/architecture/`](docs/architecture/) holds the CIP-0112 / Token Standard
+  V2 architecture, promotion-boundary, import-gate, DPM, license, and source-of-
+  record notes imported from the old `canton-contracts` CIP-112 branch.
+- [`docs/ri-reports/`](docs/ri-reports/) holds the portfolio report, all four RI
+  architecture reports, Google Docs export artifacts, and diagram exports.
+- [`M2_DEX_SCOPE.md`](M2_DEX_SCOPE.md),
+  [`M3_LENDING_SCOPE.md`](M3_LENDING_SCOPE.md),
+  [`M4_STABLECOIN_SCOPE.md`](M4_STABLECOIN_SCOPE.md), and
+  [`M4_AUCTION_SCOPE.md`](M4_AUCTION_SCOPE.md) are the per-RI scope locks those
+  reports cite.
+- [`docs/research/`](docs/research/) and [`docs/reviews/`](docs/reviews/) carry
+  the report briefing/proposal source material and review provenance.
+
 CIP-86 / CIP-103 / CIP-104 acceptance criteria are recorded as settlement
 interop criteria, not standalone CIP-56-token deliverables:
 
