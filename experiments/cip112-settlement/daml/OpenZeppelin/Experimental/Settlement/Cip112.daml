@@ -381,6 +381,7 @@ template AllocationInstruction
           numIterations = 0
           d1ComplianceHook
           d2SeizureHook = None
+          seizureWindowEnd = None
           featureFlag
         pure AllocationInstructionCompleted with allocationCid
 
@@ -447,6 +448,11 @@ template Allocation
     numIterations : Int
     d1ComplianceHook : Optional D1ComplianceHook
     d2SeizureHook : Optional D2SeizureHook
+    -- Additive (SCU-safe) D2 refinement: an optional lawful seizure window. When
+    -- `None`, the terminal-deadline policy applies (promotion ADR default). When
+    -- set, the lawful-process sweep choice may seize up to this time, which may
+    -- extend past the settlement deadline.
+    seizureWindowEnd : Optional Time
     featureFlag : Text
   where
     signatory allocation.admin, accountParties allocation.admin allocation.authorizer
@@ -544,6 +550,41 @@ template Allocation
         requireCustodianDestination hook.custodianDestination
         custodianHoldingCids <- sweepLockedHoldings hook.custodianDestination cap lockedHoldingCids
         -- Seizure is also a holdings change: inputs swept to the custodian outputs.
+        _ <- emitHoldingsChange allocation.admin hook.custodianDestination allocation.settlement.executors lockedHoldingCids custodianHoldingCids [] featureFlag
+        pure AllocationD2Swept with custodianHoldingCids
+
+    -- Additive D2 refinements (SCU-safe new choices; Mark/Sweep above unchanged).
+    -- Mark with an explicit lawful seizure window; the window may extend past the
+    -- settlement deadline. Admin-only, like the baseline mark.
+    choice Allocation_MarkD2WithWindow : ContractId Allocation
+      with
+        actors : [Party]
+        seizureHook : D2SeizureHook
+        windowEnd : Time
+      controller actors
+      do
+        assertMsg eAdminActorsMismatch (actors == [allocation.admin])
+        create this with
+          d2SeizureHook = Some seizureHook
+          seizureWindowEnd = Some windowEnd
+
+    -- Sweep that records a lawful-process attestation reference and honours the
+    -- optional seizure window (allowing post-deadline seizure only when a window
+    -- was set). Separates seizure authority (BurnerCapability) from the
+    -- lawful-process evidence captured here.
+    choice Allocation_SweepD2WithLawfulProcess : AllocationResult
+      with
+        burner : Party
+        burnerCapCid : Optional (ContractId BurnerCapability)
+        lawfulProcessRef : Text
+      controller d2SweepControllers allocation.admin d2SeizureHook burner
+      do
+        hook <- requireD2InFlightSeizure d2SeizureHook
+        assertMsg eD2LawfulProcessMissing (lawfulProcessRef /= "")
+        requireWithinSeizureWindow allocation.settlement seizureWindowEnd
+        cap <- requireBurnerCapability burner allocation.admin burnerCapCid
+        requireCustodianDestination hook.custodianDestination
+        custodianHoldingCids <- sweepLockedHoldings hook.custodianDestination cap lockedHoldingCids
         _ <- emitHoldingsChange allocation.admin hook.custodianDestination allocation.settlement.executors lockedHoldingCids custodianHoldingCids [] featureFlag
         pure AllocationD2Swept with custodianHoldingCids
 
@@ -707,6 +748,16 @@ requireNodeAttestation registryCid attestationCid settlementRefId = do
   assertMsg eD1AttestationNotYetValid (now >= att.issuedAt)
   assertMsg eD1AttestationExpired (now <= att.expiresAt)
   pure att
+
+-- | Lawful seizure-window check. With no window, the terminal settlement
+-- deadline applies (promotion ADR default). With a window, seizure is permitted
+-- up to that time, which may extend past the deadline.
+requireWithinSeizureWindow : SettlementInfo -> Optional Time -> Update ()
+requireWithinSeizureWindow settlement windowEnd = do
+  now <- getTime
+  case windowEnd of
+    Some w -> assertMsg eD2SeizureWindowClosed (now <= w)
+    None -> requireBeforeSettlementDeadline settlement
 
 requireExperimentalFlag : Text -> Update ()
 requireExperimentalFlag flag =
@@ -1171,6 +1222,12 @@ eD1AttestationNotYetValid = "Cip112Settlement: node attestation is not yet valid
 
 eD1AttestationExpired : Text
 eD1AttestationExpired = "Cip112Settlement: node attestation has expired"
+
+eD2LawfulProcessMissing : Text
+eD2LawfulProcessMissing = "Cip112Settlement: lawful-process reference is required for this seizure"
+
+eD2SeizureWindowClosed : Text
+eD2SeizureWindowClosed = "Cip112Settlement: lawful seizure window has closed"
 
 eSettlementMismatch : Text
 eSettlementMismatch = "Cip112Settlement: allocation settlement mismatch"

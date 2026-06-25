@@ -374,6 +374,54 @@ test_cip112Settlement_attestedSettleExpiredFails = script do
       registryCid = registry
   pure ()
 
+-- | D2 refinement: with an explicit lawful seizure window, seizure is permitted
+-- after the settlement deadline, and the sweep records a lawful-process ref.
+test_cip112Settlement_d2LawfulProcessWindowSweep : Script ()
+test_cip112Settlement_d2LawfulProcessWindowSweep = script do
+  SettlementScenario{..} <- setupScenario "cip112-d2-window" False False
+  let custodian = mkD2CustodianAccount "cip112-d2-window" admin
+      seizureHook = mkD2Hook "cip112-d2-window" custodian
+  (burnerCap, _) <- createBurnerCapability admin admin (Some (usdInstrument admin))
+  case allocationCids of
+    aliceAllocation :: _ -> do
+      marked <- submit admin do
+        exerciseCmd aliceAllocation Allocation_MarkD2WithWindow with
+          actors = [admin]
+          seizureHook
+          windowEnd = t2
+      -- Advance past the settlement deadline (t1); the lawful window (t2) permits.
+      setTime t2
+      result <- submit admin do
+        exerciseCmd marked Allocation_SweepD2WithLawfulProcess with
+          burner = admin
+          burnerCapCid = Some burnerCap
+          lawfulProcessRef = "court-order-2026-001"
+      case result of
+        AllocationD2Swept cids -> length cids === 1
+        _ -> fail "expected AllocationD2Swept"
+    [] -> fail "expected an alice allocation"
+
+-- | The lawful-process sweep requires a non-empty process reference.
+test_cip112Settlement_d2LawfulProcessMissingRefFails : Script ()
+test_cip112Settlement_d2LawfulProcessMissingRefFails = script do
+  SettlementScenario{..} <- setupScenario "cip112-d2-noref" False False
+  let custodian = mkD2CustodianAccount "cip112-d2-noref" admin
+      seizureHook = mkD2Hook "cip112-d2-noref" custodian
+  (burnerCap, _) <- createBurnerCapability admin admin (Some (usdInstrument admin))
+  case allocationCids of
+    aliceAllocation :: _ -> do
+      marked <- submit admin do
+        exerciseCmd aliceAllocation Allocation_MarkD2WithWindow with
+          actors = [admin]
+          seizureHook
+          windowEnd = t2
+      submitMustFail admin do
+        exerciseCmd marked Allocation_SweepD2WithLawfulProcess with
+          burner = admin
+          burnerCapCid = Some burnerCap
+          lawfulProcessRef = ""
+    [] -> fail "expected an alice allocation"
+
 -- | The optional D1 hook is fail-closed when configured and no per-settlement
 -- reference is supplied. This is an extension point, not the final D1
 -- attestation shape.
