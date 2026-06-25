@@ -23,4 +23,5 @@ packages:
   - experiments/identity-hook-upgrade-v2-script
   - experiments/token-standard-v2-mock
   - experiments/cip112-settlement
+  - experiments/settlement-exemplar
   - test
