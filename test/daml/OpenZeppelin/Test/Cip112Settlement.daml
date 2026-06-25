@@ -19,6 +19,7 @@ import OpenZeppelin.Experimental.TokenStandard.V2.Allocation
   , RequestedAllocation(..)
   , AllocationSpecification(..)
   )
+import OpenZeppelin.Experimental.TokenStandard.V2.TransferEvents (EventLog_HoldingsChange(..))
 
 t0 : Time
 t0 = time (date 2026 Jan 1) 0 0 0
@@ -264,6 +265,24 @@ test_cip112Settlement_settleCreditsReceiver = script do
   -- Alice's input holding was consumed (locked then archived on settle).
   aliceHoldings <- query @ToyHolding alice
   length aliceHoldings === 0
+
+-- | Settlement emits a V2-aligned EventLog_HoldingsChange per settled allocation
+-- (the promoted wallet/indexer reporting route): alice's records the consumed
+-- input, bob's records the credited output.
+test_cip112Settlement_settleEmitsHoldingsChange : Script ()
+test_cip112Settlement_settleEmitsHoldingsChange = script do
+  SettlementScenario{..} <- setupScenario "cip112-eventlog" True True
+  _ <- submit (actAs app <> discloseMany [factoryDisclosure]) do
+    exerciseCmd factory SettlementFactory_SettleBatch with
+      settlement
+      transferLegs = [transferLeg]
+      allocationCids
+      actors = [app]
+      d1ComplianceRef = Some "fresh-node-side-check-cip112-eventlog"
+  entries <- query @SettlementEventLogEntry app
+  length entries === 2
+  let credited = filter (\(_, e) -> not (null e.event.outputHoldingCids)) entries
+  length credited === 1
 
 -- | The optional D1 hook is fail-closed when configured and no per-settlement
 -- reference is supplied. This is an extension point, not the final D1

@@ -31,6 +31,12 @@ import OpenZeppelin.Experimental.TokenStandard.V2.Allocation
   , RequestedAllocation(..)
   , AllocationSpecification(..)
   )
+import OpenZeppelin.Experimental.TokenStandard.V2.TransferEvents
+  ( EventLog
+  , EventLogView(..)
+  , EventLog_HoldingsChange(..)
+  , EventLogTransferLegSide(..)
+  )
 
 data D1ComplianceHook = D1ComplianceHook with
     hookRef : Text
@@ -462,7 +468,10 @@ template Allocation
         -- authority is needed; across a SettleBatch — where every counterparty
         -- has its own allocation — this yields true delivery-versus-payment (each
         -- party is debited for SenderSide legs and credited for ReceiverSide legs).
-        _ <- creditReceiverSides allocation.admin allocation.authorizer featureFlag localSides
+        creditedCids <- creditReceiverSides allocation.admin allocation.authorizer featureFlag localSides
+        -- Emit a V2-aligned holdings-change event for wallet/indexer discovery
+        -- (the promoted reporting route is EventLog_HoldingsChange).
+        _ <- emitHoldingsChange allocation.admin allocation.authorizer allocation.settlement.executors lockedHoldingCids creditedCids localSides featureFlag
         create SettlementReceipt with
           admin = allocation.admin
           authorizer = allocation.authorizer
@@ -510,6 +519,8 @@ template Allocation
         cap <- requireBurnerCapability burner allocation.admin burnerCapCid
         requireCustodianDestination hook.custodianDestination
         custodianHoldingCids <- sweepLockedHoldings hook.custodianDestination cap lockedHoldingCids
+        -- Seizure is also a holdings change: inputs swept to the custodian outputs.
+        _ <- emitHoldingsChange allocation.admin hook.custodianDestination allocation.settlement.executors lockedHoldingCids custodianHoldingCids [] featureFlag
         pure AllocationD2Swept with custodianHoldingCids
 
 -- | Minimal settlement receipt used by the experiment to prove successful
@@ -546,6 +557,76 @@ template SettlementReceipt
     signatory admin
     observer accountParties admin authorizer, settlement.executors
     ensure featureFlag == experimentalFeatureFlag
+
+-- | Registry-owned event log implementing the mock Token Standard V2 `EventLog`
+-- interface (mirrors `splice-api-token-transfer-events-v2`). Wallets/indexers
+-- subscribe to the emitted holdings-change entries instead of reverse-engineering
+-- factory interactions, which would leak the sender's UTXO graph to the receiver.
+--
+-- Signatories: `admin`. Observers: `observers`. Choices: none (data carrier).
+-- Archival behavior: persists; entries are separate contracts. Privacy: only the
+-- admin and the disclosed observers see the log. Upgrade: experiment-only; a
+-- promoted surface uses the real transfer-events package.
+template SettlementEventLog
+  with
+    admin : Party
+    observers : [Party]
+    featureFlag : Text
+  where
+    signatory admin
+    observer observers
+    ensure featureFlag == experimentalFeatureFlag
+
+    interface instance EventLog for SettlementEventLog where
+      view = EventLogView with
+        admin
+        meta = emptyMetadata
+
+-- | A single emitted holdings-change event. Mirrors `SimpleEventLogEntry` /
+-- `TransferEventsV2.EventLog_HoldingsChange`: the inputs consumed and outputs
+-- created in one settlement or seizure step.
+--
+-- Signatories: `event.admin`. Observers: `event.observers`. Choices: none.
+template SettlementEventLogEntry
+  with
+    event : EventLog_HoldingsChange
+    featureFlag : Text
+  where
+    signatory event.admin
+    observer event.observers
+    ensure featureFlag == experimentalFeatureFlag
+
+-- | Map settlement-leg sides onto the transfer-events leg-side shape.
+toEventLogSides : [TransferLegSide] -> [EventLogTransferLegSide]
+toEventLogSides sides =
+  map
+    (\s -> EventLogTransferLegSide with side = s.side; transferLegId = s.transferLegId; otherside = s.otherside)
+    sides
+
+-- | Emit a holdings-change event for a settlement/seizure step. Authorized by
+-- `admin`, which is a signatory of the enclosing allocation choice. Holdings are
+-- recorded by the mock `Holding` interface contract id so the event is
+-- asset-agnostic.
+emitHoldingsChange
+  : Party
+  -> Account
+  -> [Party]
+  -> [ContractId ToyHolding]
+  -> [ContractId ToyHolding]
+  -> [TransferLegSide]
+  -> Text
+  -> Update (ContractId SettlementEventLogEntry)
+emitHoldingsChange admin account observers inputs outputs sides flag =
+  create SettlementEventLogEntry with
+    event = EventLog_HoldingsChange with
+      admin
+      account
+      inputHoldingCids = map (toInterfaceContractId @Holding) inputs
+      outputHoldingCids = map (toInterfaceContractId @Holding) outputs
+      transferLegSides = toEventLogSides sides
+      observers
+      meta = emptyMetadata
+    featureFlag = flag
 
 requireExperimentalFlag : Text -> Update ()
 requireExperimentalFlag flag =
