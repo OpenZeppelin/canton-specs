@@ -25,8 +25,8 @@ import OpenZeppelin.Experimental.Settlement.Cip112
 import OpenZeppelin.Experimental.TokenStandard.V2.Metadata
 import OpenZeppelin.Experimental.TokenStandard.V2.Holding
 import OpenZeppelin.Experimental.TokenStandard.V2.Allocation
-  ( Reference(..), SettlementInfo(..), TransferLeg(..), TransferLegSide(..)
-  , RequestedAllocation(..), AllocationSpecification(..)
+  ( Reference(..), SettlementInfo(..), TransferLeg(..)
+  , AllocationSpecification(..)
   )
 
 settlementExecutorRole : Text
@@ -191,14 +191,14 @@ regulatedSettlementExemplar = script do
 
   -- Pause blocks settlement: flip on, attempt, expect failure, flip back.
   pausedState <- submit admin do exerciseCmd pauseState PauseState_Set with newPaused = True
-  submitMultiMustFail [app] [admin] do
+  submitMustFail (actAs [app] <> readAs [admin]) do
     exerciseCmd appCid RegulatedSettlementApp_SettleWithControls with
       executor = app; executorGrant; pauseStateCid = pausedState; factoryCid = factory
       settlement; transferLegs = [leg]; allocationCids; attestationCid = attestation; registryCid = registry
   runningState <- submit admin do exerciseCmd pausedState PauseState_Set with newPaused = False
 
   -- Happy path: executor settles through the app's composed controls.
-  receiptCids <- submitMulti [app] [admin] do
+  receiptCids <- submit (actAs [app] <> readAs [admin]) do
     exerciseCmd appCid RegulatedSettlementApp_SettleWithControls with
       executor = app; executorGrant; pauseStateCid = runningState; factoryCid = factory
       settlement; transferLegs = [leg]; allocationCids; attestationCid = attestation; registryCid = registry

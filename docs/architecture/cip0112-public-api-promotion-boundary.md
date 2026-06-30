@@ -148,15 +148,25 @@ Promoted M1 semantics:
 
 - Batch settlement is the only stable atomic multi-allocation settlement path.
   The public story for delivery-versus-payment atomicity must go through
-  `SettlementFactory_SettleBatch`.
-- Direct allocation settlement may remain an implementation detail or advanced
-  compatibility path. If exposed, it must be described as proving local
-  authorization and consuming the local allocation, not as peer co-settlement,
-  unless it also consumes or settles the peer allocations in the same Daml
-  transaction.
+  `SettlementFactory_SettleBatch`. Internally that factory proves both-sidedness
+  once over all allocations, then settles each through the additive,
+  experimental-only `Allocation_SettleInBatch` choice, which takes no peer
+  arguments (no O(N^2) per-allocation peer fetching). `Allocation_SettleInBatch`
+  is deliberately unsafe for standalone use and is not a candidate public surface
+  on its own.
+- Direct allocation settlement (`Allocation_Settle`) may remain an implementation
+  detail or advanced compatibility path. If exposed, it must be described as
+  proving local authorization and consuming the local allocation, not as peer
+  co-settlement, unless it also consumes or settles the peer allocations in the
+  same Daml transaction.
 - Existing experimental `Allocation_Settle` proves that matching peer sides
   exist through fetched peer allocations or receipts. It is not a stable
   direct-path DvP API.
+- Both settle paths enforce per-instrument value conservation (locked funds must
+  cover the authorizer's SenderSide obligations; surplus returns as change;
+  under-funded senders fail closed). The iterated-settlement path
+  (`nextIterationFunding`) is exempt from the per-iteration coverage assertion and
+  must be formalized before any public iterated-DvP claim.
 
 ## Third-Party Custodian Credit Model
 

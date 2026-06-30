@@ -32,12 +32,11 @@ privacy / archival / failure / upgrade). Path: `…/Cip112.daml`.
 | [`SettlementFactory`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L185) | admin | none | executors / authorizer parties (nonconsuming) | persists | wrong actors, empty legs, missing authorization, bad amounts |
 | [`AllocationRequest`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L299) | executors | authorizer parties | authorizer (accept/reject), executors (withdraw) | consuming | wrong actor set |
 | [`AllocationInstruction`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L356) | admin + authorizer parties | executors | authorizer (accept/withdraw) | consuming; accept locks inputs + creates `Allocation` | wrong actor, bad input owner/admin/instrument |
-| [`Allocation`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L442) | admin + authorizer parties | executors | admin+executors (settle), executors (cancel), authorizer (withdraw), admin (mark), burner (sweep) | consuming (mark recreates) | settlement/peer mismatch, expired, missing D1 ref, active D2, unauthorized legs |
-| [`SettlementReceipt`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L611) | admin | authorizer parties + executors | none | persists | flag gate |
-| [`SettlementEventLog`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L635) | admin | observers | none | persists | flag gate |
-| [`SettlementEventLogEntry`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L655) | event.admin | event.observers | none | persists | flag gate |
-| [`TrustedAttesterRegistry`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L701) | admin | attesters | none | persists | flag gate |
-| [`NodeComplianceAttestation`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L718) | attester | attestationObservers | none | persists | flag gate |
+| [`Allocation`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L454) | admin + authorizer parties | executors | admin+executors (settle direct / in-batch), executors (cancel), authorizer (withdraw), admin (mark), burner (sweep) | consuming (mark recreates); settle conserves value + returns change | settlement/peer mismatch, expired, missing D1 ref, active D2, unauthorized legs, under-funded sender (fail closed) |
+| [`SettlementReceipt`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L638) | admin | authorizer parties + executors | none | persists | flag gate |
+| [`SettlementEventLogEntry`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L667) (implements `EventLog`) | event.admin | event.observers (account parties + executors) | none | persists | flag gate |
+| [`TrustedAttesterRegistry`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L721) | admin | attesters | none | persists | flag gate |
+| [`NodeComplianceAttestation`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L738) | attester | attestationObservers | none | persists | flag gate |
 
 **Privacy (all):** per-authorizer projection — a party sees only allocations,
 receipts, and events for settlements it participates in or executes; outside
@@ -50,18 +49,24 @@ new optional fields and new choices; baseline choice arguments are never mutated
 | Decision | Control | Anchor |
 |---|---|---|
 | D1 (compliance, no-cache, fail-closed) | Reference hook + typed signed attestation path | [`D1ComplianceHook`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L41), [`SettlementFactory_SettleBatchWithAttestation`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L259) |
-| D2 (seizure = lock-and-sweep to preset custodian) | Mark + sweep, single-admin capability, lawful window | [`Allocation_SweepD2InFlightSeizure`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L541), [`Allocation_SweepD2WithLawfulProcess`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L575) |
+| D2 (seizure = lock-and-sweep to preset custodian) | Mark + sweep, single-admin capability, lawful window | [`Allocation_SweepD2InFlightSeizure`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L568), [`Allocation_SweepD2WithLawfulProcess`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L602) |
 | D3 (single-domain v1) | No cross-synchronizer machinery; SCU-forward-compatible | (deferred) |
 | D4 (single-admin capability) | Admin-issued, caller-named capability | [`BurnerCapability`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L98) |
 
 ## 4. Test-coverage map
 
 Spine suite [`Cip112Settlement.daml`](../../test/daml/OpenZeppelin/Test/Cip112Settlement.daml)
-(24 scripts) + exemplar scripts. Coverage by area:
+(31 `test_` scripts; count via `grep -cE '^test_.* : Script'`) + the 2 exemplar
+scripts (`experiments/settlement-exemplar/`, run by `scripts/run-tests.sh`).
+Coverage by area:
 
 - **Happy path / DvP:** request→instruction→allocation→batch settle; iterated
   settlement; receiver crediting (`settleCreditsReceiver`); EventLog emission
-  (`settleEmitsHoldingsChange`).
+  (`settleEmitsHoldingsChange`) + `EventLog`-interface conformance
+  (`eventLogInterfaceConformance`).
+- **Value conservation:** under-funded sender fails closed
+  (`settleUnderfundedSenderFails`); over-funded sender gets correct change
+  (`settleOverfundedSenderGetsChange`).
 - **Authorization negatives:** direct single-side, leg mismatch, wrong actors
   (cancel/withdraw), expired settlement, input owner/admin/instrument mismatch.
 - **D1:** fail-closed missing reference; typed attestation positive +

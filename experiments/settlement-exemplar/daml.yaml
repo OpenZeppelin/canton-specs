@@ -8,7 +8,6 @@ dependencies:
   - daml-script
 data-dependencies:
   - ../../access-control/.daml/dist/oz-access-control-0.1.0.dar
-  - ../../ownable/.daml/dist/oz-ownable-0.1.0.dar
   - ../../pausable/.daml/dist/oz-pausable-0.1.0.dar
   - ../token-standard-v2-mock/.daml/dist/oz-experimental-token-standard-v2-mock-0.1.0.dar
   - ../cip112-settlement/.daml/dist/oz-experimental-cip112-settlement-0.1.0.dar

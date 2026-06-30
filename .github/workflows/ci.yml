@@ -1,0 +1,58 @@
+name: ci
+
+# Validation gate for the CIP-0112 settlement RI workspace. This is the
+# automated counterpart to the manual gate documented in AGENTS.md / README.md:
+# build every package in dependency order, run the spine test suite AND the deep
+# settlement exemplar scripts (scripts/run-tests.sh), validate the scaffold
+# (scripts/check-scaffold.sh), and confirm the living-doc code anchors do not
+# drift (scripts/refresh-ri-anchors.sh).
+#
+# DPM is Digital Asset's package manager and is not redistributable here, so the
+# job runs on a runner that provides `dpm` on PATH or at ~/.dpm/bin/dpm (the same
+# contract scripts/dpm-env.sh expects locally). On a runner without DPM the
+# toolchain steps fail fast with the explicit message from dpm-env.sh; the gate
+# is never silently skipped.
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    env:
+      OZ_DAML_TOOLCHAIN: dpm
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Java 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - name: Provision DPM and the 3.4.11 SDK
+        run: |
+          # Expose DPM if the runner image pre-installed it under ~/.dpm/bin.
+          if [ -x "$HOME/.dpm/bin/dpm" ]; then
+            echo "$HOME/.dpm/bin" >> "$GITHUB_PATH"
+            export PATH="$HOME/.dpm/bin:$PATH"
+          fi
+          if ! command -v dpm >/dev/null 2>&1; then
+            echo "::error::dpm is not available on this runner. Provide DPM on PATH or at ~/.dpm/bin/dpm (see README.md 'Build Instructions')." >&2
+            exit 1
+          fi
+          dpm install 3.4.11
+
+      - name: Validate scaffold (build root + proof)
+        run: scripts/check-scaffold.sh
+
+      - name: Build all packages and run all scripts (spine suite + exemplar)
+        run: scripts/run-tests.sh
+
+      - name: Check living-doc code anchors (0 drift, 0 error)
+        run: scripts/refresh-ri-anchors.sh

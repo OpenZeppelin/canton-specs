@@ -156,13 +156,13 @@ and recreates an updated instance with a new Contract ID.
 ### The Settlement-Spine Flow
 
 All value transfers to/from the `Vault` route through
-[`SettlementFactory_SettleBatch`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L237) for atomic DvP. The direct [`Allocation_Settle`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L462)
+[`SettlementFactory_SettleBatch`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L237) for atomic DvP. The direct [`Allocation_Settle`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L474)
 path is not used for DvP — it proves authorization of a single leg, not atomic
 co-settlement of interdependent legs.
 
 1. **Vault origination + collateral deposit.** The borrower creates an
    [`AllocationInstruction`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L356) (via [`SettlementFactory_CreateAllocationInstruction`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L216),
-   accepted to lock the collateral into an [`Allocation`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L468)) and presents a
+   accepted to lock the collateral into an [`Allocation`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L454)) and presents a
    `CredentialGatedActionRequest` + `MockVerificationResult` to the
    `VaultFactory`. On successful compliance verification, `VaultFactory_OpenVault`
    batch-settles the collateral into custody and instantiates the `Vault` with a
@@ -233,7 +233,10 @@ attack surface, so the RI hardens the price path in the design (not deferred):
 
 ### D1–D4 Attachment Strategy
 
-- **D1 — compliance (node-applied).** Checked on every leg. The RI selects
+- **D1 — compliance (node-applied).** The intended posture is a per-settlement,
+  fail-closed check; on the M1 spine this is engaged by the optional
+  `D1ComplianceHook` / typed attestation path, not mandated by the base
+  `SettleBatch`. The RI selects
   **Shape B** (signed node attestation) over Shape A (off-ledger gate): a
   `KycClaim` from a `TrustedIssuerRegistry` is submitted as a native contract
   payload, so the engine enforces compliance deterministically at the
@@ -246,7 +249,7 @@ attack surface, so the RI hardens the price path in the design (not deferred):
   collateral to an admin-**preset** `custodianDestination` (carried in the
   spine's [`D2SeizureHook`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L46) config record), gated by the single-admin
   [`BurnerCapability`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L98). In-flight allocations use the real spine choices
-  [`Allocation_MarkD2InFlightSeizure`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L532) → [`Allocation_SweepD2InFlightSeizure`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L541);
+  [`Allocation_MarkD2InFlightSeizure`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L559) → [`Allocation_SweepD2InFlightSeizure`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L568);
   locked vault collateral uses the forced-burn-to-custodian path
   (`LockedSimpleHolding_ForcedBurn` evidence). Seized assets are **never** burned
   and **never** returned to sender; ordinary transfer *failures* do return to
@@ -426,7 +429,7 @@ template LendingVaultFactory
 
 ## 5. Diagrams
 
-Mermaid below maps to scenarios validatable in `canton-settlement-explorer`
+Mermaid below maps to scenarios for the proposed `canton-settlement-explorer` `[FUTURE]`
 (presets: Batch DvP, Multi-leg Settlement).
 
 ### 5.1 Interface and Component Diagram
@@ -515,7 +518,7 @@ sequenceDiagram
 | `oz-ownable` | [`Ownership`](../../ownable/daml/OpenZeppelin/Ownable.daml), [`OwnershipOffer`](../../ownable/daml/OpenZeppelin/Ownable.daml) | Administrative handoff between legal entities. | `[IMPLEMENTED]` |
 | `oz-pausable` | [`PauseState`](../../pausable/daml/OpenZeppelin/Pausable.daml), [`whenNotPaused`](../../pausable/daml/OpenZeppelin/Pausable.daml) | Emergency protocol freeze. | `[IMPLEMENTED]` |
 | `zk-credential-gateway` | `CredentialGatedActionRequest`, `MockVerificationResult`, `MockVerifierAuthorization`, `CredentialRevocationStatus` | D1 compliance / KYC gating without on-chain data leakage. | `[EVIDENCE]` |
-| `OpenZeppelin.Experimental.Settlement.Cip112` | [`SettlementFactory`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L185), [`Allocation`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L468), [`AllocationInstruction`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L356), [`AllocationRequest`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L299), [`SettlementReceipt`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L611), [`BurnerCapability`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L98), [`D1ComplianceHook`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L41), [`D2SeizureHook`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L46) | Atomic DvP spine; D1/D2 seams. | `[IMPLEMENTED]` (experimental) |
+| `OpenZeppelin.Experimental.Settlement.Cip112` | [`SettlementFactory`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L185), [`Allocation`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L454), [`AllocationInstruction`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L356), [`AllocationRequest`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L299), [`SettlementReceipt`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L638), [`BurnerCapability`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L98), [`D1ComplianceHook`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L41), [`D2SeizureHook`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L46) | Atomic DvP spine; D1/D2 seams. | `[IMPLEMENTED]` (experimental) |
 | `canton-specs` identity-hook Shape-B | `KycClaim`, `TrustedIssuerRegistry` | Typed D3 identity, layered via SCU. | `[IMPLEMENTED]` (experimental) |
 
 ### 6.2 External Dependencies
@@ -556,15 +559,21 @@ property testing, and formal proofs.
   per-update deviation bound, so solvency is never evaluated against a dead or
   manipulated single price.
 
-### 7.2 The Validation Ladder
+### 7.2 The Validation Ladder `[FUTURE]`
 
-| Tier | Tooling | Purpose and Scope |
+The ladder below is **proposed**, not built in M1. `daml-lint` / `daml-props` /
+`daml-verify` are external OpenZeppelin tools that are **not** wired into this
+repo's CI and have **not** been run against this RI scaffold. The **real** M1
+gate is `dpm build --all` plus the Daml Script suites run by
+`scripts/run-tests.sh` and `scripts/check-scaffold.sh` (CI:
+`.github/workflows/ci.yml`), with living-doc anchors validated by
+`scripts/refresh-ri-anchors.sh`.
+
+| Tier | Proposed tooling `[FUTURE]` | Purpose and Scope |
 |---|---|---|
-| Level 1: Static analysis | `daml-lint` | Decimal bounds, unguarded division, positivity, archive-before-execute; verifies the `roleId` closed-sum wrapper and `whenNotPaused` guards on state-altering choices. |
-| Level 2: Generative testing | `daml-props` | Property-based testing with shrinking: conservation/supply/balance invariants under fuzzed inputs; verifies unauthorized parties cannot reach admin functions (D4). |
-| Level 3: Formal verification | `daml-verify` | Z3-backed proofs: collateral cannot be extracted below `minCollateralRatio`; `Vault_Liquidate` is bounded by the solvency assertion; pause/compliance bypass is impossible. |
-
-(Tooling exists in the workspace; no benchmark latencies are claimed.)
+| Level 1: Static analysis | `daml-lint` `[FUTURE]` | Decimal bounds, unguarded division, positivity, archive-before-execute; the `roleId` closed-sum wrapper and `whenNotPaused` guards on state-altering choices. |
+| Level 2: Generative testing | `daml-props` `[FUTURE]` | Property-based testing with shrinking: conservation/supply/balance invariants under fuzzed inputs; unauthorized parties cannot reach admin functions (D4). |
+| Level 3: Formal verification | `daml-verify` `[FUTURE]` | Z3-backed proofs: collateral cannot be extracted below `minCollateralRatio`; `Vault_Liquidate` bounded by the solvency assertion; pause/compliance bypass impossible. |
 
 ### 7.3 Threat Model and Failure Modes
 
@@ -654,17 +663,17 @@ atomicity and privacy across domains.
 | Create allocation instruction | [`SettlementFactory_CreateAllocationInstruction`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L216) | 🟡 |
 | Allocation request lifecycle | [`AllocationRequest`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L299) · [`AllocationRequest_Accept`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L313) · [`AllocationRequest_Reject`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L320) · [`AllocationRequest_Withdraw`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L327) | 🟡 |
 | Allocation instruction lifecycle | [`AllocationInstruction`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L356) · [`AllocationInstruction_Accept`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L369) · [`AllocationInstruction_Withdraw`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L388) | 🟡 |
-| Allocation (locked collateral / debt leg) | [`Allocation`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L468) · [`Allocation_Settle`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L462) · [`Allocation_Cancel`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L515) · [`Allocation_Withdraw`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L523) | 🟡 |
-| Settlement receipt | [`SettlementReceipt`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L611) | 🟡 |
+| Allocation (locked collateral / debt leg) | [`Allocation`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L454) · [`Allocation_Settle`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L474) · [`Allocation_Cancel`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L542) · [`Allocation_Withdraw`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L550) | 🟡 |
+| Settlement receipt | [`SettlementReceipt`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L638) | 🟡 |
 | Transfer leg record | [`TransferLeg`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L29) | 🟡 |
 | D1 compliance hook (reference field; node-applied signed attestation is `[FUTURE]`) | [`D1ComplianceHook`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L41) | 🟡 |
 | D2 seizure hook config (preset `custodianDestination`) | [`D2SeizureHook`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L46) | 🟡 |
-| D2 lock-and-sweep on in-flight allocations | [`Allocation_MarkD2InFlightSeizure`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L532) · [`Allocation_SweepD2InFlightSeizure`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L541) | 🟡 |
+| D2 lock-and-sweep on in-flight allocations | [`Allocation_MarkD2InFlightSeizure`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L559) · [`Allocation_SweepD2InFlightSeizure`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L568) | 🟡 |
 | Seizure capability (gates burn / D2 sweep) | [`BurnerCapability`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L98) | 🟡 |
-| Holding lock / archive / unlock helpers | [`lockInputHoldings`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L844) · [`archiveHoldings`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L868) · [`unlockHoldings`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L901) | 🟡 |
+| Holding lock / conserve / unlock helpers | [`lockInputHoldings`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L864) · [`archiveAndTallyLockedHoldings`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L940) · [`conserveSenderSides`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L960) · [`unlockHoldings`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L1070) | 🟡 |
 | Toy holding (stand-in for the real TSv2 holding interface) | [`ToyHolding`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L133) | 🟡 |
 | Experimental feature flag | [`experimentalFeatureFlag`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L72) | 🟡 |
-| Spine test coverage (20 scripts) | [`Cip112Settlement.daml`](../../test/daml/OpenZeppelin/Test/Cip112Settlement.daml) | ✅ |
+| Spine test coverage (31 `test_` scripts) | [`Cip112Settlement.daml`](../../test/daml/OpenZeppelin/Test/Cip112Settlement.daml) | ✅ |
 | Role / capability authority (D4) | [`RoleGrant`](../../access-control/daml/OpenZeppelin/AccessControl.daml) · [`RoleAdmin`](../../access-control/daml/OpenZeppelin/AccessControl.daml) · [`requireRole`](../../access-control/daml/OpenZeppelin/AccessControl.daml) · [`hasRole`](../../access-control/daml/OpenZeppelin/AccessControl.daml) | ✅ |
 | Admin handoff | [`Ownership`](../../ownable/daml/OpenZeppelin/Ownable.daml) · [`OwnershipOffer`](../../ownable/daml/OpenZeppelin/Ownable.daml) | ✅ |
 | Emergency freeze | [`PauseState`](../../pausable/daml/OpenZeppelin/Pausable.daml) · [`whenNotPaused`](../../pausable/daml/OpenZeppelin/Pausable.daml) | ✅ |
@@ -754,8 +763,11 @@ this workspace. Authoritative sources:
 - **Access-control / ownable / pausable primitives** `[IMPLEMENTED]` —
   `canton-specs` `access-control/`, `ownable/`, `pausable/`
   (`OpenZeppelin.AccessControl`, `OpenZeppelin.Ownable`, `OpenZeppelin.Pausable`).
-- **Diagram tooling** `[IMPLEMENTED]` — `canton-settlement-explorer`.
-- **Validation ladder** `[IMPLEMENTED]` — `daml-lint`, `daml-props`,
-  `daml-verify`.
+- **Diagram tooling** `[FUTURE]` — proposed `canton-settlement-explorer`; not
+  built in this repo.
+- **Validation ladder** `[FUTURE]` — proposed `daml-lint`, `daml-props`,
+  `daml-verify` (§7.2); external OZ tools, not wired into this repo's CI. The
+  real M1 gate is `dpm build --all` + `scripts/run-tests.sh` +
+  `scripts/check-scaffold.sh` ([`.github/workflows/ci.yml`](../../.github/workflows/ci.yml)).
 - **Token Standard V2 upstream** `[UPSTREAM]` — `hyperledger-labs/splice`
   `token-standard-v2-upcoming` (designed against the interfaces; import gated).

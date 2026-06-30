@@ -14,13 +14,15 @@ built in M1.
 
 - [x] 🟡 Atomic multi-leg settlement — [`SettlementFactory_SettleBatch`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L237)
 - [x] 🟡 Allocation lifecycle (request → instruction → allocation, cancel/withdraw)
-- [x] 🟡 **Receiver crediting / value-moving settlement** — [`Allocation_Settle`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L462) credits ReceiverSide legs (was archive-and-receipt only)
+- [x] 🟡 **Receiver crediting / value-moving settlement** — [`Allocation_Settle`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L474) credits ReceiverSide legs (was archive-and-receipt only)
+- [x] 🟡 **Value conservation (enforced)** — settle archives locked inputs and asserts, per instrument, they cover the authorizer's SenderSide obligations; surplus returns as change; under-funded senders fail closed — [`conserveSenderSides`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L960) (iterated path defers per-iteration conservation)
+- [x] 🟡 **O(N) batch settle** — [`Allocation_SettleInBatch`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L521) settles each allocation without re-fetching peers (factory proves both-sidedness once)
 - [x] 🟡 **Mock Token Standard V2 interface layer** — [`token-standard-v2-mock`](../../experiments/token-standard-v2-mock/daml/OpenZeppelin/Experimental/TokenStandard/V2/Holding.daml) (Holding/Allocation/AllocationRequest/AllocationInstruction/TransferInstruction/EventLog), aligned to `splice-api-token-*-v2`; `ToyHolding` implements `Holding`
 - [x] 🟡 **EventLog reporting route** — [`EventLog_HoldingsChange`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L655) emitted on settle/seizure
 - [x] 🟡 D1 reference hook (fail-closed) — [`D1ComplianceHook`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L41)
-- [x] 🟡 **D1 typed node attestation (Daml-visible)** — [`SettlementFactory_SettleBatchWithAttestation`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L259) + [`TrustedAttesterRegistry`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L701)
-- [x] 🟡 D2 lock-and-sweep seizure, single-admin authority — [`Allocation_SweepD2InFlightSeizure`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L541), [`BurnerCapability`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L98)
-- [x] 🟡 **D2 refinements** — lawful seizure window + lawful-process reference — [`Allocation_SweepD2WithLawfulProcess`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L575)
+- [x] 🟡 **D1 typed node attestation (Daml-visible)** — [`SettlementFactory_SettleBatchWithAttestation`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L259) + [`TrustedAttesterRegistry`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L721)
+- [x] 🟡 D2 lock-and-sweep seizure, single-admin authority — [`Allocation_SweepD2InFlightSeizure`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L568), [`BurnerCapability`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L98)
+- [x] 🟡 **D2 refinements** — lawful seizure window + lawful-process reference — [`Allocation_SweepD2WithLawfulProcess`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L602)
 
 ## Named M1 deliverables
 

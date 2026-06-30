@@ -36,17 +36,20 @@ DOC_GLOBS = ["docs/ri-reports", "docs/architecture"]
 LINK = re.compile(r"\[`([^`]+)`\]\((\.\.?/[^)\s#]+)(?:#L(\d+))?\)")
 WINDOW = 3  # a symbol counts as "at" its anchor if within +/- this many lines
 
-def def_lines(lines, sym):
-    """Line numbers (1-based) where `sym` looks like it is *defined*."""
-    word = re.compile(r"(^|[^A-Za-z0-9_])" + re.escape(sym) + r"($|[^A-Za-z0-9_])")
+def struct_def_lines(lines, sym):
+    """Line numbers (1-based) where `sym` is *structurally defined* (template /
+    interface / data / newtype / type / class / choice / a top-level `sym :` sig
+    or `sym =` binding). Empty when `sym` is only referenced, not defined here."""
     defpat = re.compile(
         r"^\s*(template|interface|data|newtype|type|class)\s+" + re.escape(sym) + r"\b"
         r"|^\s*(nonconsuming\s+|postconsuming\s+|preconsuming\s+)?choice\s+" + re.escape(sym) + r"\b"
         r"|^\s*" + re.escape(sym) + r"\s*[:=]"
     )
-    defs = [i + 1 for i, l in enumerate(lines) if defpat.search(l)]
-    if defs:
-        return defs
+    return [i + 1 for i, l in enumerate(lines) if defpat.search(l)]
+
+def word_lines(lines, sym):
+    """Line numbers (1-based) where `sym` appears as a whole word."""
+    word = re.compile(r"(^|[^A-Za-z0-9_])" + re.escape(sym) + r"($|[^A-Za-z0-9_])")
     return [i + 1 for i, l in enumerate(lines) if word.search(l)]
 
 docs = []
@@ -81,17 +84,35 @@ for doc in docs:
             src_cache[target] = open(target, encoding="utf-8").read().splitlines()
         lines = src_cache[target]
         n = int(line)
-        word = re.compile(r"(^|[^A-Za-z0-9_])" + re.escape(sym) + r"($|[^A-Za-z0-9_])")
-        lo, hi = max(0, n - 1 - WINDOW), min(len(lines), n - 1 + WINDOW + 1)
-        if any(word.search(l) for l in lines[lo:hi]):
+
+        # Prefer the symbol's DEFINITION over mere word-proximity: an anchor must
+        # point at (within WINDOW of) a structural definition when one exists, so
+        # citing a field *usage* line that merely mentions the symbol is drift,
+        # not a pass. Fall back to word-proximity only for reference-only symbols
+        # that have no structural definition in the target file.
+        sdefs = struct_def_lines(lines, sym)
+        if sdefs:
+            if any(abs(d - n) <= WINDOW for d in sdefs):
+                ok += 1
+                return m.group(0)
+            new = min(sdefs, key=lambda d: abs(d - n))
+            drift += 1
+            drift_msgs.append(f"  DRIFT {rel_doc}: `{sym}` cited L{n} -> now L{new} (definition) in {relpath}"
+                              + ("  [fixed]" if FIX else ""))
+            if FIX:
+                changed = True
+                return m.group(0).replace(f"#L{n})", f"#L{new})")
+            return m.group(0)
+
+        wlines = word_lines(lines, sym)
+        if any(abs(d - n) <= WINDOW for d in wlines):
             ok += 1
             return m.group(0)
-        defs = def_lines(lines, sym)
-        if not defs:
+        if not wlines:
             error += 1
             error_msgs.append(f"  ERROR {rel_doc}: `{sym}` not found in {relpath} (cited L{n})")
             return m.group(0)
-        new = min(defs, key=lambda d: abs(d - n))
+        new = min(wlines, key=lambda d: abs(d - n))
         drift += 1
         drift_msgs.append(f"  DRIFT {rel_doc}: `{sym}` cited L{n} -> now L{new} in {relpath}"
                           + ("  [fixed]" if FIX else ""))
