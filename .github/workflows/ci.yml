@@ -7,11 +7,11 @@ name: ci
 # (scripts/check-scaffold.sh), and confirm the living-doc code anchors do not
 # drift (scripts/refresh-ri-anchors.sh).
 #
-# DPM is Digital Asset's package manager and is not redistributable here, so the
-# job runs on a runner that provides `dpm` on PATH or at ~/.dpm/bin/dpm (the same
-# contract scripts/dpm-env.sh expects locally). On a runner without DPM the
-# toolchain steps fail fast with the explicit message from dpm-env.sh; the gate
-# is never silently skipped.
+# DPM is Digital Asset's package manager. It is installed from Digital Asset's
+# public, no-auth installer (https://get.digitalasset.com, per
+# docs.digitalasset.com/build/3.4/dpm/manual-install) into ~/.dpm — the same
+# location scripts/dpm-env.sh expects locally. ~/.dpm is cached across runs so
+# the SDK tarball is downloaded once.
 
 on:
   push:
@@ -35,17 +35,36 @@ jobs:
           distribution: temurin
           java-version: "21"
 
+      - name: Cache DPM + SDKs (~/.dpm)
+        uses: actions/cache@v4
+        with:
+          path: ~/.dpm
+          key: dpm-${{ runner.os }}-sdk-3.4.11-v1
+
       - name: Provision DPM and the 3.4.11 SDK
         run: |
-          # Expose DPM if the runner image pre-installed it under ~/.dpm/bin.
-          if [ -x "$HOME/.dpm/bin/dpm" ]; then
-            echo "$HOME/.dpm/bin" >> "$GITHUB_PATH"
-            export PATH="$HOME/.dpm/bin:$PATH"
+          set -euo pipefail
+          # Reuse a DPM under ~/.dpm (runner image or restored cache); otherwise
+          # install it from Digital Asset's public installer.
+          if [ ! -x "$HOME/.dpm/bin/dpm" ]; then
+            version="$(curl -sSf https://get.digitalasset.com/install/latest)"
+            arch="$(uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/')"
+            os="$(uname | tr '[:upper:]' '[:lower:]')"
+            tarball="dpm-${version}-${os}-${arch}.tar.gz"
+            tmp="$(mktemp -d)"
+            curl -SLf "https://get.digitalasset.com/install/dpm-sdk/${tarball}" -o "${tmp}/${tarball}"
+            mkdir -p "${tmp}/extracted"
+            tar xzf "${tmp}/${tarball}" -C "${tmp}/extracted" --strip-components 1
+            "${tmp}/extracted/bin/dpm" bootstrap "${tmp}/extracted"
+            rm -rf "${tmp}"
           fi
-          if ! command -v dpm >/dev/null 2>&1; then
-            echo "::error::dpm is not available on this runner. Provide DPM on PATH or at ~/.dpm/bin/dpm (see README.md 'Build Instructions')." >&2
+          echo "$HOME/.dpm/bin" >> "$GITHUB_PATH"
+          export PATH="$HOME/.dpm/bin:$PATH"
+          command -v dpm >/dev/null 2>&1 || {
+            echo "::error::dpm not on PATH after install (expected ~/.dpm/bin/dpm)." >&2
             exit 1
-          fi
+          }
+          dpm --version
           dpm install 3.4.11
 
       - name: Validate scaffold (build root + proof)
