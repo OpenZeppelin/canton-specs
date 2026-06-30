@@ -23,8 +23,8 @@ research, and review provenance.
 
 Status: experimental. The M1 target is the CIP-0112 settlement primitive (not the
 superseded CIP-56 token foundation), alongside the reusable access-control
-primitives (slice AL-7, see [Access Control Library](#access-control-library-al-7)
-below). No stable M1 public API, CIP-0112 conformance, audit readiness, production
+primitives (see [Access Control Library](#access-control-library) below). No
+stable M1 public API, CIP-0112 conformance, audit readiness, production
 readiness, or release readiness is claimed.
 
 ## Scope
@@ -52,8 +52,8 @@ Repository-local planning and report surfaces:
   [`M4_STABLECOIN_SCOPE.md`](M4_STABLECOIN_SCOPE.md), and
   [`M4_AUCTION_SCOPE.md`](M4_AUCTION_SCOPE.md) are the per-RI scope locks those
   reports cite.
-- [`docs/research/`](docs/research/) and [`docs/reviews/`](docs/reviews/) carry
-  the report briefing/proposal source material and review provenance.
+- [`docs/research/`](docs/research/) carries the report briefing / proposal
+  source material.
 
 CIP-86 / CIP-103 / CIP-104 acceptance criteria are recorded as settlement
 interop criteria, not standalone CIP-56-token deliverables:
@@ -173,7 +173,7 @@ failure, and migration assumptions in the source comments.
 is not public API and keeps the Daml Script dependency out of the production
 package.
 
-## Access Control Library (AL-7)
+## Access Control Library
 
 The first reusable primitives land here as **three independent packages**, each
 its own DAR with no dependency on the others — so a consumer imports only what it
@@ -181,7 +181,7 @@ needs (e.g. just `oz-pausable`). This is the Daml-idiomatic form of OpenZeppelin
 decoupled-module promise: independence is at the **package** boundary, since Daml
 has no inheritance and the unit of reuse is the DAR. The full rationale, the
 options weighed, and the Daml-specific genericity trade are documented in the
-canton-token-template `docs/ARCHITECTURE.md` (slice AL-7).
+canton-token-template `docs/ARCHITECTURE.md`.
 
 | Package | Module | Mirrors | Notes |
 |---|---|---|---|
@@ -219,11 +219,8 @@ so DAR SHAs are intentionally not pinned here while the shape may still change.
 
 The experimental settlement package models a Token Standard V2-aligned
 request/instruction/allocation/settlement lifecycle with optional D1 and D2
-extension points. Its source evidence pin is `hyperledger-labs/splice` branch
-`token-standard-v2-upcoming` at
-`1e34121b2b369c5dde357c098e2aaeb65250e736`; the older
-`canton-network/splice` `token-standard-v2-daml-preview` branch is historical
-evidence only.
+extension points. It is designed against the `hyperledger-labs/splice`
+`token-standard-v2-upcoming` interfaces; the DAR import remains gated.
 
 The package intentionally uses local stand-ins and toy holdings. Do not import
 or vendor Splice DARs from this repo until a later slice satisfies the promotion

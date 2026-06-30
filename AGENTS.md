@@ -20,11 +20,9 @@ promotion-boundary ADR.
 
 This repo also carries the migrated RI architecture documentation:
 
-- `docs/ri-reports/` — portfolio + four RI architecture reports and export
-  artifacts.
+- `docs/ri-reports/` — portfolio + four RI architecture reports.
 - `docs/research/` — grant proposal and RI research briefing used to author the
   reports.
-- `docs/reviews/` — report review provenance.
 - `M2_DEX_SCOPE.md`, `M3_LENDING_SCOPE.md`, `M4_STABLECOIN_SCOPE.md`,
   `M4_AUCTION_SCOPE.md` — per-RI scope locks.
 

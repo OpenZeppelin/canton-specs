@@ -1,16 +1,8 @@
 # Architectural Overview Report: Confidential Auction Launchpad on Canton
 
-Status: **reviewed reference-design report**, non-public, outside the committed
-M1 public-library surface. This is RI #4 of four — see the suite-level view in [`00-portfolio.md`](./00-portfolio.md)
-and the index [`README.md`](./README.md). It describes a *reference design* grounded in the
-real OpenZeppelin Canton components in this workspace; it is **not** a claim of
-M1/M4 acceptance, conformance, audit readiness, or production readiness.
-
-> **Google Docs import:** `File → Open` this `.md` in Docs (or paste with
-> `Edit → Paste`). H1/H2/H3 headings drive the Docs outline pane; the tables
-> import cleanly; apply a monospace paragraph style to fenced code blocks after
-> import. Mermaid blocks do not render in Docs — render them with
-> `canton-settlement-explorer` and paste the image, keeping the fenced source.
+Status: **reference-design report**. It describes a *reference design* grounded
+in the real OpenZeppelin Canton components in this workspace; it is **not** a
+claim of acceptance, conformance, audit readiness, or production readiness.
 
 > **Source-grounding tags** (used throughout):
 > `[IMPLEMENTED]` real code in the M1 library base (`canton-specs` /
@@ -22,15 +14,10 @@ M1/M4 acceptance, conformance, audit readiness, or production readiness.
 > **Design priority order** governs every interface and snippet, in this exact
 > order: **1) Readability → 2) Simplicity → 3) Security → 4) Auditability.**
 
-> **Grant alignment** (source of truth:
-> [`../research/canton-ecosystem-grant-proposal.md`](../research/canton-ecosystem-grant-proposal.md),
-> scope lock: [`../../M4_AUCTION_SCOPE.md`](../../M4_AUCTION_SCOPE.md)): this is
-> **RI #4 (Confidential Auction Launchpad)**. This document is the **Architecture
-> Documentation** deliverable, authored in **grant M1** (research & design) for
-> the **implementation** in **grant M4** (Q4 2026, end Year 1, alongside RI 3).
-> Companion deliverables — working reference code, demo front-end, threat model
-> — are **named here but delivered in M4** (MIT-licensed). The report honors the
-> **CIP-56 → CIP-0112 / Token Standard V2 retarget**.
+> **Scope.** This is the architecture documentation for a Confidential Auction
+> Launchpad reference design targeting **CIP-0112 / Token Standard V2**;
+> settlement builds only on V2 abstractions. Companion working code, demo
+> front-end, and threat model are out of scope for this document.
 
 ---
 
@@ -91,6 +78,32 @@ front-running / bid manipulation / MEV, with KYC/AML/accreditation enforced via
 return-to-sender for losing bids (no counterparty credit risk), and capital that
 can move only per their signed `AllocationInstruction`.
 
+### 1.4 Central trust limitation: the auctioneer (stated up front)
+
+The conceptual boundary of this design must be foregrounded, because it shapes
+everything below. Clearing runs **off-ledger by a fully trusted auctioneer that
+sees every bid**. So the design delivers **confidential bid *submission*** — bids
+are hidden from competitors and from the sequencer by per-party projection — but
+it does **not** deliver:
+
+- **auctioneer honesty** — a malicious or compromised auctioneer that observes
+  all bids can favor a colluding bidder, leak bids, or compute a dishonest
+  clearing price;
+- **verifiable second-price** — the "second-price as a parameterization" is an
+  off-ledger computation the ledger cannot check;
+- **ledger-enforced fairness of allocation** — the conservation / leg-authorization
+  invariants prevent value *theft* (no leg settles that a party did not sign),
+  but they do not prevent *unfair allocation* at a sound clearing price.
+
+This is acceptable for a confidential-submission launchpad where the issuer *is*
+the auctioneer and bidders trust the issuer's clearing, and it is a real
+improvement over a public mempool. Whether it is acceptable for the target
+deployments — or whether a **commit-reveal / verifiable clearing** layer is
+required to remove auctioneer trust — is a primary open decision (§7.4, §9), to
+be settled with the internal team before implementation. A commit-reveal hash on
+`BidRequest` is a non-breaking SCU extension, so the choice does not re-architect
+the core.
+
 ---
 
 ## 2. Architecture Overview
@@ -121,11 +134,9 @@ auction mechanics can be upgraded or substituted.
 - **Compliance/identity** — `zk-credential-gateway` `[EVIDENCE]`
   (`CredentialGatedActionRequest`, `MockVerificationResult`,
   `CredentialRevocationStatus`); typed D3 `KycClaim` + `TrustedIssuerRegistry`
-  from the `canton-specs` identity-hook Shape-B experiment `[IMPLEMENTED]`.
-
-> **Attribution note:** `KycClaim` / `TrustedIssuerRegistry` are
-> `canton-specs` identity-hook-shape-b types, **not** `zk-credential-gateway`
-> templates. The gateway supplies the gating/verification primitives.
+  from the `canton-specs` identity-hook Shape-B experiment `[IMPLEMENTED]`
+  (the typed identity shape, not `zk-credential-gateway` templates; the gateway
+  supplies the gating/verification primitives).
 
 ### 2.2 Party and Role Topology
 
@@ -229,6 +240,33 @@ append `crossDomainRef : Optional CrossDomainIdentity` to `BidRequest`, and add 
 populated). Legacy bid choices stay untouched and functional. This is the
 additive path proven in the `canton-specs` identity-hook upgrade spike.
 
+### 3.5 Liveness against a stalling auctioneer (auction deadline + forced refund)
+
+Escrow locks a bidder's funds in a committed `Allocation` the auctioneer is
+expected to settle or release. If the auctioneer **stalls** — never clears, never
+archives losing bids — a bidder's capital could be locked indefinitely. The
+design therefore wires a hard deadline into the auction lifecycle rather than
+relying on auctioneer good behavior:
+
+- **`AuctionLaunchpad` carries a `biddingDeadline` and a `settlementDeadline`.**
+  The latter aligns with the spine's `Allocation` `settlementDeadline`, so the
+  escrow's own expiry and the auction's settlement window are the **same** clock,
+  not two independent ones.
+- **Forced refund after the deadline.** A bidder can always reclaim escrow with a
+  bidder-controlled choice once the deadline passes, *without* the auctioneer's
+  cooperation — `BidRequest_Cancel` (pre-clearing withdraw) plus a
+  `BidRequest_ForceRefundAfterDeadline` that asserts `now > settlementDeadline`
+  and exercises `Allocation_Withdraw` on the bidder's own committed allocation.
+  Because the bidder is the `Allocation` authorizer, this needs no auctioneer
+  signature — liveness for the bidder does not depend on the trusted party.
+- **Settlement is gated by the bidding deadline.** `Clearing_ExecuteBatch`
+  asserts `now > biddingDeadline` (no late inclusion) and `now <=
+  settlementDeadline` (no settling stale escrow), bounding the window in which the
+  auctioneer can act.
+
+This makes "funds locked indefinitely" unreachable: past `settlementDeadline`
+either the batch has settled or every bidder can unilaterally refund.
+
 ---
 
 ## 4. Interfaces & Usage Examples
@@ -268,9 +306,11 @@ template AuctionLaunchpad
     settlementFactoryCid : ContractId SettlementFactory
     pauseStateCid : ContractId PauseState     -- oz-pausable kill-switch
     minBidPrice : Decimal
+    biddingDeadline : Time                    -- no bids / no settlement before this
+    settlementDeadline : Time                 -- == the escrow Allocation deadline
   where
     signatory operator, issuer
-    ensure (minBidPrice > 0.0)
+    ensure (minBidPrice > 0.0 && biddingDeadline < settlementDeadline)
     -- Halt/resume route through oz-pausable PauseState_Set (controller = issuer,
     -- validated via requireRole IssuerRole), not via a mutated local flag.
 ```
@@ -306,6 +346,17 @@ template BidRequest
     choice BidRequest_Cancel : ContractId Allocation
       controller bidder
       do exercise paymentAllocationCid Allocation_Withdraw
+
+    -- Liveness: once the settlement window has closed, the bidder reclaims escrow
+    -- WITHOUT the auctioneer — defeats a stalling auctioneer. The bidder is the
+    -- Allocation authorizer, so no auctioneer signature is required.
+    choice BidRequest_ForceRefundAfterDeadline : ContractId Allocation
+      controller bidder
+      do
+        now <- getTime
+        lp <- fetch launchpadCid
+        assertMsg "settlement window still open" (now > lp.settlementDeadline)
+        exercise paymentAllocationCid Allocation_Withdraw
 ```
 
 ### 4.4 Atomic settlement via the spine `[FUTURE]`
@@ -331,6 +382,12 @@ template AuctionClearing
         requests : [ContractId AllocationRequest]          -- routing legs (bidders ↔ tokens)
       controller auctioneer
       do
+        -- Window guard: bidding must be closed and the settlement deadline not
+        -- yet passed — no late inclusion, no settling expired escrow.
+        now <- getTime
+        lp <- fetch launchpadCid
+        assertMsg "bidding still open" (now > lp.biddingDeadline)
+        assertMsg "settlement window closed" (now <= lp.settlementDeadline)
         -- Single atomic DvP. If any D1ComplianceHook fails on any leg, or the
         -- math violates conservation, the whole batch fails-closed.
         exercise settlementFactoryCid SettlementFactory_SettleBatch with
@@ -343,7 +400,7 @@ template AuctionClearing
 
 ## 5. Diagrams
 
-Validatable with `canton-settlement-explorer`. Render externally for Docs.
+Validatable with `canton-settlement-explorer`.
 
 ### 5.1 Interface and Component Diagram
 
@@ -420,15 +477,12 @@ sequenceDiagram
 ### 6.2 External Dependencies (Splice Token Standard V2)
 
 Built against the CIP-0112 / Splice Token Standard V2 **interfaces** `[UPSTREAM]`,
-ignoring DAR/package-ID pins in favor of local stand-ins designed to **maximally
-match the V2 interfaces**. Source-of-record pin: `hyperledger-labs/splice` @
-`token-standard-v2-upcoming` @ `1e34121b…` (historical preview `…-daml-preview`
-@ `b91de5d4…`; DARs + checksums in
-`canton-token-template/docs/CIP-0112-EXTENSION-PLAN.md`). Import remains gated
-(PLAN.md; `M4_AUCTION_SCOPE.md` §A); no public-API stability / conformance /
-release claim. `nextIterationFunding` is present in the standard but **disabled**
-here (single-round); it is the extension point for multi-round / bonding-curve
-variants.
+targeting the interfaces rather than DAR/package-ID pins, via local stand-ins
+designed to **maximally match the V2 interfaces**. The published V2 DARs are
+swapped in once the import gate clears; import remains gated, and no public-API
+stability / conformance / release claim is made. `nextIterationFunding` is
+present in the standard but **disabled** here (single-round); it is the
+extension point for multi-round / bonding-curve variants.
 
 ---
 
@@ -441,11 +495,15 @@ variants.
 | Privacy leakage / metadata front-running | Adversaries monitor a public mempool to front-run bids. | Canton has no public mempool; per-party projection keeps the `BidRequest` payload off the network; the sequencer sees the confirmation-tree shape, not contents; blast radius is bounded by a node's authorized visibility. |
 | Unauthorized seizure / unilateral burn | Compromised admin attempts to burn or redirect escrow. | D2 gated by the single `BurnerCapability`; failure never defaults to seizure — a failed `SettleBatch` leaves funds in their `Allocation`, returned to sender. |
 | Auctioneer embezzlement at settlement | Auctioneer manipulates routing to redirect payments. | `AllocationRequest`/leg routing is explicit; `SettlementFactory` enforces conservation at the Daml level — net outflow cannot exceed allocation and destinations must match the counter-signed routing; violating transactions are rejected. |
+| Dishonest clearing / unfair allocation | Trusted auctioneer sees all bids and computes a self-serving clearing price or favors a colluding bidder. | **Not mitigated by the conservation invariant** (which stops theft, not unfairness). Residual trust on the off-ledger clearing; commit-reveal / verifiable clearing is the mitigation if auctioneer trust is unacceptable (§7.4, §9). |
+| Stalling auctioneer (liveness) | Auctioneer never clears or releases, leaving escrow locked. | `settlementDeadline` is wired to the escrow `Allocation`; after it, `BidRequest_ForceRefundAfterDeadline` lets the bidder reclaim funds with no auctioneer signature (§3.5). |
 
 **Invariants:** (a) **conservation** — `SettleBatch` cannot output more value
 than its input `Allocation`s (sum in = sum out + change); (b) **confidentiality**
 — bid amount/parties are projected only to bidder, auctioneer, and the
-designated verifier.
+designated verifier; (c) **liveness** — past `settlementDeadline` every bidder
+can unilaterally reclaim escrow. Conservation/confidentiality do **not** imply
+clearing *honesty* or allocation *fairness* — see §7.4.
 
 ### 7.2 Validation Ladder
 
@@ -466,6 +524,37 @@ designated verifier.
 - **D3** — `zk-credential-gateway` + Shape-B `KycClaim` before bid acceptance;
   cross-domain deferred, SCU-forward-compatible.
 - **D4** — `oz-access-control` single-admin capability for M1; multi-sig → M3.
+
+> **D1 attestation is design-intent today.** The Shape-B per-leg attestation
+> requirement is the *intended* compliance gate; the base
+> `SettlementFactory_SettleBatch` path can settle a batch with **no** attestation,
+> and the typed node-attestation path
+> (`SettlementFactory_SettleBatchWithAttestation` + `TrustedAttesterRegistry`) is
+> the additive surface that turns the requirement on. Treat enforced D1 on the
+> auction settle path as a design commitment, not an already-closed gate.
+
+### 7.4 Trust model and fairness limits (and the commit-reveal option)
+
+As stated in §1.4, the design provides confidential *submission* but rests on a
+**trusted auctioneer** for clearing. The ledger invariants guarantee that no
+value is stolen and that losing bids are returned; they do **not** guarantee that
+the clearing price was computed honestly or that allocation among equal bids was
+fair. The two ways to address this, to be decided with the internal team:
+
+1. **Accept the trust** where the issuer is the auctioneer and bidders rely on the
+   issuer's clearing (the conservation + return-to-sender + liveness guarantees
+   already bound the damage to *unfairness*, never *theft* or *lock-up*).
+2. **Remove the trust with commit-reveal / verifiable clearing.** Bidders commit a
+   hash of `(bidAmount, bidPrice, nonce)` on `BidRequest` (an additive `Optional`
+   field — non-breaking SCU), reveal after `biddingDeadline`, and the clearing
+   choice re-derives winners/price on-ledger from the revealed bids so the
+   computation is checkable rather than asserted. This adds a reveal round and
+   non-revelation handling (forfeit / ignore) but yields ledger-auditable
+   fairness.
+
+The recommended path is to layer commit-reveal where auctioneer honesty cannot be
+assumed; the SCU-additive shape means the core single-round flow above does not
+change.
 
 ---
 
@@ -562,6 +651,30 @@ synchronizer before `SettleBatch`.
 
 ## 9. Open Questions
 
+These are decisions to settle with the internal team ahead of implementation. The
+auctioneer-trust decision is the one that shapes the design and should be opened
+early.
+
+- **Auctioneer trust → commit-reveal / verifiable clearing.** The central
+  decision (§1.4, §7.4): accept a trusted off-ledger auctioneer, or add
+  commit-reveal so clearing is ledger-verifiable and auctioneer honesty is not
+  assumed. Includes the non-revelation policy (forfeit escrow vs. ignore the
+  unrevealed bid) if commit-reveal is adopted.
+- **Tie-breaking at the clearing price.** When bids tie at the marginal price and
+  supply is insufficient for all, the allocation rule (pro-rata, time-priority,
+  random-with-seed, or issuer-chosen) is unspecified and is a primary fairness
+  lever for a launchpad — to be defined.
+- **Oversubscription / partial-fill allocation.** How an oversubscribed round
+  allocates the scarce token across winning bids (full-fill-by-rank vs. pro-rata
+  partial fills, and how partials interact with the single committed escrow
+  `Allocation`) is undesigned and must be specified.
+- **Auction-parameter / deadline policy.** Who sets `biddingDeadline` /
+  `settlementDeadline`, the minimum bidding window, and whether deadlines can be
+  extended (and under what authority) before clearing.
+- **Single-round, first-price scope.** The core is single-round first-price
+  (second-price is an off-ledger parameterization today). Multi-round / Dutch /
+  bonding-curve variants are out of scope and depend on the iterated-settlement
+  work below.
 - **Iterated-settlement extensions.** `nextIterationFunding` is disabled in this
   single-round design. Adapting it for continuous bonding curves / multi-round
   Dutch auctions requires formalizing how conservation is enforced over many
@@ -585,7 +698,7 @@ synchronizer before `SettleBatch`.
 ## References
 
 All interface, template, choice, and field names are grounded in real source in
-this workspace (verified 2026-06-24).
+this workspace.
 
 - **Settlement spine** `[IMPLEMENTED]` —
   `canton-specs/experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml`.
@@ -597,23 +710,7 @@ this workspace (verified 2026-06-24).
   `zk-credential-gateway/daml/src/ZkCredentialGateway/{GatedAction,Verification,Types}.daml`.
 - **Typed D3 identity (KycClaim, TrustedIssuerRegistry)** `[IMPLEMENTED]` —
   `canton-specs/experiments/identity-hook-shape-b/` and `identity-hook-upgrade-*/`.
-- **AL-7 primitives** `[IMPLEMENTED]` — `canton-specs` `access-control/`,
-  `ownable/`, `pausable/`.
-- **Decision authority (D1–D4), scope, SCU rule** — root
-  [`PLAN.md`](../../PLAN.md), [`AGENTS.md`](../../AGENTS.md), briefing
-  [`docs/research/RI_RESEARCH_BRIEFING.md`](../research/RI_RESEARCH_BRIEFING.md).
-- **Grant scope / milestones / deliverables (source of truth)** —
-  [`docs/research/canton-ecosystem-grant-proposal.md`](../research/canton-ecosystem-grant-proposal.md)
-  (PR #298, approved; CIP-56→CIP-0112 retarget) and the distilled
-  [`M4_AUCTION_SCOPE.md`](../../M4_AUCTION_SCOPE.md).
+- **Access-control / ownable / pausable primitives** `[IMPLEMENTED]` —
+  `canton-specs` `access-control/`, `ownable/`, `pausable/`.
 - **Token Standard V2 upstream** `[UPSTREAM]` — `hyperledger-labs/splice`
-  `token-standard-v2-upcoming` (import gated per PLAN.md).
-
-> **Removed in review:** the original draft cited external/non-workspace URLs
-> (iq.wiki, Halborn blog posts, the Canton white paper / digitalasset.com docs,
-> `cantonecosystem.com`, `srikanth-bitdynamics` GitHub, and — erroneously — an
-> unrelated 2003 software-engineering workshop paper on mediaTUM) as
-> authoritative sources. None are part of this workspace or an authoritative
-> spec; they were removed and replaced with the workspace-grounded references
-> above. See the review record in
-> [`../reviews/2026-06-24T23-05-38Z_REVIEW.md`](../reviews/2026-06-24T23-05-38Z_REVIEW.md).
+  `token-standard-v2-upcoming` (designed against the interfaces; import gated).

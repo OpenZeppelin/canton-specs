@@ -8,8 +8,6 @@ and the mock Token Standard V2 interface layer it builds on. Cross-synchronizer
 operation is out of scope (D3 deferred). Code references are line-anchored;
 refresh with `scripts/refresh-ri-anchors.sh`.
 
-> **Google Docs import:** `File → Open` this `.md`; headings drive the outline;
-> tables import cleanly.
 
 ## 1. Assets
 

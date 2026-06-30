@@ -17,11 +17,6 @@ recorded in
 those CIPs are settlement-interoperability criteria, not standalone CIP-56-token
 deliverables.
 
-> **Google Docs import:** paste this file into Docs with *Edit → Paste* after
-> *File → Open* of the `.md`, or use a Markdown add-on. Headings (H1/H2/H3) drive
-> the Docs outline pane; the tables below import cleanly; apply a monospace
-> paragraph style to the fenced code blocks after import.
-
 > **Source-grounding tags used throughout:**
 > `[IMPLEMENTED]` real code in the M1 base — the CIP-0112 settlement RI scaffold
 > in **this repo** (`canton-specs`,
@@ -43,7 +38,7 @@ deliverables.
 
 The OpenZeppelin Canton M1 reference implementation targets the **Canton Network
 Token Standard V2 (CIP-0112)** settlement surface, replacing the superseded
-CIP-0056 token foundation (root `PLAN.md` Decision Log S1). The goal of M1 is
+CIP-0056 token foundation. The goal of M1 is
 not a production DeFi application but a **scope-locked settlement primitive**
 that can later enter audit-readiness review, plus a deep settlement exemplar
 that proves the library against a real consumer. CIP-86 / CIP-103 / CIP-104 are

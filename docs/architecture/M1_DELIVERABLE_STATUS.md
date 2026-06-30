@@ -28,7 +28,7 @@ built in M1.
 - [x] ✅ **Audit-readiness package + threat model** — [`cip0112-audit-readiness.md`](./cip0112-audit-readiness.md), [`cip0112-threat-model.md`](./cip0112-threat-model.md)
 - [x] ✅ Four RI architecture reports (living documents) — [`../ri-reports/`](../ri-reports/)
 - [x] ✅ CIP-0086/0103/0104 interop acceptance criteria — [`cip0086-cip0103-cip0104-m1-acceptance.md`](./cip0086-cip0103-cip0104-m1-acceptance.md)
-- [x] ✅ Library foundation reused (AL-7) — `oz-access-control` / `oz-ownable` / `oz-pausable` from `canton-contracts`
+- [x] ✅ Library foundation reused — `oz-access-control` / `oz-ownable` / `oz-pausable` from `canton-contracts`
 
 ## Still pending (gated or deferred — NOT closed by this work)
 

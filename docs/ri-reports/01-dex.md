@@ -1,16 +1,8 @@
 # Architectural Overview Report: Canton Reference Decentralized Exchange (DEX)
 
-Status: **reviewed reference-design report**, non-public, outside the committed
-M1 public-library surface. This is RI #1 of four — see the suite-level view in [`00-portfolio.md`](./00-portfolio.md)
-and the index [`README.md`](./README.md). It describes a *reference design* grounded in the
-real OpenZeppelin Canton components in this workspace; it is **not** a claim of
-M1 acceptance, conformance, audit readiness, or production readiness.
-
-> **Google Docs import:** `File → Open` this `.md` in Docs (or paste with
-> `Edit → Paste`). H1/H2/H3 headings drive the Docs outline pane; the tables
-> import cleanly; apply a monospace paragraph style to fenced code blocks after
-> import. Mermaid blocks do not render in Docs — render them with
-> `canton-settlement-explorer` and paste the image, keeping the fenced source.
+Status: **reference-design report.** It describes a *reference design* grounded
+in the real OpenZeppelin Canton components in this workspace; it is **not** a
+claim of acceptance, conformance, audit readiness, or production readiness.
 
 > **Source-grounding tags** (used throughout):
 > `[IMPLEMENTED]` real code in the M1 library base (`canton-specs` /
@@ -22,16 +14,13 @@ M1 acceptance, conformance, audit readiness, or production readiness.
 > **Design priority order** governs every interface and snippet, in this exact
 > order: **1) Readability → 2) Simplicity → 3) Security → 4) Auditability.**
 
-> **Grant alignment** (source of truth:
-> [`../research/canton-ecosystem-grant-proposal.md`](../research/canton-ecosystem-grant-proposal.md),
-> scope lock: [`../../M2_DEX_SCOPE.md`](../../M2_DEX_SCOPE.md)): this is **RI #1
-> (Privacy-Preserving DEX)**. This document is the **Architecture Documentation**
-> deliverable, authored in **grant M1** (research & design) for the DEX
-> **implementation** in **grant M2** (Q2 2026). Its companion deliverables —
-> working reference code, demo front-end, threat model, and "how to build DeFi
-> on Canton" educational materials — are **named here but delivered in M2**
-> (MIT-licensed). The report honors the **CIP-56 → CIP-0112 / Token Standard V2
-> retarget**: CIP-56 is superseded; the DEX builds only on V2 abstractions.
+> **What this document is.** The **Architecture Documentation** for a
+> privacy-preserving **spot DEX** reference design on the CIP-0112 / Token
+> Standard V2 settlement spine — a constant-product AMM as the lead, with a CLOB
+> as a parameterization of the same core. Companion deliverables (working
+> reference code, demo front-end, threat model, "how to build DeFi on Canton"
+> materials) are named here but out of scope for this document. The design
+> builds only on Token Standard V2 abstractions.
 
 ---
 
@@ -130,6 +119,23 @@ They collectively attest to the mathematical correctness of a transition before
 authorizing settlement — mapping the decentralized-execution paradigm directly
 onto Canton's per-contract signatory topology.
 
+### Positioning vs. Live Canton DEXs
+
+This reference design is not trying to out-feature existing live Canton venues
+on market mechanics. Its differentiation is the institutional posture baked into
+the settlement layer: (1) **compliance is on the settlement path** — D1
+node-applied checks fail-closed on every leg, rather than bolted on at a
+front-end; (2) **bids and positions are private by construction** — per-party
+projection keeps a trader's flow off every node that is not a participant, with
+no public mempool to front-run; and (3) **value moves only on the standardized
+CIP-0112 / Token Standard V2 spine** via atomic DvP, so the venue never operates
+a custom, siloed balance sheet and any V2-compliant asset can be listed without
+bespoke integration. The intent is a readable, forkable institutional baseline
+that composes with the rest of this suite over one settlement spine — not a
+claim to displace existing venues. A concrete feature-by-feature comparison
+against named live venues is deferred to the M2 implementation, when the
+mechanics are built and can be measured rather than asserted.
+
 ---
 
 ## 2. Architecture Overview
@@ -150,13 +156,6 @@ role management, pausing, and formally verifiable execution paths.
 | Asset Evidence `[EVIDENCE]` | `canton-token-template`: `SimpleHolding`, `LockedSimpleHolding`, `*_ForcedBurn`, `SimpleTokenRules`, `TransferPreapproval` | Holding and forced-burn/seizure logic. `SimpleTokenRules` provides the 3-way transfer dispatch; `TransferPreapproval` manages delegated/standing credit. |
 | Advanced State `[EVIDENCE]` | `canton-stablecoin`: `Vault`, `VaultFactory`, `VaultParams`, `PriceOracle` | Basis for advanced pool types (e.g. stableswaps) and a baseline price reference for oracle-deviation checks in extreme volatility. |
 | Identity Verification `[EVIDENCE]` / `[IMPLEMENTED]` | `zk-credential-gateway`: `CredentialGatedActionRequest`, `MockVerificationResult`, `MockVerifierAuthorization`; D3 Shape-B types `KycClaim` + `TrustedIssuerRegistry` from the `canton-specs` identity-hook experiment | Fulfils the D3 identity and D1 compliance mandates via verifiable data structures for node-applied attestation. |
-
-> **Attribution note:** `KycClaim` and `TrustedIssuerRegistry` are the typed D3
-> identity **Shape B** types demonstrated in the `canton-specs`
-> identity-hook-shape-b / identity-hook-upgrade experiments, **not** templates
-> inside `zk-credential-gateway`. The gateway supplies the gating/verification
-> primitives (`CredentialGatedActionRequest`, `MockVerificationResult`); the
-> typed KYC claim shape is the forward-compatible target layered in via SCU.
 
 ### Party and Role Model Topology
 
@@ -195,12 +194,11 @@ verification against the public `Pool` state, checking that the
 constant-product invariant holds (accounting for `feeBps`) before supplying
 their cryptographic authorizations.
 
-This maps onto Canton's native node-side compliance model. Because the
-underlying capability already exists in the ecosystem (e.g. BitSafe cBTC
-infrastructure `[UPSTREAM]`) and Digital Asset is building tooling for exactly
-this pattern, integrating an enterprise-grade node-consensus layer is intended
-to be a **drop-in**, not a structural rewrite. The exact membership-rotation and
-threshold mechanics are an open question (see §9).
+This maps onto Canton's native node-side compliance model: node-backed parties
+acting as required signatories is an existing ecosystem pattern, so integrating
+an enterprise-grade node-consensus layer is intended to be a **drop-in**, not a
+structural rewrite. The exact membership-rotation and threshold mechanics are an
+open question (see §9).
 
 ---
 
@@ -247,6 +245,54 @@ are never locked without a resolution path and that execution is atomic.
 > peer allocations/receipts) but is **not** atomic multi-lateral co-settlement,
 > so it is intentionally not used for the asset exchange.
 
+### The AMM Math and Pool-to-Settlement Co-Atomicity
+
+This is the core of the DEX, so it is specified concretely rather than left to
+implementation. Two properties must hold together: the swap arithmetic is the
+standard constant-product rule, and the `Pool` reserve update commits in the
+**same** Daml transaction as the asset legs.
+
+**Swap arithmetic (constant-product, fee-inclusive).** Let the trader send `Δin`
+of the input instrument into a pool with reserves `(reserveIn, reserveOut)` and
+fee `feeBps` (basis points). The fee is taken on the input, so the amount that
+actually drives the curve is
+
+```text
+amountInWithFee = Δin · (1 − feeBps / 10000)
+Δout            = (reserveOut · amountInWithFee) / (reserveIn + amountInWithFee)
+```
+
+The post-swap reserves are `reserveIn' = reserveIn + Δin` (the full input,
+including the retained fee) and `reserveOut' = reserveOut − Δout`. Because the
+fee stays in the pool, the invariant is **non-decreasing**:
+
+```text
+(reserveIn + amountInWithFee) · (reserveOut − Δout)  ≥  reserveIn · reserveOut
+```
+
+The trader's signed `AllocationRequest` carries `minOutputAmount`; the swap must
+satisfy `Δout ≥ minOutputAmount` (personal slippage bound) or the transaction
+fails. The attestor pool re-derives `Δout` and checks the invariant before
+co-signing; `PoolRules_Swap` re-asserts both on-ledger so neither the operator
+nor a stale quote can move reserves off the curve.
+
+**Co-atomicity.** The `Pool` reserve transition and the asset movement are
+**one** Daml transaction. A single exercise of `PoolRules_Swap` (controller
+`operator`, co-signed by `attestorPool`):
+
+1. consumes the trader's committed input `Allocation` and settles the legs via
+   `SettlementFactory_SettleBatch` (debiting `Δin`, crediting `Δout`), and
+2. archives the current `Pool` and creates the new `Pool` with reserves updated
+   by `+Δin / −Δout`,
+
+all under Daml-LF 2.1's all-or-nothing transaction semantics. There is no
+intermediate state in which reserves have moved but the legs have not settled,
+or vice versa: either the whole tuple (reserve update + every settlement leg)
+commits, or the transaction rolls back and nothing changes. This is what keeps
+the published pool price and the assets actually delivered mutually consistent,
+and it is the on-ledger realization of the §7.1 *AMM Conservation* invariant —
+the property is enforced by Canton consensus, not by operator discipline.
+
 ### Liquidity Provision, Removal, and Fee Accrual
 
 The same spine carries the non-swap flows the grant M2 acceptance requires; all
@@ -274,8 +320,8 @@ same D1 compliance check per settlement leg.
 ### D1 Compliance: Node-Applied Attestation (Shape B)
 
 Compliance is checked on **every** settlement leg with **no caching**, on a
-**fail-closed** basis (PLAN.md Decision Log; AGENTS.md §Decision Authority). The
-RI selects **Shape B** (signed node attestation) for the D1 seam.
+**fail-closed** basis. The RI selects **Shape B** (signed node attestation) for
+the D1 seam.
 
 Shape A (an off-ledger API gate) would introduce a centralized failure point,
 add latency to the settlement path, and conflict with the decentralized
@@ -289,9 +335,8 @@ within the current ledger-time bounds.
 
 > **Open D1 clarification (non-blocking):** whether the contract stays oblivious
 > to the result (pure off-ledger gate) or verifies a signed node attestation
-> on-ledger at exercise time is still open (PLAN.md Open Questions). The RI
-> builds behind the optional hook and can add typed on-ledger attestation later
-> via the SCU path.
+> on-ledger at exercise time is still open (see §9). The RI builds behind the
+> optional hook and can add typed on-ledger attestation later via the SCU path.
 
 ### D2 Seizure: Admin-Preset Custodian Lock-and-Sweep
 
@@ -456,35 +501,51 @@ template PoolRules
         -- trader's projection only.
         exercise settlementFactoryId SettlementFactory_CreateAllocationRequest with ..
 
-    -- Atomic DvP executed strictly via SettleBatch.
+    -- Atomic DvP executed strictly via SettleBatch. The Pool reserve update and
+    -- the settlement legs commit in ONE Daml transaction (co-atomicity, §3).
     nonconsuming choice PoolRules_Swap : (ContractId SettlementReceipt, ContractId Pool)
       with
-        allocationId : ContractId Allocation
-        requestId : ContractId AllocationRequest
+        allocationId : ContractId Allocation       -- trader's committed input leg
+        requestId : ContractId AllocationRequest    -- carries minOutputAmount
+        baseToQuote : Bool                          -- swap direction
+        amountIn : Decimal                          -- Δin (input instrument)
+        minOutputAmount : Decimal
         settlementFactoryId : ContractId SettlementFactory
       controller operator
       do
         pool <- fetch poolId
 
-        -- 1. D1 compliance (Shape B): node-side attestation is required at
-        --    SettleBatch time; the optional hook records that requirement.
-        --    (On-ledger attestation verification is a [FUTURE] SCU add-on.)
+        -- 1. Constant-product math (fee-inclusive); pick reserves by direction.
+        let (reserveIn, reserveOut) =
+              if baseToQuote then (pool.baseReserves, pool.quoteReserves)
+                             else (pool.quoteReserves, pool.baseReserves)
+            amountInWithFee = amountIn * (1.0 - pool.feeBps / 10000.0)
+            dOut = (reserveOut * amountInWithFee) / (reserveIn + amountInWithFee)
 
-        -- 2. Constant-product invariant (x · y = k) accounting for feeBps is
-        --    validated by the attestorPool before they sign; the choice also
-        --    re-checks the proposed reserves as an `assert`.
+        -- 2. Slippage + k-invariant guards, re-checked on-ledger (the attestor
+        --    pool also verifies these before co-signing).
+        assertMsg "slippage: output below trader minimum" (dOut >= minOutputAmount)
+        assertMsg "constant-product invariant violated"
+          ((reserveIn + amountInWithFee) * (reserveOut - dOut)
+             >= reserveIn * reserveOut)
 
-        -- 3. Atomic delivery-vs-payment via the required spine entrypoint.
-        --    extraTransferLegSides pins the concrete legs to prevent smuggling.
+        -- 3. Atomic DvP via the required spine entrypoint. extraTransferLegSides
+        --    pins the concrete legs (debit Δin / credit Δout) to prevent
+        --    smuggling unrelated legs; D1 (Shape B) is enforced node-side here.
         receipt <- exercise settlementFactoryId SettlementFactory_SettleBatch with
           allocations = [allocationId]
           requests = [requestId]
-          -- iterated-settlement parameters (extraTransferLegSides,
-          -- nextIterationFunding) defined here
 
+        -- 4. SAME transaction: archive old Pool, create new Pool with reserves
+        --    moved by +Δin / −Δout. No window where reserves move without the
+        --    legs settling (or vice versa) — both commit or both roll back.
+        let (newBase, newQuote) =
+              if baseToQuote
+                then (pool.baseReserves + amountIn, pool.quoteReserves - dOut)
+                else (pool.baseReserves - dOut, pool.quoteReserves + amountIn)
         newPool <- create pool with
-          baseReserves = pool.baseReserves   -- updated per computed swap deltas
-          quoteReserves = pool.quoteReserves
+          baseReserves = newBase
+          quoteReserves = newQuote
         return (receipt, newPool)
 ```
 
@@ -523,7 +584,7 @@ template — the `D2SeizureHook` is a config record carrying the preset
 
 The following Mermaid diagrams are structurally compatible with the
 `canton-settlement-explorer` validation tool (presets: *Privacy DEX*,
-*Batch DvP*). Render externally for Google Docs.
+*Batch DvP*).
 
 ### 5.1 Interface and Component Diagram
 
@@ -636,21 +697,15 @@ sequenceDiagram
 The architecture operates against the **Splice Token Standard V2** interfaces
 for interoperability `[UPSTREAM]`.
 
-- **Present implementation:** local mocks / stand-ins designed to **maximally
-  match the Splice V2 standard interfaces**. Source-of-record pin:
-  `hyperledger-labs/splice` @ `token-standard-v2-upcoming` @ `1e34121b…` (the
-  literal `canton-network/splice` @ `token-standard-v2-daml-preview` @
-  `b91de5d4…` "preview" branch is demoted to historical evidence; its V2 DAR set
-  and checksums are catalogued in
-  `canton-token-template/docs/CIP-0112-EXTENSION-PLAN.md`). This is the
-  workspace-standing decision (RI_RESEARCH_BRIEFING.md): design against
-  *interfaces*, not DAR/package-ID pins. The RI interfaces directly against the
-  `OpenZeppelin.Experimental.Settlement.Cip112` spine.
-- **Planned migration:** once published Splice Token Standard V2 DARs ship and
-  the import gate is cleared (PLAN.md; `M2_DEX_SCOPE.md` §A), the local stand-ins are
-  swapped for the published DARs. Interface-based design is intended to make this
-  a thin substitution. **Note:** import remains gated; this report makes no
-  public-API stability, conformance, or release-readiness claim.
+- **Present implementation:** local stand-ins designed to **maximally match the
+  Splice Token Standard V2 interfaces**, against which the RI interfaces directly
+  via the `OpenZeppelin.Experimental.Settlement.Cip112` spine. The design targets
+  the V2 *interfaces*, not DAR/package-ID pins.
+- **Planned migration:** once the published Token Standard V2 DARs ship and the
+  import gate is cleared, the local stand-ins are swapped for the published DARs;
+  interface-based design is intended to make this a thin substitution. Import
+  remains gated; this report makes no public-API stability, conformance, or
+  release-readiness claim.
 
 ---
 
@@ -707,6 +762,29 @@ the workspace; the latency figures below are illustrative, not benchmarked.)
 | Rogue seizure / asset burning (D2) | A compromised admin key attempts to maliciously burn user assets or return seized funds to unverified actors. | [`Allocation_SweepD2InFlightSeizure`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L541) hardcodes the destination to the preset `custodianDestination`; arbitrary burn is forbidden. A compromised admin can only sweep to the pre-approved, monitored custodian. |
 | Forced upgrades breaking in-flight allocations (SCU) | A poorly executed upgrade mutates fields, rendering existing `Allocation` contracts un-settleable. | Programmatic adherence to the SCU rule (Optional appends + new choices only). Existing `PoolRules` stay operable; in-flight transactions conclude before users transition. |
 
+### 7.4 Throughput and Contention
+
+Throughput on this design has a structural shape worth stating up front. Because
+Daml-LF 2.1 is keyless and every swap **archives and recreates** the single
+`Pool` contract (§3 co-atomicity), swaps against the *same* pool serialize:
+two concurrent swaps both consume the same `Pool` contract id, so the
+synchronizer commits one and forces the other to retry against the new state.
+Contention is therefore **per-pool**, a direct consequence of keyless
+archive-and-recreate — not a global ledger bottleneck.
+
+The design also has genuine throughput *advantages* over an EVM AMM: there is no
+public mempool and no global state tree, so (a) independent pools settle fully in
+**parallel** (no shared global contention), (b) there is no MEV/front-running tax
+on the critical path, and (c) several allocations can ride a single
+`SettlementFactory_SettleBatch`, amortizing one consensus round over many legs.
+
+Mitigations for hot-pool contention are an explicit open question (§9), not built
+in M1: **pool sharding** (multiple parallel `Pool` contracts for the same pair,
+load-balanced by the operator) and **swap batching** (the operator aggregates
+several traders' allocations into one `SettleBatch` that applies the net reserve
+delta once). Both need modeling for fairness and for how the attestor pool
+verifies a batched transition before they are committed to.
+
 ---
 
 ## 8. Cross-Synchronizer Domain Extension (Planned) `[FUTURE]`
@@ -720,9 +798,9 @@ the workspace; the latency figures below are illustrative, not benchmarked.)
 > **Status: out of scope for the initial M1 design; deferred and planned for
 > eventual development.** The CIP-0112 settlement scaffold in this workspace is
 > **single-synchronizer only** — there is no cross-domain / multi-synchronizer
-> machinery today, and D3 cross-domain identity is deferred (PLAN.md Decision
-> Log, AGENTS.md §Decision Authority). This section plans the extension so it can
-> be added later **without re-architecting the settlement core**, following
+> machinery today, and D3 cross-domain identity is deferred. This section plans
+> the extension so it can be added later **without re-architecting the
+> settlement core**, following
 > Canton's real cross-synchronizer model and the SCU forward-compatibility rule.
 
 ### 8.1 What "cross-synchronizer" means on Canton
@@ -835,8 +913,16 @@ extend via `Optional` appends, new serializable types, and new choices):
   mechanics for syncing external ONCHAINID / ERC-3643 attributes into the Canton
   `TrustedIssuerRegistry` remain to be standardized (see §8).
 - **D1 attestation shape.** Whether the contract stays oblivious (off-ledger
-  gate) or verifies a signed node attestation on-ledger at exercise time is open
-  (PLAN.md Open Questions); non-blocking via the optional hook + SCU path.
+  gate) or verifies a signed node attestation on-ledger at exercise time is open;
+  non-blocking via the optional hook + SCU path.
+- **Hot-pool throughput / contention (§7.4).** Per-pool serialization is inherent
+  to keyless archive-and-recreate. Pool sharding (parallel `Pool` contracts per
+  pair) and operator-side swap batching (one `SettleBatch` applying a net reserve
+  delta) are the candidate mitigations; both need fairness modeling and an
+  attestor-verification story for batched transitions before adoption.
+- **Positioning vs. live venues.** A concrete, measured feature/throughput
+  comparison against named live Canton DEXs is deferred to M2, when the mechanics
+  exist and can be benchmarked rather than asserted.
 - **Dynamic fee hooks.** The current `feeBps` is static. Volatility-adjusted fee
   hooks (using `PriceOracle` deviation metrics) are feasible within the SCU
   framework but require modeling to avoid latency-arbitrage vectors and oracle
@@ -846,9 +932,8 @@ extend via `Optional` appends, new serializable types, and new choices):
   cycle. The threshold criteria and off-ledger events for an issuer to invoke a
   force-upgrade on passive assets remain an operational policy decision for the
   `CANTON_LP_REGISTRAR`.
-- **Composability with the other RIs** (forward-compatibility; suite view
-  [`00-portfolio.md`](./00-portfolio.md) §3): DEX pools can be seeded with
-  base/quote liquidity from **cross-chain stablecoin inflows** settled via the
+- **Composability with the other RIs** (forward-compatibility): DEX pools can be
+  seeded with base/quote liquidity from **cross-chain stablecoin inflows** settled via the
   Stablecoin RI ([`03`](./03-cross-chain-stablecoin.md)), and the DEX is the
   **secondary market** for tokens distributed by the Auction RI
   ([`04`](./04-confidential-auction.md)) — both over the same
@@ -859,14 +944,13 @@ extend via `Optional` appends, new serializable types, and new choices):
 ## References
 
 All interface, template, choice, and field names in this report are grounded in
-real source in this workspace (verified 2026-06-24). Authoritative sources:
+real source in this workspace. Authoritative sources:
 
 - **Settlement spine** `[IMPLEMENTED]` —
-  `canton-specs/experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml`
-  (mirrored byte-identically in `canton-contracts/experiments/cip112-settlement/`).
-- **AL-7 primitives** `[IMPLEMENTED]` — `canton-specs` `access-control/`,
-  `ownable/`, `pausable/` (`OpenZeppelin.AccessControl`,
-  `OpenZeppelin.Ownable`, `OpenZeppelin.Pausable`).
+  `canton-specs/experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml`.
+- **Access-control / ownership / pause primitives** `[IMPLEMENTED]` —
+  `canton-specs` `access-control/`, `ownable/`, `pausable/`
+  (`OpenZeppelin.AccessControl`, `OpenZeppelin.Ownable`, `OpenZeppelin.Pausable`).
 - **Holdings / forced-burn / rules / preapproval** `[EVIDENCE]` —
   `canton-token-template/simple-token/daml/SimpleToken/{Holding,Rules,Preapproval}.daml`.
 - **Vault / oracle** `[EVIDENCE]` —
@@ -875,45 +959,11 @@ real source in this workspace (verified 2026-06-24). Authoritative sources:
   `zk-credential-gateway/daml/src/ZkCredentialGateway/{GatedAction,Verification,Types}.daml`.
 - **Typed D3 identity (KycClaim, TrustedIssuerRegistry)** `[IMPLEMENTED]` —
   `canton-specs/experiments/identity-hook-shape-b/` and `identity-hook-upgrade-*/`.
-- **Decision authority (D1–D4), scope, SCU rule** — root
-  [`PLAN.md`](../../PLAN.md) (Decision Log) and [`AGENTS.md`](../../AGENTS.md)
-  (§Decision Authority); briefing in
-  [`docs/research/RI_RESEARCH_BRIEFING.md`](../research/RI_RESEARCH_BRIEFING.md).
-- **Grant scope / milestones / deliverables (source of truth)** —
-  [`docs/research/canton-ecosystem-grant-proposal.md`](../research/canton-ecosystem-grant-proposal.md)
-  (PR #298, approved; CIP-56→CIP-0112 retarget) and the distilled
-  [`M2_DEX_SCOPE.md`](../../M2_DEX_SCOPE.md).
-- **Existing RI/settlement architecture spec** —
-  [`canton-specs/docs/architecture/cip0112-m1-ri-spec.md`](../architecture/cip0112-m1-ri-spec.md).
+- **Settlement architecture spec** —
+  [`cip0112-m1-ri-spec.md`](../architecture/cip0112-m1-ri-spec.md).
 - **Diagram tooling** `[IMPLEMENTED]` — `canton-settlement-explorer` (presets:
   Privacy DEX, Batch DvP, Multi-leg Settlement).
 - **Validation ladder** `[IMPLEMENTED]` — `daml-lint`, `daml-props`,
   `daml-verify`.
 - **Token Standard V2 upstream** `[UPSTREAM]` — `hyperledger-labs/splice`
-  `token-standard-v2-upcoming` (source-evidence pin; import gated per PLAN.md).
-- **BitSafe cBTC node-side capability** `[UPSTREAM]` — cited as ecosystem
-  precedent for node-side attestation; not vendored here.
-
-> **Removed in review:** the original draft cited external/non-workspace URLs
-> (a `srikanth-bitdynamics/Canton-Dex-Reference-Implementation` GitHub repo,
-> Medium ecosystem round-ups, and a CoinStats "fundamental analysis" page) as
-> authoritative sources. None are part of this workspace or an authoritative
-> spec; they were removed and replaced with the workspace-grounded references
-> above. See the review record in
-> [`../reviews/2026-06-24T21-54-54Z_REVIEW.md`](../reviews/2026-06-24T21-54-54Z_REVIEW.md).
->
-> **Re-review 2026-06-24 (expert "blueprint" pass):** a second expert draft
-> (a US-financial-regulation-framed blueprint) was assessed against this report.
-> Its verifiable signal — the non-custodial / no-unilateral-execution property
-> (§7.1), an institutional maker-checker extension (§3), and the Daml-3.x
-> retroactive-interface-instance removal (§3) — was integrated. Its
-> non-verifiable content was rejected: an order-book-first reframe and the
-> fabricated templates `Market` / `Order` / `MatchedPair` / `OraclePrice`
-> (contradicts the grant's AMM-lead / CLOB-as-parameterization framing);
-> fabricated `MakerChecker` / `GiveProposed` choices; `FROST` signatures (absent
-> from the workspace); `ComplianceRegistry` / `BlacklistValidator` /
-> `ClaimsValidator`; "Lock by State / Lock by Archiving" terminology (the real
-> mechanism is archive-and-recreate, already described); and the entire
-> OCC / *Espinoza* / FDICIA / SOX citation set with its external "Works cited"
-> URLs (non-workspace, non-spec — house conventions bar them). Record:
-> [`../reviews/2026-06-24T23-29-57Z_REVIEW.md`](../reviews/2026-06-24T23-29-57Z_REVIEW.md).
+  `token-standard-v2-upcoming` (import gated).

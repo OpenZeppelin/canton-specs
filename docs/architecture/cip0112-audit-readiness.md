@@ -9,14 +9,12 @@ promotion gates in
 land. Companion: [`cip0112-threat-model.md`](./cip0112-threat-model.md). Code
 references are line-anchored; refresh with `scripts/refresh-ri-anchors.sh`.
 
-> **Google Docs import:** `File → Open` this `.md`; headings drive the outline;
-> tables import cleanly.
 
 ## 1. Scope under review
 
 - The settlement scaffold [`OpenZeppelin.Experimental.Settlement.Cip112`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml).
 - The mock Token Standard V2 interface layer [`token-standard-v2-mock`](../../experiments/token-standard-v2-mock/daml/OpenZeppelin/Experimental/TokenStandard/V2/Holding.daml) (viewtype-only interfaces; data shapes mirror `splice-api-token-*-v2`).
-- The consumed AL-7 library (`oz-access-control` / `oz-ownable` / `oz-pausable`), reviewed on its own merits in `canton-contracts`.
+- The consumed access-control library (`oz-access-control` / `oz-ownable` / `oz-pausable`), reviewed on its own merits in `canton-contracts`.
 - The deep exemplar [`settlement-exemplar`](../../experiments/settlement-exemplar/daml/OpenZeppelin/Experimental/Settlement/Exemplar.daml).
 
 Out of scope: real Splice DAR import, cross-synchronizer operation (D3),

@@ -7,10 +7,6 @@ production readiness. Per-RI detail lives in the individual reports; this doc is
 the "one layer above" view — the shared core, how the RIs compose, the cumulative
 scope, the shared cross-synchronizer model, and the library-extraction map.
 
-> **Google Docs import:** `File → Open` this `.md` in Docs (or paste with
-> `Edit → Paste`); H1/H2/H3 drive the outline; tables import cleanly; apply a
-> monospace style to fenced blocks; render Mermaid externally.
-
 > **Source-grounding tags:** `[IMPLEMENTED]` (M1 base: `canton-specs` /
 > `canton-contracts`) · `[EVIDENCE]` (evidence repo) · `[UPSTREAM]` (Splice / CIP
 > / external) · `[FUTURE]` (proposed RI-level design, not M1 scope).
@@ -23,22 +19,18 @@ Four RIs, one shared settlement core, delivered across grant milestones. Each is
 an **Architecture Documentation** deliverable authored in **grant M1**; the
 implementations land in the milestones below.
 
-| # | RI | Report | Scope lock | Impl. milestone |
-|---|----|--------|-----------|-----------------|
-| 1 | Privacy-Preserving DEX | [`01-dex.md`](./01-dex.md) | [`M2_DEX_SCOPE.md`](../../M2_DEX_SCOPE.md) | M2 (Q2 2026) |
-| 2 | Lending Protocol (vault-based) | [`02-lending.md`](./02-lending.md) | [`M3_LENDING_SCOPE.md`](../../M3_LENDING_SCOPE.md) | M3 (Q3 2026) |
-| 3 | Cross-Chain Stablecoin Payment Orchestration | [`03-cross-chain-stablecoin.md`](./03-cross-chain-stablecoin.md) | [`M4_STABLECOIN_SCOPE.md`](../../M4_STABLECOIN_SCOPE.md) | M4 (Q4 2026) |
-| 4 | Confidential Auction Launchpad | [`04-confidential-auction.md`](./04-confidential-auction.md) | [`M4_AUCTION_SCOPE.md`](../../M4_AUCTION_SCOPE.md) | M4 (Q4 2026) |
-
-Sources of truth (precedence): `AGENTS.md` + `PLAN.md` → the per-RI scope lock →
-[`../research/canton-ecosystem-grant-proposal.md`](../research/canton-ecosystem-grant-proposal.md)
-(grant; CIP-56→CIP-0112 retarget) → `../research/RI_RESEARCH_BRIEFING.md`.
+| # | RI | Report | Impl. milestone |
+|---|----|--------|-----------------|
+| 1 | Privacy-Preserving DEX | [`01-dex.md`](./01-dex.md) | M2 (Q2 2026) |
+| 2 | Lending Protocol (vault-based) | [`02-lending.md`](./02-lending.md) | M3 (Q3 2026) |
+| 3 | Cross-Chain Stablecoin Payment Orchestration | [`03-cross-chain-stablecoin.md`](./03-cross-chain-stablecoin.md) | M4 (Q4 2026) |
+| 4 | Confidential Auction Launchpad | [`04-confidential-auction.md`](./04-confidential-auction.md) | M4 (Q4 2026) |
 
 ## 2. The shared foundation (identical across all four)
 
 Every RI sits on the **same** core and inherits the **same** decided rails — so
 these are described once here and only elaborated per-RI where the application
-differs. (Owners: `PLAN.md` Decision Log, `AGENTS.md` §Decision Authority.)
+differs.
 
 - **Settlement spine** `[IMPLEMENTED]` —
   [`OpenZeppelin.Experimental.Settlement.Cip112`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml).
@@ -47,7 +39,7 @@ differs. (Owners: `PLAN.md` Decision Log, `AGENTS.md` §Decision Authority.)
   (one Daml transaction over many allocations); the direct
   [`Allocation_Settle`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L462)
   path proves authorization, not atomic co-settlement. CIP-56 is superseded.
-- **AL-7 primitives** `[IMPLEMENTED]` —
+- **Access-control primitives** `[IMPLEMENTED]` —
   [`oz-access-control`](../../access-control/daml/OpenZeppelin/AccessControl.daml) /
   [`oz-ownable`](../../ownable/daml/OpenZeppelin/Ownable.daml) /
   [`oz-pausable`](../../pausable/daml/OpenZeppelin/Pausable.daml), via the
@@ -67,9 +59,10 @@ differs. (Owners: `PLAN.md` Decision Log, `AGENTS.md` §Decision Authority.)
 - **SCU rule:** never mutate an existing choice's args to require a new field;
   extend via appended `Optional` fields, new serializable types, and new choices.
 - **Priority order:** Readability → Simplicity → Security → Auditability.
-- **Splice V2 source (import GATED):** `hyperledger-labs/splice` @
-  `token-standard-v2-upcoming` @ `1e34121b…` (historical preview
-  `canton-network/splice` @ `token-standard-v2-daml-preview` @ `b91de5d4…`).
+- **Token Standard V2 (import GATED):** designed against the Splice Token
+  Standard V2 interfaces (`hyperledger-labs/splice` `token-standard-v2-upcoming`);
+  local stand-ins are used until the published DARs ship and the import gate
+  clears.
 - **Typed D3 identity** — `KycClaim` + `TrustedIssuerRegistry` are the
   `canton-specs` identity-hook **Shape-B** types `[IMPLEMENTED]` (experimental),
   **not** `zk-credential-gateway` templates. The gateway supplies the gating /
@@ -116,10 +109,10 @@ business logic is `[FUTURE]` (⬜), built in its impl. milestone:
 
 | RI | Reuses shared spine | RI-specific business logic | Detail |
 |---|---|---|---|
-| DEX | ✅ spine + AL-7 | ⬜ constant-product AMM, swap, LP, fees | [`01` Code Map](./01-dex.md#implementation-status-code-map) |
-| Lending | ✅ spine + AL-7 | ⬜ vault, interest accrual, liquidation engine | [`02` Code Map](./02-lending.md#implementation-status-code-map) |
-| Stablecoin | ✅ spine + AL-7 | ⬜ cross-chain orchestration, messaging gateway, cross-synchronizer | [`03` Code Map](./03-cross-chain-stablecoin.md#implementation-status-code-map) |
-| Auction | ✅ spine + AL-7 | ⬜ sealed-bid commit-reveal, confidential clearing | [`04` Code Map](./04-confidential-auction.md#implementation-status-code-map) |
+| DEX | ✅ spine + access-control | ⬜ constant-product AMM, swap, LP, fees | [`01` Code Map](./01-dex.md#implementation-status-code-map) |
+| Lending | ✅ spine + access-control | ⬜ vault, interest accrual, liquidation engine | [`02` Code Map](./02-lending.md#implementation-status-code-map) |
+| Stablecoin | ✅ spine + access-control | ⬜ cross-chain orchestration, messaging gateway, cross-synchronizer | [`03` Code Map](./03-cross-chain-stablecoin.md#implementation-status-code-map) |
+| Auction | ✅ spine + access-control | ⬜ sealed-bid commit-reveal, confidential clearing | [`04` Code Map](./04-confidential-auction.md#implementation-status-code-map) |
 
 ## 3. How the four compose (inter-RI relationships)
 
@@ -208,43 +201,33 @@ tooling maturity (evolving Canton/Digital Asset stack; assumed drop-in).
 
 ## 6. Library-extraction map (RI pressure → shared library)
 
-Per the grant's mechanic (the library roadmap feeds from RI needs; briefing
-A7), each RI surfaces reusable primitives. Shared AL-7 + spine + evidence
-components are reused by all; the `[FUTURE]` column is what each RI newly
-pressures into the library.
+The library roadmap feeds from RI needs: each RI surfaces reusable primitives.
+The shared access-control + spine + evidence components are reused by all; the
+`[FUTURE]` column is what each RI newly pressures into the library.
 
 | Milestone | RI | New `[FUTURE]` primitives this RI surfaces | Reuses (shared) |
 |---|---|---|---|
-| M2 | DEX | `Pool` (constant-product AMM) template; decentralized **attestor-pool** topology; per-pool D1/identity optionality | spine, AL-7, `PriceOracle` (future) |
-| M3 | Lending | credential-gated vault adapter; **multi-party attestation** stacking (multiple `oz-access-control` grants / `MockVerifierAuthorization`) | spine, AL-7, `Vault`/`VaultFactory`/`PriceOracle`, credentials |
-| M4 | Stablecoin | **Standardized Messaging Gateway** interface (Contracts-Library, planned/absent); cross-chain inbound orchestrator using `TransferPreapproval` | spine, AL-7, `SimpleTokenRules`, credentials |
-| M4 | Auction | sealed-bid escrow via per-party `BidRequest` projection; off-ledger clearing → on-ledger settlement legs; `Rules_Mint`/`MintProposal` cold-recipient launch | spine, AL-7, holdings/rules, credentials |
+| M2 | DEX | `Pool` (constant-product AMM) template; decentralized **attestor-pool** topology; per-pool D1/identity optionality | spine, access-control, `PriceOracle` (future) |
+| M3 | Lending | credential-gated vault adapter; **multi-party attestation** stacking (multiple `oz-access-control` grants / `MockVerifierAuthorization`) | spine, access-control, `Vault`/`VaultFactory`/`PriceOracle`, credentials |
+| M4 | Stablecoin | **Standardized Messaging Gateway** interface (Contracts-Library, planned/absent); cross-chain inbound orchestrator using `TransferPreapproval` | spine, access-control, `SimpleTokenRules`, credentials |
+| M4 | Auction | sealed-bid escrow via per-party `BidRequest` projection; off-ledger clearing → on-ledger settlement legs; `Rules_Mint`/`MintProposal` cold-recipient launch | spine, access-control, holdings/rules, credentials |
 
 Cross-cutting library work surfaced by all four: SCU-compliant upgrade patterns
 (layering identity/compliance), the D1–D4 attachment patterns, and
 per-authorizer allocation fragmentation for privacy.
 
-## 7. Cross-RI consistency guarantees (verified 2026-06-24)
+## 7. Cross-RI consistency
 
-A portfolio-level pass confirmed the following are **identical** across all four
-reports (so a reader can trust any one report's statement of them): the D1–D4
-rail descriptions; the SCU rule; the priority order; the Splice V2 source pins;
-the atomicity rule; the `D1ComplianceHook`/`D2SeizureHook`-as-data-record and
-`BurnerCapability`-gated seizure mechanism; and the `KycClaim`/`TrustedIssuerRegistry`
-→ canton-specs identity-hook Shape-B attribution. No fabricated identifiers, no
-terminology drift, consistent source-grounding tags. Review record:
-[`../reviews/2026-06-24T23-15-30Z_REVIEW.md`](../reviews/2026-06-24T23-15-30Z_REVIEW.md).
+The following are **identical** across all four reports (so a reader can trust
+any one report's statement of them): the D1–D4 rail descriptions; the SCU rule;
+the priority order; the Token Standard V2 source; the atomicity rule; the
+`D1ComplianceHook`/`D2SeizureHook`-as-data-record and `BurnerCapability`-gated
+seizure mechanism; and the `KycClaim`/`TrustedIssuerRegistry` → identity-hook
+Shape-B attribution.
 
 ## References
 
-- The four reports and their reviews: see the table in §1 and
-  [`README.md`](./README.md).
-- Shared rails / decision authority: [`PLAN.md`](../../PLAN.md),
-  [`AGENTS.md`](../../AGENTS.md).
-- Grant (source of truth):
-  [`../research/canton-ecosystem-grant-proposal.md`](../research/canton-ecosystem-grant-proposal.md);
-  component/API map: [`../research/RI_RESEARCH_BRIEFING.md`](../research/RI_RESEARCH_BRIEFING.md)
-  (Part A7 = primitive→RI mapping).
+- The four reports: see the table in §1 and [`README.md`](./README.md).
 - Settlement spine `[IMPLEMENTED]`:
   [`experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml)
   — see the canonical Code Map in §2a for per-symbol anchors and status.

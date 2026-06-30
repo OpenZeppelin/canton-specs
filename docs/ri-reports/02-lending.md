@@ -1,16 +1,8 @@
 # Architectural Overview Report: Institutional Lending Protocol on Canton
 
-Status: **reviewed reference-design report**, non-public, outside the committed
-M1 public-library surface. This is RI #2 of four — see the suite-level view in [`00-portfolio.md`](./00-portfolio.md)
-and the index [`README.md`](./README.md). It describes a *reference design* grounded in the
-real OpenZeppelin Canton components in this workspace; it is **not** a claim of
-M1/M3 acceptance, conformance, audit readiness, or production readiness.
-
-> **Google Docs import:** `File → Open` this `.md` in Docs (or paste with
-> `Edit → Paste`). H1/H2/H3 headings drive the Docs outline pane; the tables
-> import cleanly; apply a monospace paragraph style to fenced code blocks after
-> import. Mermaid blocks do not render in Docs — render them with
-> `canton-settlement-explorer` and paste the image, keeping the fenced source.
+Status: **reference-design report**. It describes a *reference design* grounded
+in the real OpenZeppelin Canton components in this workspace; it is **not** a
+claim of acceptance, conformance, audit readiness, or production readiness.
 
 > **Source-grounding tags** (used throughout):
 > `[IMPLEMENTED]` real code in the M1 library base (`canton-specs` /
@@ -22,16 +14,10 @@ M1/M3 acceptance, conformance, audit readiness, or production readiness.
 > **Design priority order** governs every interface and snippet, in this exact
 > order: **1) Readability → 2) Simplicity → 3) Security → 4) Auditability.**
 
-> **Grant alignment** (source of truth:
-> [`../research/canton-ecosystem-grant-proposal.md`](../research/canton-ecosystem-grant-proposal.md),
-> scope lock: [`../../M3_LENDING_SCOPE.md`](../../M3_LENDING_SCOPE.md)): this is
-> **RI #2 (Lending Protocol)**. This document is the **Architecture
-> Documentation** deliverable, authored in **grant M1** (research & design) for
-> the Lending **implementation** in **grant M3** (Q3 2026). Its companion
-> deliverables — working reference code, demo front-end, threat model, and (where
-> relevant) an FI evaluation guide — are **named here but delivered in M3**
-> (MIT-licensed). The report honors the **CIP-56 → CIP-0112 / Token Standard V2
-> retarget**: settlement builds only on V2 abstractions.
+> **Scope.** This is the architecture documentation for a vault-based
+> institutional lending reference design targeting **CIP-0112 / Token Standard
+> V2**; settlement builds only on V2 abstractions. Companion working code, demo
+> front-end, and threat model are out of scope for this document.
 
 ---
 
@@ -70,9 +56,8 @@ algorithmic rate curves with **fixed-rate, term-locked** parameters radically
 simplifies auditability and yields a predictable primitive that is verifiable by
 formal methods, avoiding the exploit vectors of utilization-based rate curves.
 
-This is a deliberate departure from OpenZeppelin's own ERC-4626 tokenized-vault
-lineage (which the grant cites as cross-ecosystem experience): a share-accounting
-vault — one contract tracking a pooled underlying-to-share exchange rate, updated
+This is a deliberate departure from the ERC-4626 tokenized-vault lineage: a
+share-accounting vault — one contract tracking a pooled underlying-to-share exchange rate, updated
 by a `UpdateSharePrice`-style choice — is an EVM-shaped pattern, not a
 Canton-idiomatic one, and it would broadcast pooled positions. The reference
 design is also explicitly **keyless**: there is no `(operator, vaultId)`-keyed
@@ -125,13 +110,7 @@ custody, debt issuance, economic parameterization, and liquidation.
 | Role management | `oz-access-control` | [`RoleGrant`](../../access-control/daml/OpenZeppelin/AccessControl.daml), [`RoleAdmin`](../../access-control/daml/OpenZeppelin/AccessControl.daml), [`requireRole`](../../access-control/daml/OpenZeppelin/AccessControl.daml); `roleId : MyRole -> Text` closed-sum wrapper prevents string-matching role collisions. | `[IMPLEMENTED]` |
 | Admin flow | `oz-ownable` / `oz-pausable` | [`Ownership`](../../ownable/daml/OpenZeppelin/Ownable.daml)/[`OwnershipOffer`](../../ownable/daml/OpenZeppelin/Ownable.daml) for handoff; [`PauseState`](../../pausable/daml/OpenZeppelin/Pausable.daml)/[`whenNotPaused`](../../pausable/daml/OpenZeppelin/Pausable.daml) kill-switch. | `[IMPLEMENTED]` |
 | Credentials | `zk-credential-gateway` | `CredentialGatedActionRequest`, `MockVerificationResult`, `MockVerifierAuthorization`, `CredentialRevocationStatus` for KYC gating. | `[EVIDENCE]` |
-| Typed D3 identity | `canton-specs` identity-hook Shape-B | `KycClaim`, `TrustedIssuerRegistry` — the forward-compatible D3 shape, layered via SCU. | `[IMPLEMENTED]` (experimental) |
-
-> **Attribution note:** `KycClaim` and `TrustedIssuerRegistry` are the typed D3
-> identity **Shape-B** types demonstrated in the `canton-specs`
-> identity-hook-shape-b / identity-hook-upgrade experiments, **not** templates
-> inside `zk-credential-gateway`. The gateway supplies the gating/verification
-> primitives; the typed KYC claim shape is the forward-compatible target.
+| Typed D3 identity | `canton-specs` identity-hook Shape-B | `KycClaim`, `TrustedIssuerRegistry` — the typed D3 identity shape (from the identity-hook Shape-B experiment, not `zk-credential-gateway`), layered via SCU. | `[IMPLEMENTED]` (experimental) |
 
 ### Party and Role Model
 
@@ -206,6 +185,51 @@ co-settlement of interdependent legs.
    atomically burns the liquidator's debt tokens, clears the position, and sweeps
    the collateral to the liquidator; any residual collateral is recreated in a
    new `Vault` for the borrower.
+
+### Interest Accrual and Bad-Debt Recognition (grounded in `Vault.daml` `[EVIDENCE]`)
+
+These two mechanics are concrete in the `canton-stablecoin` `Vault` the RI
+adapts, so they are stated here as decided behavior rather than open design:
+
+- **Interest accrual is linear, with an explicit formula.** `accrueDebt` computes
+  `newDebt = oldDebt * (1 + stabilityFeeRate * elapsedYears)`, where
+  `elapsedYears` is derived from `now - lastAccrualTime`. Accrual runs on every
+  state-changing choice (`Vault_DepositCollateral`, `Vault_WithdrawCollateral`,
+  `Vault_MintStablecoin`, `Vault_BurnStablecoin`, `Vault_Liquidate`,
+  `Vault_Close`) before the solvency check, so the ratio is always evaluated
+  against the up-to-date debt. The method is **linear** (simple interest), chosen
+  for verifiability; a compounding option is a named open question (§9), not a
+  silent default.
+- **Bad debt is recognized and quantified.** `Vault_Liquidate` returns a
+  `VaultLiquidationResult` carrying a `badDebt : Decimal` field. It computes
+  `collateralToSeize = (accruedDebt * (1 + liquidationBonus)) / oracle.price`.
+  When the position is under-water — `collateralToSeize >= collateralAmount` —
+  the liquidator receives **all** remaining collateral, `actualDebtCovered =
+  min(liquidatorPayment, accruedDebt)`, and the shortfall is recorded as
+  `badDebt = accruedDebt - actualDebtCovered`; otherwise `badDebt = 0.0` and the
+  residual collateral returns to the borrower. So the *recognition* of insolvency
+  is engineered; what is **not** yet engineered is the *disposition* of that
+  recognized loss (insurance fund / socialized loss / admin write-off) — see §9.
+
+### Oracle Handling: Staleness Guard + Circuit Breaker
+
+A single trusted `PriceOracle` plus a single liquidator is the largest live
+attack surface, so the RI hardens the price path in the design (not deferred):
+
+- **Max-staleness guard (consumes `updatedAt`).** `PriceOracle` carries an
+  `updatedAt : Time`. Every price-dependent choice (`Vault_Mint*`,
+  `Vault_Withdraw*`, `Vault_Liquidate`) rejects when `now - updatedAt >
+  maxStaleness` (a `VaultParams` bound), so a stalled feed cannot drive
+  liquidations or fresh borrows against a dead price. (`maxStaleness` /
+  `maxDeviation` are additive `[FUTURE]` `VaultParams` fields, SCU-compatible.)
+- **Per-update deviation circuit breaker.** `PriceOracle_UpdatePrice` bounds the
+  jump between consecutive prices (`|newPrice - price| / price <= maxDeviation`);
+  an out-of-band move is rejected, and a breach trips the `oz-pausable`
+  kill-switch (`whenNotPaused`), halting liquidation origination until an admin
+  reviews. This blunts single-update oracle manipulation.
+- **TWAP (deferred).** A time-weighted average price over a window is named as a
+  follow-on hardening for manipulation resistance; the additive `Optional`
+  carrier for it is an SCU extension point (§9).
 
 ### D1–D4 Attachment Strategy
 
@@ -355,22 +379,41 @@ template LendingVaultFactory
         liquidator : Party
         oracleCid : ContractId PriceOracle
         settlementFactoryCid : ContractId SettlementFactory
-        debtAllocationId : ContractId Allocation     -- liquidator's committed stablecoin
+        debtAllocationId : ContractId Allocation       -- liquidator's committed stablecoin
+        collateralRequestId : ContractId AllocationRequest  -- liquidator's collateral-out leg
       controller liquidator
       do
+        now <- getTime
         params <- fetch paramsCid
         oracle <- fetch oracleCid
-        -- Solvency: must be below liquidationRatio to liquidate.
-        let ratio = (collateralAmount * oracle.price) / debtAmount
-        assertMsg "vault is solvent" (ratio < params.liquidationRatio)
+        -- Oracle freshness: reject a stale feed (consumes updatedAt).
+        assertMsg "oracle stale" (subTime now oracle.updatedAt <= params.maxStaleness)
+        -- Accrue first, then test solvency against up-to-date debt.
+        let accruedDebt = accrueDebt debtAmount lastAccrualTime now params.stabilityFeeRate
+        assertMsg "vault is solvent"
+          (collateralRatio collateralAmount accruedDebt oracle.price < params.liquidationRatio)
 
-        -- Atomic DvP: liquidator pays debt + liquidationBonus, receives collateral.
-        -- Atomicity is solely via SettlementFactory_SettleBatch.
+        -- Collateral the liquidator is owed (debt + bonus, valued at oracle price),
+        -- capped at what the vault holds (the under-water case strands a shortfall).
+        let collateralToSeize =
+              min collateralAmount ((accruedDebt * (1.0 + params.liquidationBonus)) / oracle.price)
+
+        -- Atomic DvP via the single spine entrypoint. Two legs settle together:
+        --   leg 1 — debtAllocationId: liquidator's stablecoin → admin (burned via
+        --           BurnerCapability), clearing the debt;
+        --   leg 2 — collateralRequestId: collateralToSeize of collateral → liquidator.
+        -- extraTransferLegSides pins both legs so settled amounts must equal the
+        -- computed deltas; the batch commits all-or-nothing.
         receipt <- exercise settlementFactoryCid SettlementFactory_SettleBatch with
           allocations = [debtAllocationId]
-          requests = []                 -- collateral delivery leg(s) configured here
-        -- residual collateral recreated in a new Vault for the borrower.
-        newVault <- create this with debtAmount = 0.0
+          requests = [collateralRequestId]
+
+        -- Residual collateral (collateralAmount - collateralToSeize) returns to the
+        -- borrower in the recreated Vault; debt is cleared in the same transaction.
+        newVault <- create this with
+          collateralAmount = collateralAmount - collateralToSeize
+          debtAmount = 0.0
+          lastAccrualTime = now
         return (newVault, receipt)
 
     -- D2 lock-and-sweep: NO bespoke "D2SeizureHook_Sweep" template — D2SeizureHook
@@ -384,7 +427,7 @@ template LendingVaultFactory
 ## 5. Diagrams
 
 Mermaid below maps to scenarios validatable in `canton-settlement-explorer`
-(presets: Batch DvP, Multi-leg Settlement). Render externally for Docs.
+(presets: Batch DvP, Multi-leg Settlement).
 
 ### 5.1 Interface and Component Diagram
 
@@ -481,18 +524,12 @@ The settlement mechanics rely on the **Splice Token Standard V2** interfaces
 `[UPSTREAM]`, superseding CIP-0056.
 
 - **Present implementation:** local mocks/stand-ins designed to **maximally match
-  the Splice V2 standard interfaces**. Source-of-record pin:
-  `hyperledger-labs/splice` @ `token-standard-v2-upcoming` @ `1e34121b…` (the
-  literal `canton-network/splice` @ `token-standard-v2-daml-preview` @
-  `b91de5d4…` "preview" branch is demoted to historical evidence; its V2 DAR set
-  and checksums are catalogued in
-  `canton-token-template/docs/CIP-0112-EXTENSION-PLAN.md`). Design against
-  *interfaces*, not DAR/package-ID pins (RI_RESEARCH_BRIEFING.md).
-- **Planned migration:** once published Splice Token Standard V2 DARs ship and
-  the import gate clears (PLAN.md; `M3_LENDING_SCOPE.md` §A), local stand-ins are
-  swapped for the published DARs — intended as a thin substitution. **Note:**
-  import remains gated; no public-API stability, conformance, or
-  release-readiness claim.
+  the Splice Token Standard V2 interfaces**. The design targets the *interfaces*,
+  not DAR/package-ID pins.
+- **Planned migration:** once the published Splice Token Standard V2 DARs ship and
+  the import gate clears, the local stand-ins are swapped for the published DARs —
+  intended as a thin substitution. **Note:** import remains gated; no public-API
+  stability, conformance, or release-readiness claim.
 
 ---
 
@@ -511,7 +548,13 @@ property testing, and formal proofs.
   burned on repay equals debt cleared. No unbacked issuance — minting requires
   the admin's authority and a solvency-passing vault.
 - **Settlement atomicity.** Liquidation and repayment are single `SettleBatch`
-  transactions: they either complete fully or revert — no partial liquidation.
+  transactions: they either complete fully or revert. Liquidation today acts on
+  the **whole vault** (one liquidator funds the full accrued debt); *fractional*
+  liquidation is an explicit open extension (§9), not a current invariant.
+- **Price freshness.** Price-dependent choices reject a stale oracle
+  (`now - updatedAt > maxStaleness`) and `PriceOracle_UpdatePrice` enforces a
+  per-update deviation bound, so solvency is never evaluated against a dead or
+  manipulated single price.
 
 ### 7.2 The Validation Ladder
 
@@ -527,8 +570,9 @@ property testing, and formal proofs.
 
 | Vector | Failure Mode | Mitigation |
 |---|---|---|
-| Oracle manipulation | `PriceOracle` manipulated or stalled → unjust liquidations or bad-debt accrual. | Updates restricted via `oz-access-control` `RoleGrant` to trusted providers; bound max price deviation per update and reject anomalous spikes. |
-| Settlement-leg failure | Liquidator under-funds the batch → attempted partial/broken liquidation. | Daml atomicity: the `SettleBatch` reverts entirely; partial liquidation is impossible; collateral stays locked, no debt cleared. |
+| Oracle manipulation / staleness | `PriceOracle` manipulated or stalled → unjust liquidations or bad-debt accrual. | Updates restricted via `oz-access-control` `RoleGrant` to trusted providers; price-dependent choices reject when `now - updatedAt > maxStaleness`; `PriceOracle_UpdatePrice` enforces a per-update deviation bound and a breach trips the `oz-pausable` kill-switch. TWAP is a named follow-on (§9). |
+| Settlement-leg failure | Liquidator under-funds the batch → attempted broken liquidation. | Daml atomicity: the `SettleBatch` reverts entirely; collateral stays locked, no debt cleared. (Whole-vault liquidation; fractional liquidation deferred — §9.) |
+| Bad debt / under-water position | Collateral worth less than debt → protocol-level shortfall. | `Vault_Liquidate` recognizes and quantifies the shortfall in `VaultLiquidationResult.badDebt`; the **disposition** path (insurance fund / socialized loss / admin write-off) is an open decision (§9). |
 | Compliance evasion (D1) | Borrower attempts to bypass KYC. | Shape B requires a statically-provided `KycClaim` validated against the `TrustedIssuerRegistry`; a protected choice cannot execute without valid credentials in the payload (fail-closed). |
 | Unauthorized admin action | Attacker tries to mint unbacked debt or invoke D2 seizure. | Requires a valid `BurnerCapability` / `RoleAdmin` contract id, unforgeable under Daml-LF semantics; D2 sweep is hardcoded to the preset `custodianDestination`. |
 
@@ -542,12 +586,12 @@ property testing, and formal proofs.
 > [`00-portfolio.md`](./00-portfolio.md) §5. This section elaborates only the
 > RI-specific topology.
 
-> **Status: out of scope for the initial M1 design; deferred and planned for
+> **Status: out of scope for the initial design; deferred and planned for
 > eventual development.** Today the protocol and the CIP-0112 scaffold are
-> **single-synchronizer**, and D3 cross-domain identity is deferred (PLAN.md
-> Decision Log; AGENTS.md §Decision Authority). This section plans the extension
-> following Canton's real cross-synchronizer model (per-synchronizer contract
-> assignment + the unassign/assign reassignment protocol) and the SCU rule.
+> **single-synchronizer**, and D3 cross-domain identity is deferred. This section
+> plans the extension following Canton's real cross-synchronizer model
+> (per-synchronizer contract assignment + the unassign/assign reassignment
+> protocol) and the SCU rule.
 
 ### 8.1 What "cross-synchronizer" means for a lending vault
 
@@ -635,6 +679,32 @@ atomicity and privacy across domains.
 
 ## 9. Open Questions
 
+These are decisions to settle with the internal team ahead of implementation, not
+M1 build items. The first four shape risk materially and should be opened early
+rather than under a tighter implementation deadline.
+
+- **Bad-debt disposition.** The engine *recognizes* and quantifies bad debt
+  (`VaultLiquidationResult.badDebt`), but nothing *absorbs* it. Choose the
+  disposition model: a protocol **insurance fund** capitalized from a slice of
+  the stability fee / liquidation bonus, a **socialized-loss** path across
+  outstanding positions, an **admin write-off**, or a combination. This is a risk
+  to resolve before the lending build, since it changes the parameterization and
+  the authority model.
+- **Interest-accrual method.** Accrual is **linear** today (`accrueDebt`). Decide
+  whether to offer a **compounding** variant (and at what compounding period),
+  and define explicit rounding bounds so accrual is reproducible and
+  formally checkable. One method or several configurable per `VaultParams`?
+- **Partial / fractional liquidation + keeper sizing.** Liquidation is
+  whole-vault today, which can strand large or deeply under-water positions when
+  no single liquidator can fund the full debt. Consider partial liquidations
+  (close a fraction to restore the ratio), keeper incentives, and a max
+  liquidation size per call. Validation/details can defer to implementation, but
+  the mechanism choice should be made now.
+- **Oracle hardening beyond the circuit breaker.** The design adds a
+  max-staleness guard and a per-update deviation breaker; decide whether to
+  require a **TWAP** (and its window) and/or multiple independent feeds, and
+  where the deviation/staleness bounds live (`VaultParams` vs a separate oracle
+  policy contract).
 - **Multi-party attestation scaling (M3).** Multi-attestation can be expressed by
   stacking `oz-access-control` grants, but threshold mechanics (e.g. 2-of-3
   compliance verifiers) are undecided: native in the `VaultFactory` vs an
@@ -664,13 +734,15 @@ atomicity and privacy across domains.
 ## References
 
 All interface, template, choice, and field names are grounded in real source in
-this workspace (verified 2026-06-24). Authoritative sources:
+this workspace. Authoritative sources:
 
 - **Vault / CDP / oracle** `[EVIDENCE]` —
   `canton-stablecoin/stablecoin/daml/Stablecoin/{Vault,Oracle}.daml`
   (`VaultParams`, `VaultFactory` + `VaultFactory_OpenVault`, `Vault` +
   `Vault_{DepositCollateral,WithdrawCollateral,MintStablecoin,BurnStablecoin,Liquidate,Close}`,
-  `PriceOracle` + `PriceOracle_UpdatePrice`).
+  the linear `accrueDebt` and `collateralRatio` helpers, the
+  `VaultLiquidationResult` record carrying the `badDebt` field, and
+  `PriceOracle` + `PriceOracle_UpdatePrice` with its `updatedAt` field).
 - **Settlement spine** `[IMPLEMENTED]` —
   `canton-specs/experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml`.
 - **Holdings / forced-burn / rules / preapproval** `[EVIDENCE]` —
@@ -679,46 +751,11 @@ this workspace (verified 2026-06-24). Authoritative sources:
   `zk-credential-gateway/daml/src/ZkCredentialGateway/{GatedAction,Verification,Types}.daml`.
 - **Typed D3 identity (KycClaim, TrustedIssuerRegistry)** `[IMPLEMENTED]` —
   `canton-specs/experiments/identity-hook-shape-b/` and `identity-hook-upgrade-*/`.
-- **AL-7 primitives** `[IMPLEMENTED]` — `canton-specs` `access-control/`,
-  `ownable/`, `pausable/`.
-- **Decision authority (D1–D4), scope, SCU rule** — root
-  [`PLAN.md`](../../PLAN.md), [`AGENTS.md`](../../AGENTS.md), briefing
-  [`docs/research/RI_RESEARCH_BRIEFING.md`](../research/RI_RESEARCH_BRIEFING.md).
-- **Grant scope / milestones / deliverables (source of truth)** —
-  [`docs/research/canton-ecosystem-grant-proposal.md`](../research/canton-ecosystem-grant-proposal.md)
-  (PR #298, approved; CIP-56→CIP-0112 retarget) and the distilled
-  [`M3_LENDING_SCOPE.md`](../../M3_LENDING_SCOPE.md).
+- **Access-control / ownable / pausable primitives** `[IMPLEMENTED]` —
+  `canton-specs` `access-control/`, `ownable/`, `pausable/`
+  (`OpenZeppelin.AccessControl`, `OpenZeppelin.Ownable`, `OpenZeppelin.Pausable`).
 - **Diagram tooling** `[IMPLEMENTED]` — `canton-settlement-explorer`.
 - **Validation ladder** `[IMPLEMENTED]` — `daml-lint`, `daml-props`,
   `daml-verify`.
 - **Token Standard V2 upstream** `[UPSTREAM]` — `hyperledger-labs/splice`
-  `token-standard-v2-upcoming` (import gated per PLAN.md).
-
-> **Removed in review:** the original draft cited external/non-workspace URLs
-> (a `srikanth-bitdynamics/Canton-Dex-Reference-Implementation` GitHub repo,
-> `peektism` GitHub, Medium ecosystem round-ups, and assorted unrelated GitHub
-> repos / news pages — Fidelity, Cantor8, MarketsMedia, TokenIQ, FlowYieldVaults,
-> minimalist-dex, defi-oracles, a Sherlock audit issue) as authoritative
-> sources. None are part of this workspace or an authoritative spec; they were
-> removed and replaced with the workspace-grounded references above. See the
-> review record in
-> [`../reviews/2026-06-24T22-38-29Z_REVIEW.md`](../reviews/2026-06-24T22-38-29Z_REVIEW.md).
->
-> **Re-review 2026-06-25 (expert "blueprint" pass):** a second expert draft (a
-> US-financial-regulation-framed blueprint, §8 Lending) was assessed. Its central
-> proposal — a **Daml-native ERC-4626 share-accounting vault** with a
-> `(operator, vaultId)`-keyed `VaultState` / `VaultConfig` resolved by
-> `fetchByKey` and an `UpdateSharePrice` oracle choice — **contradicts the locked
-> CDP scope** (`M3_LENDING_SCOPE.md`: "contract-per-vault, NOT ERC-4626
-> share-accounting") and is built on identifiers that **do not exist** (`VaultState`
-> and `VaultConfig` appear only in a test/model file; there are **no contract keys**
-> anywhere in `canton-stablecoin`; the real choices are `Vault_*`-prefixed with
-> `PriceOracle_UpdatePrice`). It was **rejected**, and §1 was hardened to name and
-> exclude that model explicitly. Also rejected: `TransferInstructionV2` /
-> `AmuletAllocationV2` (fabricated; only `AllocationV2` / `AllocationRequestV2` /
-> `HoldingV2` exist, as upstream `Splice.Api.Token.*` imports), `ComplianceRegistry`
-> / `BlacklistValidator` / `ClaimsValidator` (the decided D1 model is the
-> node-applied `D1ComplianceHook`, already in §3), and the entire OCC / FDICIA /
-> SOX external-citation set. Integrated: the §1 CDP-vs-share-vault hardening and a
-> `[UPSTREAM]` retroactive-interface-instance note (§3). Record:
-> [`../reviews/2026-06-25T01-57-36Z_REVIEW.md`](../reviews/2026-06-25T01-57-36Z_REVIEW.md).
+  `token-standard-v2-upcoming` (designed against the interfaces; import gated).
