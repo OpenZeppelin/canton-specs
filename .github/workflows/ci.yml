@@ -64,8 +64,9 @@ jobs:
             echo "::error::dpm not on PATH after install (expected ~/.dpm/bin/dpm)." >&2
             exit 1
           }
-          dpm --version
-          dpm install 3.4.11
+          # Install the project SDK. Run from $HOME so dpm does not try to resolve
+          # this repo's daml.yaml sdk-version (3.4.11) before it is installed.
+          (cd "$HOME" && dpm install 3.4.11)
 
       - name: Validate scaffold (build root + proof)
         run: scripts/check-scaffold.sh
