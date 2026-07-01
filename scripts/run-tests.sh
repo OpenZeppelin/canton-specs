@@ -3,11 +3,13 @@
 # Top-level validation gate for the CIP-0112 settlement RI workspace.
 #
 # Builds every package in dependency order, runs the Daml Script spine suite in
-# `test/`, and runs the deep settlement exemplar's scripts in
-# `experiments/settlement-exemplar/`. The exemplar package is NOT a
-# data-dependency of `test/` (its consumer template lives next to its scripts),
-# so without this gate its scripts would never run under `cd test && dpm test`
-# and could rot silently. CI (.github/workflows/ci.yml) invokes this script.
+# `test/`, the deep settlement exemplar's scripts in
+# `experiments/settlement-exemplar/`, and the CIP-0086/0103/0104 interop exemplar
+# scripts in `experiments/cip-interop-exemplar/`. Those exemplar packages are NOT
+# data-dependencies of `test/` (their consumer templates live next to their
+# scripts), so without this gate their scripts would never run under
+# `cd test && dpm test` and could rot silently. CI (.github/workflows/ci.yml)
+# invokes this script.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -31,5 +33,8 @@ printf 'run-tests: running the spine test suite (test/)\n'
 
 printf 'run-tests: running the deep settlement exemplar scripts (experiments/settlement-exemplar/)\n'
 (cd "$ROOT/experiments/settlement-exemplar" && dpm test)
+
+printf 'run-tests: running the CIP-0086/0103/0104 interop exemplar scripts (experiments/cip-interop-exemplar/)\n'
+(cd "$ROOT/experiments/cip-interop-exemplar" && dpm test)
 
 printf 'run-tests: OK\n'

@@ -29,7 +29,7 @@ built in M1.
 - [x] 🟡 **Deep settlement exemplar** — [`settlement-exemplar`](../../experiments/settlement-exemplar/daml/OpenZeppelin/Experimental/Settlement/Exemplar.daml) composes pausable + access-control + the settlement library end-to-end
 - [x] ✅ **Audit-readiness package + threat model** — [`cip0112-audit-readiness.md`](./cip0112-audit-readiness.md), [`cip0112-threat-model.md`](./cip0112-threat-model.md)
 - [x] ✅ Four RI architecture reports (living documents) — [`../ri-reports/`](../ri-reports/)
-- [x] ✅ CIP-0086/0103/0104 interop acceptance criteria — [`cip0086-cip0103-cip0104-m1-acceptance.md`](./cip0086-cip0103-cip0104-m1-acceptance.md)
+- [x] ✅ CIP-0086/0103/0104 interop — criteria in [`cip0086-cip0103-cip0104-m1-acceptance.md`](./cip0086-cip0103-cip0104-m1-acceptance.md), **proven by executable exemplars + tests** in [`experiments/cip-interop-exemplar/`](../../experiments/cip-interop-exemplar/daml/OpenZeppelin/Experimental/Interop/) (ERC-20 `transfer`/`balanceOf`/`totalSupply`/`approve`/`transferFrom` on the settlement surface; wallet lifecycle + privacy + V1-compat path; app-provider attribution with no reward-marker contracts). External conformance (ChainSafe / wallet-kernel / SV-Scan) + DAR import remain gated (⬜).
 - [x] ✅ Library foundation reused — `oz-access-control` / `oz-ownable` / `oz-pausable` from `canton-contracts`
 
 ## Still pending (gated or deferred — NOT closed by this work)

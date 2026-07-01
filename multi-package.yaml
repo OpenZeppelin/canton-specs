@@ -24,4 +24,5 @@ packages:
   - experiments/token-standard-v2-mock
   - experiments/cip112-settlement
   - experiments/settlement-exemplar
+  - experiments/cip-interop-exemplar
   - test

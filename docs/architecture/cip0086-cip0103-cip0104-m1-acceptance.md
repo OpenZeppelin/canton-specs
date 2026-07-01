@@ -69,8 +69,13 @@ M1 acceptance for CIP-0086, CIP-0103, and CIP-0104 means scoped interoperability
 with the CIP-112 settlement surface. It does not mean implementing or shipping
 their full production systems.
 
-The required M1 acceptance form is documentation and evidence until the
-Token Standard V2 DAR/import gate lands:
+M1 interop with the settlement surface is now demonstrated by **executable
+exemplars and passing Daml Script tests** (see "Executable evidence" below), not
+prose alone. What remains documentation-only until the Token Standard V2
+DAR/import gate lands is **external conformance** (ChainSafe for CIP-0086, a
+pinned wallet-kernel/dApp-SDK reference for CIP-0103, SV/Scan reward evidence for
+CIP-0104). The required M1 acceptance form is therefore executable
+settlement-surface interop plus documented, still-gated external conformance:
 
 - define the settlement-specific compatibility expectations;
 - identify source pins, reference implementations, and unresolved external
@@ -81,6 +86,25 @@ Token Standard V2 DAR/import gate lands:
 - keep all production middleware, wallet-provider, Scan, SV, custody, KYC,
   sanctions, bridge, relayer, validator, and reward-minting integrations out of
   scope.
+
+## Executable evidence
+
+Interop with the CIP-0112 settlement surface is proven by the exemplar package
+[`experiments/cip-interop-exemplar/`](../../experiments/cip-interop-exemplar/daml/OpenZeppelin/Experimental/Interop/)
+(built by `dpm build --all`; its scripts run by `scripts/run-tests.sh`, gated in
+CI). Each script drives the real settlement engine and asserts the mapping; it is
+not a conformance result against any external system.
+
+| CIP | Executable proof (`experiments/cip-interop-exemplar/.../Interop/…`) | Criteria covered |
+|---|---|---|
+| CIP-0086 | `Cip0086Erc20.daml`: `test_cip0086_transferMovesValueAndConservesSupply` (`transfer`/`balanceOf`/`totalSupply` via `SettleBatch`, supply conserved), `…_approveTransferFromMovesViaSettlement` (`approve`/`transferFrom` → V2 `Allocation` via the engine's own `lockInputHoldings`), `…_transferFromExceedsAllowanceFails` (fail-closed), `…_balanceOfIsProjectionScoped` (scoped visibility), `…_d2SeizureIsNotBurnOrRefund` (D2 = seizure-resolution, not burn/refund) | observe + command the V2 surface; allowance/delegation facade; full-vs-scoped visibility; D2 mapping; D4 single-admin capability |
+| CIP-0103 | `Cip0103Wallet.daml`: `test_cip0103_walletDrivesFullLifecycleAndSeesEvents` (account selection → request → accept → instruction → settle; wallet observes its `txChanged` receipt + `EventLog` entry), `…_v1WalletDirectFactoryPath` (no persisted `AllocationRequest`), `…_privacyScopedToParticipants`, `…_failClosedSurfacesToWallet` | drive the lifecycle; V1-wallet compat path; txChanged visibility; privacy; predictable error handling |
+| CIP-0104 | `Cip0104AppRewards.daml`: `test_cip0104_attributableViaSettlementViewsWithoutMarkers` (app-provider attributable from receipts + `EventLog` entries; no marker template exists to create), `…_onlyAppProviderExecutorCanSettle` (executor participation is load-bearing) | app-provider participation/attribution; no `FeaturedAppActivityMarker`/`AppRewardCoupon` inside settlement |
+
+Still gated (documentation-only, out of scope for the executable evidence above):
+ChainSafe/ERC-20 conformance, a pinned CIP-0103 wallet-kernel/dApp-SDK reference
+and its validation harness, CIP-0104 SV/Scan reward evidence, and the Splice
+Token Standard V2 DAR import + public-API promotion.
 
 ## Shared M1 Acceptance Criteria
 
