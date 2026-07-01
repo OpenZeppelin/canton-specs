@@ -3,7 +3,7 @@
 Status: experimental, local harness-availability evidence, settlement-leg
 refresh, non-public, and outside the committed M1 library surface.
 
-This note records Tier 1 experiment 3 from root `PLAN.md` -> "Experimentation
+This note records Tier 1 experiment 3 from the internal plan of record -> "Experimentation
 Priorities": whether the local Canton 3.4.11 / DPM setup can exercise a
 multi-hosted acting party through a D1 node-side compliance check. The
 2026-06-16 refresh re-ran that question against the current experimental
@@ -66,11 +66,11 @@ Commands and source evidence inspected locally before this refresh:
 - `README.md` describes the M0 LocalNet proof as a single-participant sandbox
   proof. The referenced root `scripts/localnet-up.sh`,
   `scripts/localnet-hello-world-proof.sh`, and `scripts/localnet-down.sh` are
-  not present in `/Users/x/cantonator` or `canton-contracts/scripts/` as of
+  not present in `<workspace-root>` or `canton-contracts/scripts/` as of
   this spike.
 - The same README also points at root `./scripts/check-all.sh`,
   `./scripts/test-all.sh`, and `./scripts/manual-workflow-tests.sh`, but the
-  current `/Users/x/cantonator` root has no `scripts/` directory. The target
+  current `<workspace-root>` root has no `scripts/` directory. The target
   repo has `scripts/manual-workflow-test.sh` singular plus repo-local checks,
   not the plural root workflow scripts named in the README. Treat that broader
   workflow-documentation drift as a precondition before re-running this
@@ -78,19 +78,19 @@ Commands and source evidence inspected locally before this refresh:
 - `scripts/identity-hook-upgrade-smoke.sh` starts `dpm sandbox` with one Ledger
   API port and one JSON API port, then runs `dpm script --upload-dar true`
   against that single endpoint.
-- `find /Users/x/cantonator -maxdepth 3 -type f -path '*/scripts/*'` found
+- `find <workspace-root> -maxdepth 3 -type f -path '*/scripts/*'` found
   only repo-local scripts in sibling repos; it found no shared LocalNet wrapper
   that configures multiple participants or shared-party topology for
   `canton-contracts`.
-- `/Users/x/.local/bin/canton` is a local launcher for the DPM-installed
+- `~/.local/bin/canton` is a local launcher for the DPM-installed
   `canton-enterprise-3.4.11.jar`, and `canton --version` reports Canton and
   Daml Libraries `3.4.11`. That wrapper is available as toolchain evidence, but
   this repo's accepted validation path remains DPM-native and there is no
   repo-local multi-participant Canton config to run through it.
 - Prior local planning evidence in
-  `/Users/x/cantonator/canton-token-template/docs/SCOPE.md` says Canton topology
+  `canton-token-template/docs/SCOPE.md` says Canton topology
   supports shared parties as multiple participants backing one logical party.
-  `/Users/x/cantonator/canton-token-template/docs/ADMIN-LAYER-PLAN.md` records
+  `canton-token-template/docs/ADMIN-LAYER-PLAN.md` records
   "Multisig owner" as a multi-hosted Canton party with no Daml change. Those are
   useful architectural references, not executable threshold evidence in this
   repo.
@@ -135,10 +135,10 @@ Refreshed command evidence for the settlement-leg slice:
   key-values (-C) or as sandbox's default config`, confirming the direct
   Canton path needs a concrete config before it can be used as a local
   multi-participant runbook.
-- `find /Users/x/cantonator -maxdepth 4 \( -type f -name '*.conf' -o -type f
+- `find <workspace-root> -maxdepth 4 \( -type f -name '*.conf' -o -type f
   -name '*.canton' -o -type f -name '*topology*' \) -print` returned no
   workspace config, bootstrap, or topology files.
-- `find /Users/x/cantonator -maxdepth 3 -type f -path '*/scripts/*' -print`
+- `find <workspace-root> -maxdepth 3 -type f -path '*/scripts/*' -print`
   found repo-local validation scripts, including
   `canton-contracts/scripts/identity-hook-upgrade-smoke.sh`, but no script that
   configures multiple participants, creates/imports a shared party, or runs a

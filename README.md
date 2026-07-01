@@ -18,8 +18,7 @@ research, and review provenance.
 > architecture reports in [`docs/ri-reports/`](docs/ri-reports/) are living
 > documents that link directly into the RI code (refresh with
 > [`scripts/refresh-ri-anchors.sh`](scripts/refresh-ri-anchors.sh)). Originally
-> seeded from `canton-contracts` branch `wip/cip0112-m1-settlement-amarzeppelin`
-> (closed PR #13).
+> seeded from the `canton-contracts` CIP-0112 settlement work branch.
 
 Status: experimental. The M1 target is the CIP-0112 settlement primitive (not the
 superseded CIP-56 token foundation), alongside the reusable access-control
@@ -38,29 +37,18 @@ M1 target scope:
 - CIP-104 rewards support components scoped to the settlement surface.
 - Documentation, tests, security notes, and compatibility evidence.
 
-Repository-local planning and report surfaces:
+Repository-local report surfaces:
 
-- [`PLAN.md`](PLAN.md) records the repo-local D1-D4 decision snapshot, migration
-  status, and no-claim boundaries for standalone GitHub review.
 - [`docs/architecture/`](docs/architecture/) holds the CIP-0112 / Token Standard
   V2 architecture, promotion-boundary, import-gate, DPM, license, and source-of-
-  record notes imported from the old `canton-contracts` CIP-112 branch.
-- [`docs/ri-reports/`](docs/ri-reports/) holds the portfolio report, all four RI
-  architecture reports, Google Docs export artifacts, and diagram exports.
-- [`M2_DEX_SCOPE.md`](M2_DEX_SCOPE.md),
-  [`M3_LENDING_SCOPE.md`](M3_LENDING_SCOPE.md),
-  [`M4_STABLECOIN_SCOPE.md`](M4_STABLECOIN_SCOPE.md), and
-  [`M4_AUCTION_SCOPE.md`](M4_AUCTION_SCOPE.md) are the per-RI scope locks those
-  reports cite.
-- [`docs/research/`](docs/research/) carries the report briefing / proposal
-  source material.
+  record notes. The adopted D1–D4 design decisions are recorded in
+  [`docs/architecture/cip0112-m1-ri-spec.md`](docs/architecture/cip0112-m1-ri-spec.md).
+- [`docs/ri-reports/`](docs/ri-reports/) holds the portfolio report and all four
+  RI architecture reports.
 
-CIP-86 / CIP-103 / CIP-104 acceptance criteria are recorded as settlement
-interop criteria, not standalone CIP-56-token deliverables:
-
-- [`docs/architecture/cip0086-cip0103-cip0104-m1-acceptance.md`](docs/architecture/cip0086-cip0103-cip0104-m1-acceptance.md)
-
-CIP-56 is background and migration evidence only. The experimental CIP-112
+CIP-86 / CIP-103 / CIP-104 are addressed as settlement-interop criteria, not
+standalone CIP-56-token deliverables. CIP-56 is background and migration evidence
+only. The experimental CIP-112
 settlement scaffold lives under `experiments/cip112-settlement` and remains
 outside the committed public-library surface until the promotion boundary ADR's
 Splice DAR/import, license/NOTICE, package-ID/checksum, DPM wiring, and public

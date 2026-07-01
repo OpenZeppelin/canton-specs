@@ -2,7 +2,7 @@
 
 Status: experimental, non-public, and outside the committed M1 library surface.
 
-This note records experiment 2 from root `PLAN.md` -> "Experimentation
+This note records experiment 2 from the internal plan of record -> "Experimentation
 Priorities": two candidate forward-compatible identity hook shapes for the D3
 one-pager. Root `PLAN.md` records D3 as single-domain v1 with cross-domain
 identity deferred, while preserving a possible later ONCHAINID / ERC-734 /
@@ -115,7 +115,7 @@ co-authorization is needed if the recipient's private claim is fetched by the
 contract.
 
 The one-pager should not cite this experiment as D3 closure. It should cite it
-as feasibility evidence and keep the accepted D3 boundary from root `PLAN.md`:
+as feasibility evidence and keep the accepted D3 boundary from the internal plan of record:
 single-domain v1, cross-domain identity deferred, forward-compatible design as
 an open feasibility question for Amar and Pepe.
 

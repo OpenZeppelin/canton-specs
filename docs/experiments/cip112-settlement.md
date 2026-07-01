@@ -4,7 +4,7 @@ Status: experimental, non-public, and outside the committed M1 library surface.
 
 Root `PLAN.md` refers to "CIP-112"; the upstream Canton Foundation repository
 spells the proposal as **CIP-0112**. This note uses CIP-0112 when referring to
-the source proposal and CIP-112 when referring to the local root-plan slice.
+the source proposal and CIP-112 when referring to the local plan-of-record slice.
 
 Source evidence:
 
@@ -19,13 +19,11 @@ Source evidence:
   `b91de5d4b910ded598151981654dce2acc6f84ba`. This is no longer the promotion
   source of record.
 - Local prior evidence:
-  `/Users/x/cantonator/canton-token-template/docs/CIP-0112-EXTENSION-PLAN.md`.
+  `canton-token-template/docs/CIP-0112-EXTENSION-PLAN.md`.
 - Promotion boundary ADR:
   [`../architecture/cip0112-public-api-promotion-boundary.md`](../architecture/cip0112-public-api-promotion-boundary.md).
 - Splice Token Standard V2 DAR/import evidence-boundary note:
   [`../architecture/cip0112-splice-token-standard-v2-import-gate.md`](../architecture/cip0112-splice-token-standard-v2-import-gate.md).
-- CIP-0086 / CIP-0103 / CIP-0104 M1 acceptance boundary:
-  [`../architecture/cip0086-cip0103-cip0104-m1-acceptance.md`](../architecture/cip0086-cip0103-cip0104-m1-acceptance.md).
 
 The CIP text is approved, but the local package added by this slice is still an
 experiment. `canton-contracts` has no stability ADR for this surface, so the
@@ -48,7 +46,7 @@ Recommended v1 direction:
 - Build toward a **Token Standard V2 interface-aligned settlement primitive**.
 - Do not build a proprietary minimal token underneath as the M1 target.
 - Do not treat CIP-56 as the active foundation; use it only as migration and
-  compatibility evidence per root `PLAN.md`.
+  compatibility evidence per the internal plan of record.
 - Use toy holdings only as test witnesses until the accepted Token Standard V2
   DAR/import boundary and license boundary are implemented per the promotion
   ADR.
@@ -60,7 +58,7 @@ Tradeoffs:
   CIP-103, and CIP-104 interoperate with the settlement surface under the
   acceptance boundary note rather than a local token.
 - A minimal token underneath would make local tests easier, but would recreate a
-  CIP-56-like target that root `PLAN.md` explicitly superseded and would risk a
+  CIP-56-like target that the internal plan of record explicitly superseded and would risk a
   non-standard settlement surface.
 - Importing the Splice preview packages directly would reduce local type drift,
   but the promotion ADR rejects import in this slice because the current

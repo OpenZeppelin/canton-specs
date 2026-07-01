@@ -21,10 +21,9 @@ promotion-boundary ADR.
 This repo also carries the migrated RI architecture documentation:
 
 - `docs/ri-reports/` — portfolio + four RI architecture reports.
-- `docs/research/` — grant proposal and RI research briefing used to author the
-  reports.
-- `M2_DEX_SCOPE.md`, `M3_LENDING_SCOPE.md`, `M4_STABLECOIN_SCOPE.md`,
-  `M4_AUCTION_SCOPE.md` — per-RI scope locks.
+- `docs/architecture/` — CIP-0112 architecture, ADRs, threat model, and
+  audit-readiness notes; the adopted D1–D4 design decisions live in
+  `docs/architecture/cip0112-m1-ri-spec.md`.
 
 Those documents describe reference designs. They do not add RI implementation
 scope, public API stability, CIP-0112 conformance, M1 acceptance, audit
@@ -37,21 +36,20 @@ Before changing this repo:
 1. Read root `../AGENTS.md`.
 2. Read root `../PLAN.md`.
 3. Read this file.
-4. Read repo-local `PLAN.md`.
-5. Read `README.md`.
-6. Check the accepted SDK/CIP ADR before adding or changing `daml.yaml`.
+4. Read `README.md`.
+5. Check the accepted SDK/CIP ADR before adding or changing `daml.yaml`.
 
-For standalone GitHub review where the `cantonator` umbrella workspace is not
-available, read this file, repo-local `PLAN.md`, and `README.md` in that order.
+For standalone GitHub review where the umbrella workspace is not available, read
+this file and `README.md` in that order.
 
 **Reviewing the M1 settlement work?** Start with the review entry points:
 
 1. [`docs/architecture/M1_DELIVERABLE_STATUS.md`](docs/architecture/M1_DELIVERABLE_STATUS.md)
    — what is implemented (🟡 experimental / ✅ tested) vs gated/deferred (⬜).
-2. [`docs/architecture/cip0112-audit-readiness.md`](docs/architecture/cip0112-audit-readiness.md)
-   — per-template authority/lifecycle matrix, D1–D4 control map, test-coverage map.
-3. [`docs/architecture/cip0112-threat-model.md`](docs/architecture/cip0112-threat-model.md)
-   — assets, trust boundaries, abuse cases → negative tests.
+2. [`docs/architecture/cip0112-threat-model.md`](docs/architecture/cip0112-threat-model.md)
+   — assets, trust boundaries, abuse cases → negative tests, plus the folded-in
+   audit-readiness material (per-template authority/lifecycle matrix, D1–D4
+   control map, test-coverage map).
 4. [`docs/architecture/cip0112-m1-ri-spec.md`](docs/architecture/cip0112-m1-ri-spec.md)
    and [`docs/ri-reports/`](docs/ri-reports/) — the living architecture docs;
    every code reference is a line-anchored link, refreshable with
@@ -84,7 +82,8 @@ Do not add:
 
 ## Decision Authority
 
-The repo-local planning snapshot follows the `cantonator` root plan:
+The adopted D1–D4 decisions (recorded in
+[`docs/architecture/cip0112-m1-ri-spec.md`](docs/architecture/cip0112-m1-ri-spec.md)):
 
 - D1: transfer validation is checked on every transfer/settlement leg, no
   caching, fail-closed, node-side. The Daml-visible attestation shape is an
@@ -97,8 +96,8 @@ The repo-local planning snapshot follows the `cantonator` root plan:
   multi-hosted-party authority are deferred unless a specific deployment
   requires them.
 
-When work depends on D1-D4, cite `PLAN.md` and the architecture notes rather
-than re-deriving the boundaries.
+When work depends on D1-D4, cite `docs/architecture/cip0112-m1-ri-spec.md` (which
+records the adopted D1–D4 decisions) rather than re-deriving the boundaries.
 
 ## Daml Requirements
 

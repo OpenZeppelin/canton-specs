@@ -8,7 +8,7 @@ Date: 2026-06-17
 
 Phase: Phase 2, Scope-Locked Library Foundation
 
-Depends on: root `PLAN.md` Decision Log S2 for D2 lock-and-sweep to the
+Depends on: the internal plan of record Decision Log S2 for D2 lock-and-sweep to the
 admin-preset custodian destination and D4 single-admin capability authority.
 
 ## Context
@@ -31,11 +31,10 @@ but actual import remains blocked until release-source confirmation, accepted
 DAR or reproducible-build artifacts, DAR checksums, license/NOTICE packaging,
 DPM wiring, and public API review land.
 
-Companion M1 acceptance criteria for CIP-0086, CIP-0103, and CIP-0104 are
-recorded in
-[`cip0086-cip0103-cip0104-m1-acceptance.md`](./cip0086-cip0103-cip0104-m1-acceptance.md).
-Those criteria remain interoperability evidence for the CIP-112 settlement
-surface and do not widen this ADR's public API or import boundary.
+CIP-0086, CIP-0103, and CIP-0104 remain interoperability evidence for the
+CIP-112 settlement surface (demonstrated by the interop exemplars in
+[`experiments/cip-interop-exemplar/`](../../experiments/cip-interop-exemplar/daml/OpenZeppelin/Experimental/Interop/))
+and do not widen this ADR's public API or import boundary.
 
 ## Evidence Pin
 

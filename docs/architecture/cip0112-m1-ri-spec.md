@@ -10,12 +10,10 @@ that ADR keeps this scaffold experimental until the later DAR/import evidence
 gates land. The current import-gate evidence boundary is recorded in
 [`cip0112-splice-token-standard-v2-import-gate.md`](./cip0112-splice-token-standard-v2-import-gate.md);
 it documents the upstream package IDs and build/release evidence that still do
-not authorize a local import or stability claim. The M1 acceptance boundary for
-CIP-0086, CIP-0103, and CIP-0104 is
-recorded in
-[`cip0086-cip0103-cip0104-m1-acceptance.md`](./cip0086-cip0103-cip0104-m1-acceptance.md);
-those CIPs are settlement-interoperability criteria, not standalone CIP-56-token
-deliverables.
+not authorize a local import or stability claim. CIP-0086, CIP-0103, and
+CIP-0104 are addressed as settlement-interoperability criteria, not standalone
+CIP-56-token deliverables, and are demonstrated by the interop exemplars in
+[`experiments/cip-interop-exemplar/`](../../experiments/cip-interop-exemplar/daml/OpenZeppelin/Experimental/Interop/).
 
 > **Source-grounding tags used throughout:**
 > `[IMPLEMENTED]` real code in the M1 base — the CIP-0112 settlement RI scaffold
@@ -413,7 +411,7 @@ rather than re-litigating the core controls.
   `1e34121b2b369c5dde357c098e2aaeb65250e736`. The older
   `canton-network/splice @ token-standard-v2-daml-preview b91de5d4…` reference
   remains historical local evidence only.
-- Decisions / plan of record: root `PLAN.md` (Decision Log, gate table),
+- Decisions / plan of record: the internal plan of record (Decision Log, gate table),
   `docs/decisions/D4_MULTISIG.md`,
   `canton-contracts/docs/experiments/cip112-settlement.md`,
   `canton-contracts/docs/experiments/multi-hosted-node-check.md`.
