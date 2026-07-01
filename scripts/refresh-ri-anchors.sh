@@ -39,13 +39,23 @@ WINDOW = 3  # a symbol counts as "at" its anchor if within +/- this many lines
 def struct_def_lines(lines, sym):
     """Line numbers (1-based) where `sym` is *structurally defined* (template /
     interface / data / newtype / type / class / choice / a top-level `sym :` sig
-    or `sym =` binding). Empty when `sym` is only referenced, not defined here."""
+    or `sym =` binding, including a multi-line signature where `sym` sits on its
+    own line above an indented `: Type`). Empty when `sym` is only referenced,
+    not defined here."""
     defpat = re.compile(
         r"^\s*(template|interface|data|newtype|type|class)\s+" + re.escape(sym) + r"\b"
         r"|^\s*(nonconsuming\s+|postconsuming\s+|preconsuming\s+)?choice\s+" + re.escape(sym) + r"\b"
         r"|^\s*" + re.escape(sym) + r"\s*[:=]"
     )
-    return [i + 1 for i, l in enumerate(lines) if defpat.search(l)]
+    bare = re.compile(r"^\s*" + re.escape(sym) + r"\s*$")
+    sig_continuation = re.compile(r"^\s*:")
+    out = []
+    for i, l in enumerate(lines):
+        if defpat.search(l):
+            out.append(i + 1)
+        elif bare.search(l) and i + 1 < len(lines) and sig_continuation.search(lines[i + 1]):
+            out.append(i + 1)
+    return out
 
 def word_lines(lines, sym):
     """Line numbers (1-based) where `sym` appears as a whole word."""

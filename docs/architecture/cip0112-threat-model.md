@@ -16,8 +16,8 @@ refresh with `scripts/refresh-ri-anchors.sh`.
 | Holdings (value) | Unlocked/locked token holdings | [`ToyHolding`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L133) (mock impl of [`Holding`](../../experiments/token-standard-v2-mock/daml/OpenZeppelin/Experimental/TokenStandard/V2/Holding.daml)) |
 | Allocation authority | A party's committed, locked funds for a settlement | [`Allocation`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L454) |
 | Seizure authority | The capability to route in-flight funds to a custodian | [`BurnerCapability`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L98) |
-| Compliance trust anchor | Which parties may sign D1 node attestations | [`TrustedAttesterRegistry`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L721) |
-| Settlement evidence | Receipts + holdings-change events | [`SettlementReceipt`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L638), [`SettlementEventLogEntry`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L667) |
+| Compliance trust anchor | Which parties may sign D1 node attestations | [`TrustedAttesterRegistry`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L730) |
+| Settlement evidence | Receipts + holdings-change events | [`SettlementReceipt`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L647), [`SettlementEventLogEntry`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L676) |
 
 ## 2. Actors & trust
 
@@ -39,8 +39,8 @@ refresh with `scripts/refresh-ri-anchors.sh`.
   can only credit/debit that authorizer's own account — a party cannot mint into
   someone else's account. True DvP emerges only across a batch where each
   counterparty contributes its own allocation.
-- **Single-admin seizure.** Seizure ([`Allocation_SweepD2InFlightSeizure`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L568),
-  [`Allocation_SweepD2WithLawfulProcess`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L602))
+- **Single-admin seizure.** Seizure ([`Allocation_SweepD2InFlightSeizure`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L577),
+  [`Allocation_SweepD2WithLawfulProcess`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L611))
   requires an admin-issued `BurnerCapability` naming the caller; possession is
   authorization (D4).
 - **Fail-closed D1.** The reference hook ([`D1ComplianceHook`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L41))

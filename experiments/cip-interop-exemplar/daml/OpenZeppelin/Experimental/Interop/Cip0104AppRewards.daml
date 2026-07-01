@@ -39,7 +39,7 @@ test_cip0104_attributableViaSettlementViewsWithoutMarkers = script do
   let aliceAcct = basicAccount alice
       bobAcct = basicAccount bob
   aliceHolding <- mintUsd [admin, alice] admin aliceAcct 50.0
-  _ <- settleUsdTransfer admin app (alice, aliceAcct) (bob, bobAcct) aliceHolding 50.0 "reward-view"
+  _ <- settleUsdTransfer admin app aliceAcct bobAcct aliceHolding 50.0 "reward-view"
 
   -- The app-provider observes the settlement receipts and holdings-change events
   -- (the attribution surface), produced by settlement itself.

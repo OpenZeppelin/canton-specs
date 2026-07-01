@@ -219,12 +219,12 @@ the transfer-events DAR boundary (**Q2**).
 | Allocation request lifecycle | [`AllocationRequest`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L299) (Accept@L340 / Reject@L347 / Withdraw@L354) | 🟡 |
 | Allocation instruction lifecycle | [`AllocationInstruction`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L356) (Accept@L396 / Withdraw@L414) | 🟡 |
 | Ready-to-settle allocation | [`Allocation`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L454) (Settle@L483 / Cancel@L526 / Withdraw@L534) | 🟡 |
-| Settlement evidence | [`SettlementReceipt`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L638) | 🟡 |
+| Settlement evidence | [`SettlementReceipt`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L647) | 🟡 |
 | D1 compliance hook (reference field) | [`D1ComplianceHook`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L41) | 🟡 — node-applied signed attestation ⬜ (Q1) |
-| D2 lock-and-sweep seizure | [`Allocation_MarkD2InFlightSeizure`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L559) + [`Allocation_SweepD2InFlightSeizure`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L568) + [`D2SeizureHook`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L46) | 🟡 |
+| D2 lock-and-sweep seizure | [`Allocation_MarkD2InFlightSeizure`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L568) + [`Allocation_SweepD2InFlightSeizure`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L577) + [`D2SeizureHook`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L46) | 🟡 |
 | Single-admin authority (D4) | [`BurnerCapability`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L98) | 🟡 |
 | Unit of value | [`ToyHolding`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L133) | 🟡 toy stand-in |
-| Spine test coverage (31 `test_` scripts) | [`Cip112Settlement.daml`](../../test/daml/OpenZeppelin/Test/Cip112Settlement.daml) | ✅ |
+| Spine test coverage (33 `test_` scripts) | [`Cip112Settlement.daml`](../../test/daml/OpenZeppelin/Test/Cip112Settlement.daml) | ✅ |
 | Access control / ownership / pause | [`oz-access-control`](../../access-control/daml/OpenZeppelin/AccessControl.daml) · [`oz-ownable`](../../ownable/daml/OpenZeppelin/Ownable.daml) · [`oz-pausable`](../../pausable/daml/OpenZeppelin/Pausable.daml) | ✅ (library) |
 | Real TSv2 holding interface | replaces `ToyHolding`; Splice DAR import gate | ⬜ |
 | `EventLog_HoldingsChange` in M1 surface | carried as `[EVIDENCE]` only (Q2) | ⬜ |

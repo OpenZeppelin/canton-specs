@@ -506,18 +506,27 @@ template Allocation
         performSettle allocation lockedHoldingCids settlement transferLegs localSides d1ComplianceRef d2SeizureHook featureFlag
 
     -- Batch settlement path (SCU-safe new choice; `Allocation_Settle` is
-    -- unchanged). `SettlementFactory_SettleBatch` proves once, over all
-    -- allocations, that every transfer leg has both authorized sides (the
-    -- both-sidedness invariant), then settles each authorizer's allocation
-    -- through this choice. Because that proof is already established at the
-    -- factory level, this choice settles a single allocation WITHOUT re-fetching
-    -- peer allocations/receipts or re-running the both-sided check — eliminating
-    -- the O(N^2) peer fetches the direct path would incur per batch. It still
-    -- conserves value, credits the authorizer's ReceiverSide legs, and emits the
-    -- holdings-change event. It is deliberately not safe for standalone use: a
-    -- lone authorizer cannot settle one side of a leg through it, because it does
-    -- not verify the counterparty side. Standalone, peer-proven settlement stays
-    -- on `Allocation_Settle`, which keeps `peerAllocationCids`/`peerReceiptCids`.
+    -- unchanged). This choice is a FACTORY-INTERNAL primitive:
+    -- `SettlementFactory_SettleBatch` proves once, over all allocations, that
+    -- every transfer leg has both authorized sides (the both-sidedness
+    -- invariant), then settles each authorizer's allocation through this choice.
+    -- Because that cross-allocation proof is established at the factory level,
+    -- this choice settles a single allocation WITHOUT re-fetching peer
+    -- allocations/receipts or re-running the both-sided check — eliminating the
+    -- O(N^2) peer fetches the direct path would incur per batch. It conserves
+    -- value for its own authorizer (locked funds cover this authorizer's
+    -- SenderSide obligations), credits the authorizer's ReceiverSide legs, and
+    -- emits the holdings-change event.
+    --
+    -- IMPORTANT: delivery-versus-payment / both-sidedness is a property of
+    -- `SettlementFactory_SettleBatch`, NOT of this choice in isolation. Exercised
+    -- standalone on a lone ReceiverSide allocation it would credit the receiver
+    -- with no matching debit — so it MUST only be driven by the factory. It is
+    -- not a candidate public surface: it requires `admin :: executors` authority
+    -- (the trusted issuer, who can mint regardless), so this is a footgun to be
+    -- avoided, not an untrusted-party escalation. Standalone, peer-proven
+    -- settlement is `Allocation_Settle`, which keeps
+    -- `peerAllocationCids`/`peerReceiptCids` and re-proves both-sidedness itself.
     choice Allocation_SettleInBatch : ContractId SettlementReceipt
       with
         actors : [Party]
@@ -937,7 +946,9 @@ performSettle allocation lockedHoldingCids settlement transferLegs localSides d1
 
 -- | Archive each locked input holding and tally the (instrument, amount) it
 -- carried, so the settlement path can verify value conservation before crediting.
-archiveAndTallyLockedHoldings : [ContractId ToyHolding] -> Update [(InstrumentId, Decimal)]
+-- Tally entry for an archived locked holding: its instrument, amount, and the
+-- metadata it carried (so returned change can preserve that metadata).
+archiveAndTallyLockedHoldings : [ContractId ToyHolding] -> Update [(InstrumentId, Decimal, Metadata)]
 archiveAndTallyLockedHoldings cids =
   case cids of
     [] -> pure []
@@ -945,7 +956,7 @@ archiveAndTallyLockedHoldings cids =
       holding <- fetch cid
       archive cid
       restTally <- archiveAndTallyLockedHoldings rest
-      pure ((holding.instrumentId, holding.amount) :: restTally)
+      pure ((holding.instrumentId, holding.amount, holding.meta) :: restTally)
 
 -- | Enforce per-instrument value conservation on the settlement path: for each
 -- instrument involved, the locked funds archived for this allocation must cover
@@ -957,12 +968,13 @@ archiveAndTallyLockedHoldings cids =
 -- the change create needs no extra authority. All of an allocation's locked
 -- holdings carry `allocation.admin` (asserted at lock time), so constructing a
 -- change `InstrumentId` with that admin matches the locked instrument identity.
+-- Change preserves the metadata of the first locked holding for that instrument.
 conserveSenderSides
   : Party
   -> Account
   -> Text
   -> Bool
-  -> [(InstrumentId, Decimal)]
+  -> [(InstrumentId, Decimal, Metadata)]
   -> [TransferLegSide]
   -> Update [ContractId ToyHolding]
 conserveSenderSides admin authorizer flag enforce lockedTally sides =
@@ -974,7 +986,7 @@ conserveByInstrument
   -> Account
   -> Text
   -> Bool
-  -> [(InstrumentId, Decimal)]
+  -> [(InstrumentId, Decimal, Metadata)]
   -> [TransferLegSide]
   -> [InstrumentId]
   -> Update [ContractId ToyHolding]
@@ -995,7 +1007,7 @@ conserveByInstrument admin authorizer flag enforce lockedTally sides instruments
               instrumentId
               amount = lockedSum - senderSum
               lock = None
-              meta = emptyMetadata
+              meta = metaForInstrument instrumentId lockedTally
               featureFlag = flag
             pure [cid]
           else pure []
@@ -1006,9 +1018,9 @@ conserveByInstrument admin authorizer flag enforce lockedTally sides instruments
 -- holdings AND those named by the authorizer's SenderSide legs. Including the
 -- sender-side instruments ensures an under-funded sender — a SenderSide with no
 -- locked holding at all — is still checked (its locked sum is 0).
-settlementInstrumentIds : Party -> [(InstrumentId, Decimal)] -> [TransferLegSide] -> [InstrumentId]
+settlementInstrumentIds : Party -> [(InstrumentId, Decimal, Metadata)] -> [TransferLegSide] -> [InstrumentId]
 settlementInstrumentIds admin lockedTally sides =
-  dedupeInstruments (map fst lockedTally <> senderInstrumentIds admin sides)
+  dedupeInstruments (map (\(i, _, _) -> i) lockedTally <> senderInstrumentIds admin sides)
 
 senderInstrumentIds : Party -> [TransferLegSide] -> [InstrumentId]
 senderInstrumentIds admin sides =
@@ -1025,12 +1037,20 @@ dedupeInstruments instruments =
     [] -> []
     instrumentId :: rest -> instrumentId :: dedupeInstruments (filter (/= instrumentId) rest)
 
-lockedSumForInstrument : InstrumentId -> [(InstrumentId, Decimal)] -> Decimal
+lockedSumForInstrument : InstrumentId -> [(InstrumentId, Decimal, Metadata)] -> Decimal
 lockedSumForInstrument instrumentId tally =
   case tally of
     [] -> 0.0
-    (i, amount) :: rest ->
+    (i, amount, _) :: rest ->
       (if i == instrumentId then amount else 0.0) + lockedSumForInstrument instrumentId rest
+
+-- | Metadata of the first locked holding for an instrument, for the returned
+-- change holding (empty when the instrument had no locked holding).
+metaForInstrument : InstrumentId -> [(InstrumentId, Decimal, Metadata)] -> Metadata
+metaForInstrument instrumentId tally =
+  case tally of
+    [] -> emptyMetadata
+    (i, _, m) :: rest -> if i == instrumentId then m else metaForInstrument instrumentId rest
 
 senderSumForInstrument : Text -> [TransferLegSide] -> Decimal
 senderSumForInstrument instrumentId sides =

@@ -53,7 +53,7 @@ differs.
   not burn, not return-to-sender),
   [`BurnerCapability`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L98)-gated
   via
-  [`Allocation_SweepD2InFlightSeizure`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L568),
+  [`Allocation_SweepD2InFlightSeizure`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L577),
   transfer *failures* return to sender; D3 single-domain v1, cross-domain
   deferred but SCU-forward-compatible; D4 single-admin capability (multi-sig → M3).
 - **SCU rule:** never mutate an existing choice's args to require a new field;
@@ -84,7 +84,7 @@ differs.
 > promoted; includes toy stand-ins) · ⬜ planned, not built in M1.
 
 **Shared settlement spine** — `experiments/cip112-settlement/.../Cip112.daml`,
-exercised by [`Cip112Settlement` tests](../../test/daml/OpenZeppelin/Test/Cip112Settlement.daml) (✅, 31 `test_` scripts; count via `grep -cE '^test_.* : Script'`):
+exercised by [`Cip112Settlement` tests](../../test/daml/OpenZeppelin/Test/Cip112Settlement.daml) (✅, 33 `test_` scripts; count via `grep -cE '^test_.* : Script'`):
 
 | Shared capability (reused by all four RIs) | Source anchor | Status |
 |---|---|---|
@@ -93,19 +93,19 @@ exercised by [`Cip112Settlement` tests](../../test/daml/OpenZeppelin/Test/Cip112
 | Allocation request lifecycle | [`AllocationRequest`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L299) | 🟡 |
 | Allocation instruction (+ D1 hook) | [`AllocationInstruction`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L356) | 🟡 |
 | Ready-to-settle allocation | [`Allocation`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L454) | 🟡 |
-| Settlement evidence | [`SettlementReceipt`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L638) | 🟡 |
+| Settlement evidence | [`SettlementReceipt`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L647) | 🟡 |
 | Receiver crediting (value-moving DvP) | [`Allocation_Settle`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L474) credits ReceiverSide legs | 🟡 |
-| Value conservation (enforced; change returned, under-fund fails closed) | [`conserveSenderSides`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L960) | 🟡 |
-| O(N) batch settle (no per-allocation peer re-fetch) | [`Allocation_SettleInBatch`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L521) | 🟡 |
-| EventLog reporting route | [`EventLog_HoldingsChange`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L655) emitted on settle/seizure | 🟡 |
+| Value conservation (enforced; change returned, under-fund fails closed) | [`conserveSenderSides`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L972) | 🟡 |
+| O(N) batch settle (no per-allocation peer re-fetch) | [`Allocation_SettleInBatch`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L530) | 🟡 |
+| EventLog reporting route | [`EventLog_HoldingsChange`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L646) emitted on settle/seizure | 🟡 |
 | D1 compliance hook (reference field) | [`D1ComplianceHook`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L41) | 🟡 |
-| D1 typed node attestation (Daml-visible) | [`SettlementFactory_SettleBatchWithAttestation`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L259) + [`TrustedAttesterRegistry`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L721) | 🟡 (real node-side integration ⬜) |
-| D2 lock-and-sweep seizure | [`Allocation_MarkD2InFlightSeizure`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L559) + [`Allocation_SweepD2InFlightSeizure`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L568) | 🟡 |
-| D2 lawful-process refinement | [`Allocation_SweepD2WithLawfulProcess`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L602) | 🟡 |
+| D1 typed node attestation (Daml-visible) | [`SettlementFactory_SettleBatchWithAttestation`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L259) + [`TrustedAttesterRegistry`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L730) | 🟡 (real node-side integration ⬜) |
+| D2 lock-and-sweep seizure | [`Allocation_MarkD2InFlightSeizure`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L568) + [`Allocation_SweepD2InFlightSeizure`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L577) | 🟡 |
+| D2 lawful-process refinement | [`Allocation_SweepD2WithLawfulProcess`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L611) | 🟡 |
 | Single-admin authority (D4) | [`BurnerCapability`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L98) | 🟡 |
 | Mock Token Standard V2 interfaces | [`token-standard-v2-mock`](../../experiments/token-standard-v2-mock/daml/OpenZeppelin/Experimental/TokenStandard/V2/Holding.daml) (mirrors `splice-api-token-*-v2`) | 🟡 (real DAR import ⬜) |
 | Unit of value | [`ToyHolding`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L133) | 🟡 toy stand-in (real TSv2 holding interface ⬜) |
-| Spine test coverage (31 `test_` scripts) | [`Cip112Settlement.daml`](../../test/daml/OpenZeppelin/Test/Cip112Settlement.daml) | ✅ |
+| Spine test coverage (33 `test_` scripts) | [`Cip112Settlement.daml`](../../test/daml/OpenZeppelin/Test/Cip112Settlement.daml) | ✅ |
 | Deep settlement exemplar | [`settlement-exemplar`](../../experiments/settlement-exemplar/daml/OpenZeppelin/Experimental/Settlement/Exemplar.daml) | ✅ scripts |
 | Access control / ownership / pause | [`oz-access-control`](../../access-control/daml/OpenZeppelin/AccessControl.daml) · [`oz-ownable`](../../ownable/daml/OpenZeppelin/Ownable.daml) · [`oz-pausable`](../../pausable/daml/OpenZeppelin/Pausable.daml) | ✅ |
 

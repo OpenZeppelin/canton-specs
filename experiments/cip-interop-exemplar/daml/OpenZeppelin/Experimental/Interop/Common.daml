@@ -118,13 +118,13 @@ createAndAcceptAllocation admin factory factoryDisc settlement authorizer sides 
 settleUsdTransfer
   : Party
   -> Party
-  -> (Party, Account)
-  -> (Party, Account)
+  -> Account
+  -> Account
   -> ContractId ToyHolding
   -> Decimal
   -> Text
   -> Script [ContractId SettlementReceipt]
-settleUsdTransfer admin app (_sender, senderAcct) (_receiver, recvAcct) senderHoldingCid amount ref = do
+settleUsdTransfer admin app senderAcct recvAcct senderHoldingCid amount ref = do
   (factory, factoryDisc) <- mkFactory admin
   let settlement = mkSettlementInfo ref app
       leg = mkUsdLeg ref senderAcct recvAcct amount

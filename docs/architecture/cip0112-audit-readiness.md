@@ -33,10 +33,10 @@ privacy / archival / failure / upgrade). Path: `…/Cip112.daml`.
 | [`AllocationRequest`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L299) | executors | authorizer parties | authorizer (accept/reject), executors (withdraw) | consuming | wrong actor set |
 | [`AllocationInstruction`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L356) | admin + authorizer parties | executors | authorizer (accept/withdraw) | consuming; accept locks inputs + creates `Allocation` | wrong actor, bad input owner/admin/instrument |
 | [`Allocation`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L454) | admin + authorizer parties | executors | admin+executors (settle direct / in-batch), executors (cancel), authorizer (withdraw), admin (mark), burner (sweep) | consuming (mark recreates); settle conserves value + returns change | settlement/peer mismatch, expired, missing D1 ref, active D2, unauthorized legs, under-funded sender (fail closed) |
-| [`SettlementReceipt`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L638) | admin | authorizer parties + executors | none | persists | flag gate |
-| [`SettlementEventLogEntry`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L667) (implements `EventLog`) | event.admin | event.observers (account parties + executors) | none | persists | flag gate |
-| [`TrustedAttesterRegistry`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L721) | admin | attesters | none | persists | flag gate |
-| [`NodeComplianceAttestation`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L738) | attester | attestationObservers | none | persists | flag gate |
+| [`SettlementReceipt`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L647) | admin | authorizer parties + executors | none | persists | flag gate |
+| [`SettlementEventLogEntry`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L676) (implements `EventLog`) | event.admin | event.observers (account parties + executors) | none | persists | flag gate |
+| [`TrustedAttesterRegistry`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L730) | admin | attesters | none | persists | flag gate |
+| [`NodeComplianceAttestation`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L747) | attester | attestationObservers | none | persists | flag gate |
 
 **Privacy (all):** per-authorizer projection — a party sees only allocations,
 receipts, and events for settlements it participates in or executes; outside
@@ -49,16 +49,17 @@ new optional fields and new choices; baseline choice arguments are never mutated
 | Decision | Control | Anchor |
 |---|---|---|
 | D1 (compliance, no-cache, fail-closed) | Reference hook + typed signed attestation path | [`D1ComplianceHook`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L41), [`SettlementFactory_SettleBatchWithAttestation`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L259) |
-| D2 (seizure = lock-and-sweep to preset custodian) | Mark + sweep, single-admin capability, lawful window | [`Allocation_SweepD2InFlightSeizure`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L568), [`Allocation_SweepD2WithLawfulProcess`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L602) |
+| D2 (seizure = lock-and-sweep to preset custodian) | Mark + sweep, single-admin capability, lawful window | [`Allocation_SweepD2InFlightSeizure`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L577), [`Allocation_SweepD2WithLawfulProcess`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L611) |
 | D3 (single-domain v1) | No cross-synchronizer machinery; SCU-forward-compatible | (deferred) |
 | D4 (single-admin capability) | Admin-issued, caller-named capability | [`BurnerCapability`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L98) |
 
 ## 4. Test-coverage map
 
 Spine suite [`Cip112Settlement.daml`](../../test/daml/OpenZeppelin/Test/Cip112Settlement.daml)
-(31 `test_` scripts; count via `grep -cE '^test_.* : Script'`) + the 2 exemplar
-scripts (`experiments/settlement-exemplar/`, run by `scripts/run-tests.sh`).
-Coverage by area:
+(33 `test_` scripts; count via `grep -cE '^test_.* : Script'`) + the 2 deep
+settlement exemplar scripts (`experiments/settlement-exemplar/`) + the 11
+CIP-0086/0103/0104 interop exemplar scripts (`experiments/cip-interop-exemplar/`),
+all run by `scripts/run-tests.sh`. Coverage by area:
 
 - **Happy path / DvP:** request→instruction→allocation→batch settle; iterated
   settlement; receiver crediting (`settleCreditsReceiver`); EventLog emission

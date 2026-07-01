@@ -355,6 +355,113 @@ test_cip112Settlement_settleOverfundedSenderGetsChange = script do
   let bobCredited = filter (\(_, h) -> h.amount == 10.0 && h.lock == None) bobHoldings
   length bobCredited === 1
 
+-- | Value conservation is enforced PER INSTRUMENT. One allocation locks two
+-- instruments (USD over-funded, EUR exact) with a SenderSide in each; after the
+-- batch the sender keeps a USD change holding and no EUR, and the receiver is
+-- credited exactly per instrument. Exercises the per-instrument grouping in
+-- `conserveSenderSides` that a single-instrument test cannot reach.
+test_cip112Settlement_settleMultiInstrumentConservesPerInstrument : Script ()
+test_cip112Settlement_settleMultiInstrumentConservesPerInstrument = script do
+  setTime t0
+  admin <- allocateParty "cip112-multi-admin"
+  app <- allocateParty "cip112-multi-app"
+  alice <- allocateParty "cip112-multi-alice"
+  bob <- allocateParty "cip112-multi-bob"
+  let aliceAccount = basicAccount alice
+      bobAccount = basicAccount bob
+      settlement = mkSettlement "cip112-multi" app
+      usdLeg = TransferLeg with
+        transferLegId = "cip112-multi-usd"; sender = aliceAccount; receiver = bobAccount
+        amount = 10.0; instrumentId = "USD"; meta = emptyMetadata
+      eurLeg = TransferLeg with
+        transferLegId = "cip112-multi-eur"; sender = aliceAccount; receiver = bobAccount
+        amount = 5.0; instrumentId = "EUR"; meta = emptyMetadata
+      aliceSides = [senderSide usdLeg, senderSide eurLeg]
+      bobSides = [receiverSide usdLeg, receiverSide eurLeg]
+
+  factory <- submit admin do
+    createCmd SettlementFactory with admin; featureFlag = experimentalFeatureFlag
+  Some factoryDisclosure <- queryDisclosure @SettlementFactory admin factory
+
+  usdHolding <- submit [admin, alice] do
+    createCmd ToyHolding with
+      admin; account = aliceAccount; instrumentId = InstrumentId with admin; id = "USD"
+      amount = 15.0; lock = None; meta = emptyMetadata; featureFlag = experimentalFeatureFlag
+  eurHolding <- submit [admin, alice] do
+    createCmd ToyHolding with
+      admin; account = aliceAccount; instrumentId = InstrumentId with admin; id = "EUR"
+      amount = 5.0; lock = None; meta = emptyMetadata; featureFlag = experimentalFeatureFlag
+
+  aliceInstruction <- submit (actAs alice <> discloseMany [factoryDisclosure]) do
+    exerciseCmd factory SettlementFactory_CreateAllocationInstruction with
+      allocation = mkAllocation settlement admin aliceAccount aliceSides False
+      requestedAt = t0
+      inputHoldingCids = [usdHolding, eurHolding]
+      d1ComplianceHook = None
+      actors = [alice]
+  aliceResult <- submit alice do
+    exerciseCmd aliceInstruction AllocationInstruction_Accept with actors = [alice]
+  aliceAllocation <- case aliceResult of
+    AllocationInstructionCompleted cid -> pure cid
+    _ -> fail "expected alice allocation instruction to complete"
+
+  bobInstruction <- submit (actAs bob <> discloseMany [factoryDisclosure]) do
+    exerciseCmd factory SettlementFactory_CreateAllocationInstruction with
+      allocation = mkAllocation settlement admin bobAccount bobSides False
+      requestedAt = t0
+      inputHoldingCids = []
+      d1ComplianceHook = None
+      actors = [bob]
+  bobResult <- submit bob do
+    exerciseCmd bobInstruction AllocationInstruction_Accept with actors = [bob]
+  bobAllocation <- case bobResult of
+    AllocationInstructionCompleted cid -> pure cid
+    _ -> fail "expected bob allocation instruction to complete"
+
+  _ <- submit (actAs app <> discloseMany [factoryDisclosure]) do
+    exerciseCmd factory SettlementFactory_SettleBatch with
+      settlement
+      transferLegs = [usdLeg, eurLeg]
+      allocationCids = [aliceAllocation, bobAllocation]
+      actors = [app]
+      d1ComplianceRef = None
+
+  -- Per instrument: alice keeps USD change 5 (15-10) and no EUR (5-5=0).
+  aliceHoldings <- query @ToyHolding alice
+  let aliceUsd = filter (\(_, h) -> h.instrumentId.id == "USD" && h.lock == None) aliceHoldings
+      aliceEur = filter (\(_, h) -> h.instrumentId.id == "EUR" && h.lock == None) aliceHoldings
+  length aliceUsd === 1
+  case aliceUsd of
+    (_, h) :: _ -> h.amount === 5.0
+    [] -> fail "expected alice USD change holding"
+  length aliceEur === 0
+  -- Bob credited exactly per instrument: USD 10, EUR 5.
+  bobHoldings <- query @ToyHolding bob
+  let bobUsd = filter (\(_, h) -> h.instrumentId.id == "USD" && h.lock == None && h.amount == 10.0) bobHoldings
+      bobEur = filter (\(_, h) -> h.instrumentId.id == "EUR" && h.lock == None && h.amount == 5.0) bobHoldings
+  length bobUsd === 1
+  length bobEur === 1
+
+-- | The factory is the both-sidedness trust anchor for the batch path (which
+-- settles each allocation through `Allocation_SettleInBatch` without re-proving
+-- it). An unbalanced batch — a SenderSide allocation with no matching
+-- ReceiverSide — is rejected by the factory before any value moves. This guards
+-- the property `Allocation_SettleInBatch` relies on the factory to enforce.
+test_cip112Settlement_batchRejectsUnbalancedLegs : Script ()
+test_cip112Settlement_batchRejectsUnbalancedLegs = script do
+  ConservationScenario{..} <- setupConservationScenario "cip112-unbalanced" (Some 10.0) 10.0
+  case allocationCids of
+    aliceAllocation :: _ -> do
+      submitMustFail (actAs app <> discloseMany [factoryDisclosure]) do
+        exerciseCmd factory SettlementFactory_SettleBatch with
+          settlement
+          transferLegs = [leg]
+          allocationCids = [aliceAllocation]  -- sender only; no receiver side
+          actors = [app]
+          d1ComplianceRef = None
+      pure ()
+    [] -> fail "expected allocations"
+
 -- | Request -> instruction -> allocation lock -> two-sided batch settlement.
 test_cip112Settlement_requestInstructionAllocationSettle : Script ()
 test_cip112Settlement_requestInstructionAllocationSettle = script do
@@ -641,6 +748,13 @@ test_cip112Settlement_directSettleWithPeerAllocationAuthorizationProof = script 
 -- | Iterated settlement remains additive: an allocation with
 -- `nextIterationFunding` can supply extra local sides for the current
 -- settlement without mutating the baseline choice shape.
+--
+-- NOTE (deliberate exemption): this settles a SenderSide with no locked funds.
+-- That is the documented iterated-settlement carve-out — per-iteration
+-- conservation is deferred because funding spans iterations and
+-- `nextIterationFunding` is positivity-checked only. It is gated by admin +
+-- authorizer authority and is NOT the mint-from-nothing that the standard path
+-- fails closed on (see `test_cip112Settlement_settleUnderfundedSenderFails`).
 test_cip112Settlement_iteratedSettlementPositive : Script ()
 test_cip112Settlement_iteratedSettlementPositive = script do
   setTime t0

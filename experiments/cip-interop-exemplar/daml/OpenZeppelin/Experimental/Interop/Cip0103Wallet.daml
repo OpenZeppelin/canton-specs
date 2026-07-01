@@ -102,7 +102,7 @@ test_cip0103_v1WalletDirectFactoryPath = script do
   -- No AllocationRequest is created anywhere in this flow.
   requests <- query @AllocationRequest app
   length requests === 0
-  receipts <- settleUsdTransfer admin app (alice, aliceAcct) (bob, bobAcct) aliceHolding 40.0 "wallet-v1"
+  receipts <- settleUsdTransfer admin app aliceAcct bobAcct aliceHolding 40.0 "wallet-v1"
   length receipts === 2
   (erc20BalanceOf admin bobAcct) >>= \b -> b === 40.0
 
@@ -119,7 +119,7 @@ test_cip0103_privacyScopedToParticipants = script do
   let aliceAcct = basicAccount alice
       bobAcct = basicAccount bob
   aliceHolding <- mintUsd [admin, alice] admin aliceAcct 10.0
-  _ <- settleUsdTransfer admin app (alice, aliceAcct) (bob, bobAcct) aliceHolding 10.0 "wallet-priv"
+  _ <- settleUsdTransfer admin app aliceAcct bobAcct aliceHolding 10.0 "wallet-priv"
   -- The uninvolved wallet has no projection of the settlement.
   (query @SettlementReceipt outsider) >>= \rs -> length rs === 0
   (query @SettlementEventLogEntry outsider) >>= \es -> length es === 0

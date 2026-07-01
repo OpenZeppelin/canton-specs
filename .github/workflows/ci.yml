@@ -13,17 +13,25 @@ name: ci
 # location scripts/dpm-env.sh expects locally. ~/.dpm is cached across runs so
 # the SDK tarball is downloaded once.
 
+# `pull_request` covers branch pushes that have an open PR (fires on each new
+# commit); `push` is scoped to the default branch so a PR branch does not run the
+# heavy job twice. Superseded runs on the same ref are cancelled.
 on:
   push:
-    branches: ["**"]
+    branches: [main]
   pull_request:
 
 permissions:
   contents: read
 
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   validate:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     env:
       OZ_DAML_TOOLCHAIN: dpm
     steps:
@@ -39,7 +47,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ~/.dpm
-          key: dpm-${{ runner.os }}-sdk-3.4.11-v1
+          key: dpm-${{ runner.os }}-sdk-3.4.11-v2
 
       - name: Provision DPM and the 3.4.11 SDK
         run: |
