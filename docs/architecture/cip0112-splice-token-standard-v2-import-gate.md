@@ -10,7 +10,7 @@ Phase: Phase 2, Scope-Locked Library Foundation
 
 Depends on:
 
-- root `PLAN.md` Decision Log S2: D2 in-flight seizure is lock-and-sweep to the
+- the internal plan of record Decision Log S2: D2 in-flight seizure is lock-and-sweep to the
   admin-preset custodian destination; D4 is single-admin capability authority.
 - [`cip0112-public-api-promotion-boundary.md`](./cip0112-public-api-promotion-boundary.md):
   the local settlement scaffold stays experimental until upstream DAR/import and

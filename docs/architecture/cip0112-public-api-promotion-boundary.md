@@ -8,7 +8,7 @@ Date: 2026-06-17
 
 Phase: Phase 2, Scope-Locked Library Foundation
 
-Depends on: root `PLAN.md` Decision Log S2 for D2 lock-and-sweep to the
+Depends on: the internal plan of record Decision Log S2 for D2 lock-and-sweep to the
 admin-preset custodian destination and D4 single-admin capability authority.
 
 ## Context
@@ -31,11 +31,10 @@ but actual import remains blocked until release-source confirmation, accepted
 DAR or reproducible-build artifacts, DAR checksums, license/NOTICE packaging,
 DPM wiring, and public API review land.
 
-Companion M1 acceptance criteria for CIP-0086, CIP-0103, and CIP-0104 are
-recorded in
-[`cip0086-cip0103-cip0104-m1-acceptance.md`](./cip0086-cip0103-cip0104-m1-acceptance.md).
-Those criteria remain interoperability evidence for the CIP-112 settlement
-surface and do not widen this ADR's public API or import boundary.
+CIP-0086, CIP-0103, and CIP-0104 remain interoperability evidence for the
+CIP-112 settlement surface (demonstrated by the interop exemplars in
+[`experiments/cip-interop-exemplar/`](../../experiments/cip-interop-exemplar/daml/OpenZeppelin/Experimental/Interop/))
+and do not widen this ADR's public API or import boundary.
 
 ## Evidence Pin
 
@@ -148,15 +147,25 @@ Promoted M1 semantics:
 
 - Batch settlement is the only stable atomic multi-allocation settlement path.
   The public story for delivery-versus-payment atomicity must go through
-  `SettlementFactory_SettleBatch`.
-- Direct allocation settlement may remain an implementation detail or advanced
-  compatibility path. If exposed, it must be described as proving local
-  authorization and consuming the local allocation, not as peer co-settlement,
-  unless it also consumes or settles the peer allocations in the same Daml
-  transaction.
+  `SettlementFactory_SettleBatch`. Internally that factory proves both-sidedness
+  once over all allocations, then settles each through the additive,
+  experimental-only `Allocation_SettleInBatch` choice, which takes no peer
+  arguments (no O(N^2) per-allocation peer fetching). `Allocation_SettleInBatch`
+  is deliberately unsafe for standalone use and is not a candidate public surface
+  on its own.
+- Direct allocation settlement (`Allocation_Settle`) may remain an implementation
+  detail or advanced compatibility path. If exposed, it must be described as
+  proving local authorization and consuming the local allocation, not as peer
+  co-settlement, unless it also consumes or settles the peer allocations in the
+  same Daml transaction.
 - Existing experimental `Allocation_Settle` proves that matching peer sides
   exist through fetched peer allocations or receipts. It is not a stable
   direct-path DvP API.
+- Both settle paths enforce per-instrument value conservation (locked funds must
+  cover the authorizer's SenderSide obligations; surplus returns as change;
+  under-funded senders fail closed). The iterated-settlement path
+  (`nextIterationFunding`) is exempt from the per-iteration coverage assertion and
+  must be formalized before any public iterated-DvP claim.
 
 ## Third-Party Custodian Credit Model
 

@@ -2,14 +2,32 @@
 
 ## Role
 
-This repo is the home for the OpenZeppelin Canton **CIP-0112 / Token Standard V2
-settlement specs and reference-implementation scaffold**. It was seeded from the
-`canton-contracts` branch `wip/cip0112-m1-settlement-amarzeppelin` (closed
-PR #13) and carries the settlement experiments, architecture/decision docs, and
-the supporting access-control / ownable / pausable primitives that branch held.
-Keep changes small, auditable, and tied to M1 settlement/specs deliverables. The
-reusable library primitives also live in `canton-contracts`; prefer evolving them
-there and treating their presence here as the snapshot this RI work builds on.
+This repo is the home for **all** OpenZeppelin Canton docs, specs, and Reference
+Implementations (RIs): the **CIP-0112 / Token Standard V2 settlement specs and
+the RI implementation code** (the experimental settlement scaffold plus the
+compliance/identity experiments), the architecture/decision docs, and the four
+RI architecture reports. Keep changes small, auditable, and tied to M1
+settlement/specs/RI deliverables.
+
+The decoupled, ergonomic general library (`oz-access-control` / `oz-ownable` /
+`oz-pausable`) is owned by `canton-contracts` — that repo is the **source of
+truth** for the reusable primitives and contains no RI/specs code. The RI here
+**consumes** the library and builds against a vendored snapshot of those
+primitives: evolve a primitive in `canton-contracts`, then refresh the snapshot
+here; do not fork the library design in this repo. A primitive graduates from
+the RI scaffold into the `canton-contracts` library only via the CIP-0112
+promotion-boundary ADR.
+
+This repo also carries the migrated RI architecture documentation:
+
+- `docs/ri-reports/` — portfolio + four RI architecture reports.
+- `docs/architecture/` — CIP-0112 architecture, ADRs, threat model, and
+  audit-readiness notes; the adopted D1–D4 design decisions live in
+  `docs/architecture/cip0112-m1-ri-spec.md`.
+
+Those documents describe reference designs. They do not add RI implementation
+scope, public API stability, CIP-0112 conformance, M1 acceptance, audit
+readiness, production readiness, or release readiness.
 
 ## Read Order
 
@@ -21,17 +39,65 @@ Before changing this repo:
 4. Read `README.md`.
 5. Check the accepted SDK/CIP ADR before adding or changing `daml.yaml`.
 
+For standalone GitHub review where the umbrella workspace is not available, read
+this file and `README.md` in that order.
+
+**Reviewing the M1 settlement work?** Start with the review entry points:
+
+1. [`docs/architecture/M1_DELIVERABLE_STATUS.md`](docs/architecture/M1_DELIVERABLE_STATUS.md)
+   — what is implemented (🟡 experimental / ✅ tested) vs gated/deferred (⬜).
+2. [`docs/architecture/cip0112-threat-model.md`](docs/architecture/cip0112-threat-model.md)
+   — assets, trust boundaries, abuse cases → negative tests, plus the folded-in
+   audit-readiness material (per-template authority/lifecycle matrix, D1–D4
+   control map, test-coverage map).
+4. [`docs/architecture/cip0112-m1-ri-spec.md`](docs/architecture/cip0112-m1-ri-spec.md)
+   and [`docs/ri-reports/`](docs/ri-reports/) — the living architecture docs;
+   every code reference is a line-anchored link, refreshable with
+   `scripts/refresh-ri-anchors.sh`.
+5. The code: `experiments/cip112-settlement/` (engine), `experiments/token-standard-v2-mock/`
+   (mock V2 interfaces), `experiments/settlement-exemplar/` (end-to-end consumer),
+   `test/daml/OpenZeppelin/Test/Cip112Settlement.daml` (spine suite).
+
+Build/verify locally: `OZ_DAML_TOOLCHAIN=dpm dpm build --all`, then
+`cd test && dpm test` (and the exemplar package's scripts), and
+`scripts/refresh-ri-anchors.sh` (expect `0 drift, 0 error`). Everything here is
+the **experimental** surface — no public-API/conformance/audit/production claim.
+
 ## Boundaries
+
+In scope here: the CIP-0112 settlement RI scaffold, the compliance/identity
+experiments, the specs/architecture docs, and the four RI architecture reports.
 
 Do not add:
 
-- Reference-implementation-specific business logic.
+- The four RIs' own business logic (DEX AMM, lending vaults, stablecoin
+  orchestration, sealed-bid auction) — those are M2–M4 implementation, not M1;
+  M1 builds the shared settlement primitive and documents the RI designs.
+- The decoupled library's design — evolve `oz-access-control` / `oz-ownable` /
+  `oz-pausable` in `canton-contracts` and refresh the snapshot here.
 - Production private integrations.
 - Full relayer infrastructure.
 - Year 2 components before scope review approval.
 - Public APIs without an ADR once implementation begins.
-- GitHub Actions, hosted CI workflows, or `.github/workflows` files unless a
-  superseding root ADR or explicit scope decision accepts hosted CI.
+
+## Decision Authority
+
+The adopted D1–D4 decisions (recorded in
+[`docs/architecture/cip0112-m1-ri-spec.md`](docs/architecture/cip0112-m1-ri-spec.md)):
+
+- D1: transfer validation is checked on every transfer/settlement leg, no
+  caching, fail-closed, node-side. The Daml-visible attestation shape is an
+  optional hook and remains a non-blocking implementation clarification.
+- D2: seizure routes to an admin-preset custodian destination, not burn and not
+  return-to-sender. In-flight seizure is lock-and-sweep to that destination.
+- D3: v1 is single-domain; cross-domain identity is deferred, with an additive
+  SCU-safe extension path.
+- D4: M1 uses single-admin capability authority. On-ledger multi-sig and
+  multi-hosted-party authority are deferred unless a specific deployment
+  requires them.
+
+When work depends on D1-D4, cite `docs/architecture/cip0112-m1-ri-spec.md` (which
+records the adopted D1–D4 decisions) rather than re-deriving the boundaries.
 
 ## Daml Requirements
 
@@ -69,7 +135,6 @@ Use repo-local scripts for standalone validation:
 
 ```sh
 scripts/check-scaffold.sh
-scripts/check-no-github-workflows.sh
 scripts/manual-workflow-test.sh
 ```
 
@@ -78,7 +143,7 @@ exists, missing DPM or Java 21 tooling is a validation failure, not a green
 skip. Use `OZ_DAML_TOOLCHAIN=dpm` for the M0 proof baseline; Daml Assistant
 requires a superseding ADR or explicit exception.
 
-This repo uses local manual workflow tests instead of GitHub CI. The repo-local
-entrypoint is `scripts/manual-workflow-test.sh`, and
-`scripts/check-no-github-workflows.sh` must remain green so hosted workflow files
-are not reintroduced accidentally.
+The repo-local manual validation entrypoint is
+`scripts/manual-workflow-test.sh`. GitHub Actions / hosted CI workflows are
+allowed here like in any OpenZeppelin repo; nothing in this repo forbids
+`.github/workflows`.

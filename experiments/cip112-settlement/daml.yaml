@@ -5,5 +5,7 @@ version: 0.1.0
 dependencies:
   - daml-prim
   - daml-stdlib
+data-dependencies:
+  - ../token-standard-v2-mock/.daml/dist/oz-experimental-token-standard-v2-mock-0.1.0.dar
 build-options:
   - --target=2.1

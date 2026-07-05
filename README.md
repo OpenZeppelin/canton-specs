@@ -1,17 +1,29 @@
 # canton-specs
 
-CIP-0112 / Token Standard V2 settlement specs, reference-implementation
-scaffold, and the supporting OpenZeppelin Canton Daml primitives.
+The home for **all** OpenZeppelin Canton docs, specs, and Reference
+Implementations (RIs): the CIP-0112 / Token Standard V2 settlement specs, the
+RI implementation code (the experimental settlement scaffold, a mock Token
+Standard V2 interface layer mirroring the `splice-api-token-*-v2` packages, a
+deep settlement exemplar, and the compliance/identity experiments), the four RI
+architecture reports, the audit-readiness package + threat model, scope locks,
+research, and review provenance.
 
-> Seeded from `OpenZeppelin/canton-contracts` branch
-> `wip/cip0112-m1-settlement-amarzeppelin` (closed PR #13). The reusable
-> access-control / ownable / pausable primitives also live in `canton-contracts`;
-> this repo is the home for the CIP-0112 settlement specs and RI work.
+> **Repo split.** The decoupled, ergonomic general Daml contracts library
+> (`oz-access-control` / `oz-ownable` / `oz-pausable`) is owned by
+> [`OpenZeppelin/canton-contracts`](https://github.com/OpenZeppelin/canton-contracts).
+> That repo is the **source of truth** for the reusable primitives and contains
+> no RI/specs code. This repo holds the RI implementation that **consumes** the
+> library and builds against a vendored snapshot of those primitives (evolve the
+> primitives in `canton-contracts`, then refresh the snapshot here). The RI
+> architecture reports in [`docs/ri-reports/`](docs/ri-reports/) are living
+> documents that link directly into the RI code (refresh with
+> [`scripts/refresh-ri-anchors.sh`](scripts/refresh-ri-anchors.sh)). Originally
+> seeded from the `canton-contracts` CIP-0112 settlement work branch.
 
 Status: experimental. The M1 target is the CIP-0112 settlement primitive (not the
 superseded CIP-56 token foundation), alongside the reusable access-control
-primitives (slice AL-7, see [Access Control Library](#access-control-library-al-7)
-below). No stable M1 public API, CIP-0112 conformance, audit readiness, production
+primitives (see [Access Control Library](#access-control-library) below). No
+stable M1 public API, CIP-0112 conformance, audit readiness, production
 readiness, or release readiness is claimed.
 
 ## Scope
@@ -25,12 +37,18 @@ M1 target scope:
 - CIP-104 rewards support components scoped to the settlement surface.
 - Documentation, tests, security notes, and compatibility evidence.
 
-CIP-86 / CIP-103 / CIP-104 acceptance criteria are recorded as settlement
-interop criteria, not standalone CIP-56-token deliverables:
+Repository-local report surfaces:
 
-- [`docs/architecture/cip0086-cip0103-cip0104-m1-acceptance.md`](docs/architecture/cip0086-cip0103-cip0104-m1-acceptance.md)
+- [`docs/architecture/`](docs/architecture/) holds the CIP-0112 / Token Standard
+  V2 architecture, promotion-boundary, import-gate, DPM, license, and source-of-
+  record notes. The adopted D1–D4 design decisions are recorded in
+  [`docs/architecture/cip0112-m1-ri-spec.md`](docs/architecture/cip0112-m1-ri-spec.md).
+- [`docs/ri-reports/`](docs/ri-reports/) holds the portfolio report and all four
+  RI architecture reports.
 
-CIP-56 is background and migration evidence only. The experimental CIP-112
+CIP-86 / CIP-103 / CIP-104 are addressed as settlement-interop criteria, not
+standalone CIP-56-token deliverables. CIP-56 is background and migration evidence
+only. The experimental CIP-112
 settlement scaffold lives under `experiments/cip112-settlement` and remains
 outside the committed public-library surface until the promotion boundary ADR's
 Splice DAR/import, license/NOTICE, package-ID/checksum, DPM wiring, and public
@@ -143,7 +161,7 @@ failure, and migration assumptions in the source comments.
 is not public API and keeps the Daml Script dependency out of the production
 package.
 
-## Access Control Library (AL-7)
+## Access Control Library
 
 The first reusable primitives land here as **three independent packages**, each
 its own DAR with no dependency on the others — so a consumer imports only what it
@@ -151,7 +169,7 @@ needs (e.g. just `oz-pausable`). This is the Daml-idiomatic form of OpenZeppelin
 decoupled-module promise: independence is at the **package** boundary, since Daml
 has no inheritance and the unit of reuse is the DAR. The full rationale, the
 options weighed, and the Daml-specific genericity trade are documented in the
-canton-token-template `docs/ARCHITECTURE.md` (slice AL-7).
+canton-token-template `docs/ARCHITECTURE.md`.
 
 | Package | Module | Mirrors | Notes |
 |---|---|---|---|
@@ -189,11 +207,8 @@ so DAR SHAs are intentionally not pinned here while the shape may still change.
 
 The experimental settlement package models a Token Standard V2-aligned
 request/instruction/allocation/settlement lifecycle with optional D1 and D2
-extension points. Its source evidence pin is `hyperledger-labs/splice` branch
-`token-standard-v2-upcoming` at
-`1e34121b2b369c5dde357c098e2aaeb65250e736`; the older
-`canton-network/splice` `token-standard-v2-daml-preview` branch is historical
-evidence only.
+extension points. It is designed against the `hyperledger-labs/splice`
+`token-standard-v2-upcoming` interfaces; the DAR import remains gated.
 
 The package intentionally uses local stand-ins and toy holdings. Do not import
 or vendor Splice DARs from this repo until a later slice satisfies the promotion

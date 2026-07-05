@@ -10,23 +10,25 @@ that ADR keeps this scaffold experimental until the later DAR/import evidence
 gates land. The current import-gate evidence boundary is recorded in
 [`cip0112-splice-token-standard-v2-import-gate.md`](./cip0112-splice-token-standard-v2-import-gate.md);
 it documents the upstream package IDs and build/release evidence that still do
-not authorize a local import or stability claim. The M1 acceptance boundary for
-CIP-0086, CIP-0103, and CIP-0104 is
-recorded in
-[`cip0086-cip0103-cip0104-m1-acceptance.md`](./cip0086-cip0103-cip0104-m1-acceptance.md);
-those CIPs are settlement-interoperability criteria, not standalone CIP-56-token
-deliverables.
-
-> **Google Docs import:** paste this file into Docs with *Edit → Paste* after
-> *File → Open* of the `.md`, or use a Markdown add-on. Headings (H1/H2/H3) drive
-> the Docs outline pane; the tables below import cleanly; apply a monospace
-> paragraph style to the fenced code blocks after import.
+not authorize a local import or stability claim. CIP-0086, CIP-0103, and
+CIP-0104 are addressed as settlement-interoperability criteria, not standalone
+CIP-56-token deliverables, and are demonstrated by the interop exemplars in
+[`experiments/cip-interop-exemplar/`](../../experiments/cip-interop-exemplar/daml/OpenZeppelin/Experimental/Interop/).
 
 > **Source-grounding tags used throughout:**
-> `[IMPLEMENTED]` real code in `canton-contracts` (the M1 library base) ·
+> `[IMPLEMENTED]` real code in the M1 base — the CIP-0112 settlement RI scaffold
+> in **this repo** (`canton-specs`,
+> [`experiments/cip112-settlement/…/Cip112.daml`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml))
+> plus the decoupled library packages it consumes from `canton-contracts`
+> (`oz-access-control` / `oz-ownable` / `oz-pausable`, mirrored here) ·
 > `[EVIDENCE]` real code in `canton-token-template` (migration/evidence source,
 > *not* the M1 surface) · `[UPSTREAM]` Splice reference, not vendored here ·
 > `[FUTURE]` not built in M1 scope.
+>
+> Code references below link directly to source with `#Lnn` anchors; refresh
+> them with `scripts/refresh-ri-anchors.sh` (see
+> [`../ri-reports/README.md`](../ri-reports/README.md)). Line numbers are
+> advisory — the refresh script re-validates the symbol-at-anchor.
 
 ---
 
@@ -34,7 +36,7 @@ deliverables.
 
 The OpenZeppelin Canton M1 reference implementation targets the **Canton Network
 Token Standard V2 (CIP-0112)** settlement surface, replacing the superseded
-CIP-0056 token foundation (root `PLAN.md` Decision Log S1). The goal of M1 is
+CIP-0056 token foundation. The goal of M1 is
 not a production DeFi application but a **scope-locked settlement primitive**
 that can later enter audit-readiness review, plus a deep settlement exemplar
 that proves the library against a real consumer. CIP-86 / CIP-103 / CIP-104 are
@@ -42,9 +44,12 @@ re-scoped to interoperate with this settlement surface.
 
 What exists today, in code:
 
-- `canton-contracts` — an experimental settlement scaffold
-  (`experiments/cip112-settlement`) modeling the V2 allocation/settlement
-  lifecycle with optional D1 (compliance) and D2 (seizure) extension points.
+- `canton-specs` (this repo) — the experimental settlement RI scaffold
+  ([`experiments/cip112-settlement`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml))
+  modeling the V2 allocation/settlement lifecycle with optional D1 (compliance)
+  and D2 (seizure) extension points. It **consumes** the decoupled
+  `canton-contracts` library (access-control / ownable / pausable) and does not
+  re-implement those primitives.
 - `canton-token-template` — prior CIP-0112 evidence: a `HoldingV1`/`HoldingV2`
   interface holding with an embedded `Lock`, a `SimpleEventLog` implementing the
   V2 `EventLog`, a capability-based admin layer, and in-flight seizure of locked
@@ -106,8 +111,11 @@ choice does **not** accept caller-asserted peer sides — peer authorization mus
 come from *fetched* peer allocations or prior receipts, and atomic
 multi-allocation settlement is a property of the batch entrypoint.
 
+See [`TransferSide`/`TransferLegSide`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L62)
+`[IMPLEMENTED]`:
+
 ```
--- [IMPLEMENTED] canton-contracts/experiments/cip112-settlement/.../Cip112.daml
+-- [IMPLEMENTED] canton-specs/experiments/cip112-settlement/.../Cip112.daml
 -- TransferLegSides with explicit polarity (replaces V1 TransferLegs)
 data TransferSide = SenderSide | ReceiverSide
 data TransferLegSide = TransferLegSide with
@@ -189,6 +197,37 @@ interface instance TransferEventsV2.EventLog for SimpleEventLog where
 Upstream, this lives in `splice-api-token-transfer-events-v2`; the promotion ADR
 treats it as the promoted reporting route, with implementation still gated by
 the transfer-events DAR boundary (**Q2**).
+
+---
+
+## 3a. Implementation Status (Code Map)
+
+> **Living document.** Each row links to the real settlement scaffold in this
+> repo. Refresh the anchors with `scripts/refresh-ri-anchors.sh` (see
+> [`../ri-reports/README.md`](../ri-reports/README.md)). Status:
+> ✅ implemented in the promoted library surface (or verified passing tests) ·
+> 🟡 implemented in the **experimental settlement scaffold** (real code, not yet
+> promoted; includes toy stand-ins) · ⬜ planned, not built in M1. Scaffold path:
+> `experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml`.
+
+| M1 capability | Source anchor | Status |
+|---|---|---|
+| Settlement factory entrypoints | [`SettlementFactory`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L185) (`SettlementFactory_CreateAllocationRequest`@L244, `SettlementFactory_CreateAllocationInstruction`@L267) | 🟡 |
+| Atomic multi-leg settlement | [`SettlementFactory_SettleBatch`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L237) | 🟡 |
+| Allocation request lifecycle | [`AllocationRequest`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L299) (Accept@L340 / Reject@L347 / Withdraw@L354) | 🟡 |
+| Allocation instruction lifecycle | [`AllocationInstruction`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L356) (Accept@L396 / Withdraw@L414) | 🟡 |
+| Ready-to-settle allocation | [`Allocation`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L454) (Settle@L483 / Cancel@L526 / Withdraw@L534) | 🟡 |
+| Settlement evidence | [`SettlementReceipt`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L647) | 🟡 |
+| D1 compliance hook (reference field) | [`D1ComplianceHook`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L41) | 🟡 — node-applied signed attestation ⬜ (Q1) |
+| D2 lock-and-sweep seizure | [`Allocation_MarkD2InFlightSeizure`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L568) + [`Allocation_SweepD2InFlightSeizure`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L577) + [`D2SeizureHook`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L46) | 🟡 |
+| Single-admin authority (D4) | [`BurnerCapability`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L98) | 🟡 |
+| Unit of value | [`ToyHolding`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L133) | 🟡 toy stand-in |
+| Spine test coverage (33 `test_` scripts) | [`Cip112Settlement.daml`](../../test/daml/OpenZeppelin/Test/Cip112Settlement.daml) | ✅ |
+| Access control / ownership / pause | [`oz-access-control`](../../access-control/daml/OpenZeppelin/AccessControl.daml) · [`oz-ownable`](../../ownable/daml/OpenZeppelin/Ownable.daml) · [`oz-pausable`](../../pausable/daml/OpenZeppelin/Pausable.daml) | ✅ (library) |
+| Real TSv2 holding interface | replaces `ToyHolding`; Splice DAR import gate | ⬜ |
+| `EventLog_HoldingsChange` in M1 surface | carried as `[EVIDENCE]` only (Q2) | ⬜ |
+| Cross-synchronizer / cross-domain (D3) | not in scaffold; additive SCU path | ⬜ |
+| On-ledger multi-sig authority | single-admin in M1; multi-sig → M3 (D4) | ⬜ |
 
 ---
 
@@ -372,7 +411,7 @@ rather than re-litigating the core controls.
   `1e34121b2b369c5dde357c098e2aaeb65250e736`. The older
   `canton-network/splice @ token-standard-v2-daml-preview b91de5d4…` reference
   remains historical local evidence only.
-- Decisions / plan of record: root `PLAN.md` (Decision Log, gate table),
+- Decisions / plan of record: the internal plan of record (Decision Log, gate table),
   `docs/decisions/D4_MULTISIG.md`,
   `canton-contracts/docs/experiments/cip112-settlement.md`,
   `canton-contracts/docs/experiments/multi-hosted-node-check.md`.

@@ -1,0 +1,86 @@
+name: ci
+
+# Validation gate for the CIP-0112 settlement RI workspace. This is the
+# automated counterpart to the manual gate documented in AGENTS.md / README.md:
+# build every package in dependency order, run the spine test suite AND the deep
+# settlement exemplar scripts (scripts/run-tests.sh), validate the scaffold
+# (scripts/check-scaffold.sh), and confirm the living-doc code anchors do not
+# drift (scripts/refresh-ri-anchors.sh).
+#
+# DPM is Digital Asset's package manager. It is installed from Digital Asset's
+# public, no-auth installer (https://get.digitalasset.com, per
+# docs.digitalasset.com/build/3.4/dpm/manual-install) into ~/.dpm — the same
+# location scripts/dpm-env.sh expects locally. ~/.dpm is cached across runs so
+# the SDK tarball is downloaded once.
+
+# `pull_request` covers branch pushes that have an open PR (fires on each new
+# commit); `push` is scoped to the default branch so a PR branch does not run the
+# heavy job twice. Superseded runs on the same ref are cancelled.
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      OZ_DAML_TOOLCHAIN: dpm
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Java 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - name: Cache DPM + SDKs (~/.dpm)
+        uses: actions/cache@v4
+        with:
+          path: ~/.dpm
+          key: dpm-${{ runner.os }}-sdk-3.4.11-v2
+
+      - name: Provision DPM and the 3.4.11 SDK
+        run: |
+          set -euo pipefail
+          # Reuse a DPM under ~/.dpm (runner image or restored cache); otherwise
+          # install it from Digital Asset's public installer.
+          if [ ! -x "$HOME/.dpm/bin/dpm" ]; then
+            version="$(curl -sSf https://get.digitalasset.com/install/latest)"
+            arch="$(uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/')"
+            os="$(uname | tr '[:upper:]' '[:lower:]')"
+            tarball="dpm-${version}-${os}-${arch}.tar.gz"
+            tmp="$(mktemp -d)"
+            curl -SLf "https://get.digitalasset.com/install/dpm-sdk/${tarball}" -o "${tmp}/${tarball}"
+            mkdir -p "${tmp}/extracted"
+            tar xzf "${tmp}/${tarball}" -C "${tmp}/extracted" --strip-components 1
+            "${tmp}/extracted/bin/dpm" bootstrap "${tmp}/extracted"
+            rm -rf "${tmp}"
+          fi
+          echo "$HOME/.dpm/bin" >> "$GITHUB_PATH"
+          export PATH="$HOME/.dpm/bin:$PATH"
+          command -v dpm >/dev/null 2>&1 || {
+            echo "::error::dpm not on PATH after install (expected ~/.dpm/bin/dpm)." >&2
+            exit 1
+          }
+          # Install the project SDK. Run from $HOME so dpm does not try to resolve
+          # this repo's daml.yaml sdk-version (3.4.11) before it is installed.
+          (cd "$HOME" && dpm install 3.4.11)
+
+      - name: Validate scaffold (build root + proof)
+        run: scripts/check-scaffold.sh
+
+      - name: Build all packages and run all scripts (spine suite + exemplar)
+        run: scripts/run-tests.sh
+
+      - name: Check living-doc code anchors (0 drift, 0 error)
+        run: scripts/refresh-ri-anchors.sh

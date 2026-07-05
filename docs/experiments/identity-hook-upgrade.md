@@ -2,7 +2,7 @@
 
 Status: experimental, non-public, and outside the committed M1 library surface.
 
-This note records Tier 2 experiment 7 from root `PLAN.md` -> "Experimentation
+This note records Tier 2 experiment 7 from the internal plan of record -> "Experimentation
 Priorities": a Daml Smart Contract Upgrades spike for the D3 forward-compatible
 identity hook. Root `PLAN.md` records D3 as single-domain v1 with cross-domain
 identity deferred. This spike does not implement cross-domain identity and does
@@ -108,7 +108,7 @@ types, and new choices.
 The repeatable migration proof is:
 
 ```sh
-cd /Users/x/cantonator/canton-contracts
+cd canton-contracts
 ./scripts/identity-hook-upgrade-smoke.sh
 ```
 

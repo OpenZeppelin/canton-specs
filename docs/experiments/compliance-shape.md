@@ -2,9 +2,9 @@
 
 Status: experimental, non-public, and outside the committed M1 library surface.
 
-This note records experiment 1 from root `PLAN.md` -> "Experimentation
+This note records experiment 1 from the internal plan of record -> "Experimentation
 Priorities": two candidate transfer-restriction hook shapes for the D1
-implementation clarification in root `PLAN.md` -> "June Decision Gate".
+implementation clarification in the internal plan of record -> "June Decision Gate".
 
 Root `PLAN.md` records D1 as no-cache, fail-closed, node-side compliance
 checking. The remaining implementation question is whether the Daml contract is
@@ -133,7 +133,7 @@ bridge, relayer, institution-specific logic, or public token behavior.
 
 ## D4 Interaction
 
-D4 is still open per root `PLAN.md` -> "June Decision Gate" and
+D4 is still open per the internal plan of record -> "June Decision Gate" and
 `docs/decisions/D4_MULTISIG.md`. This experiment keeps issuer authority as a
 plain Daml party and does not choose between:
 
