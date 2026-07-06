@@ -134,14 +134,14 @@ RI invents a parallel settlement or compliance path to interoperate with another
 
 ## 4. Cumulative scope (union across the suite)
 
-**In scope (union):** atomic DvP settlement (all four); spot AMM + LP + fee
+**In scope:** atomic DvP settlement (all four); spot AMM + LP + fee
 collection (DEX); fixed-rate overcollateralized lending + liquidation (Lending);
 private cross-chain stablecoin settlement + bridge *interface* mock (Stablecoin);
 single-round sealed-bid auction + token launch (Auction); credential-gated
 participation, D1 node-applied compliance, D2 lock-and-sweep, single-admin
 authority, and SCU-forward-compatible identity — across all four.
 
-**Out of scope / deferred (union):** derivatives / perps / options / margin /
+**Out of scope / deferred:** derivatives / perps / options / margin /
 leverage (DEX); dynamic/variable interest, flash loans, rehypothecation,
 undercollateralized loans (Lending); production bridge/relayer/validator/oracle
 infra and the stablecoin issuance/peg itself (Stablecoin); continuous/streaming
