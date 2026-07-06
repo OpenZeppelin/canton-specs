@@ -17,10 +17,10 @@ Code references are line-anchored; refresh with `scripts/refresh-ri-anchors.sh`.
 | Asset | What it is | Where |
 |---|---|---|
 | Holdings (value) | Unlocked/locked token holdings | [`ToyHolding`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L133) (mock impl of [`Holding`](../../experiments/token-standard-v2-mock/daml/OpenZeppelin/Experimental/TokenStandard/V2/Holding.daml)) |
-| Allocation authority | A party's committed, locked funds for a settlement | [`Allocation`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L454) |
+| Allocation authority | A party's committed, locked funds for a settlement | [`Allocation`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L474) |
 | Seizure authority | The capability to route in-flight funds to a custodian | [`BurnerCapability`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L98) |
-| Compliance trust anchor | Which parties may sign D1 node attestations | [`TrustedAttesterRegistry`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L730) |
-| Settlement evidence | Receipts + holdings-change events | [`SettlementReceipt`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L647), [`SettlementEventLogEntry`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L676) |
+| Compliance trust anchor | Which parties may sign D1 node attestations | [`TrustedAttesterRegistry`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L775) |
+| Settlement evidence | Receipts + holdings-change events | [`SettlementReceipt`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L692), [`SettlementEventLogEntry`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L721) |
 
 ## 2. Actors & trust
 
@@ -37,19 +37,24 @@ Code references are line-anchored; refresh with `scripts/refresh-ri-anchors.sh`.
 
 - **Authority comes from contract signatories, not choice arguments.** A settle
   choice runs with the controllers' authority **plus** the exercised contract's
-  signatories. [`Allocation`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L454)
-  is signed by `admin + authorizer`, so [`Allocation_Settle`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L474)
+  signatories. [`Allocation`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L474)
+  is signed by `admin + authorizer`, so [`Allocation_Settle`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L490)
   can only credit/debit that authorizer's own account — a party cannot mint into
   someone else's account. True DvP emerges only across a batch where each
   counterparty contributes its own allocation.
-- **Single-admin seizure.** Seizure ([`Allocation_SweepD2InFlightSeizure`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L577),
-  [`Allocation_SweepD2WithLawfulProcess`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L611))
+- **Single-admin seizure.** Seizure ([`Allocation_SweepD2InFlightSeizure`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L622),
+  [`Allocation_SweepD2WithLawfulProcess`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L656))
   requires an admin-issued `BurnerCapability` naming the caller; possession is
   authorization (D4).
 - **Fail-closed D1.** The reference hook ([`D1ComplianceHook`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L41))
   blocks settlement when a required reference is missing; the typed path
-  ([`SettlementFactory_SettleBatchWithAttestation`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L259))
-  additionally verifies a signed attestation.
+  ([`SettlementFactory_SettleBatchWithAttestation`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L274))
+  additionally verifies a signed attestation that is registry-trusted (rooted in
+  the factory admin), batch-bound, and single-use (consuming). When a factory sets
+  `requiresNodeAttestation`, the plain `SettleBatch` entrypoint is closed so the
+  normal executor-facing batch flow must present an attestation. The direct
+  `Allocation_Settle` / `Allocation_SettleInBatch` choices need `admin :: executors`
+  authority and are gated by that authority, not by attestation.
 - **Feature-flag gate.** Every template/choice `ensure`s `experimentalFeatureFlag`,
   so nothing can be created or exercised outside the experiment.
 
@@ -61,11 +66,13 @@ Code references are line-anchored; refresh with `scripts/refresh-ri-anchors.sh`.
 | T2 | A receiver's own allocation self-credits with no verified matching debit (mint-from-nothing) | Settle conserves value per instrument: the archived locked inputs must cover the authorizer's SenderSide obligations, surplus returns as change, and an under-funded sender fails closed — so a credit is always backed by a matching debit across the batch | `settleUnderfundedSenderFails`, `settleOverfundedSenderGetsChange` |
 | T3 | Unauthorized seizure | `BurnerCapability` admin-issued + caller-named; scope-checked | `d2SweepMissingCapabilityFails`, `d2SweepWrongCapabilityFails`, `d2SweepWrongActorFails` |
 | T4 | Seizure after the deadline (no lawful basis) | Terminal-deadline default; post-deadline only with an explicit window + lawful-process ref | `d2SweepAfterDeadlineFails`, `d2LawfulProcessMissingRefFails` |
-| T5 | Forged / stale compliance attestation | Signer must be registry-trusted, cover the settlement ref, be within validity | `attestedSettleUntrustedFails`, `attestedSettleWrongRefFails`, `attestedSettleExpiredFails` |
-| T6 | Missing compliance check | Fail-closed reference hook; typed attestation path | `missingD1ReferenceFails` |
+| T5 | Forged / stale compliance attestation | Signer must be registry-trusted, cover the settlement ref AND the exact batch leg set, and be within validity | `attestedSettleUntrustedFails`, `attestedSettleWrongRefFails`, `attestedSettleWrongBatchBindingFails`, `attestedSettleExpiredFails` |
+| T6 | Missing compliance check on the batch flow | Fail-closed reference hook; typed attestation path; `requiresNodeAttestation` closes the plain `SettleBatch` entrypoint (direct admin-authority path stays authority-gated) | `missingD1ReferenceFails`, `attestationMandatoryFactoryBindsPath` |
 | T7 | Settling a frozen/paused venue | Consumer composes `whenNotPaused` (see the exemplar) | exemplar `paused-blocks` step |
-| T8 | Double-settlement / replay | Consuming choices archive allocations + inputs; receipts are terminal | (structural) |
+| T8 | Double-settlement / attestation replay | Consuming choices archive allocations + inputs; the attestation is verified via a **consuming** choice, so it is single-use and cannot be replayed across batches; receipts are terminal | `attestationSingleUseNoReplay` |
 | T9 | Privacy leak of a counterparty's legs | Per-authorizer allocations + Canton projection; receipts carry only involved parties | (design — see the RI reports) |
+| T10 | Registry substitution (attacker vouches for itself via a self-owned registry) | The attestation verify roots trust in the factory admin: the presented registry's `admin` must equal the settling factory's admin | `attestedSettleSubstitutedRegistryFails` |
+| T11 | Funds stranded by an un-swept in-flight seizure | Admin can release a mark (`Allocation_UnmarkD2InFlightSeizure`), restoring the normal lifecycle | `d2UnmarkReleasesFrozenFunds` |
 
 ## 5. Residual risks / known limitations (experimental)
 
@@ -73,13 +80,14 @@ Code references are line-anchored; refresh with `scripts/refresh-ri-anchors.sh`.
   authorization are not yet imported (Splice DAR gate, Option D).
 - The D1 attestation is a mock node signature, not a real node-side OFAC/KYC
   integration; production deployments re-validate against issuer obligations.
-- Conservation of value is **enforced** on the standard settle path: per
-  instrument, the archived locked inputs must cover the authorizer's SenderSide
-  obligations, surplus returns as change, and an under-funded sender fails closed
-  (no mint-from-nothing). The iterated-settlement path (`nextIterationFunding`
-  set) defers per-iteration conservation — that funding is positivity-checked
-  only, never value-accounted — which a promoted surface must formalize.
-  `ToyHolding` remains a stand-in for the real TSv2 holding interface.
+- Conservation of value is **always enforced** on every settle path (direct and
+  batch): per instrument, the archived locked inputs must cover the authorizer's
+  SenderSide obligations, surplus returns as change, and an under-funded sender
+  fails closed (no mint-from-nothing). There is no conservation carve-out.
+  `nextIterationFunding` is inert forward-compatible metadata carried only to
+  mirror the Token Standard V2 allocation shape; M1 does not implement iterated
+  settlement, so no settle path can defer conservation. `ToyHolding` remains a
+  stand-in for the real TSv2 holding interface.
 - No cross-synchronizer atomicity (D3 deferred); single-synchronizer only.
 - Third-party custodian crediting relies on account-party co-authorization in the
   toy model; the promoted model uses the TSv2 account-authorization flow.
@@ -103,14 +111,14 @@ privacy / archival / failure / upgrade). Path: `…/Cip112.daml`.
 |---|---|---|---|---|---|
 | [`BurnerCapability`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L98) | admin | assignee | none | persists | flag gate |
 | [`ToyHolding`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L133) | admin + account parties | lock holders | none (moved via allocation) | archived on lock/settle/cancel/sweep | non-positive amount, flag gate |
-| [`SettlementFactory`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L185) | admin | none | executors / authorizer parties (nonconsuming) | persists | wrong actors, empty legs, missing authorization, bad amounts |
-| [`AllocationRequest`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L299) | executors | authorizer parties | authorizer (accept/reject), executors (withdraw) | consuming | wrong actor set |
-| [`AllocationInstruction`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L356) | admin + authorizer parties | executors | authorizer (accept/withdraw) | consuming; accept locks inputs + creates `Allocation` | wrong actor, bad input owner/admin/instrument |
-| [`Allocation`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L454) | admin + authorizer parties | executors | admin+executors (settle direct / in-batch), executors (cancel), authorizer (withdraw), admin (mark), burner (sweep) | consuming (mark recreates); settle conserves value + returns change | settlement/peer mismatch, expired, missing D1 ref, active D2, unauthorized legs, under-funded sender (fail closed) |
-| [`SettlementReceipt`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L647) | admin | authorizer parties + executors | none | persists | flag gate |
-| [`SettlementEventLogEntry`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L676) (implements `EventLog`) | event.admin | event.observers (account parties + executors) | none | persists | flag gate |
-| [`TrustedAttesterRegistry`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L730) | admin | attesters | none | persists | flag gate |
-| [`NodeComplianceAttestation`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L747) | attester | attestationObservers | none | persists | flag gate |
+| [`SettlementFactory`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L191) | admin | none | executors / authorizer parties (nonconsuming) | persists | wrong actors, empty legs, missing authorization, bad amounts |
+| [`AllocationRequest`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L322) | executors | authorizer parties | authorizer (accept/reject), executors (withdraw) | consuming | wrong actor set |
+| [`AllocationInstruction`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L379) | admin + authorizer parties | executors | authorizer (accept/withdraw) | consuming; accept locks inputs + creates `Allocation` | wrong actor, bad input owner/admin/instrument |
+| [`Allocation`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L474) | admin + authorizer parties | executors | admin+executors (settle direct / in-batch), executors (cancel), authorizer (withdraw), admin (mark), burner (sweep) | consuming (mark recreates); settle conserves value + returns change | settlement/peer mismatch, expired, missing D1 ref, active D2, unauthorized legs, under-funded sender (fail closed) |
+| [`SettlementReceipt`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L692) | admin | authorizer parties + executors | none | persists | flag gate |
+| [`SettlementEventLogEntry`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L721) (implements `EventLog`) | event.admin | event.observers (account parties + executors) | none | persists | flag gate |
+| [`TrustedAttesterRegistry`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L775) | admin | attesters | none | persists | flag gate |
+| [`NodeComplianceAttestation`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L813) | attester | attestationObservers | none | persists | flag gate |
 
 **Privacy (all):** per-authorizer projection — a party sees only allocations,
 receipts, and events for settlements it participates in or executes; outside
@@ -122,15 +130,15 @@ new optional fields and new choices; baseline choice arguments are never mutated
 
 | Decision | Control | Anchor |
 |---|---|---|
-| D1 (compliance, no-cache, fail-closed) | Reference hook + typed signed attestation path | [`D1ComplianceHook`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L41), [`SettlementFactory_SettleBatchWithAttestation`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L259) |
-| D2 (seizure = lock-and-sweep to preset custodian) | Mark + sweep, single-admin capability, lawful window | [`Allocation_SweepD2InFlightSeizure`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L577), [`Allocation_SweepD2WithLawfulProcess`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L611) |
+| D1 (compliance, no-cache, fail-closed) | Reference hook + typed signed attestation path | [`D1ComplianceHook`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L41), [`SettlementFactory_SettleBatchWithAttestation`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L274) |
+| D2 (seizure = lock-and-sweep to preset custodian) | Mark + sweep, single-admin capability, lawful window | [`Allocation_SweepD2InFlightSeizure`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L622), [`Allocation_SweepD2WithLawfulProcess`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L656) |
 | D3 (single-domain v1) | No cross-synchronizer machinery; SCU-forward-compatible | (deferred) |
 | D4 (single-admin capability) | Admin-issued, caller-named capability | [`BurnerCapability`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L98) |
 
 ## 9. Test-coverage map
 
 Spine suite [`Cip112Settlement.daml`](../../test/daml/OpenZeppelin/Test/Cip112Settlement.daml)
-(33 `test_` scripts; count via `grep -cE '^test_.* : Script'`) + the 2 deep
+(41 `test_` scripts; count via `grep -cE '^test_.* : Script'`) + the 2 deep
 settlement exemplar scripts (`experiments/settlement-exemplar/`) + the 11
 CIP-0086/0103/0104 interop exemplar scripts (`experiments/cip-interop-exemplar/`),
 all run by `scripts/run-tests.sh`. Coverage by area:

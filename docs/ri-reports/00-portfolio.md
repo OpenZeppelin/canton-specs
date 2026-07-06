@@ -35,9 +35,9 @@ differs.
 - **Settlement spine** `[IMPLEMENTED]` —
   [`OpenZeppelin.Experimental.Settlement.Cip112`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml).
   Atomic delivery-vs-payment is **only**
-  [`SettlementFactory_SettleBatch`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L237)
+  [`SettlementFactory_SettleBatch`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L249)
   (one Daml transaction over many allocations); the direct
-  [`Allocation_Settle`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L474)
+  [`Allocation_Settle`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L490)
   path proves authorization, not atomic co-settlement. CIP-56 is superseded.
 - **Access-control primitives** `[IMPLEMENTED]` —
   [`oz-access-control`](../../access-control/daml/OpenZeppelin/AccessControl.daml) /
@@ -53,7 +53,7 @@ differs.
   not burn, not return-to-sender),
   [`BurnerCapability`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L98)-gated
   via
-  [`Allocation_SweepD2InFlightSeizure`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L577),
+  [`Allocation_SweepD2InFlightSeizure`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L622),
   transfer *failures* return to sender; D3 single-domain v1, cross-domain
   deferred but SCU-forward-compatible; D4 single-admin capability (multi-sig → M3).
 - **SCU rule:** never mutate an existing choice's args to require a new field;
@@ -88,20 +88,20 @@ exercised by [`Cip112Settlement` tests](../../test/daml/OpenZeppelin/Test/Cip112
 
 | Shared capability (reused by all four RIs) | Source anchor | Status |
 |---|---|---|
-| Settlement factory / entrypoints | [`SettlementFactory`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L185) | 🟡 |
-| Atomic multi-leg DvP | [`SettlementFactory_SettleBatch`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L237) | 🟡 |
-| Allocation request lifecycle | [`AllocationRequest`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L299) | 🟡 |
-| Allocation instruction (+ D1 hook) | [`AllocationInstruction`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L356) | 🟡 |
-| Ready-to-settle allocation | [`Allocation`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L454) | 🟡 |
-| Settlement evidence | [`SettlementReceipt`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L647) | 🟡 |
-| Receiver crediting (value-moving DvP) | [`Allocation_Settle`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L474) credits ReceiverSide legs | 🟡 |
-| Value conservation (enforced; change returned, under-fund fails closed) | [`conserveSenderSides`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L972) | 🟡 |
-| O(N) batch settle (no per-allocation peer re-fetch) | [`Allocation_SettleInBatch`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L530) | 🟡 |
-| EventLog reporting route | [`EventLog_HoldingsChange`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L646) emitted on settle/seizure | 🟡 |
+| Settlement factory / entrypoints | [`SettlementFactory`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L191) | 🟡 |
+| Atomic multi-leg DvP | [`SettlementFactory_SettleBatch`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L249) | 🟡 |
+| Allocation request lifecycle | [`AllocationRequest`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L322) | 🟡 |
+| Allocation instruction (+ D1 hook) | [`AllocationInstruction`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L379) | 🟡 |
+| Ready-to-settle allocation | [`Allocation`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L474) | 🟡 |
+| Settlement evidence | [`SettlementReceipt`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L692) | 🟡 |
+| Receiver crediting (value-moving DvP) | [`Allocation_Settle`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L490) credits ReceiverSide legs | 🟡 |
+| Value conservation (enforced; change returned, under-fund fails closed) | [`conserveSenderSides`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L1045) | 🟡 |
+| O(N) batch settle (no per-allocation peer re-fetch) | [`Allocation_SettleInBatch`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L547) | 🟡 |
+| EventLog reporting route | [`EventLog_HoldingsChange`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L691) emitted on settle/seizure | 🟡 |
 | D1 compliance hook (reference field) | [`D1ComplianceHook`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L41) | 🟡 |
-| D1 typed node attestation (Daml-visible) | [`SettlementFactory_SettleBatchWithAttestation`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L259) + [`TrustedAttesterRegistry`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L730) | 🟡 (real node-side integration ⬜) |
-| D2 lock-and-sweep seizure | [`Allocation_MarkD2InFlightSeizure`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L568) + [`Allocation_SweepD2InFlightSeizure`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L577) | 🟡 |
-| D2 lawful-process refinement | [`Allocation_SweepD2WithLawfulProcess`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L611) | 🟡 |
+| D1 typed node attestation (Daml-visible) | [`SettlementFactory_SettleBatchWithAttestation`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L274) + [`TrustedAttesterRegistry`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L775) | 🟡 (real node-side integration ⬜) |
+| D2 lock-and-sweep seizure | [`Allocation_MarkD2InFlightSeizure`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L592) + [`Allocation_SweepD2InFlightSeizure`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L622) | 🟡 |
+| D2 lawful-process refinement | [`Allocation_SweepD2WithLawfulProcess`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L656) | 🟡 |
 | Single-admin authority (D4) | [`BurnerCapability`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L98) | 🟡 |
 | Mock Token Standard V2 interfaces | [`token-standard-v2-mock`](../../experiments/token-standard-v2-mock/daml/OpenZeppelin/Experimental/TokenStandard/V2/Holding.daml) (mirrors `splice-api-token-*-v2`) | 🟡 (real DAR import ⬜) |
 | Unit of value | [`ToyHolding`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L133) | 🟡 toy stand-in (real TSv2 holding interface ⬜) |
@@ -136,7 +136,7 @@ rows are forward-compatibility paths surfaced in each report's §9.
 | **Liquidation fair-value recovery** | Lending → Auction | route seized collateral to a sealed-bid auction | `02` §9 (composability) |
 
 All seven relationships are realized through the **same** spine entrypoint
-([`SettlementFactory_SettleBatch`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L237))
+([`SettlementFactory_SettleBatch`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L249))
 and the **same** D1–D4 attachment points — no
 RI invents a parallel settlement or compliance path to interoperate with another.
 

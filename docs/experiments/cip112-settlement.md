@@ -39,7 +39,11 @@ evidence, but it does not authorize import or public API stability.
 CIP-0112 is not an asset-free generic settlement DSL. It is Token Standard V2:
 an evolution of CIP-0056 that adds account-aware holdings, allocation requests,
 allocation instructions, allocations, settlement factories, transfer-leg sides,
-event-log reporting, committed allocations, and iterated settlement.
+event-log reporting, committed allocations, and iterated settlement. (The M1
+scaffold models the lifecycle up to committed allocations and event-log
+reporting; **iterated settlement is not implemented** — the
+`nextIterationFunding` / `numIterations` fields are carried only as inert
+forward-compatible metadata to match the V2 allocation shape.)
 
 Recommended v1 direction:
 
@@ -207,8 +211,12 @@ Test coverage:
 - missing required D1 reference fails closed;
 - direct single-side settlement without peer allocation context fails;
 - direct settlement with a fetched peer allocation authorization proof succeeds;
-- iterated settlement with `nextIterationFunding` and extra local sides
-  succeeds;
+- a mandating factory (`requiresNodeAttestation`) refuses the plain path and
+  settles only via the verified attestation path;
+- an attestation is single-use (cannot be replayed), batch-bound, and rejected
+  when its registry admin is not the factory admin;
+- an admin can release (unmark) an un-swept in-flight seizure so funds are not
+  stranded;
 - transfer-leg/allocation-side mismatch fails;
 - expired settlement fails;
 - input-holding instrument mismatch fails before lock;
