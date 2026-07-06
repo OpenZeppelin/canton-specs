@@ -1,15 +1,14 @@
 # Canton RI Portfolio: The Four Reference Implementations as One Composable Suite
 
-Status: **portfolio-level synthesis** of the four Year-1 RI architecture reports
-(read this first). Non-public, outside the committed M1 public-library surface.
-It is **not** a claim of M1/M2/M3/M4 acceptance, conformance, audit readiness, or
-production readiness. Per-RI detail lives in the individual reports; this doc is
-the "one layer above" view — the shared core, how the RIs compose, the cumulative
-scope, the shared cross-synchronizer model, and the library-extraction map.
+>**Status**: Non-public, outside the committed M1 public-library surface. 
 
-> **Source-grounding tags:** `[IMPLEMENTED]` (M1 base: `canton-specs` /
-> `canton-contracts`) · `[EVIDENCE]` (evidence repo) · `[UPSTREAM]` (Splice / CIP
-> / external) · `[FUTURE]` (proposed RI-level design, not M1 scope).
+## Summary 
+
+This is **portfolio-level synthesis** of the 4 Year-1 RI architecture reports, with one shared settlement core. This document reflects on how the RIs are composed, the cumulative
+scope, the shared cross-synchronizer model, and the library-extraction map. Per-RI detail lives in the individual reports.
+
+>  ⚠️ **NOTE**: It is **not** a claim of M1/M2/M3/M4 acceptance, conformance, audit readiness, or
+production readiness. 
 
 ---
 
@@ -28,50 +27,43 @@ implementations land in the milestones below.
 
 ## 2. The shared foundation (identical across all four)
 
-Every RI sits on the **same** core and inherits the **same** decided rails — so
-these are described once here and only elaborated per-RI where the application
-differs.
+> **Source-grounding tags:** `[IMPLEMENTED]` (M1 base: `canton-specs` /
+> `canton-contracts`) · `[EVIDENCE]` (evidence repo) · `[UPSTREAM]` (Splice / CIP
+> / external) · `[FUTURE]` (proposed RI-level design, not M1 scope).
+
+
+Every RI inherits the **same** core building blocks and design rails. They are described below and, wherever application differs, elaborated per-RI.
 
 - **Settlement spine** `[IMPLEMENTED]` —
-  [`OpenZeppelin.Experimental.Settlement.Cip112`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml).
-  Atomic delivery-vs-payment is **only**
-  [`SettlementFactory_SettleBatch`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L237)
-  (one Daml transaction over many allocations); the direct
-  [`Allocation_Settle`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L474)
-  path proves authorization, not atomic co-settlement. CIP-56 is superseded.
-- **Access-control primitives** `[IMPLEMENTED]` —
-  [`oz-access-control`](../../access-control/daml/OpenZeppelin/AccessControl.daml) /
+  - The atomic delivery-vs-payment logic lives in [`OpenZeppelin.Experimental.Settlement.Cip112`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml). 
+  - The only atomic path is [`SettlementFactory_SettleBatch`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L237), which batches many allocations in one Daml transaction
+  - The simpler [`Allocation_Settle`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L474) path proves authorization, it doesn't give atomic co-settlement. 
+  - CIP-56 (an older approach) is superseded by this.
+
+- **Access-control primitives** `[IMPLEMENTED]` — uses the [`oz-access-control`](../../access-control/daml/OpenZeppelin/AccessControl.daml) /
   [`oz-ownable`](../../ownable/daml/OpenZeppelin/Ownable.daml) /
-  [`oz-pausable`](../../pausable/daml/OpenZeppelin/Pausable.daml), via the
-  `roleId : MyRole -> Text` closed-sum wrapper.
-- **Decided rails (D1–D4):** D1 compliance on every leg, no-cache, fail-closed,
-  node-applied (optional
+  [`oz-pausable`](../../pausable/daml/OpenZeppelin/Pausable.daml) libraries, via the `roleId : MyRole -> Text` closed-sum pattern.
+
+- **Decided Design rails (D1–D4):** 
+  - D1 (compliance checks): run on every leg of a transaction, no caching, fail-closed (deny by default), enforced at the node level (optional
   [`D1ComplianceHook`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L41)
-  **data record**, Shape B chosen); D2 lock-and-sweep to an admin-preset
-  `custodianDestination`
-  ([`D2SeizureHook`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L46);
-  not burn, not return-to-sender),
-  [`BurnerCapability`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L98)-gated
-  via
-  [`Allocation_SweepD2InFlightSeizure`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L577),
-  transfer *failures* return to sender; D3 single-domain v1, cross-domain
-  deferred but SCU-forward-compatible; D4 single-admin capability (multi-sig → M3).
-- **SCU rule:** never mutate an existing choice's args to require a new field;
-  extend via appended `Optional` fields, new serializable types, and new choices.
+  **data record**, Shape B chosen) 
+  - D2 (seizure/freezing): locks and sweeps funds to an admin-preset `custodianDestination` custodian address via [`D2SeizureHook`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L46). These funds are not burned, not returned to sender by default. Additionally, the burn capabilities are present in [`BurnerCapability`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L98) gated
+  via [`Allocation_SweepD2InFlightSeizure`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L577) Ordinary transfer failures are returned to sender.
+  - D3 (domain scope): single-domain for v1; cross-domain support is deferred but the design is SCU-forward-compatible.
+  - D4 (admin control): single-admin capability for now, multi-sig is planned for milestone M3.
+
+- **SCU rule (schema/compatibility rule):** To avoid breaking compatibility, do not change an existing choice's args to add a new field; only extend via appended `Optional` fields, new serializable types, and new choices.
+
 - **Priority order:** Readability → Simplicity → Security → Auditability.
-- **Token Standard V2 (import GATED):** designed against the Splice Token
-  Standard V2 interfaces (`hyperledger-labs/splice` `token-standard-v2-upcoming`);
-  local stand-ins are used until the published DARs ship and the import gate
-  clears.
-- **Typed D3 identity** — `KycClaim` + `TrustedIssuerRegistry` are the
-  `canton-specs` identity-hook **Shape-B** types `[IMPLEMENTED]` (experimental),
-  **not** `zk-credential-gateway` templates. The gateway supplies the gating /
-  verification primitives (`CredentialGatedActionRequest`,
-  `MockVerificationResult`, `CredentialRevocationStatus`) `[EVIDENCE]`.
-- **Validation ladder (proposed `[FUTURE]`):** `daml-lint` → `daml-props` →
-  `daml-verify` — external OZ tools, not wired into this repo's CI. The real M1
-  gate is `dpm build --all` + `scripts/run-tests.sh` + `scripts/check-scaffold.sh`
-  ([`.github/workflows/ci.yml`](../../.github/workflows/ci.yml)).
+
+- **Token Standard V2 (import GATED):** designed against the Splice Token Standard V2 interfaces (`hyperledger-labs/splice` `token-standard-v2-upcoming`); local stand-ins are used until the published DARs are published and the import gate clears.
+
+- **Typed D3 identity** — `KycClaim` and `TrustedIssuerRegistry` are the
+  `canton-specs` identity-hook of Shape-B types `[IMPLEMENTED]` (experimental). This is distinct from the `zk-credential-gateway` template, which only supplies the verification/gating primitive such as `CredentialGatedActionRequest`,
+  `MockVerificationResult`, `CredentialRevocationStatus` `[EVIDENCE]`.
+
+- **Validation ladder (proposed `[FUTURE]`):** a proposed chain of external OZ tools `daml-lint` → `daml-props` → `daml-verify` are not wired into this repo's CI. The current M1 gate is `dpm build --all`.  the test/scaffold check scripts run via `scripts/run-tests.sh` + `scripts/check-scaffold.sh` ([`.github/workflows/ci.yml`](../../.github/workflows/ci.yml)).
 
 ## 2a. Implementation Status (Code Map) — canonical for the suite
 
