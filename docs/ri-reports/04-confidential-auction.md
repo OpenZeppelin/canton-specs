@@ -256,13 +256,18 @@ relying on auctioneer good behavior:
   The latter aligns with the spine's `Allocation` `settlementDeadline`, so the
   escrow's own expiry and the auction's settlement window are the **same** clock,
   not two independent ones.
-- **Forced refund after the deadline.** A bidder can always reclaim escrow with a
+- **Forced refund after the deadline.** A bidder can reclaim escrow with a
   bidder-controlled choice once the deadline passes, *without* the auctioneer's
-  cooperation — `BidRequest_Cancel` (pre-clearing withdraw) plus a
-  `BidRequest_ForceRefundAfterDeadline` that asserts `now > settlementDeadline`
-  and exercises `Allocation_Withdraw` on the bidder's own committed allocation.
-  Because the bidder is the `Allocation` authorizer, this needs no auctioneer
-  signature — liveness for the bidder does not depend on the trusted party.
+  cooperation — `BidRequest_ForceRefundAfterDeadline` asserts `now >
+  settlementDeadline` and exercises `Allocation_Withdraw` on the bidder's own
+  committed allocation. Note the timing constraint is not optional: because the
+  escrow is a **committed** allocation, the spine's `requireWithdrawAllowed`
+  blocks `Allocation_Withdraw` *until* the deadline (and blocks it entirely with
+  no deadline). So there is **no** bidder-unilateral pre-clearing withdraw — before
+  the deadline the only return path is the auctioneer's `Allocation_Cancel`
+  (controller = executors); after it, the bidder reclaims unilaterally. Because
+  the bidder is the `Allocation` authorizer, the post-deadline path needs no
+  auctioneer signature — bidder liveness does not depend on the trusted party.
 - **Settlement is gated by the bidding deadline.** `Clearing_ExecuteBatch`
   asserts `now > biddingDeadline` (no late inclusion) and `now <=
   settlementDeadline` (no settling stale escrow), bounding the window in which the
@@ -355,15 +360,27 @@ template BidRequest
     -- Policy guard: integrity + per-investor cap.
     ensure (bidAmount > 0.0 && bidPrice > 0.0 && bidAmount <= maxAllocationCap)
 
-    -- D2 / return-to-sender: bidder withdraws before clearing; the real spine
-    -- choice unlocks and returns the funds (no auctioneer action needed).
-    choice BidRequest_Cancel : ContractId Allocation
+    -- IMPORTANT (spine reality): the escrow is a *committed* Allocation, and
+    -- Allocation_Withdraw's `requireWithdrawAllowed` BLOCKS withdraw of a
+    -- committed allocation until AFTER `settlementDeadline` (and blocks it
+    -- outright if there is no deadline). So a bidder CANNOT unilaterally cancel a
+    -- committed escrow before clearing — the earlier "withdraw before clearing,
+    -- no auctioneer action needed" was wrong. Pre-deadline, the only return path
+    -- is the auctioneer voluntarily releasing via Allocation_Cancel (controller =
+    -- settlement executors); the guaranteed bidder-driven exit is the
+    -- post-deadline force-refund below. This is why the escrow MUST carry a
+    -- `settlementDeadline`.
+    choice BidRequest_RequestCancel : ()
       controller bidder
-      do exercise paymentAllocationCid Allocation_Withdraw
+      do
+        -- Signals intent to the auctioneer; the actual unlock of a committed
+        -- escrow before the deadline requires the auctioneer's Allocation_Cancel.
+        pure ()
 
     -- Liveness: once the settlement window has closed, the bidder reclaims escrow
     -- WITHOUT the auctioneer — defeats a stalling auctioneer. The bidder is the
-    -- Allocation authorizer, so no auctioneer signature is required.
+    -- Allocation authorizer AND the deadline has passed, so `requireWithdrawAllowed`
+    -- now permits the withdraw (committed + now > deadline).
     choice BidRequest_ForceRefundAfterDeadline : ContractId Allocation
       controller bidder
       do
@@ -393,7 +410,8 @@ template AuctionClearing
         settlementFactoryCid : ContractId SettlementFactory
         paymentAllocations : [ContractId Allocation]      -- winners' locked payment
         tokenAllocations : [ContractId Allocation]         -- issuer's token side
-        requests : [ContractId AllocationRequest]          -- routing legs (bidders ↔ tokens)
+        settlement : SettlementInfo
+        transferLegs : [TransferLeg]                       -- routing legs (bidders ↔ tokens)
       controller auctioneer
       do
         -- Window guard: bidding must be closed and the settlement deadline not
@@ -404,10 +422,16 @@ template AuctionClearing
         assertMsg "settlement window closed" (now <= lp.settlementDeadline)
         -- Single atomic DvP. If any D1ComplianceHook fails on any leg, or the
         -- math violates conservation, the whole batch fails-closed.
+        -- Real signature: settlement / transferLegs / allocationCids / actors /
+        -- d1ComplianceRef (NOT `allocations`/`requests`). Both sides commit their
+        -- own allocations — winners' payment AND the issuer's token side — so the
+        -- both-sided check funds every leg from a signed source (no mint-from-air).
         exercise settlementFactoryCid SettlementFactory_SettleBatch with
-          allocations = paymentAllocations ++ tokenAllocations
-          requests = requests
-          -- nextIterationFunding empty: terminal single-round settlement.
+          settlement
+          transferLegs
+          allocationCids = paymentAllocations ++ tokenAllocations
+          actors = settlement.executors
+          d1ComplianceRef = None
 ```
 
 ---

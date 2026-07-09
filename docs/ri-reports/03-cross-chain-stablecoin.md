@@ -191,22 +191,36 @@ matching amount on Canton:
 data LockAttestation = LockAttestation with
   sourceChainId   : Text       -- e.g. "ethereum-mainnet"
   lockTxId        : Text        -- the source-chain lock/escrow transaction
-  lockedAsset     : Text        -- source-chain asset locked (e.g. USDC)
+  lockedAsset     : Text        -- source-chain asset locked (e.g. USDC) — a
+                                --   foreign-chain string reference, legitimately Text
   lockedAmount    : Decimal     -- exact backing locked on the source chain
   cantonRecipient : Party       -- who may receive the minted wrapped asset
-  cantonInstrumentId : Text     -- the Canton instrument to mint
+  cantonInstrumentId : InstrumentId  -- the Canton instrument to mint: a TYPED
+                                --   on-ledger identity bound to its issuing admin,
+                                --   NOT bare Text (a forged attestation cannot name
+                                --   an arbitrary/unissued instrument). Contrast the
+                                --   foreign-chain refs above, which stay Text.
   nonce           : Text        -- replay-protection sequence id (one-time)
   expiry          : Time        -- attestation validity window
 ```
 
-**Who signs it.** Not a lone relayer. The attestation is co-signed by a
-**threshold N-of-M attestor set**, and verified on-ledger via the spine's
+**Who signs it.** Not a lone relayer. It is verified on-ledger via the spine's
 existing typed node-attestation path —
 [`SettlementFactory_SettleBatchWithAttestation`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L259)
 checked against the
 [`TrustedAttesterRegistry`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L730).
 This separates the relayer's *transport* role (move bytes) from the *trust* role
-(authorize minting): a relayer with no attestor quorum cannot mint.
+(authorize minting): a relayer with no attester authorization cannot mint.
+
+> **Accuracy caveat (what the scaffold verifies today).** The intended posture
+> is a **threshold N-of-M** attestor set, but the spine's
+> [`requireNodeAttestation`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L766)
+> today checks a **single** `NodeComplianceAttestation` whose signer is *any one*
+> party in the `TrustedAttesterRegistry` (plus settlement-ref match and validity
+> window) — it does **not** enforce a quorum. So "N-of-M / quorum-signed" is the
+> design target, not the current guarantee; genuine threshold signing needs an
+> aggregated-attestation or M-attestation-verifying choice (see §9). Do not read
+> the present typed path as quorum-enforcing.
 
 **The binding (fail-closed).** The inbound
 [`AllocationInstruction`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L356)
@@ -235,8 +249,10 @@ It is the mirror of the inbound flow:
    [`EventLog_HoldingsChange`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L646)
    and producing a typed `RedemptionAttestation` `[FUTURE]`
    `{ amount, sourceChainDestination, nonce }`.
-2. **Attest.** The N-of-M attestor set co-signs the `RedemptionAttestation`
-   (again via the `TrustedAttesterRegistry` path).
+2. **Attest.** A registry-trusted attester signs the `RedemptionAttestation`
+   (again via the `TrustedAttesterRegistry` path) — an N-of-M quorum is the
+   target posture, but see the §3.5 accuracy caveat: the current typed path
+   verifies a single trusted-attester signature, not a threshold.
 3. **Release on the source chain.** The signed burn attestation is submitted to
    the source-chain escrow contract, which releases `amount` of locked backing
    to `sourceChainDestination` and the reserve is decremented.
@@ -315,13 +331,18 @@ template StandardizedMessagingGateway
   with
     admin : Party
     operator : Party
-    registry : ContractId TrustedIssuerRegistry
   where
     signatory admin, operator
+    -- NB: no stored `registry : ContractId TrustedIssuerRegistry` field. The
+    -- registry archive-and-recreates whenever a trusted issuer is added or
+    -- removed, so a stored cid would brick after the first membership change
+    -- (the same dangling-pointer hazard as a stored `PauseState` cid). The
+    -- current registry is passed as a choice ARGUMENT, disclosed at exercise time.
 
     nonconsuming choice Gateway_ProcessInbound : ContractId AllocationInstruction
       with
         relayerGrant : ContractId RoleGrant
+        registryCid : ContractId TrustedIssuerRegistry  -- current registry, passed in (not stored)
         inboundAmount : Decimal
         recipient : Party
         kycClaim : ContractId KycClaim
@@ -333,9 +354,13 @@ template StandardizedMessagingGateway
         requireRole operator (roleId Relayer) admin g
 
         -- 2. D1 (Shape B, fail-closed): the KycClaim's subjectParty must match
-        --    the recipient; verified node-applied, no off-ledger oracle.
+        --    the recipient AND its issuer must be trusted by the CURRENT registry;
+        --    verified node-applied, no off-ledger oracle.
+        registry <- fetch registryCid
         claim <- fetch kycClaim
         assertMsg "D1: recipient identity mismatch" (claim.subjectParty == recipient)
+        assertMsg "D1: issuer not in current trusted registry"
+          (claim.declaredIssuer `elem` registry.trustedIssuers)
 
         -- 3. Drive the spine: create the (committed) allocation instruction.
         exercise settlementFactory SettlementFactory_CreateAllocationInstruction with ..
@@ -358,22 +383,32 @@ template CrossChainDvP
 
     choice Execute_Inbound_Settlement : ContractId SettlementReceipt
       with
-        allocationRequestId : ContractId AllocationRequest
         instructionId : ContractId AllocationInstruction
         batchFactory : ContractId SettlementFactory
+        settlement : SettlementInfo
+        transferLegs : [TransferLeg]
       controller executor
       do
         -- Recipient's required co-authorization is satisfied via their standing
         -- TransferPreapproval (delegated accept for an offline treasury).
-        allocationId <- exercise instructionId AllocationInstruction_Accept
+        result <- exercise instructionId AllocationInstruction_Accept
+        let allocationId = case result of
+              AllocationInstructionCompleted cid -> cid
+              _ -> error "instruction did not complete"
 
         -- Atomic DvP via the single spine entrypoint. Settlement conserves value
         -- per instrument (locked funds must cover sender obligations; surplus
         -- returns as change); a failed batch returns holdings to the sender.
-        receipt <- exercise batchFactory SettlementFactory_SettleBatch with
-          allocations = [allocationId]
-          requests = [allocationRequestId]
-        return receipt
+        -- Real signature: settlement / transferLegs / allocationCids / actors /
+        -- d1ComplianceRef — NOT `allocations`/`requests` — and it returns a LIST
+        -- of receipts (one per allocation).
+        receipts <- exercise batchFactory SettlementFactory_SettleBatch with
+          settlement
+          transferLegs
+          allocationCids = [allocationId]
+          actors = settlement.executors
+          d1ComplianceRef = None
+        return (head receipts)
 ```
 
 ### 4.3 D2 lock-and-sweep `[FUTURE]` (real mechanism, no bespoke template)
@@ -511,10 +546,11 @@ transitions, not obscure cryptography.
   broken.
 - **1:1 reserve backing (§3.5).** Canton-minted wrapped supply for an instrument
   never exceeds the sum of valid, unredeemed `LockAttestation`s:
-  `mintedSupply ≤ Σ lockedAmount(unredeemed)`. A mint requires a quorum-signed,
+  `mintedSupply ≤ Σ lockedAmount(unredeemed)`. A mint requires a registry-trusted,
   unexpired, non-replayed attestation whose `lockedAmount` equals the minted
-  amount; redemption (§3.6) burns first and decrements the reserve. No mint
-  without locked backing; no double-redeem of one lock.
+  amount (an N-of-M quorum is the target; the scaffold verifies a single trusted
+  attester today — §3.5 caveat); redemption (§3.6) burns first and decrements the
+  reserve. No mint without locked backing; no double-redeem of one lock.
 
 ### 7.2 Threat Model
 

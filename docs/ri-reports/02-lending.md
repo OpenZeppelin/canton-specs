@@ -307,31 +307,36 @@ roleId Pauser         = "PAUSER"
 ### 4.2 Configuration and pricing `[EVIDENCE]` (canton-stablecoin shapes)
 
 ```daml
--- Real canton-stablecoin shapes (field names exact); shown for grounding.
-template VaultParams
+-- Real canton-stablecoin shapes (grounded in Stablecoin/Vault.daml and
+-- Stablecoin/Oracle.daml). VaultParams is a DATA record (embedded by value in
+-- VaultFactory / Vault), NOT a template — so there is no `paramsCid` to store or
+-- brick; the config travels with the contract that embeds it. Instrument ids are
+-- `InstrumentId` (bound to the issuing admin), NOT `Text`.
+data VaultParams = VaultParams
   with
-    admin : Party
-    collateralInstrumentId : Text
-    stablecoinInstrumentId : Text
     minCollateralRatio : Decimal   -- e.g. 1.50 (150%)
     liquidationRatio : Decimal     -- triggers Vault_Liquidate below this
     liquidationBonus : Decimal     -- fixed-discount penalty, e.g. 0.10
     stabilityFeeRate : Decimal     -- FIXED, term-locked (no variable accrual)
-  where
-    signatory admin
-    observer admin                 -- extendable to public observers
+  deriving (Eq, Show)
+  -- (collateralInstrumentId / stablecoinInstrumentId : InstrumentId live on
+  --  VaultFactory and Vault, not here — matching the real shapes.)
 
+-- PriceOracle IS a real template, and its update path (PriceOracle_UpdatePrice,
+-- controller admin / oracle-provider role) is *consuming* — it archives and
+-- recreates to publish a new price. So its `ContractId` is passed to consumers
+-- at exercise time (see liquidation's `oracleCid` arg), never stored on a
+-- long-lived contract, or it would brick on the first price update.
 template PriceOracle
   with
     admin : Party
-    collateralInstrumentId : Text
+    collateralInstrumentId : InstrumentId
     price : Decimal                -- collateral valued in stablecoin units
     updatedAt : Time
-    observers : [Party]
   where
     signatory admin
-    observer observers
-    -- choice PriceOracle_UpdatePrice (controller admin / oracle-provider role)
+    -- Add explicit public observers here if the feed must be broadly readable;
+    -- `admin` is already a signatory, so it is not repeated as an observer.
 ```
 
 ### 4.3 Vault opening with identity gating `[FUTURE]` (RI adapter over `VaultFactory_OpenVault`)
@@ -347,15 +352,22 @@ import IdentityHook.ShapeB (KycClaim, TrustedIssuerRegistry)
 template LendingVaultFactory
   with
     admin : Party
-    registryCid : ContractId TrustedIssuerRegistry
-    paramsCid : ContractId VaultParams
+    vaultFactoryCid : ContractId VaultFactory  -- real canton-stablecoin factory
   where
     signatory admin
 
     -- New RI choice wrapping the canton-stablecoin VaultFactory_OpenVault path.
+    -- Two deliberate pointer choices, mirroring the DEX fixes:
+    --  * `VaultFactory` is nonconsuming (reusable — it does NOT archive on open),
+    --    so its cid is stable and safe to STORE. `VaultParams` rides inside it as
+    --    an embedded `data` value, so there is no separate params cid to brick.
+    --  * `TrustedIssuerRegistry` archive-and-recreates on issuer add/remove, so
+    --    it is passed as a choice ARGUMENT (disclosed at exercise time), never
+    --    stored — the same dangling-pointer hazard as a stored `PauseState` cid.
     nonconsuming choice LendingVaultFactory_OpenGatedVault : ContractId Vault
       with
         borrower : Party
+        registryCid : ContractId TrustedIssuerRegistry  -- current registry, passed in
         complianceRequest : CredentialGatedActionRequest
         verificationResult : MockVerificationResult
         kycClaim : KycClaim
@@ -379,17 +391,24 @@ template LendingVaultFactory
     choice Vault_Liquidate_ViaSpine : (ContractId Vault, ContractId SettlementReceipt)
       with
         liquidator : Party
-        oracleCid : ContractId PriceOracle
+        oracleCid : ContractId PriceOracle             -- current oracle, passed in (mutable)
         settlementFactoryCid : ContractId SettlementFactory
         debtAllocationId : ContractId Allocation       -- liquidator's committed stablecoin
-        collateralRequestId : ContractId AllocationRequest  -- liquidator's collateral-out leg
+        vaultCollateralAllocationId : ContractId Allocation  -- VAULT's committed collateral (funds leg 2)
+        maxStaleness : RelTime                         -- RI-level oracle-freshness policy
+        settlement : SettlementInfo
+        transferLegs : [TransferLeg]                   -- exact legs (debt in / collateral out)
       controller liquidator
       do
         now <- getTime
-        params <- fetch paramsCid
+        -- `params` is the Vault's embedded VaultParams value (travels with the
+        -- Vault), NOT a separately-fetched contract — so there is no stale
+        -- `paramsCid` to brick. It supplies stabilityFeeRate / liquidationRatio.
         oracle <- fetch oracleCid
-        -- Oracle freshness: reject a stale feed (consumes updatedAt).
-        assertMsg "oracle stale" (subTime now oracle.updatedAt <= params.maxStaleness)
+        -- Oracle freshness: reject a stale feed. `maxStaleness` is an RI-level
+        -- policy arg — the real canton-stablecoin `VaultParams` has no such field,
+        -- so it is NOT read off `params` (that would reference a nonexistent field).
+        assertMsg "oracle stale" (subTime now oracle.updatedAt <= maxStaleness)
         -- Accrue first, then test solvency against up-to-date debt.
         let accruedDebt = accrueDebt debtAmount lastAccrualTime now params.stabilityFeeRate
         assertMsg "vault is solvent"
@@ -400,23 +419,41 @@ template LendingVaultFactory
         let collateralToSeize =
               min collateralAmount ((accruedDebt * (1.0 + params.liquidationBonus)) / oracle.price)
 
-        -- Atomic DvP via the single spine entrypoint. Two legs settle together:
+        -- Atomic DvP via the single spine entrypoint. BOTH sides commit their own
+        -- allocation (like the DEX pool funding its output leg, §01 §4.1):
         --   leg 1 — debtAllocationId: liquidator's stablecoin → admin (burned via
         --           BurnerCapability), clearing the debt;
-        --   leg 2 — collateralRequestId: collateralToSeize of collateral → liquidator.
-        -- extraTransferLegSides pins both legs so settled amounts must equal the
-        -- computed deltas; the batch commits all-or-nothing.
-        receipt <- exercise settlementFactoryCid SettlementFactory_SettleBatch with
-          allocations = [debtAllocationId]
-          requests = [collateralRequestId]
+        --   leg 2 — vaultCollateralAllocationId: collateralToSeize of the VAULT's
+        --           own collateral holdings → liquidator.
+        -- `SettleBatch`'s both-sided check pins each leg's exact amount to a signed
+        -- allocation side (`containsSide` compares amounts), so the liquidator can
+        -- neither over-seize nor under-pay; the batch commits all-or-nothing.
+        -- (Real signature: settlement / transferLegs / allocationCids / actors /
+        --  d1ComplianceRef — not `allocations`/`requests`.)
+        receipts <- exercise settlementFactoryCid SettlementFactory_SettleBatch with
+          settlement
+          transferLegs
+          allocationCids = [debtAllocationId, vaultCollateralAllocationId]
+          actors = settlement.executors
+          d1ComplianceRef = None
 
+        -- The choice is `controller liquidator` (liquidation is permissionless by
+        -- design), yet the recreate below is authorized: the successor Vault's
+        -- signatories (admin + owner) delegate their authority to this choice's
+        -- consequences (they signed THIS Vault), so no separate admin/owner
+        -- signature is needed — and the liquidator cannot deviate because the
+        -- solvency test, the oracle-price cap, and the both-sided leg check are
+        -- deterministic on-ledger. (Unlike a swap, there is no independent-validator
+        -- claim to uphold, so liquidator control is correct, not a gap.)
+        -- collateralAmount mirrors the Vault's real collateral holdings, so moving
+        -- exactly collateralToSeize on leg 2 keeps collateralAmount == holdings.
         -- Residual collateral (collateralAmount - collateralToSeize) returns to the
         -- borrower in the recreated Vault; debt is cleared in the same transaction.
         newVault <- create this with
           collateralAmount = collateralAmount - collateralToSeize
           debtAmount = 0.0
           lastAccrualTime = now
-        return (newVault, receipt)
+        return (newVault, head receipts)  -- receipts align with allocationCids order
 
     -- D2 lock-and-sweep: NO bespoke "D2SeizureHook_Sweep" template — D2SeizureHook
     -- is a spine config record (seizureCaseRef, custodianDestination,
