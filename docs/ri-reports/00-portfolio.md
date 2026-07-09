@@ -7,8 +7,8 @@ production readiness. Per-RI detail lives in the individual reports; this doc is
 the "one layer above" view — the shared core, how the RIs compose, the cumulative
 scope, the shared cross-synchronizer model, and the library-extraction map.
 
-> **Source-grounding tags:** `[IMPLEMENTED]` (M1 base: `canton-specs` /
-> `canton-contracts`) · `[EVIDENCE]` (evidence repo) · `[UPSTREAM]` (Splice / CIP
+> **Source-grounding tags:** `[IMPLEMENTED]` (M1 base: [`canton-specs`](https://github.com/OpenZeppelin/canton-specs) /
+> [`canton-contracts`](https://github.com/OpenZeppelin/canton-contracts)) · `[EVIDENCE]` (evidence repo) · `[UPSTREAM]` (Splice / CIP
 > / external) · `[FUTURE]` (proposed RI-level design, not M1 scope).
 
 ---
@@ -58,16 +58,18 @@ differs.
   deferred but SCU-forward-compatible; D4 single-admin capability (multi-sig → M3).
 - **SCU rule:** never mutate an existing choice's args to require a new field;
   extend via appended `Optional` fields, new serializable types, and new choices.
-- **Priority order:** Readability → Simplicity → Security → Auditability.
+- **Priority order:** Security → Simplicity → Readability → Auditability.
 - **Token Standard V2 (import GATED):** designed against the Splice Token
   Standard V2 interfaces (`hyperledger-labs/splice` `token-standard-v2-upcoming`);
   local stand-ins are used until the published DARs ship and the import gate
   clears.
 - **Typed D3 identity** — `KycClaim` + `TrustedIssuerRegistry` are the
   `canton-specs` identity-hook **Shape-B** types `[IMPLEMENTED]` (experimental),
-  **not** `zk-credential-gateway` templates. The gateway supplies the gating /
-  verification primitives (`CredentialGatedActionRequest`,
-  `MockVerificationResult`, `CredentialRevocationStatus`) `[EVIDENCE]`.
+  **not** `credential-gateway` templates. The in-repo
+  [`credential-gateway`](../../experiments/credential-gateway/daml/OpenZeppelin/Experimental/Credential/Gateway.daml)
+  experiment supplies the gating / verification primitives
+  (`CredentialGatedActionRequest`, `MockVerificationResult`,
+  `CredentialRevocationStatus`) `[IMPLEMENTED]` (experimental).
 - **Validation ladder (proposed `[FUTURE]`):** `daml-lint` → `daml-props` →
   `daml-verify` — external OZ tools, not wired into this repo's CI. The real M1
   gate is `dpm build --all` + `scripts/run-tests.sh` + `scripts/check-scaffold.sh`
@@ -127,7 +129,7 @@ rows are forward-compatibility paths surfaced in each report's §9.
 
 | Relationship | Direction | Nature | Where documented |
 |---|---|---|---|
-| Vault / oracle / credential stack | Lending ⇄ Stablecoin | shared `canton-stablecoin` + `zk-credential-gateway` evidence | `02` §2, `03` §2 |
+| Vault / oracle / credential stack | Lending ⇄ Stablecoin | shared `canton-stablecoin` evidence + the in-repo `credential-gateway` experiment | `02` §2, `03` §2 |
 | Spot reference / stable-pool extension | DEX → Stablecoin | DEX cites `PriceOracle` for future stable pools | `01` §1, §6 |
 | Secondary market for launched tokens | Auction → DEX | post-auction trading is the DEX RI (explicit) | `04` §1.2 |
 | **Pool liquidity from cross-chain inflows** | DEX ⇽ Stablecoin | settled USDCx can seed DEX pool reserves | `01` §9 (composability) |

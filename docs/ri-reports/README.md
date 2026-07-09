@@ -28,13 +28,13 @@ threat model delivered in the implementation milestone. All build on the
 ## House conventions (every report)
 
 - **Source-grounding tags** on every code block and major claim:
-  - `[IMPLEMENTED]` — real code in the M1 library base (`canton-specs` /
-    `canton-contracts`).
-  - `[EVIDENCE]` — real code in an evidence repo (`canton-token-template`,
-    `canton-stablecoin`, `zk-credential-gateway`), not the M1 surface.
+  - `[IMPLEMENTED]` — real code in the M1 library base ([`canton-specs`](https://github.com/OpenZeppelin/canton-specs) /
+    [`canton-contracts`](https://github.com/OpenZeppelin/canton-contracts)).
+  - `[EVIDENCE]` — real code in an evidence repo ([`canton-token-template`](https://github.com/OpenZeppelin/canton-token-template),
+    [`canton-stablecoin`](https://github.com/OpenZeppelin/canton-stablecoin)), not the M1 surface.
   - `[UPSTREAM]` — Splice / CIP / external-ecosystem reference, not vendored here.
   - `[FUTURE]` — proposed RI-level design, not built in M1 scope.
-- **Design priority order:** Readability → Simplicity → Security → Auditability.
+- **Design priority order:** Security → Simplicity → Readability → Auditability.
 - **Section order:** Product Definition → Architecture Overview → How We
   Implement It → Interfaces & Usage Examples → Diagrams → Library Dependencies →
   Security & Auditability → Cross-Synchronizer Domain Extension → Implementation

@@ -5,14 +5,14 @@ in the real OpenZeppelin Canton components in this workspace; it is **not** a
 claim of acceptance, conformance, audit readiness, or production readiness.
 
 > **Source-grounding tags** (used throughout):
-> `[IMPLEMENTED]` real code in the M1 library base (`canton-specs` /
-> `canton-contracts`) · `[EVIDENCE]` real code in an evidence repo
-> (`canton-token-template`, `canton-stablecoin`, `zk-credential-gateway`), not
+> `[IMPLEMENTED]` real code in the M1 library base ([`canton-specs`](https://github.com/OpenZeppelin/canton-specs) /
+> [`canton-contracts`](https://github.com/OpenZeppelin/canton-contracts)) · `[EVIDENCE]` real code in an evidence repo
+> ([`canton-token-template`](https://github.com/OpenZeppelin/canton-token-template), [`canton-stablecoin`](https://github.com/OpenZeppelin/canton-stablecoin)), not
 > the M1 surface · `[UPSTREAM]` Splice / CIP reference, not vendored here ·
 > `[FUTURE]` proposed RI-level design, not built in M1 scope.
 
 > **Design priority order** governs every interface and snippet, in this exact
-> order: **1) Readability → 2) Simplicity → 3) Security → 4) Auditability.**
+> order: **1) Security → 2) Simplicity → 3) Readability → 4) Auditability.**
 
 > **Scope.** This is the architecture documentation for a vault-based
 > institutional lending reference design targeting **CIP-0112 / Token Standard
@@ -32,7 +32,7 @@ primitives.
 The architecture adapts the `canton-stablecoin` codebase `[EVIDENCE]` and wires
 it onto the **CIP-0112 / Token Standard V2 settlement spine** `[IMPLEMENTED]`
 (`OpenZeppelin.Experimental.Settlement.Cip112`). It embeds credential gating via
-`zk-credential-gateway` `[EVIDENCE]` and capability-based access control via
+the in-repo [`credential-gateway`](../../experiments/credential-gateway/daml/OpenZeppelin/Experimental/Credential/Gateway.daml) experiment `[IMPLEMENTED]` (experimental) and capability-based access control via
 [`oz-access-control`](../../access-control/daml/OpenZeppelin/AccessControl.daml) `[IMPLEMENTED]`, combining DeFi composability with
 institutional compliance prerequisites. The target utility is tokenized treasury
 operations, collateral mobility, and stablecoin issuance for institutional
@@ -80,7 +80,7 @@ core over feature complexity.
 | Liquidation | `Vault_Liquidate` on undercollateralization — fixed-discount collateral seizure with a fixed `liquidationBonus`. | Dynamic liquidation auctions, fractional liquidations, market-driven bidding wars. |
 | Settlement | Atomic DvP **only** via `SettlementFactory_SettleBatch`. | Direct un-batched `Allocation_Settle` for co-settlement. |
 | Pricing | `PriceOracle` mapping a single collateral asset to debt units for solvency thresholds. | Multi-asset dynamic oracles, external off-chain TWAP aggregators. |
-| Identity & Compliance | D1 Shape B (signed node attestation) using `KycClaim` + `TrustedIssuerRegistry`; credential gating via `zk-credential-gateway`. | Cross-domain identity aggregation (ERC-3643, ONCHAINID, Chainlink CCID) — deferred, SCU-forward-compatible only. |
+| Identity & Compliance | D1 Shape B (signed node attestation) using `KycClaim` + `TrustedIssuerRegistry`; credential gating via `credential-gateway`. | Cross-domain identity aggregation (ERC-3643, ONCHAINID, Chainlink CCID) — deferred, SCU-forward-compatible only. |
 | Authority & Access | Single-admin capability (`oz-access-control`) for mint/burn/seizure/handoff. Multi-party attestation is a **named M3 extension**. | On-ledger multi-sig / DAO execution. |
 
 ### Target Users
@@ -109,8 +109,8 @@ custody, debt issuance, economic parameterization, and liquidation.
 | [`SettlementFactory`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L185) | `OpenZeppelin.Experimental.Settlement.Cip112` | Atomic multi-leg settlement: [`SettlementFactory_CreateAllocationRequest`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L193), [`SettlementFactory_CreateAllocationInstruction`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L216), [`SettlementFactory_SettleBatch`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L237). | `[IMPLEMENTED]` |
 | Role management | `oz-access-control` | [`RoleGrant`](../../access-control/daml/OpenZeppelin/AccessControl.daml), [`RoleAdmin`](../../access-control/daml/OpenZeppelin/AccessControl.daml), [`requireRole`](../../access-control/daml/OpenZeppelin/AccessControl.daml); `roleId : MyRole -> Text` closed-sum wrapper prevents string-matching role collisions. | `[IMPLEMENTED]` |
 | Admin flow | `oz-ownable` / `oz-pausable` | [`Ownership`](../../ownable/daml/OpenZeppelin/Ownable.daml)/[`OwnershipOffer`](../../ownable/daml/OpenZeppelin/Ownable.daml) for handoff; [`PauseState`](../../pausable/daml/OpenZeppelin/Pausable.daml)/[`whenNotPaused`](../../pausable/daml/OpenZeppelin/Pausable.daml) kill-switch. | `[IMPLEMENTED]` |
-| Credentials | `zk-credential-gateway` | `CredentialGatedActionRequest`, `MockVerificationResult`, `MockVerifierAuthorization`, `CredentialRevocationStatus` for KYC gating. | `[EVIDENCE]` |
-| Typed D3 identity | `canton-specs` identity-hook Shape-B | `KycClaim`, `TrustedIssuerRegistry` — the typed D3 identity shape (from the identity-hook Shape-B experiment, not `zk-credential-gateway`), layered via SCU. | `[IMPLEMENTED]` (experimental) |
+| Credentials | [`credential-gateway`](../../experiments/credential-gateway/daml/OpenZeppelin/Experimental/Credential/Gateway.daml) | `CredentialGatedActionRequest`, `MockVerificationResult`, `MockVerifierAuthorization`, `CredentialRevocationStatus` for KYC gating. | `[IMPLEMENTED]` (experimental) |
+| Typed D3 identity | `canton-specs` identity-hook Shape-B | `KycClaim`, `TrustedIssuerRegistry` — the typed D3 identity shape (from the identity-hook Shape-B experiment, not `credential-gateway`), layered via SCU. | `[IMPLEMENTED]` (experimental) |
 
 ### Party and Role Model
 
@@ -282,7 +282,7 @@ proven in the `canton-specs` identity-hook upgrade spike.
 
 ## 4. Interfaces & Usage Examples
 
-Interfaces are prioritized by Readability, Simplicity, Security, Auditability.
+Interfaces are prioritized by Security, Simplicity, Readability, Auditability.
 RI-level templates that adapt or extend `canton-stablecoin` are tagged
 `[FUTURE]`; field/choice names match real `canton-stablecoin` source.
 
@@ -340,8 +340,7 @@ template PriceOracle
 module Lending.Vault where
 
 import OpenZeppelin.Experimental.Settlement.Cip112 (SettlementFactory)
-import ZkCredentialGateway.GatedAction (CredentialGatedActionRequest)
-import ZkCredentialGateway.Verification (MockVerificationResult)
+import OpenZeppelin.Experimental.Credential.Gateway (CredentialGatedActionRequest, MockVerificationResult)
 -- KycClaim / TrustedIssuerRegistry: canton-specs identity-hook Shape-B
 import IdentityHook.ShapeB (KycClaim, TrustedIssuerRegistry)
 
@@ -442,7 +441,7 @@ graph TD
         RG_Oracle["RoleGrant: OracleProvider"]
         PS[PauseState]
     end
-    subgraph Compliance["zk-credential-gateway / canton-specs identity-hook"]
+    subgraph Compliance["credential-gateway / canton-specs identity-hook"]
         TIR[TrustedIssuerRegistry]
         KC[KycClaim]
         CGAR[CredentialGatedActionRequest]
@@ -517,7 +516,7 @@ sequenceDiagram
 | `oz-access-control` | [`RoleGrant`](../../access-control/daml/OpenZeppelin/AccessControl.daml), [`RoleAdmin`](../../access-control/daml/OpenZeppelin/AccessControl.daml), `DefaultAdminTransferOffer`, [`requireRole`](../../access-control/daml/OpenZeppelin/AccessControl.daml) | Capability-based authority and the party/role model. | `[IMPLEMENTED]` |
 | `oz-ownable` | [`Ownership`](../../ownable/daml/OpenZeppelin/Ownable.daml), [`OwnershipOffer`](../../ownable/daml/OpenZeppelin/Ownable.daml) | Administrative handoff between legal entities. | `[IMPLEMENTED]` |
 | `oz-pausable` | [`PauseState`](../../pausable/daml/OpenZeppelin/Pausable.daml), [`whenNotPaused`](../../pausable/daml/OpenZeppelin/Pausable.daml) | Emergency protocol freeze. | `[IMPLEMENTED]` |
-| `zk-credential-gateway` | `CredentialGatedActionRequest`, `MockVerificationResult`, `MockVerifierAuthorization`, `CredentialRevocationStatus` | D1 compliance / KYC gating without on-chain data leakage. | `[EVIDENCE]` |
+| [`credential-gateway`](../../experiments/credential-gateway/daml/OpenZeppelin/Experimental/Credential/Gateway.daml) | `CredentialGatedActionRequest`, `MockVerificationResult`, `MockVerifierAuthorization`, `CredentialRevocationStatus` | D1 compliance / KYC gating without on-chain data leakage. | `[IMPLEMENTED]` (experimental) |
 | `OpenZeppelin.Experimental.Settlement.Cip112` | [`SettlementFactory`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L185), [`Allocation`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L454), [`AllocationInstruction`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L356), [`AllocationRequest`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L299), [`SettlementReceipt`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L647), [`BurnerCapability`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L98), [`D1ComplianceHook`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L41), [`D2SeizureHook`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L46) | Atomic DvP spine; D1/D2 seams. | `[IMPLEMENTED]` (experimental) |
 | `canton-specs` identity-hook Shape-B | `KycClaim`, `TrustedIssuerRegistry` | Typed D3 identity, layered via SCU. | `[IMPLEMENTED]` (experimental) |
 
@@ -756,8 +755,8 @@ this workspace. Authoritative sources:
   `canton-specs/experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml`.
 - **Holdings / forced-burn / rules / preapproval** `[EVIDENCE]` —
   `canton-token-template/simple-token/daml/SimpleToken/{Holding,Rules,Preapproval}.daml`.
-- **Credential gating / verification** `[EVIDENCE]` —
-  `zk-credential-gateway/daml/src/ZkCredentialGateway/{GatedAction,Verification,Types}.daml`.
+- **Credential gating / verification** `[IMPLEMENTED]` (experimental) —
+  `canton-specs/experiments/credential-gateway/daml/OpenZeppelin/Experimental/Credential/Gateway.daml`.
 - **Typed D3 identity (KycClaim, TrustedIssuerRegistry)** `[IMPLEMENTED]` —
   `canton-specs/experiments/identity-hook-shape-b/` and `identity-hook-upgrade-*/`.
 - **Access-control / ownable / pausable primitives** `[IMPLEMENTED]` —

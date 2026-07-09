@@ -5,14 +5,14 @@ in the real OpenZeppelin Canton components in this workspace; it is **not** a
 claim of acceptance, conformance, audit readiness, or production readiness.
 
 > **Source-grounding tags** (used throughout):
-> `[IMPLEMENTED]` real code in the M1 library base (`canton-specs` /
-> `canton-contracts`) · `[EVIDENCE]` real code in an evidence repo
-> (`canton-token-template`, `canton-stablecoin`, `zk-credential-gateway`), not
+> `[IMPLEMENTED]` real code in the M1 library base ([`canton-specs`](https://github.com/OpenZeppelin/canton-specs) /
+> [`canton-contracts`](https://github.com/OpenZeppelin/canton-contracts)) · `[EVIDENCE]` real code in an evidence repo
+> ([`canton-token-template`](https://github.com/OpenZeppelin/canton-token-template), [`canton-stablecoin`](https://github.com/OpenZeppelin/canton-stablecoin)), not
 > the M1 surface · `[UPSTREAM]` Splice / CIP reference, not vendored here ·
 > `[FUTURE]` proposed RI-level design, not built in M1 scope.
 
 > **Design priority order** governs every interface and snippet, in this exact
-> order: **1) Readability → 2) Simplicity → 3) Security → 4) Auditability.**
+> order: **1) Security → 2) Simplicity → 3) Readability → 4) Auditability.**
 
 > **Scope.** This is the architecture documentation for a Confidential Auction
 > Launchpad reference design targeting **CIP-0112 / Token Standard V2**;
@@ -57,7 +57,7 @@ mechanics.
 | Confidentiality | Bid isolation via per-party projection — bidder, issuer/auctioneer, and the credential verifier only; no bidder projects competitor bids. |
 | Escrow | Locked escrow via `LockedSimpleHolding` / `Allocation`; funds cryptographically bound to the settlement outcome. |
 | Atomic settlement | Token-for-payment exchange **only** via [`SettlementFactory_SettleBatch`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L237) (atomic DvP, single transaction). |
-| Access gating | Credential-gated participation via `zk-credential-gateway` (`CredentialGatedActionRequest`, `MockVerificationResult`). |
+| Access gating | Credential-gated participation via `credential-gateway` (`CredentialGatedActionRequest`, `MockVerificationResult`). |
 | Authority | Single-admin capability via `oz-access-control` (mint/burn/seizure). |
 | Compliance | D1 node-applied checks (Shape B), fail-closed — the intended posture, engaged by the optional `D1ComplianceHook` / typed attestation path (base `SettleBatch` does not itself mandate an attestation; see §3.2). |
 
@@ -74,7 +74,7 @@ mechanics.
 Institutional asset issuers, regulated launchpad operators, and accredited
 investors in compliant jurisdictions. Issuers get fair distribution free of
 front-running / bid manipulation / MEV, with KYC/AML/accreditation enforced via
-`zk-credential-gateway`. Bidders get confidentiality of intent, atomic
+`credential-gateway`. Bidders get confidentiality of intent, atomic
 return-to-sender for losing bids (no counterparty credit risk), and capital that
 can move only per their signed `AllocationInstruction`.
 
@@ -131,11 +131,11 @@ auction mechanics can be upgraded or substituted.
   accept, honoring Canton co-authorization). `canton-stablecoin`'s `Vault` /
   `VaultFactory` / `Vault_Liquidate` / `PriceOracle` are **excluded** (CDP
   mechanics, not primary issuance).
-- **Compliance/identity** — `zk-credential-gateway` `[EVIDENCE]`
+- **Compliance/identity** — the in-repo [`credential-gateway`](../../experiments/credential-gateway/daml/OpenZeppelin/Experimental/Credential/Gateway.daml) experiment `[IMPLEMENTED]` (experimental)
   (`CredentialGatedActionRequest`, `MockVerificationResult`,
   `CredentialRevocationStatus`); typed D3 `KycClaim` + `TrustedIssuerRegistry`
   from the `canton-specs` identity-hook Shape-B experiment `[IMPLEMENTED]`
-  (the typed identity shape, not `zk-credential-gateway` templates; the gateway
+  (the typed identity shape, not `credential-gateway` templates; the gateway
   supplies the gating/verification primitives).
 
 ### 2.2 Party and Role Topology
@@ -300,23 +300,33 @@ module ConfidentialAuction.Launchpad where
 
 import OpenZeppelin.Pausable (PauseState, whenNotPaused)
 import OpenZeppelin.Experimental.Settlement.Cip112 (SettlementFactory)
+import OpenZeppelin.Experimental.TokenStandard.V2.Holding (InstrumentId)
 
 template AuctionLaunchpad
   with
     operator : Party
     issuer : Party
-    paymentInstrumentId : Text
-    launchedInstrumentId : Text
+    -- Typed instrument identity (bound to the issuing admin), not bare Text.
+    paymentInstrumentId : InstrumentId
+    launchedInstrumentId : InstrumentId
     settlementFactoryCid : ContractId SettlementFactory
-    pauseStateCid : ContractId PauseState     -- oz-pausable kill-switch
     minBidPrice : Decimal
     biddingDeadline : Time                    -- no bids / no settlement before this
     settlementDeadline : Time                 -- == the escrow Allocation deadline
   where
     signatory operator, issuer
-    ensure (minBidPrice > 0.0 && biddingDeadline < settlementDeadline)
-    -- Halt/resume route through oz-pausable PauseState_Set (controller = issuer,
-    -- validated via requireRole IssuerRole), not via a mutated local flag.
+    ensure
+      minBidPrice > 0.0 &&
+      biddingDeadline < settlementDeadline &&
+      paymentInstrumentId /= launchedInstrumentId &&   -- the two legs must differ
+      operator /= issuer
+    -- NB: no stored `pauseStateCid` field. `PauseState_Set` is a *consuming*
+    -- choice, so it archives-and-recreates the PauseState and any stored
+    -- ContractId would brick after the first toggle. The current `PauseState` is
+    -- instead passed as a choice ARGUMENT to each whenNotPaused-guarded choice
+    -- (disclosed by the pauser at exercise time). Halt/resume route through
+    -- oz-pausable PauseState_Set (controller = issuer, validated via requireRole
+    -- IssuerRole), not via a mutated local flag or a stale pointer.
 ```
 
 ### 4.3 Confidential bid + policy guards `[FUTURE]`
@@ -415,7 +425,7 @@ graph TD
         OW[oz-ownable] -->|admin handoff| AL
         PA[oz-pausable] -->|halt/resume| AL
     end
-    subgraph Compliance["zk-credential-gateway / canton-specs identity-hook"]
+    subgraph Compliance["credential-gateway / canton-specs identity-hook"]
         ZK[CredentialGatedActionRequest] -->|valid KycClaim| BR[BidRequest]
     end
     subgraph Core["Auction logic"]
@@ -474,7 +484,7 @@ sequenceDiagram
 | `oz-pausable` | [`PauseState`](../../pausable/daml/OpenZeppelin/Pausable.daml), [`whenNotPaused`](../../pausable/daml/OpenZeppelin/Pausable.daml) | Circuit breaker (halt the sale). | `[IMPLEMENTED]` |
 | `canton-token-template` | `SimpleHolding`, `LockedSimpleHolding`, `SimpleTokenRules`, `TransferPreapproval`, `RoleCapability`, `MintProposal`, `Rules_Mint` | Asset structure, 3-way dispatch, cold-recipient mint. | `[EVIDENCE]` |
 | `canton-stablecoin` | (none consumed; `Vault`/`VaultFactory`/`Vault_Liquidate`/`PriceOracle` **excluded** — CDP, not issuance) | Referenced for contrast only. | `[EVIDENCE]` |
-| `zk-credential-gateway` | `CredentialGatedActionRequest`, `MockVerificationResult`, `CredentialRevocationStatus` | D1/D3 credential gating. | `[EVIDENCE]` |
+| [`credential-gateway`](../../experiments/credential-gateway/daml/OpenZeppelin/Experimental/Credential/Gateway.daml) | `CredentialGatedActionRequest`, `MockVerificationResult`, `CredentialRevocationStatus` | D1/D3 credential gating. | `[IMPLEMENTED]` (experimental) |
 | `canton-specs` identity-hook Shape-B | `KycClaim`, `TrustedIssuerRegistry` | Typed D3 identity, layered via SCU. | `[IMPLEMENTED]` (experimental) |
 | `OpenZeppelin.Experimental.Settlement.Cip112` | [`SettlementFactory`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L185), [`AllocationRequest`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L299), [`AllocationInstruction`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L356), [`Allocation`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L454), [`SettlementReceipt`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L647), [`BurnerCapability`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L98), [`D1ComplianceHook`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L41), [`D2SeizureHook`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L46) | Atomic DvP spine; D1/D2 seams. | `[IMPLEMENTED]` (experimental) |
 
@@ -535,7 +545,7 @@ living-doc anchors validated by `scripts/refresh-ri-anchors.sh`.
   fail-closed.
 - **D2** — [`D2SeizureHook`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L46) config + [`BurnerCapability`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L98)-gated lock-and-sweep to a
   preset custodian; no burn; losing bids return to sender.
-- **D3** — `zk-credential-gateway` + Shape-B `KycClaim` before bid acceptance;
+- **D3** — `credential-gateway` + Shape-B `KycClaim` before bid acceptance;
   cross-domain deferred, SCU-forward-compatible.
 - **D4** — `oz-access-control` single-admin capability for M1; multi-sig → M3.
 
@@ -658,8 +668,8 @@ synchronizer before `SettleBatch`.
 | Emergency halt (pause the sale) | [`PauseState`](../../pausable/daml/OpenZeppelin/Pausable.daml) · [`whenNotPaused`](../../pausable/daml/OpenZeppelin/Pausable.daml) | ✅ |
 | Node-applied signed D1 attestation (Shape B enforcement) | `D1ComplianceHook` (field only) `[FUTURE]` | ⬜ |
 | Real TSv2 holding interface (replace `ToyHolding`) | `canton-token-template` `[EVIDENCE]` `[FUTURE]` | ⬜ |
-| Sealed-bid / commit-reveal confidential auction logic | `zk-credential-gateway` `[EVIDENCE]` `[FUTURE]` | ⬜ |
-| Bid privacy via projection + zk-credential gating | `zk-credential-gateway` `[EVIDENCE]` `[FUTURE]` | ⬜ |
+| Sealed-bid / commit-reveal confidential auction logic | `credential-gateway` `[IMPLEMENTED]` (experimental) `[FUTURE]` | ⬜ |
+| Bid privacy via projection + credential gating | `credential-gateway` `[IMPLEMENTED]` (experimental) `[FUTURE]` | ⬜ |
 | Cross-synchronizer operation (D3 deferred) | §8 `[FUTURE]` | ⬜ |
 | On-ledger multi-sig authority (D4 → M3) | `oz-access-control` `[FUTURE]` | ⬜ |
 
@@ -720,8 +730,8 @@ this workspace.
   `canton-token-template/simple-token/daml/SimpleToken/{Holding,Rules,Preapproval}.daml`
   (`SimpleHolding`, `LockedSimpleHolding` + `_ForcedBurn`, `SimpleTokenRules`,
   `Rules_Mint`, `MintProposal`, `RoleCapability`).
-- **Credential gating / verification** `[EVIDENCE]` —
-  `zk-credential-gateway/daml/src/ZkCredentialGateway/{GatedAction,Verification,Types}.daml`.
+- **Credential gating / verification** `[IMPLEMENTED]` (experimental) —
+  `canton-specs/experiments/credential-gateway/daml/OpenZeppelin/Experimental/Credential/Gateway.daml`.
 - **Typed D3 identity (KycClaim, TrustedIssuerRegistry)** `[IMPLEMENTED]` —
   `canton-specs/experiments/identity-hook-shape-b/` and `identity-hook-upgrade-*/`.
 - **Access-control / ownable / pausable primitives** `[IMPLEMENTED]` —

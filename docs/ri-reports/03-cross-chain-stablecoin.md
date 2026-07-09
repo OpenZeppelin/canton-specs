@@ -5,14 +5,14 @@ in the real OpenZeppelin Canton components in this workspace; it is **not** a
 claim of acceptance, conformance, audit readiness, or production readiness.
 
 > **Source-grounding tags** (used throughout):
-> `[IMPLEMENTED]` real code in the M1 library base (`canton-specs` /
-> `canton-contracts`) · `[EVIDENCE]` real code in an evidence repo
-> (`canton-token-template`, `canton-stablecoin`, `zk-credential-gateway`), not
+> `[IMPLEMENTED]` real code in the M1 library base ([`canton-specs`](https://github.com/OpenZeppelin/canton-specs) /
+> [`canton-contracts`](https://github.com/OpenZeppelin/canton-contracts)) · `[EVIDENCE]` real code in an evidence repo
+> ([`canton-token-template`](https://github.com/OpenZeppelin/canton-token-template), [`canton-stablecoin`](https://github.com/OpenZeppelin/canton-stablecoin)), not
 > the M1 surface · `[UPSTREAM]` Splice / CIP / external-ecosystem reference, not
 > vendored here · `[FUTURE]` proposed RI-level design, not built in M1 scope.
 
 > **Design priority order** governs every interface and snippet, in this exact
-> order: **1) Readability → 2) Simplicity → 3) Security → 4) Auditability.**
+> order: **1) Security → 2) Simplicity → 3) Readability → 4) Auditability.**
 
 > **Scope.** This is the architecture documentation for a Cross-Chain Stablecoin
 > Payment Orchestration reference design on the CIP-0112 / Token Standard V2
@@ -291,7 +291,7 @@ Names map to real workspace components; RI-level modules (the gateway and
 orchestrator) are tagged `[FUTURE]`. Import paths use the real module names:
 `OpenZeppelin.AccessControl`, `OpenZeppelin.Experimental.Settlement.Cip112`,
 `canton-token-template` `SimpleToken.*`; `KycClaim`/`TrustedIssuerRegistry` are
-the `canton-specs` identity-hook Shape-B types (not zk-credential-gateway).
+the `canton-specs` identity-hook Shape-B types (not credential-gateway).
 
 ### 4.1 Standardized Messaging Gateway (bounded mock) `[FUTURE]`
 
@@ -300,7 +300,7 @@ module CrossChain.Gateway where
 
 import OpenZeppelin.AccessControl (RoleGrant, requireRole)
 import OpenZeppelin.Experimental.Settlement.Cip112 (SettlementFactory)
-import ZkCredentialGateway.GatedAction (CredentialGatedActionRequest)
+import OpenZeppelin.Experimental.Credential.Gateway (CredentialGatedActionRequest)
 -- KycClaim / TrustedIssuerRegistry: canton-specs identity-hook Shape-B
 import IdentityHook.ShapeB (KycClaim, TrustedIssuerRegistry)
 
@@ -475,8 +475,8 @@ sequenceDiagram
 | [`SettlementFactory`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L185) (CIP-0112 spine) | `canton-specs` | Allocation generation + [`SettlementFactory_SettleBatch`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L237) DvP. | `[IMPLEMENTED]` (experimental) |
 | `TransferPreapproval` | `canton-token-template` (`SimpleToken.Preapproval`) | Delegated recipient accept for offline treasuries. | `[EVIDENCE]` |
 | `SimpleHolding` / `SimpleTokenRules` / `LockedSimpleHolding` / `*_ForcedBurn` | `canton-token-template` | Asset representation, 3-way dispatch, D2 evidence. | `[EVIDENCE]` |
-| `CredentialGatedActionRequest` / `MockVerificationResult` | `zk-credential-gateway` | D1 credential gating. | `[EVIDENCE]` |
-| `KycClaim` / `TrustedIssuerRegistry` | `canton-specs` identity-hook Shape-B (not `zk-credential-gateway` templates; the gateway supplies the gating/verification primitives) | Typed D3 identity for D1 Shape-B node attestation (spine reference field [`D1ComplianceHook`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L41)). | `[IMPLEMENTED]` (experimental) |
+| `CredentialGatedActionRequest` / `MockVerificationResult` | [`credential-gateway`](../../experiments/credential-gateway/daml/OpenZeppelin/Experimental/Credential/Gateway.daml) | D1 credential gating. | `[IMPLEMENTED]` (experimental) |
+| `KycClaim` / `TrustedIssuerRegistry` | `canton-specs` identity-hook Shape-B (not `credential-gateway` templates; the gateway supplies the gating/verification primitives) | Typed D3 identity for D1 Shape-B node attestation (spine reference field [`D1ComplianceHook`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L41)). | `[IMPLEMENTED]` (experimental) |
 
 ### 6.2 External / Planned Dependencies
 
@@ -720,8 +720,8 @@ this workspace, except components explicitly marked planned/external.
   `canton-token-template/simple-token/daml/SimpleToken/{Holding,Rules,Preapproval}.daml`
   (`TransferPreapproval` + `TransferPreapproval_Send`/`_MintInto`;
   `LockedSimpleHolding_ForcedBurn`).
-- **Credential gating / verification** `[EVIDENCE]` —
-  `zk-credential-gateway/daml/src/ZkCredentialGateway/{GatedAction,Verification,Types}.daml`.
+- **Credential gating / verification** `[IMPLEMENTED]` (experimental) —
+  `canton-specs/experiments/credential-gateway/daml/OpenZeppelin/Experimental/Credential/Gateway.daml`.
 - **Typed D3 identity (KycClaim, TrustedIssuerRegistry)** `[IMPLEMENTED]` —
   `canton-specs/experiments/identity-hook-shape-b/` and `identity-hook-upgrade-*/`.
 - **Access-control / ownership / pause primitives** `[IMPLEMENTED]` —
