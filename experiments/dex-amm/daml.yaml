@@ -1,0 +1,17 @@
+sdk-version: 3.4.11
+name: oz-experimental-dex-amm
+source: daml
+version: 0.1.0
+dependencies:
+  - daml-prim
+  - daml-stdlib
+  - daml-script
+data-dependencies:
+  - ../../pausable/.daml/dist/oz-pausable-0.1.0.dar
+  - ../token-standard-v2-mock/.daml/dist/oz-experimental-token-standard-v2-mock-0.1.0.dar
+  - ../cip112-settlement/.daml/dist/oz-experimental-cip112-settlement-0.1.0.dar
+build-options:
+  - --target=2.1
+  # Experiment-only consumer: the swap exemplar script sits next to the Pool /
+  # PoolRules templates and is never shipped as a library DAR.
+  - -Wno-template-interface-depends-on-daml-script

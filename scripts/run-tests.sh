@@ -34,6 +34,9 @@ printf 'run-tests: running the spine test suite (test/)\n'
 printf 'run-tests: running the deep settlement exemplar scripts (experiments/settlement-exemplar/)\n'
 (cd "$ROOT/experiments/settlement-exemplar" && dpm test)
 
+printf 'run-tests: running the DEX AMM exemplar scripts (experiments/dex-amm/)\n'
+(cd "$ROOT/experiments/dex-amm" && dpm test)
+
 printf 'run-tests: running the CIP-0086/0103/0104 interop exemplar scripts (experiments/cip-interop-exemplar/)\n'
 (cd "$ROOT/experiments/cip-interop-exemplar" && dpm test)
 

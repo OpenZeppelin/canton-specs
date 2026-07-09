@@ -577,7 +577,18 @@ Auditability. Code below is idiomatic Daml that composes with the real
 components above. Templates introduced by the RI (not present in the spine
 today) are tagged `[FUTURE]`.
 
-### 4.1 Component: Pool State and Configuration `[FUTURE]`
+### 4.1 Component: Pool State and Configuration `[IMPLEMENTED]` (experimental)
+
+> **Now realized as compiling code.** `Pool` and `PoolRules` are lifted into
+> [`experiments/dex-amm`](../../experiments/dex-amm/daml/OpenZeppelin/Experimental/Dex/Amm.daml)
+> (`oz-experimental-dex-amm`), which builds under `dpm build --all` and is
+> exercised end-to-end by the `dexSwapExemplar` Daml Script. That script proves
+> at runtime the four properties the prose argues: (1) the operator alone
+> **cannot** drive a swap — the attestors are required controllers
+> (`submitMustFail`); (2) the pool delivers exactly the curve's `dOut`; (3) the
+> pool funds its own output leg so reserves match holdings; (4) no stored
+> `Pool`/`PauseState` cids and the pause guard sits on the reserve-updating
+> choice. The snippet below is the shape; the module is the source of truth.
 
 The `Pool` represents the constant-product AMM state. It uses the decentralized
 attestor pool and the spine's `D1ComplianceHook` data record as an `Optional`
@@ -602,14 +613,17 @@ choice on `Pool` (not on `PoolRules`). Two authority facts matter, and they are
   here for the reference; an N-of-M threshold is §9's liveness answer.)
 
 ```daml
-module CantonDex.Dex.Pool where
+-- Pool AND PoolRules live in one module in the realized package.
+module OpenZeppelin.Experimental.Dex.Amm where
 
 import OpenZeppelin.Experimental.Settlement.Cip112  -- spine: D1ComplianceHook, etc.
 import OpenZeppelin.Experimental.TokenStandard.V2.Holding (InstrumentId)
+import OpenZeppelin.Experimental.TokenStandard.V2.Allocation (SettlementInfo, TransferLeg)
 import OpenZeppelin.Pausable (PauseState, whenNotPaused)
-import DA.List (unique)
+-- `allDistinct` is a local helper (see the module) — keeps the Prelude the only
+-- stdlib dependency.
 
--- | The core state of the constant-product AMM. [FUTURE] RI-level template.
+-- | The core state of the constant-product AMM.
 template Pool
   with
     operator : Party
@@ -639,7 +653,7 @@ template Pool
       quoteReserves >= 0.0 &&
       feeBps >= 0.0 && feeBps <= 10000.0 &&
       baseInstrumentId /= quoteInstrumentId &&        -- the two legs must differ
-      unique (operator :: lpRegistrar :: attestorPool) &&  -- all parties distinct
+      allDistinct (operator :: lpRegistrar :: attestorPool) &&  -- all parties distinct
       not (null attestorPool)                          -- consensus set non-empty
 
     -- Reserve update as a CONSUMING choice on Pool, co-controlled by the
@@ -649,8 +663,8 @@ template Pool
     -- returns the new cid.
     choice Pool_Swap : (ContractId SettlementReceipt, ContractId Pool)
       with
-        traderRequest : AllocationRequest   -- the trader's OWN signed request (exact out)
-        traderAllocationId : ContractId Allocation  -- trader's committed input (Δin)
+        traderAllocationId : ContractId Allocation  -- trader's committed input (Δin); its
+                                                    -- signed ReceiverSide is the exact-out bound
         poolAllocationId : ContractId Allocation     -- pool's OWN leg, funded from pool-account holdings
         pauseStateId : ContractId PauseState
         baseToQuote : Bool
@@ -698,10 +712,13 @@ template Pool
               if baseToQuote then (baseReserves + amountIn, quoteReserves - dOut)
                              else (baseReserves - dOut, quoteReserves + amountIn)
         newPool <- create this with baseReserves = newBase; quoteReserves = newQuote
-        pure (head receipts, newPool)  -- receipts align with allocationCids order
+        traderReceipt <- case receipts of   -- (Daml's Prelude has no `head`)
+          r :: _ -> pure r                  -- receipts align with allocationCids order
+          [] -> abort "SettleBatch returned no receipt"
+        pure (traderReceipt, newPool)
 ```
 
-### 4.2 Component: Swap Execution Rules `[FUTURE]`
+### 4.2 Component: Swap Execution Rules `[IMPLEMENTED]` (experimental)
 
 `PoolRules` decouples static execution permissions from dynamic `Pool` state.
 Two deliberate choices, both addressing findings on the earlier draft:
@@ -721,11 +738,7 @@ Two deliberate choices, both addressing findings on the earlier draft:
   controllers of the entry choice is what actually forces their per-swap consent.
 
 ```daml
-module CantonDex.Dex.PoolRules where
-
-import OpenZeppelin.Experimental.Settlement.Cip112
-import OpenZeppelin.Pausable (PauseState, whenNotPaused)
-import CantonDex.Dex.Pool (Pool)  -- the choice Pool_Swap comes with the template
+-- (same module OpenZeppelin.Experimental.Dex.Amm as §4.1 — Pool_Swap is in scope)
 
 template PoolRules
   with
@@ -735,20 +748,22 @@ template PoolRules
     signatory operator
     signatory attestorPool
 
-    nonconsuming choice PoolRules_RequestSwap : ContractId AllocationRequest
+    -- Origination gate. Compiling the package corrected the earlier draft here:
+    -- `SettlementFactory_CreateAllocationRequest` is controlled by the settlement
+    -- EXECUTORS, not the trader, so a trader-controlled choice cannot create the
+    -- request. `PoolRules_RequestSwap` is therefore a pause-gated *intent signal*;
+    -- the committed input `Allocation` / `AllocationRequest` are built through the
+    -- standard spine lifecycle (executor creates the request; the trader accepts
+    -- the instruction, locking funds and signing their exact amounts).
+    nonconsuming choice PoolRules_RequestSwap : ()
       with
         trader : Party
         pauseStateId : ContractId PauseState        -- current PauseState, passed in (not stored)
-        settlementFactoryId : ContractId SettlementFactory
-        -- ... trader's requested exact input/output amounts ...
       controller trader
       do
         pause <- fetch pauseStateId
         whenNotPaused pause                          -- block intent if venue halted
-        -- Create the per-party request on the spine; visibility is the
-        -- trader's projection only. The trader signs their EXACT requested
-        -- amounts here (no operator-supplied output floor).
-        exercise settlementFactoryId SettlementFactory_CreateAllocationRequest with ..
+        pure ()
 
     -- Atomic DvP. Co-controlled by the attestors so the operator cannot drive a
     -- swap alone (see the note above), then delegates the reserve update to
@@ -758,7 +773,6 @@ template PoolRules
       with
         poolId : ContractId Pool                     -- CURRENT pool, passed in (not stored)
         pauseStateId : ContractId PauseState          -- current PauseState, passed in (not stored)
-        traderRequest : AllocationRequest             -- trader's OWN signed request (exact out)
         traderAllocationId : ContractId Allocation
         poolAllocationId : ContractId Allocation       -- pool's own output leg
         baseToQuote : Bool
@@ -773,7 +787,7 @@ template PoolRules
         pause <- fetch pauseStateId
         whenNotPaused pause                          -- defence-in-depth; Pool_Swap re-checks
         exercise poolId Pool_Swap with
-          traderRequest; traderAllocationId; poolAllocationId; pauseStateId
+          traderAllocationId; poolAllocationId; pauseStateId
           baseToQuote; amountIn; outputAmount
           settlementFactoryId; settlement; transferLegs; d1ComplianceRef
 ```
@@ -1196,8 +1210,9 @@ extend via `Optional` appends, new serializable types, and new choices):
 | Pausable library (origination guard) | [`PauseState`](../../pausable/daml/OpenZeppelin/Pausable.daml), [`whenNotPaused`](../../pausable/daml/OpenZeppelin/Pausable.daml) | ✅ |
 | Real TSv2 holding interface (replaces `ToyHolding`) | `[FUTURE]` — not built in M1 | ⬜ |
 | Node-applied signed D1 attestation (on-ledger verify) | `[FUTURE]` — beyond the `D1ComplianceHook` reference field | ⬜ |
-| AMM `Pool` state (constant-product reserves) | `[FUTURE]` — RI-level template (§4.1) | ⬜ |
-| `PoolRules` swap / request-swap execution; `Pool_Swap` reserve update (consuming, full-authority archive-and-recreate) | `[FUTURE]` — RI-level templates (§4.1–§4.2) | ⬜ |
+| AMM `Pool` state (constant-product reserves) | [`Pool`](../../experiments/dex-amm/daml/OpenZeppelin/Experimental/Dex/Amm.daml) (§4.1) | 🟡 |
+| `PoolRules` swap / request-swap; `Pool_Swap` reserve update (consuming, attestor-co-controlled, full-authority archive-and-recreate) | [`PoolRules` / `Pool_Swap`](../../experiments/dex-amm/daml/OpenZeppelin/Experimental/Dex/Amm.daml) (§4.1–§4.2) | 🟡 |
+| DEX swap exemplar (proves attestor co-consent, exact-out, reserves==holdings, pause guard at runtime) | [`dexSwapExemplar`](../../experiments/dex-amm/daml/OpenZeppelin/Experimental/Dex/Amm.daml) (run by `scripts/run-tests.sh`) | ✅ |
 | Liquidity provision / removal + LP-token mint/burn | `[FUTURE]` — RI business logic (§3) | ⬜ |
 | Fee accrual (`feeBps` into reserves) | `[FUTURE]` — RI business logic (§3) | ⬜ |
 | Cross-synchronizer operation (D3 deferred) | `[FUTURE]` — §8, deferred | ⬜ |
@@ -1291,6 +1306,9 @@ real source in this workspace. Authoritative sources:
   `canton-stablecoin/stablecoin/daml/Stablecoin/{Vault,Oracle}.daml`.
 - **Credential gating / verification** `[IMPLEMENTED]` (experimental) —
   `canton-specs/experiments/credential-gateway/daml/OpenZeppelin/Experimental/Credential/Gateway.daml`.
+- **AMM `Pool` / `PoolRules` + swap exemplar** `[IMPLEMENTED]` (experimental) —
+  `canton-specs/experiments/dex-amm/daml/OpenZeppelin/Experimental/Dex/Amm.daml`
+  (§4.1–§4.2; the `dexSwapExemplar` script runs under `scripts/run-tests.sh`).
 - **Typed D3 identity (KycClaim, TrustedIssuerRegistry)** `[IMPLEMENTED]` —
   `canton-specs/experiments/identity-hook-shape-b/` and `identity-hook-upgrade-*/`.
 - **Settlement architecture spec** —
