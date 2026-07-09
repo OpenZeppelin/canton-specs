@@ -318,6 +318,11 @@ data VaultParams = VaultParams
     liquidationRatio : Decimal     -- triggers Vault_Liquidate below this
     liquidationBonus : Decimal     -- fixed-discount penalty, e.g. 0.10
     stabilityFeeRate : Decimal     -- FIXED, term-locked (no variable accrual)
+    -- [FUTURE] additive (SCU-appended) risk params — NOT in the current real
+    -- 4-field shape; the oracle-hardening design (§3) and liquidation (§4.4)
+    -- reference these, protocol-set (never liquidator-supplied):
+    --   maxStaleness : RelTime     -- reject a price older than this
+    --   maxDeviation : Decimal     -- per-update price-jump circuit breaker
   deriving (Eq, Show)
   -- (collateralInstrumentId / stablecoinInstrumentId : InstrumentId live on
   --  VaultFactory and Vault, not here — matching the real shapes.)
@@ -333,10 +338,11 @@ template PriceOracle
     collateralInstrumentId : InstrumentId
     price : Decimal                -- collateral valued in stablecoin units
     updatedAt : Time
+    observers : [Party]            -- real field: distinct readers (NOT admin)
   where
     signatory admin
-    -- Add explicit public observers here if the feed must be broadly readable;
-    -- `admin` is already a signatory, so it is not repeated as an observer.
+    observer observers             -- legitimate (observers /= the admin signatory)
+    ensure price > 0.0
 ```
 
 ### 4.3 Vault opening with identity gating `[FUTURE]` (RI adapter over `VaultFactory_OpenVault`)
@@ -347,7 +353,7 @@ module Lending.Vault where
 import OpenZeppelin.Experimental.Settlement.Cip112 (SettlementFactory)
 import OpenZeppelin.Experimental.Credential.Gateway (CredentialGatedActionRequest, MockVerificationResult)
 -- KycClaim / TrustedIssuerRegistry: canton-specs identity-hook Shape-B
-import IdentityHook.ShapeB (KycClaim, TrustedIssuerRegistry)
+import OpenZeppelin.Experimental.Identity.ShapeB (KycClaim, TrustedIssuerRegistry)
 
 template LendingVaultFactory
   with
@@ -395,7 +401,6 @@ template LendingVaultFactory
         settlementFactoryCid : ContractId SettlementFactory
         debtAllocationId : ContractId Allocation       -- liquidator's committed stablecoin
         vaultCollateralAllocationId : ContractId Allocation  -- VAULT's committed collateral (funds leg 2)
-        maxStaleness : RelTime                         -- RI-level oracle-freshness policy
         settlement : SettlementInfo
         transferLegs : [TransferLeg]                   -- exact legs (debt in / collateral out)
       controller liquidator
@@ -405,10 +410,13 @@ template LendingVaultFactory
         -- Vault), NOT a separately-fetched contract — so there is no stale
         -- `paramsCid` to brick. It supplies stabilityFeeRate / liquidationRatio.
         oracle <- fetch oracleCid
-        -- Oracle freshness: reject a stale feed. `maxStaleness` is an RI-level
-        -- policy arg — the real canton-stablecoin `VaultParams` has no such field,
-        -- so it is NOT read off `params` (that would reference a nonexistent field).
-        assertMsg "oracle stale" (subTime now oracle.updatedAt <= maxStaleness)
+        -- Oracle freshness: reject a stale feed. `maxStaleness` is a protocol-set
+        -- risk parameter read off `params` — a [FUTURE] additive VaultParams field
+        -- (§3 "Oracle Handling"; SCU-appended, not in the current real 4-field
+        -- shape). It is deliberately NOT a liquidator-supplied choice arg: a
+        -- liquidator must not be able to widen the staleness bound to liquidate
+        -- against a dead price.
+        assertMsg "oracle stale" (subTime now oracle.updatedAt <= params.maxStaleness)
         -- Accrue first, then test solvency against up-to-date debt.
         let accruedDebt = accrueDebt debtAmount lastAccrualTime now params.stabilityFeeRate
         assertMsg "vault is solvent"

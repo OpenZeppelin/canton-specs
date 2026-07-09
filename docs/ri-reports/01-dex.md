@@ -725,7 +725,7 @@ module CantonDex.Dex.PoolRules where
 
 import OpenZeppelin.Experimental.Settlement.Cip112
 import OpenZeppelin.Pausable (PauseState, whenNotPaused)
-import CantonDex.Dex.Pool (Pool, Pool_Swap)
+import CantonDex.Dex.Pool (Pool)  -- the choice Pool_Swap comes with the template
 
 template PoolRules
   with

@@ -318,7 +318,7 @@ import OpenZeppelin.AccessControl (RoleGrant, requireRole)
 import OpenZeppelin.Experimental.Settlement.Cip112 (SettlementFactory)
 import OpenZeppelin.Experimental.Credential.Gateway (CredentialGatedActionRequest)
 -- KycClaim / TrustedIssuerRegistry: canton-specs identity-hook Shape-B
-import IdentityHook.ShapeB (KycClaim, TrustedIssuerRegistry)
+import OpenZeppelin.Experimental.Identity.ShapeB (KycClaim, TrustedIssuerRegistry)
 
 data GatewayRole = Relayer | Seizer deriving (Eq, Show)
 
