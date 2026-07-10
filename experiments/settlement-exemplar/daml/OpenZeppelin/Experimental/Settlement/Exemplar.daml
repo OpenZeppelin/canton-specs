@@ -170,7 +170,7 @@ regulatedSettlementExemplar = script do
   appCid <- submit admin do createCmd RegulatedSettlementApp with admin
 
   factory <- submit admin do
-    createCmd SettlementFactory with admin; featureFlag = experimentalFeatureFlag
+    createCmd SettlementFactory with admin; requiresNodeAttestation = None; featureFlag = experimentalFeatureFlag
   Some factoryDisclosure <- queryDisclosure @SettlementFactory admin factory
 
   (settlement, leg, allocationCids) <-
@@ -184,6 +184,7 @@ regulatedSettlementExemplar = script do
       attester
       attestationObservers = [admin]
       settlementRef = settlement.settlementRef.id
+      boundTransferLegIds = Some [leg.transferLegId]
       claimKind = "OFAC_CLEARED"
       issuedAt = e0
       expiresAt = e1
@@ -225,7 +226,7 @@ regulatedSeizureExemplar = script do
   bob <- allocateParty "exemplar-seize-bob"
 
   factory <- submit admin do
-    createCmd SettlementFactory with admin; featureFlag = experimentalFeatureFlag
+    createCmd SettlementFactory with admin; requiresNodeAttestation = None; featureFlag = experimentalFeatureFlag
   Some factoryDisclosure <- queryDisclosure @SettlementFactory admin factory
   (_settlement, _leg, allocationCids) <-
     buildTwoSidedAllocations admin app alice bob factory factoryDisclosure

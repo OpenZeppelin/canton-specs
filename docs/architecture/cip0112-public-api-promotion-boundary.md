@@ -122,7 +122,7 @@ The following remain experiment-only and must not be documented as stable API:
 - The local `Reference.cidText` compromise for contract-id references.
 - The stringly typed `D1ComplianceHook` and `D2SeizureHook` fields.
 - The direct `Allocation_Settle` peer-proof arguments
-  (`peerAllocationCids`, `peerReceiptCids`, `extraTransferLegSides`) as a public
+  (`peerAllocationCids`, `peerReceiptCids`) as a public
   delivery-versus-payment API.
 - Any toy holding receipt co-sign behavior caused by `ToyHolding` signatories.
 
@@ -161,11 +161,13 @@ Promoted M1 semantics:
 - Existing experimental `Allocation_Settle` proves that matching peer sides
   exist through fetched peer allocations or receipts. It is not a stable
   direct-path DvP API.
-- Both settle paths enforce per-instrument value conservation (locked funds must
-  cover the authorizer's SenderSide obligations; surplus returns as change;
-  under-funded senders fail closed). The iterated-settlement path
-  (`nextIterationFunding`) is exempt from the per-iteration coverage assertion and
-  must be formalized before any public iterated-DvP claim.
+- Both settle paths enforce per-instrument value conservation unconditionally
+  (locked funds must cover the authorizer's SenderSide obligations; surplus
+  returns as change; under-funded senders fail closed). There is no conservation
+  carve-out. `nextIterationFunding` is inert forward-compatible metadata (it
+  mirrors the Token Standard V2 allocation shape); M1 does not implement iterated
+  settlement. Any future iterated-DvP feature must be specified with real
+  per-round funding semantics before a public claim.
 
 ## Third-Party Custodian Credit Model
 
