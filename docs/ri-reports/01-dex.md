@@ -1170,8 +1170,8 @@ operator-side swap batching), are open design questions (§7.3, §9).
 
 > **Shared model:** the cross-synchronizer mechanism (per-synchronizer
 > assignment + unassign/assign reassignment, and the SCU-compliant additive
-> path) is identical across all four RIs and is owned in
-> [`00-portfolio.md`](./00-portfolio.md) §5. This section elaborates only the
+> path) is identical across all four RIs and is defined in
+> the [suite overview](./README.md#cross-synchronizer-model-canonical). This section elaborates only the
 > RI-specific topology.
 
 > **Status: out of scope for the initial M1 design; deferred and planned for

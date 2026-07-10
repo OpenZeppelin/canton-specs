@@ -730,8 +730,8 @@ change.
 
 > **Shared model:** the cross-synchronizer mechanism (per-synchronizer
 > assignment + unassign/assign reassignment, and the SCU-compliant additive
-> path) is identical across all four RIs and is owned in
-> [`00-portfolio.md`](./00-portfolio.md) §5. This section elaborates only the
+> path) is identical across all four RIs and is defined in
+> the [suite overview](./README.md#cross-synchronizer-model-canonical). This section elaborates only the
 > RI-specific topology.
 
 > **Status: out of scope for the initial M1 design; deferred and planned.** The
@@ -868,8 +868,8 @@ decision shapes the design and should be opened early.
   threshold for compliance attestations must be issuer-specified, balancing
   availability against cryptographic security.
 - **Cross-synchronizer operation** (see §8) — deferred; tracked there.
-- **Composability with the other RIs** (forward-compatibility; suite view
-  [`00-portfolio.md`](./00-portfolio.md) §3): post-auction secondary trading is
+- **Composability with the other RIs** (forward-compatibility;
+  the [suite overview](./README.md#how-the-reports-compose)): post-auction secondary trading is
   the DEX RI ([`01`](./01-dex.md)); participants can collateralize bids by
   minting stablecoin in the Lending RI ([`02`](./02-lending.md)). Both compose
   over the shared `SettlementFactory_SettleBatch` spine.
