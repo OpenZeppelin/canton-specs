@@ -401,10 +401,16 @@ template StandardizedMessagingGateway
           (att.cantonInstrumentId.admin == admin)
         let inboundAmount = att.lockedAmount   -- bound to the attested locked backing
 
-        -- 4. Drive the spine: create a COMMITTED allocation instruction whose single
-        --    ReceiverSide is EXACTLY (inboundAmount, att.cantonInstrumentId) to the
-        --    recipient's account — so the minted leg amount is the attested amount,
-        --    not a free field.
+        -- 4. Drive the spine: create the recipient's COMMITTED allocation whose
+        --    single ReceiverSide is EXACTLY (inboundAmount, att.cantonInstrumentId)
+        --    — so the minted leg amount is the attested amount, not a free field.
+        --    `actors = [recipient]` means this create carries the RECIPIENT's
+        --    authority; for an offline treasury that authority is supplied by the
+        --    recipient's standing `TransferPreapproval` (the same delegation the
+        --    §4.2 accept uses), which the relayer triggers — it is NOT authority the
+        --    gateway (admin+operator) holds directly. The matching issuer SenderSide
+        --    of the mint leg is committed separately by the admin (§4.2's
+        --    `issuerSendAllocationId`), so the batch is both-sided.
         exercise settlementFactory SettlementFactory_CreateAllocationInstruction with
           allocation = AllocationSpecification with
             settlement = inboundSettlement; admin
@@ -435,6 +441,7 @@ template CrossChainDvP
       with
         instructionId : ContractId AllocationInstruction
         recipientPreapprovalCid : ContractId TransferPreapproval  -- recipient's standing delegated-accept
+        issuerSendAllocationId : ContractId Allocation  -- issuer's SenderSide of the mint leg (admin-authored)
         batchFactory : ContractId SettlementFactory
         settlement : SettlementInfo
         transferLegs : [TransferLeg]
@@ -454,18 +461,23 @@ template CrossChainDvP
               AllocationInstructionCompleted cid -> cid
               _ -> error "instruction did not complete"
 
-        -- Atomic DvP via the single spine entrypoint. Settlement conserves value
-        -- per instrument (locked funds must cover sender obligations; surplus
-        -- returns as change); a failed batch returns holdings to the sender.
-        -- D1 is re-checked per leg via the attestation path: the shown
-        -- `d1ComplianceRef = None` is the *unenforced base posture*; the RI settles
-        -- through `SettlementFactory_SettleBatchWithAttestation` (or an allocation
-        -- whose `D1ComplianceHook.requiresPerSettlementReference` is set) so a
-        -- credential revoked between accept and settle blocks the leg fail-closed.
+        -- Atomic DvP via the single spine entrypoint. The mint leg is
+        -- issuer→recipient, so BOTH sides must be in the batch, each in its OWN
+        -- allocation (the spine's per-allocation leg-side check): the recipient's
+        -- ReceiverSide is `allocationId` (accepted above), the issuer's SenderSide
+        -- is `issuerSendAllocationId` (authored by the admin/issuer, whose mint
+        -- authority the gateway holds). Settlement conserves value per instrument
+        -- (locked funds must cover sender obligations; surplus returns as change);
+        -- a failed batch returns holdings to the sender. D1 is re-checked per leg
+        -- via the attestation path: the shown `d1ComplianceRef = None` is the
+        -- *unenforced base posture*; the RI settles through
+        -- `SettlementFactory_SettleBatchWithAttestation` (or an allocation whose
+        -- `D1ComplianceHook.requiresPerSettlementReference` is set) so a credential
+        -- revoked between accept and settle blocks the leg fail-closed.
         receipts <- exercise batchFactory SettlementFactory_SettleBatch with
           settlement
           transferLegs
-          allocationCids = [allocationId]
+          allocationCids = [issuerSendAllocationId, allocationId]
           actors = settlement.executors
           d1ComplianceRef = None
         case receipts of      -- (Daml's Prelude has no `head`)

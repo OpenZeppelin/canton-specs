@@ -195,14 +195,17 @@ off-ledger clearing → atomic on-ledger settlement.
    ([`PauseState`](../../pausable/daml/OpenZeppelin/Pausable.daml)), queries its node for active `BidRequest`s, and runs the
    off-ledger clearing engine to determine the clearing price, winners, and exact
    asset routing.
-5. **Atomic co-settlement.** For each winner the Auctioneer creates token
-   `AllocationInstruction`s (token minted/transferred from the Issuer's treasury
-   holding) and builds the final batch — winners' payment `Allocation`s + the
-   Issuer's token `Allocation`s + the routing legs — then submits a single
-   [`SettlementFactory_SettleBatch`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L237). Settlement enforces conservation
-   per instrument (each authorizer's locked funds must cover its SenderSide
-   obligations; surplus returns as change) and runs the D1 hooks; on success it
-   commits atomically, delivering tokens to bidders, payment to the Issuer, and
+5. **Atomic co-settlement.** Once the clearing price is published, each winner
+   commits a **single two-sided allocation** — pay `bidAmount` out, receive
+   `bidAmount / clearingPrice` tokens in (both of a winner's sides must live in
+   one allocation, per the spine's per-allocation leg-side check) — and the Issuer
+   commits **one** allocation carrying every leg's issuer side. The Auctioneer then
+   binds the legs to the signed bids and submits a single
+   [`SettlementFactory_SettleBatch`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L237) over `winnerAllocations ++ [issuerAllocation]`
+   (§4.4). Settlement enforces conservation per instrument (each authorizer's
+   locked funds must cover its SenderSide obligations; surplus returns as change)
+   and runs the D1 hooks; on success it commits atomically, delivering tokens to
+   bidders, payment to the Issuer, and
    [`SettlementReceipt`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L647)s.
 6. **Return to sender (losing bids).** The Auctioneer archives losing
    `BidRequest`s and cancels the corresponding payment `Allocation`
@@ -464,11 +467,11 @@ template AuctionClearing
         settlementFactoryCid : ContractId SettlementFactory
         clearingPrice : Decimal                            -- uniform clearing price
         winningBids : [ContractId BidRequest]              -- the bids being filled
-        paymentAllocations : [ContractId Allocation]       -- winners' locked payment (SenderSide of each pay leg)
-        winnerTokenAllocations : [ContractId Allocation]   -- winners' POST-CLEARING token-receive commitments
-                                                           -- (ReceiverSide of each token leg; see note below)
-        issuerAllocations : [ContractId Allocation]        -- issuer side: SenderSide of every token leg +
-                                                           -- ReceiverSide of every pay leg (one issuer, all legs)
+        winnerAllocations : [ContractId Allocation]        -- 1:1 with winningBids; each is the winner's
+                                                           -- SINGLE post-clearing allocation carrying BOTH its
+                                                           -- pay SenderSide AND its token ReceiverSide
+        issuerAllocation : ContractId Allocation           -- the ONE issuer allocation carrying every leg's
+                                                           -- issuer side (token SenderSide + payment ReceiverSide)
         issuerTokenAccount : Account                       -- issuer treasury (token source / payment sink)
         settlement : SettlementInfo
         transferLegs : [TransferLeg]                       -- MUST equal the bound legs below
@@ -486,56 +489,66 @@ template AuctionClearing
         assertMsg "token/payment account is not the issuer treasury"
           (issuerTokenAccount.owner == Some lp.issuer)
 
-        -- ON-LEDGER BINDING (root-cause fix for theft-by-leg-omission). Without
-        -- this, `transferLegs` is auctioneer-chosen and the winner's token amount
-        -- is bound to nothing the bidder signed — the auctioneer could settle a
-        -- winner's payment leg while omitting the delivery leg (full payment, zero
-        -- tokens). So DERIVE the legs from each signed bid instead of trusting
-        -- `transferLegs`: each winner pays exactly their signed `bidAmount` and
-        -- receives exactly `bidAmount / clearingPrice` tokens, and their own
-        -- `bidPrice` must be >= `clearingPrice` (uniform-price eligibility — no
-        -- winner is charged above the price they signed).
-        expectedLegs <- forA winningBids \bidCid -> do
+        -- ON-LEDGER BINDING (root-cause fix for theft-by-leg-omission). `transferLegs`
+        -- is auctioneer-chosen, so DERIVE the legs from each signed bid and its
+        -- winner allocation instead of trusting it: each winner pays exactly their
+        -- signed `bidAmount` and receives exactly `bidAmount / clearingPrice` tokens,
+        -- and their `bidPrice` must be >= `clearingPrice` (uniform-price eligibility).
+        --
+        -- The winner's TWO sides (pay out, tokens in) live in ONE allocation, not
+        -- two. The spine settles each allocation through `Allocation_SettleInBatch`,
+        -- which enforces `allAuthorizerLegSidesPresent` PER ALLOCATION: every leg on
+        -- which an allocation's authorizer is sender/receiver must have that side in
+        -- THAT allocation. The winner is sender of the pay leg AND receiver of the
+        -- token leg, so both sides must be in the winner's own allocation (splitting
+        -- them across two allocations would abort with `eAllocationLegMismatch`). The
+        -- token side is committed POST-CLEARING because `bidAmount / clearingPrice`
+        -- is unknown at bid time — a deliberate liveness step (a winner who never
+        -- commits it is simply not settled and reclaims the bid-time escrow after the
+        -- deadline via `BidRequest_ForceRefundAfterDeadline`; see §9).
+        expectedLegs <- forA (zip winningBids winnerAllocations) \(bidCid, winnerAllocCid) -> do
           bid <- fetch bidCid
           assertMsg "winning bid is below the clearing price" (bid.bidPrice >= clearingPrice)
-          alloc <- fetch bid.paymentAllocationCid
-          let bidderAccount = alloc.allocation.authorizer
-          paySide <- case filter (\s -> s.side == SenderSide) alloc.allocation.transferLegSides of
+          escrow <- fetch bid.paymentAllocationCid
+          winnerAlloc <- fetch winnerAllocCid
+          let bidderAccount = escrow.allocation.authorizer
+          assertMsg "winner allocation not authorized by the bidder"
+            (winnerAlloc.allocation.authorizer == bidderAccount)
+          paySide <- case filter (\s -> s.side == SenderSide) winnerAlloc.allocation.transferLegSides of
             [s] | s.instrumentId == lp.paymentInstrumentId.id -> pure s
-            _ -> abort "bid escrow must sign exactly one payment (sender) side"
-          assertMsg "escrow amount != signed bidAmount" (paySide.amount == bid.bidAmount)
+            _ -> abort "winner allocation must sign exactly one payment (sender) side"
+          tokSide <- case filter (\s -> s.side == ReceiverSide) winnerAlloc.allocation.transferLegSides of
+            [s] | s.instrumentId == lp.launchedInstrumentId.id -> pure s
+            _ -> abort "winner allocation must sign exactly one token (receiver) side"
           let tokenAmount = bid.bidAmount / clearingPrice
-              payLeg = TransferLeg with
+          assertMsg "winner pay side != signed bidAmount" (paySide.amount == bid.bidAmount)
+          assertMsg "winner token side != bidAmount/clearingPrice" (tokSide.amount == tokenAmount)
+          assertMsg "payment not routed to issuer treasury" (paySide.otherside == issuerTokenAccount)
+          assertMsg "tokens not sourced from issuer treasury" (tokSide.otherside == issuerTokenAccount)
+          let payLeg = TransferLeg with
                 transferLegId = bid.paymentLegId
                 sender = bidderAccount; receiver = issuerTokenAccount
-                amount = bid.bidAmount; instrumentId = lp.paymentInstrumentId.id; meta = emptyMetadata
+                amount = bid.bidAmount; instrumentId = lp.paymentInstrumentId.id; meta = paySide.meta
               tokenLeg = TransferLeg with
                 transferLegId = bid.tokenLegId
                 sender = issuerTokenAccount; receiver = bidderAccount
-                amount = tokenAmount; instrumentId = lp.launchedInstrumentId.id; meta = emptyMetadata
+                amount = tokenAmount; instrumentId = lp.launchedInstrumentId.id; meta = tokSide.meta
           pure [payLeg, tokenLeg]
         -- Pin the settled legs to EXACTLY the bound per-winner (pay, deliver) pairs.
-        -- Now a winner cannot be charged without receiving their tokens, and the
+        -- A winner cannot be charged without receiving their tokens, and the
         -- "never theft" guarantee (§1.4, §7.3) is enforced on-ledger, not asserted.
         assertMsg "settled legs != the bound per-winner (pay, deliver) legs"
           (transferLegs == concat expectedLegs)
 
-        -- BOTH-SIDEDNESS across three side-sources. SettleBatch requires BOTH the
-        -- SenderSide and ReceiverSide of every leg to be present in the batch's
-        -- allocations. Each winner's payment escrow (committed at bid time) supplies
-        -- the pay-leg SenderSide, but the token-leg ReceiverSide amount is
-        -- `bidAmount / clearingPrice` — UNKNOWN at bid time — so it CANNOT be in the
-        -- bid-time escrow. It is therefore committed POST-CLEARING (once the price
-        -- is published) as `winnerTokenAllocations`; the issuer's allocation covers
-        -- the issuer's SenderSide (tokens out) and ReceiverSide (payment in) of every
-        -- leg. This post-clearing winner commitment is a deliberate liveness step
-        -- (a winner who never commits their token-receive side is simply not
-        -- settled and reclaims their escrow after the deadline via
-        -- BidRequest_ForceRefundAfterDeadline) — tracked in §9.
+        -- Both-sidedness now holds under BOTH spine checks: factory-level
+        -- `allTransferLegsAuthorized` (every leg's two sides appear across the
+        -- batch) and per-allocation `allAuthorizerLegSidesPresent` (each account's
+        -- sides are all in its own allocation — each winner's two sides in its
+        -- winner allocation, all issuer sides in the single issuer allocation).
         exercise settlementFactoryCid SettlementFactory_SettleBatch with
           settlement
           transferLegs
-          allocationCids = paymentAllocations ++ winnerTokenAllocations ++ issuerAllocations
+          allocationCids = winnerAllocations ++ [issuerAllocation]
           actors = settlement.executors
           d1ComplianceRef = None
 ```
@@ -827,14 +840,15 @@ early.
   signed bid** exactly as the full-fill clearing does (§4.4) — a partial fill is
   the same theft surface (F1) per slice, so the binding cannot be dropped for the
   partial-fill path.
-- **Post-clearing token-receive commitment (liveness).** Because the token
-  amount a winner receives (`bidAmount / clearingPrice`) is unknown at bid time,
-  the winner's token-leg ReceiverSide cannot be in the bid-time escrow; it is
-  committed post-clearing (`winnerTokenAllocations`, §4.4). Decide the exact
-  mechanism (a standing `TransferPreapproval` credit vs. an explicit per-winner
-  accept) and the policy for a winner who never commits it (forfeit-and-refund
-  vs. auctioneer-driven default) — this is the settlement-time liveness dependency
-  the pin in §4.4 introduces.
+- **Post-clearing winner allocation (liveness).** Because the token amount a
+  winner receives (`bidAmount / clearingPrice`) is unknown at bid time, the
+  winner's two-sided allocation (pay out + tokens in) can only be committed
+  post-clearing (`winnerAllocations`, §4.4); the bid-time escrow provides only the
+  pre-clearing commitment + force-refund. Decide the exact mechanism (a standing
+  `TransferPreapproval`-style credit vs. an explicit per-winner commit) and the
+  policy for a winner who never commits it (forfeit-and-refund vs.
+  auctioneer-driven default) — this is the settlement-time liveness dependency the
+  pin in §4.4 introduces.
 - **Auction-parameter / deadline policy.** Who sets `biddingDeadline` /
   `settlementDeadline`, the minimum bidding window, and whether deadlines can be
   extended (and under what authority) before clearing.

@@ -602,10 +602,12 @@ template LendingVaultFactory
 --                                         --   accrued fee so the fee split (§3) is
 --                                         --   computable; debtAmount stays the total
 --   collateralAccount    : Account        -- the CANONICAL custody account whose
---                                         --   holdings ARE collateralAmount; bound into
---                                         --   deposit/withdraw/liquidation so the vault's
---                                         --   accounting cannot decouple from real holdings
---                                         --   (the analogue of the DEX pool's poolAccount)
+--                                         --   holdings back collateralAmount; bound into
+--                                         --   deposit/withdraw/liquidation so each DELTA is
+--                                         --   sourced from the right account (the analogue of
+--                                         --   the DEX pool's poolAccount; the absolute
+--                                         --   collateralAmount == Σ holdings also needs funded
+--                                         --   deposits, like the DEX seeding caveat)
 -- The real `Vault_Liquidate` seizes the WHOLE vault in one shot and, in its
 -- under-water branch, hands over ALL collateral regardless of how much the
 -- liquidator pays (booking the gap as badDebt) — the critical vuln. The RI
@@ -764,8 +766,9 @@ template LendingVaultFactory
           d1ComplianceRef = None
 
         -- Recreate the (partially) liquidated vault: debt, principal, and collateral
-        -- each fall by the settled amounts, so `collateralAmount` stays == real
-        -- holdings. If the position is now healthy the flag clears; if still
+        -- each fall by the settled amounts, so the `collateralAmount` DELTA matches
+        -- the collateral that actually moved from `collateralAccount`. If the
+        -- position is now healthy the flag clears; if still
         -- under-water the ORIGINAL flag time is preserved (NOT reset to `now`), so
         -- the vault — already past grace — is immediately re-liquidatable rather
         -- than granted a fresh grace window each partial pass.
