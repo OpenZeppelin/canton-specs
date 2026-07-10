@@ -81,7 +81,7 @@ bounded by the promotion ADR, but the ADR is not a stability claim.
 | B2 | Evidence-boundary documented; import still blocked | **Token Standard V2 DAR / import & license boundary.** Do not vendor or import Splice DARs. The import-gate note records current upstream source, package IDs from `daml/dars.lock`, Splice build wiring, the DevNet prerelease bundle, and Apache-2.0 posture; local stand-ins remain experimental until release-source confirmation, accepted DAR or reproducible-build artifacts, DAR checksums, license/NOTICE handling, DPM wiring, and public API review exist. | [`cip0112-splice-token-standard-v2-import-gate.md`](./cip0112-splice-token-standard-v2-import-gate.md). |
 | B3 | Bounded by ADR | **Public API candidate.** The ADR defines the promotable candidate surface, experimental-only scaffold surface, SCU contract, direct-vs-batch semantics, third-party custodian credit model, and post-deadline seizure-window policy. | Later stability ADR/review before any public API claim. |
 | B4 | Bounded by acceptance note | **CIP-0086 / CIP-0103 / CIP-0104 M1 criteria.** These CIPs are accepted for M1 only as interoperability evidence against the CIP-112 settlement surface. They do not add production middleware, wallet-provider, Scan/SV reward, custody, KYC, sanctions, hosted-service, or standalone CIP-56-token scope. | Use the acceptance note for downstream docs and review packets. |
-| Q1 | Open | **D1 attestation shape.** D1 is decided no-cache / fail-closed / node-side. Open: does the contract stay oblivious to the result (off-ledger gate), or verify a signed node attestation at exercise time? Shapes the audit story. | OZ architecture. |
+| Q1 | Resolved | **D1 attestation shape.** Both shapes ship: the contract-oblivious reference hook (`D1ComplianceHook`) AND a typed signed node attestation verified at exercise time (`NodeComplianceAttestation` / `SettlementFactory_SettleBatchWithAttestation`). The typed path is registry-trusted (rooted in the factory admin), bound to the exact batch leg set, and single-use (verified via a consuming choice, so it cannot be replayed). Setting `requiresNodeAttestation` on the factory **closes the plain `SettlementFactory_SettleBatch` entrypoint**, so the normal executor-facing batch flow must present an attestation. The direct `Allocation_Settle` / `Allocation_SettleInBatch` choices require `admin :: executors` authority and are gated by that authority rather than by attestation. | Done. |
 | Q2 | Open after DAR gate | **EventLog adoption implementation.** The ADR treats Token Standard V2 `EventLog_HoldingsChange` as the promoted reporting route, but implementation still waits on the transfer-events DAR boundary. | OZ architecture after DAR/import evidence. |
 | Q3 | Resolved 2026-06-21 | **Legacy package naming.** Renamed the M0 root and proof packages `oz-daml-contracts` → `oz-canton-specs` and `oz-daml-contracts-hello-world-proof` → `oz-canton-specs-hello-world-proof` (matching the repo and the `oz-` sibling convention); `proof` dependency path, README DAR paths, and the recorded checksums/package IDs were regenerated. | Done. |
 
@@ -212,14 +212,14 @@ the transfer-events DAR boundary (**Q2**).
 
 | M1 capability | Source anchor | Status |
 |---|---|---|
-| Settlement factory entrypoints | [`SettlementFactory`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L185) (`SettlementFactory_CreateAllocationRequest`@L244, `SettlementFactory_CreateAllocationInstruction`@L267) | 🟡 |
-| Atomic multi-leg settlement | [`SettlementFactory_SettleBatch`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L237) | 🟡 |
-| Allocation request lifecycle | [`AllocationRequest`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L299) (Accept@L340 / Reject@L347 / Withdraw@L354) | 🟡 |
-| Allocation instruction lifecycle | [`AllocationInstruction`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L356) (Accept@L396 / Withdraw@L414) | 🟡 |
-| Ready-to-settle allocation | [`Allocation`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L454) (Settle@L483 / Cancel@L526 / Withdraw@L534) | 🟡 |
-| Settlement evidence | [`SettlementReceipt`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L647) | 🟡 |
-| D1 compliance hook (reference field) | [`D1ComplianceHook`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L41) | 🟡 — node-applied signed attestation ⬜ (Q1) |
-| D2 lock-and-sweep seizure | [`Allocation_MarkD2InFlightSeizure`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L568) + [`Allocation_SweepD2InFlightSeizure`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L577) + [`D2SeizureHook`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L46) | 🟡 |
+| Settlement factory entrypoints | [`SettlementFactory`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L191) (`SettlementFactory_CreateAllocationRequest`@L244, `SettlementFactory_CreateAllocationInstruction`@L267) | 🟡 |
+| Atomic multi-leg settlement | [`SettlementFactory_SettleBatch`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L249) | 🟡 |
+| Allocation request lifecycle | [`AllocationRequest`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L322) (Accept@L340 / Reject@L347 / Withdraw@L354) | 🟡 |
+| Allocation instruction lifecycle | [`AllocationInstruction`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L379) (Accept@L396 / Withdraw@L414) | 🟡 |
+| Ready-to-settle allocation | [`Allocation`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L474) (Settle@L483 / Cancel@L526 / Withdraw@L534) | 🟡 |
+| Settlement evidence | [`SettlementReceipt`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L692) | 🟡 |
+| D1 compliance hook (reference field) + typed node attestation | [`D1ComplianceHook`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L41), [`NodeComplianceAttestation`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L813) | 🟡 — typed signed attestation implemented (registry-rooted, batch-bound, single-use; optionally mandatory) (Q1 resolved) |
+| D2 lock-and-sweep seizure | [`Allocation_MarkD2InFlightSeizure`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L592) + [`Allocation_SweepD2InFlightSeizure`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L622) + [`D2SeizureHook`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L46) | 🟡 |
 | Single-admin authority (D4) | [`BurnerCapability`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L98) | 🟡 |
 | Unit of value | [`ToyHolding`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L133) | 🟡 toy stand-in |
 | Spine test coverage (33 `test_` scripts) | [`Cip112Settlement.daml`](../../test/daml/OpenZeppelin/Test/Cip112Settlement.daml) | ✅ |
@@ -321,10 +321,16 @@ M1 base. These are not defects; they are the deliberate seams.
    lawful-process evidence model through a later ADR. *Trigger:*
    legal/compliance review or exemplar threat model.
 
-4. **D1 node-side attestation typing.** M1 carries a contract-side reference
-   guard only. *Expected extension:* add a typed signed-node-attestation field /
-   choice once the node-side attestation shape (Q1) is decided. *Trigger:* audit
-   story requires on-ledger proof of the node check.
+4. **D1 node-side attestation typing.** *Resolved (Q1):* M1 ships both the
+   contract-side reference guard AND a typed signed-node-attestation path
+   (`NodeComplianceAttestation` verified by `SettlementFactory_SettleBatchWithAttestation`) —
+   registry-trusted (rooted in the factory admin), bound to the exact batch leg
+   set, and single-use (consuming). A factory's `requiresNodeAttestation` closes
+   the plain batch entrypoint (the direct admin-authority path stays
+   authority-gated). *Remaining extension:* if attestation must gate every
+   settlement path, carry the requirement on the `Allocation` and enforce it in
+   the direct choices; and replace the mock node signature with a real node-side
+   OFAC/KYC integration. *Trigger:* production compliance integration.
 
 5. **Real Token Standard V2 interfaces.** M1 uses local stand-ins / evidence-repo
    interfaces. *Expected extension:* implement real `HoldingV2`,
@@ -377,8 +383,9 @@ the largest source of churn for downstream work, rather than leaving it open.
 2. Use the CIP-0086 / CIP-0103 / CIP-0104 acceptance note when describing
    middleware/indexer, wallet/dApp, or traffic-reward touch points; do not
    describe those surfaces as standalone M1 deliverables.
-3. Keep D1's node-side attestation shape open until Q1 is resolved; the current
-   hook remains only a fail-closed reference seam.
+3. D1's node-side attestation shape is resolved (Q1): both the fail-closed
+   reference hook and the typed, registry-rooted, batch-bound, single-use signed
+   attestation path ship; only the real node-side compliance integration remains.
 4. After the import gates land, implement the settlement facade per the
    promotion ADR and then build the deep settlement exemplar (Phase 3), without
    claiming stability until a later stability review accepts it.

@@ -38,9 +38,9 @@ here and elaborated in a report only where the application differs.
 - **Settlement spine** `[IMPLEMENTED]` —
   [`OpenZeppelin.Experimental.Settlement.Cip112`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml).
   Atomic delivery-vs-payment is **only**
-  [`SettlementFactory_SettleBatch`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L237)
+  [`SettlementFactory_SettleBatch`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L249)
   (one Daml transaction over many allocations); the direct
-  [`Allocation_Settle`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L474)
+  [`Allocation_Settle`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L493)
   path proves authorization, not atomic co-settlement.
 - **Access-control primitives** `[IMPLEMENTED]` —
   [`oz-access-control`](../../access-control/daml/OpenZeppelin/AccessControl.daml) /
@@ -55,7 +55,7 @@ here and elaborated in a report only where the application differs.
   never burn, never return-to-sender),
   [`BurnerCapability`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L98)-gated
   via
-  [`Allocation_SweepD2InFlightSeizure`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L577),
+  [`Allocation_SweepD2InFlightSeizure`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L625),
   transfer *failures* return to sender; D3 single-domain v1, cross-domain deferred
   but SCU-forward-compatible; D4 single-admin capability (multi-sig → M3).
 - **SCU rule:** never mutate an existing choice's args to require a new field;
@@ -76,7 +76,7 @@ here and elaborated in a report only where the application differs.
 ## How the reports compose
 
 The RIs interlock on the shared spine. Every relationship settles through the same
-[`SettlementFactory_SettleBatch`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L237)
+[`SettlementFactory_SettleBatch`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L249)
 entrypoint and the same D1–D4 points — no RI invents a parallel settlement or
 compliance path to interoperate with another. Solid rows are core dependencies a
 report already builds on; dashed rows are forward-compatibility paths surfaced in
