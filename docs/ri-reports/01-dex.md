@@ -361,8 +361,16 @@ own signed authorization, never an operator-supplied choice argument**:
    choose the floor, which breaks the non-custodial invariant.
 
 The attestor pool re-derives `Δout` from the public reserves and checks the
-invariant before co-signing; the on-ledger reserve-update choice re-asserts the
-curve so neither the operator nor a stale quote can move reserves off it.
+invariant before co-signing; and — the load-bearing part — the on-ledger
+reserve-update choice does not merely re-assert the curve, it **binds the curve
+inputs to the trader's own signed allocation**. `Pool_Swap` reads
+`traderAllocationId` and asserts the trader's signed sender side equals
+(`amountIn`, input instrument), its signed receiver side equals (`Δout`, output
+instrument), and that the settled `transferLegs` are exactly the two legs those
+signed sides describe. So the tie from the curve to the trader's signature is
+enforced *on-ledger* by the choice itself — not left to attestor diligence or to
+`SettleBatch` leg-pinning alone — and neither the operator nor a stale quote can
+move reserves off a value the trader did not sign.
 
 **How the attestor co-signature actually attaches (and the subtlety that makes
 it easy to get wrong).** It is tempting to say "the attestors are signatories of
@@ -676,14 +684,21 @@ template Pool
         d1ComplianceRef : Optional Text
       controller operator :: attestorPool   -- operator drives; attestors co-sign EACH swap
       do
+        -- Positivity FIRST: the reserve arithmetic runs off `amountIn` directly,
+        -- so a non-positive input must be rejected before it touches the curve.
+        assertMsg "positive input required" (amountIn > 0.0)
         -- Pause guard HERE (Pool_Swap is directly exercisable, so guarding only
         -- in PoolRules would leave a bypass).
         pause <- fetch pauseStateId
         whenNotPaused pause
-        -- Constant-product math (integer-bps fee form; division-safe).
+        -- Constant-product math (integer-bps fee form; division-safe). Derive the
+        -- typed instruments for the direction alongside the reserves.
         let (reserveIn, reserveOut) =
               if baseToQuote then (baseReserves, quoteReserves)
                              else (quoteReserves, baseReserves)
+            (inInstrument, outInstrument) =
+              if baseToQuote then (baseInstrumentId, quoteInstrumentId)
+                             else (quoteInstrumentId, baseInstrumentId)
             amountInWithFee = amountIn * (10000.0 - feeBps) / 10000.0
             dOut = (reserveOut * amountInWithFee) / (reserveIn + amountInWithFee)
         -- k-invariant re-asserted on-ledger; each attestor re-derives it off its
@@ -691,12 +706,39 @@ template Pool
         -- required for THIS transition — not merely delegated once at creation).
         assertMsg "constant-product invariant violated"
           ((reserveIn + amountInWithFee) * (reserveOut - dOut) >= reserveIn * reserveOut)
-        -- Tie the curve to BOTH the trader's signed amount AND the reserve delta,
-        -- so reserves and pool-account holdings cannot diverge (§7.1
-        -- reserves==holdings): the trader signed `outputAmount`, the pool must
-        -- deliver exactly the curve's `dOut`. (Production floors `dOut`; shown as
-        -- equality here for clarity.)
         assertMsg "quote drift: signed output != curve output" (outputAmount == dOut)
+        -- ON-LEDGER BINDING. `amountIn`, `dOut`, `baseToQuote`, and `transferLegs`
+        -- are all submitter-supplied; nothing above ties them to what the trader
+        -- SIGNED. So read the trader's committed allocation and bind them: its
+        -- signed sender side must be exactly (amountIn, input instrument), its
+        -- signed receiver side exactly (dOut, output instrument), and the settled
+        -- `transferLegs` must be EXACTLY the two legs those signed sides describe
+        -- (the `otherside` is the pool account). This upgrades reserves==holdings
+        -- and exact-out from attestor diligence to on-ledger enforcement: the
+        -- reserve math cannot run off numbers different from what actually settles.
+        traderAlloc <- fetch traderAllocationId
+        let traderAccount = traderAlloc.allocation.authorizer
+            signedSides = traderAlloc.allocation.transferLegSides
+        inSide <- case filter (\s -> s.side == SenderSide) signedSides of
+          [s] -> pure s
+          _ -> abort "trader allocation must sign exactly one sender (input) side"
+        outSide <- case filter (\s -> s.side == ReceiverSide) signedSides of
+          [s] -> pure s
+          _ -> abort "trader allocation must sign exactly one receiver (output) side"
+        assertMsg "signed input side != (amountIn, input instrument)"
+          (inSide.amount == amountIn && inSide.instrumentId == inInstrument.id)
+        assertMsg "signed output side != (dOut, output instrument)"
+          (outSide.amount == dOut && outSide.instrumentId == outInstrument.id)
+        let expectedInLeg = TransferLeg with
+              transferLegId = inSide.transferLegId
+              sender = traderAccount; receiver = inSide.otherside
+              amount = amountIn; instrumentId = inInstrument.id; meta = inSide.meta
+            expectedOutLeg = TransferLeg with
+              transferLegId = outSide.transferLegId
+              sender = outSide.otherside; receiver = traderAccount
+              amount = dOut; instrumentId = outInstrument.id; meta = outSide.meta
+        assertMsg "settled legs != the two legs the trader signed"
+          (transferLegs == [expectedInLeg, expectedOutLeg])
         -- Atomic DvP: BOTH the trader's input allocation AND the pool's OWN
         -- output allocation (funded from the pool account) settle in one batch.
         -- SettleBatch's both-sided check pins each leg's exact amount to a signed
