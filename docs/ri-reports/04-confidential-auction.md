@@ -817,11 +817,11 @@ synchronizer before `SettleBatch`.
 | Cross-synchronizer operation (D3 deferred) | §8 `[FUTURE]` | ⬜ |
 | On-ledger multi-sig authority (D4 → M3) | `oz-access-control` `[FUTURE]` | ⬜ |
 
-## 9. Open Questions
+## 9. Open Design Questions
 
-These are decisions to settle with the internal team ahead of implementation. The
-auctioneer-trust decision is the one that shapes the design and should be opened
-early.
+Decisions to settle with the internal team before implementation, not M1 build
+items; each is referenced from the section that motivates it. The auctioneer-trust
+decision shapes the design and should be opened early.
 
 - **Auctioneer trust → commit-reveal / verifiable clearing.** The central
   decision (§1.4, §7.4): accept a trusted off-ledger auctioneer, or add

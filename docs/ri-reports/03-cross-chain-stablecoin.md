@@ -19,7 +19,7 @@ claim of acceptance, conformance, audit readiness, or production readiness.
 > settlement spine. Two components are **planned / external, not present in this
 > workspace**: the **Standardized Messaging Gateway** (`[FUTURE]`, modeled as a
 > bounded mock) and **USDCx** (an external ecosystem stablecoin, consumed by
-> interface) — both flagged throughout and in Open Questions.
+> interface) — both flagged throughout and in Open Design Questions.
 
 ---
 
@@ -213,15 +213,14 @@ checked against the
 This separates the relayer's *transport* role (move bytes) from the *trust* role
 (authorize minting): a relayer with no attester authorization cannot mint.
 
-> **Accuracy caveat (what the scaffold verifies today).** The intended posture
-> is a **threshold N-of-M** attestor set, but the spine's
+> **Accuracy caveat.** The intended posture is a **threshold N-of-M** attestor
+> set, but the spine's
 > [`requireNodeAttestation`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L766)
-> today checks a **single** `NodeComplianceAttestation` whose signer is *any one*
-> party in the `TrustedAttesterRegistry` (plus settlement-ref match and validity
-> window) — it does **not** enforce a quorum. So "N-of-M / quorum-signed" is the
-> design target, not the current guarantee; genuine threshold signing needs an
-> aggregated-attestation or M-attestation-verifying choice (see §9). Do not read
-> the present typed path as quorum-enforcing.
+> today checks a **single** `NodeComplianceAttestation` signed by *any one* party
+> in the `TrustedAttesterRegistry` (plus settlement-ref match and validity window);
+> it does not enforce a quorum. Quorum-signing is the design target, not the
+> current guarantee, and needs an aggregated-attestation or M-attestation-verifying
+> choice (§9).
 
 **The binding (fail-closed).** The inbound
 [`AllocationInstruction`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L356)
@@ -272,7 +271,7 @@ It is the mirror of the inbound flow:
    `lockedAmount`), rather than being keyed only by its own new `nonce` — otherwise
    `Σ lockedAmount(unredeemed)` and actual supply could drift under partial burns.
 
-**Cross-chain atomicity, honestly.** The source-chain release is **not** in the
+**Cross-chain atomicity.** The source-chain release is **not** in the
 same Daml transaction as the Canton burn (no protocol spans both ledgers
 atomically). The design is therefore **burn-first / attested-release**: the
 Canton burn is the irreversible commit, and the foreign release is gated on the
@@ -760,7 +759,10 @@ audit-readiness claim.
 | Cross-synchronizer / cross-domain operation (D3 deferred; single-domain v1, no multi-synchronizer machinery in the scaffold — see §8) | — (planned) | ⬜ `[FUTURE]` |
 | Cross-chain orchestration / bridge / identity-claim business logic (gateway mock + orchestrator) | — (planned) | ⬜ `[FUTURE]` |
 
-## 9. Open Questions
+## 9. Open Design Questions
+
+Decisions to settle with the internal team before implementation, not M1 build
+items. Each is referenced from the section that motivates it.
 
 - **Production attestor / relayer trust model (decentralization).** §3.5 fixes
   the *shape* — a threshold N-of-M attestor set verified via
@@ -840,4 +842,4 @@ this workspace, except components explicitly marked planned/external.
 - **Planned / external (not in workspace):** the **Standardized Messaging
   Gateway** (OpenZeppelin Contracts-Library component) and **USDCx** (external
   Canton ecosystem stablecoin, bridged natively via Circle xReserve + CCTP). See
-  §6.2 and Open Questions.
+  §6.2 and Open Design Questions.

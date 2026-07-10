@@ -38,7 +38,7 @@ threat model delivered in the implementation milestone. All build on the
 - **Section order:** Product Definition → Architecture Overview → How We
   Implement It → Interfaces & Usage Examples → Diagrams → Library Dependencies →
   Security & Auditability → Cross-Synchronizer Domain Extension → Implementation
-  Status (Code Map) → Open Questions → References.
+  Status (Code Map) → Open Design Questions → References.
 - Mermaid lives in fenced ```mermaid``` blocks; render externally where a
   Markdown viewer does not.
 
@@ -67,7 +67,7 @@ plain backticked text — linking them would imply code that is not in this repo
 > `pausable/`.
 
 **2. Every report carries an `## Implementation Status (Code Map)` section**
-(immediately before *Open Questions*) with a per-RI table that makes
+(immediately before *Open Design Questions*) with a per-RI table that makes
 done-vs-pending obvious:
 
 - ✅ implemented in the promoted library surface (`oz-access-control` /

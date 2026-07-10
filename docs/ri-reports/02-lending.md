@@ -13,13 +13,11 @@ claim of acceptance, conformance, audit readiness, or production readiness.
 
 > **Design priority order** governs every interface and snippet, in this exact
 > order: **1) Security → 2) Simplicity → 3) Readability → 4) Auditability.**
-> Security leads, and it genuinely *governs* the reference design rather than
-> being a slogan: where security and readability pull apart, security wins — e.g.
-> liquidation seizure is bound on-ledger to the liquidator's signed payment (§4.4)
-> even though it adds code over the terser "seize the whole vault", the oracle is
-> committee-attested rather than single-admin (§3), and stablecoin minting is
-> reachable only through a solvency-coupled path (§3). Those are the security-first
-> choices this document is built around.
+> Security leads and governs the design: where security and readability conflict,
+> security wins. Liquidation seizure is bound on-ledger to the liquidator's signed
+> payment (§4.4) rather than the terser "seize the whole vault"; the oracle is
+> committee-attested rather than single-admin (§3); and stablecoin minting is
+> reachable only through a solvency-coupled path (§3).
 
 > **Scope.** This is the architecture documentation for a vault-based
 > institutional lending reference design targeting **CIP-0112 / Token Standard
@@ -132,8 +130,8 @@ Data visibility is bounded by contract participation (signatory/observer).
 
 - **Admin / Issuer** — primary underwriter of the **stablecoin (debt) token**.
   Assigned via `RoleAdmin`; holds the `BurnerCapability` and configures the
-  `TrustedIssuerRegistry`. Crucially, the admin's mint/burn authority is scoped to
-  the **stablecoin instrument only** — never the collateral (see §3, "Collateral
+  `TrustedIssuerRegistry`. The admin's mint/burn authority is scoped to the
+  **stablecoin instrument only** — never the collateral (see §3, "Collateral
   is custodied, not minted"). Its mint authority is reachable *only* through
   `Vault_MintStablecoin`, which couples issuance atomically to a solvency-checked
   debt increment, so the admin cannot issue unbacked stablecoin (§3, "Mint is
@@ -235,8 +233,8 @@ adapts, so they are stated here as decided behavior rather than open design:
 - **Interest accrual compounds discretely, with an explicit per-step formula.**
   `accrueDebt` computes `newDebt = oldDebt * (1 + stabilityFeeRate * elapsedYears)`,
   where `elapsedYears` is derived from `now - lastAccrualTime`. A *single*
-  application over one elapsed window is affine in time; but the crucial detail is
-  that `oldDebt` is the **running, already-accrued debt** (the current `Vault`'s
+  application over one elapsed window is affine in time, but `oldDebt` is the
+  **running, already-accrued debt** (the current `Vault`'s
   `debtAmount`, not the original principal) and `lastAccrualTime` is **reset to
   `now`** on every recreation. Accrual runs on every state-changing choice
   (`Vault_DepositCollateral`, `Vault_WithdrawCollateral`, `Vault_MintStablecoin`,
@@ -298,8 +296,8 @@ admin-mint choice, so the admin cannot conjure stablecoin that is not matched by
 recorded, solvency-checked vault debt. Symmetrically, `Vault_BurnStablecoin`
 reduces `debtAmount` by exactly the principal burned. This is the on-ledger
 realisation of the **debt-conservation invariant** (§7.1): every stablecoin unit
-in circulation is backed 1:1 by outstanding vault debt, which is the whole point
-of a collateral-backed stablecoin — the admin is *not* free to mint at will.
+in circulation is backed 1:1 by outstanding vault debt — the defining property of
+a collateral-backed stablecoin, and the admin cannot mint at will.
 
 ### Fees are Routed, Not Burned (protocol revenue → insurance fund)
 
@@ -1085,13 +1083,14 @@ atomicity and privacy across domains.
 | Cross-synchronizer operation (D3 deferred) | — `[FUTURE]` (see §8) | ⬜ |
 | On-ledger multi-sig authority (D4→M3) | — `[FUTURE]` | ⬜ |
 
-## 9. Open Questions
+## 9. Open Design Questions
 
-These are decisions to settle with the internal team ahead of implementation, not
-M1 build items. The design above has *made* several calls that earlier drafts
-left open (payment-proportional partial liquidation, a margin-call grace period,
-a committee-attested oracle, and fee routing to an insurance fund); what remains
-open are the residual parameterizations and the deeper hardening choices.
+Decisions to settle with the internal team before implementation, not M1 build
+items. The design above resolves several points earlier drafts left open —
+payment-proportional partial liquidation, a margin-call grace period, a
+committee-attested oracle, and fee routing to an insurance fund. What remains are
+residual parameterizations and deeper hardening choices, each referenced from the
+section that motivates it.
 
 - **Bad-debt disposition beyond the insurance fund.** The design routes fees to a
   protocol **insurance fund** as the first absorber of `VaultLiquidationResult.badDebt`
