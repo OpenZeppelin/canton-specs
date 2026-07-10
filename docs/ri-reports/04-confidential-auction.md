@@ -179,7 +179,10 @@ off-ledger clearing → atomic on-ledger settlement.
    role via `RoleGrant`.
 2. **Credential verification.** The Bidder obtains a `KycClaim` and submits a
    `CredentialGatedActionRequest`; the Verifier issues a `MockVerificationResult`
-   on-ledger, unlocking participation.
+   on-ledger, unlocking participation. This is the entry gate, *not* a
+   check-once: the same D1 path is re-evaluated per settlement leg, fail-closed,
+   with no caching (§3, §7), so a credential revoked after this step still blocks
+   settlement.
 3. **Escrow + confidential bid.** The Bidder commits payment capital by creating
    an `AllocationInstruction` (via [`SettlementFactory_CreateAllocationInstruction`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L216))
    and accepting it ([`AllocationInstruction_Accept`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L369)), producing a committed
@@ -569,8 +572,9 @@ living-doc anchors validated by `scripts/refresh-ri-anchors.sh`.
   fail-closed.
 - **D2** — [`D2SeizureHook`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L46) config + [`BurnerCapability`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L98)-gated lock-and-sweep to a
   preset custodian; no burn; losing bids return to sender.
-- **D3** — `credential-gateway` + Shape-B `KycClaim` before bid acceptance;
-  cross-domain deferred, SCU-forward-compatible.
+- **D3** — `credential-gateway` + Shape-B `KycClaim` gated at bid acceptance
+  **and re-checked per settlement leg** (fail-closed, no caching); cross-domain
+  deferred, SCU-forward-compatible.
 - **D4** — `oz-access-control` single-admin capability for M1; multi-sig → M3.
 
 > **D1 attestation is design-intent today.** The Shape-B per-leg attestation

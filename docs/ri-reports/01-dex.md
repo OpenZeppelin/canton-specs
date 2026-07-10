@@ -16,12 +16,17 @@ claim of acceptance, conformance, audit readiness, or production readiness.
 
 > **What this document is.** The **Architecture Documentation** for a
 > privacy-preserving **spot DEX** reference design on the CIP-0112 / Token
-> Standard V2 settlement spine — a constant-product AMM as the lead. A CLOB is
-> named as a **separate application built on the same atomic DvP settlement
-> spine**, not a re-parameterization of the AMM. Companion deliverables (working
-> reference code, demo front-end, threat model, "how to build DeFi on Canton"
-> materials) are named here but out of scope for this document. The design
-> builds only on Token Standard V2 abstractions.
+> Standard V2 settlement spine. The **core enabling primitive is the atomic
+> delivery-versus-payment (DvP) swap** — two committed allocations settled in one
+> all-or-nothing `SettleBatch`. Everything else is a *market structure* layered on
+> that primitive: the constant-product **AMM** is the lead exemplar this document
+> builds out end-to-end, and a **CLOB** and **RFQ** venue are named as *sibling*
+> applications over the same atomic-swap core, not re-parameterizations of the AMM
+> (see §1, "The extensible primitive"). This framing is what makes the M2
+> deliverable extensible. Companion deliverables (working reference code, demo
+> front-end, threat model, "how to build DeFi on Canton" materials) are named here
+> but out of scope for this document. The design builds only on Token Standard V2
+> abstractions.
 
 ---
 
@@ -32,10 +37,19 @@ functional Decentralized Exchange (DEX) engineered for the Canton Network.
 Drawing on prior architectural experience deploying privacy-preserving DeFi
 primitives (e.g. the LunarSwap design on Midnight), this RI demonstrates the
 full lifecycle of a trading venue operating under institutional compliance,
-privacy, and asset-segregation constraints. The objective is a readable,
-verifiable, forkable foundation that ecosystem developers can use to construct
-exchange variations, from Automated Market Makers (AMMs) to Central Limit Order
-Books (CLOBs).
+privacy, and asset-segregation constraints.
+
+**The design is organized around one enabling primitive: the atomic
+delivery-versus-payment (DvP) swap.** A swap is two committed allocations — the
+taker's input leg and the counterparty's output leg — settled in a single
+all-or-nothing `SettleBatch`, with each leg's amount pinned on-ledger to a signed
+allocation side. Every trading venue in scope reduces to *how a price/quantity is
+agreed* on top of that same swap: an AMM derives the price from a
+constant-product curve, a CLOB from a matched resting order, an RFQ from a
+signed dealer quote — but all three *settle* through the identical atomic-swap
+core. The objective is therefore a readable, verifiable, forkable **settlement
+primitive** that ecosystem developers can use to construct exchange variations,
+with the constant-product AMM built out here as the lead exemplar.
 
 The architecture is built on the **CIP-0112 / Token Standard V2 settlement
 spine** `[IMPLEMENTED]` (`OpenZeppelin.Experimental.Settlement.Cip112` in
@@ -52,7 +66,7 @@ everything else as an explicit extension point or out-of-scope.
 
 | Feature Category | In-Scope Architectural Components |
 |---|---|
-| Market Structure | A simple **spot** exchange. The primary reference is a constant-product AMM with a single liquidity pool (`x · y = k`) to establish a spot price. A CLOB is a **separate application built on the same atomic DvP settlement spine** (see *Settlement Mechanics* below) — it reuses the settlement core, but is not a re-parameterization of the AMM. |
+| Market Structure | A simple **spot** exchange whose enabling primitive is the **atomic DvP swap**. The lead exemplar built out here is a constant-product AMM with a single liquidity pool (`x · y = k`) to establish a spot price. A **CLOB** and an **RFQ** venue are **sibling applications built on the same atomic-swap core** (see *The extensible primitive* below and *Settlement Mechanics*) — they reuse the settlement primitive, differing only in how price/quantity is agreed, not in how trades settle. |
 | Core Flows | The four flows the grant M2 acceptance names, each modeled as settlement over the spine: **pool creation** (operator + LP registrar + attestor pool instantiate a `Pool`), **liquidity provision / removal** (deposit both instruments → mint LP tokens; burn LP tokens → withdraw proportional reserves), **swap execution** (two-leg DvP), and **fee collection** (`feeBps` accrues into reserves, raising LP-token redemption value). |
 | Asset Representation | Fungible digital assets compliant with the CIP-0112 Token Standard V2 holding interfaces. LP tokens represent pool-share ownership and are minted/burned via the spine. |
 | Settlement Mechanics | Atomic delivery-versus-payment (DvP) executed **only** through [`SettlementFactory_SettleBatch`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L237). The design uses committed allocations and the optional `nextIterationFunding` field to support prefunded trading and partial fills (explained under *Security Invariants* §7.1). |
@@ -67,6 +81,42 @@ everything else as an explicit extension point or out-of-scope.
 | External Oracles | Dynamic pricing oracles dictating the pool's internal exchange rate. The AMM invariant dictates the price; `PriceOracle` `[EVIDENCE]` is referenced only for boundary analysis or future stable-pool deviation checks. |
 | Legacy Standards | Any reliance on the superseded CIP-56 token standard or legacy V1 allocation paths. The RI operates strictly on V2 abstractions. |
 | Cross-Synchronizer Operation | Multi-synchronizer / cross-domain settlement and identity are **deferred** (see §8). M1 is single-domain v1; the design is forward-compatible, not multi-domain today. |
+
+### The Extensible Primitive: Atomic Swaps (AMM, CLOB, and RFQ on the Same Fundamentals)
+
+The reason this reference design is *extensible* — and why that matters for the
+M2 deliverable — is that it ships **the atomic swap, not the AMM, as the load-bearing
+primitive.** A swap is the minimal unit of exchange: two committed `Allocation`s
+(the taker's input leg, the counterparty's output leg) settled in one
+`SettlementFactory_SettleBatch`, where the both-sided check pins each leg's exact
+amount to a *signed* allocation side, so the trade either completes atomically at
+the agreed amounts or reverts entirely. That primitive carries all of the hard
+guarantees — non-custodial settlement, delivery-versus-payment atomicity,
+per-settlement D1 compliance, D2 seizability, and privacy — **independently of how
+the price was discovered.**
+
+Price discovery is the *only* thing the common market structures differ on, and
+each is a thin layer that produces a signed (amount-in, amount-out) pair and hands
+it to the same swap core:
+
+- **AMM (built out here).** The counterparty is a `Pool`; the output amount is
+  derived deterministically from the constant-product curve (`x · y = k`) and the
+  reserves, and re-asserted on-ledger in `Pool_Swap` before the swap settles.
+- **CLOB.** The counterparty is a resting limit order; a match produces the
+  (price, quantity) pair, and the fill settles as the identical two-leg atomic
+  swap. No AMM curve is involved — it is a *sibling* application over the same
+  core, not a re-parameterization of the pool.
+- **RFQ / dealer quote.** The counterparty is a market maker who signs a quote off
+  the venue; acceptance settles that quote as the same atomic swap, with the
+  maker's signed price bounding execution exactly as the AMM's curve does.
+
+Because all three terminate in the same `SettleBatch`, they inherit the same
+security, compliance, and privacy properties for free and compose with the other
+RIs (Lending, Stablecoin, Auction) over the shared spine. **M2 can therefore ship
+the AMM first and add a CLOB or RFQ venue later as additive applications** — new
+templates and choices that emit swap legs — rather than as forks of the pool
+logic. Shipping the swap as the primitive is what turns "a DEX" into "a settlement
+core others build exchanges on."
 
 ### Target Ecosystem Participants
 

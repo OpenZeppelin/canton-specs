@@ -129,7 +129,7 @@ rows are forward-compatibility paths surfaced in each report's §9.
 
 | Relationship | Direction | Nature | Where documented |
 |---|---|---|---|
-| Vault / oracle / credential stack | Lending ⇄ Stablecoin | shared `canton-stablecoin` evidence + the in-repo `credential-gateway` experiment | `02` §2, `03` §2 |
+| Vault / oracle / credential stack | Lending ⇄ Stablecoin | shared `canton-stablecoin` evidence + the in-repo `credential-gateway` experiment; the **hardened** `PriceOracle` shape (named quote instrument, committee-attested updates, staleness/deviation guards) is defined in Lending `02` §3/§4.2 and reused from there | `02` §2, `03` §2 |
 | Spot reference / stable-pool extension | DEX → Stablecoin | DEX cites `PriceOracle` for future stable pools | `01` §1, §6 |
 | Secondary market for launched tokens | Auction → DEX | post-auction trading is the DEX RI (explicit) | `04` §1.2 |
 | **Pool liquidity from cross-chain inflows** | DEX ⇽ Stablecoin | settled USDCx can seed DEX pool reserves | `01` §9 (composability) |
