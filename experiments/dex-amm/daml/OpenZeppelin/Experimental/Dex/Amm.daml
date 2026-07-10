@@ -1,0 +1,406 @@
+-- | Experimental constant-product AMM — `Pool` / `PoolRules` lifted from the DEX
+-- RI report (docs/ri-reports/01-dex.md §4.1–§4.2) into COMPILING code, so the
+-- design's four load-bearing properties are checked by the compiler and a Daml
+-- Script rather than asserted in prose:
+--
+--   1. Per-swap attestor consent is enforced by CONTROLLERSHIP
+--      (`controller operator :: attestorPool`), not by signatory delegation.
+--   2. Exact-in / exact-out: the pool delivers exactly the curve's `dOut`, tied
+--      ON-LEDGER to the amounts the trader SIGNED (the choice reads the trader's
+--      committed allocation and asserts its sender side == `amountIn`/input and
+--      its receiver side == `dOut`/output) — not left to attestor diligence.
+--   3. Reserve delta == pool-account holding movement: `transferLegs` are pinned
+--      on-ledger to exactly the two legs the trader signed, the counterparty of
+--      both legs is bound to the pool's canonical `poolAccount`, and the pool
+--      funds its OWN output leg from its own committed allocation — so the reserve
+--      delta tracks real movement of THIS pool's account. (The *absolute*
+--      invariant reserves == Σ(poolAccount holdings) additionally needs funded
+--      provision at seeding; that seeding step is out of scope for this exemplar.)
+--   4. No dangling pointers / no pause bypass: `Pool` and `PauseState` cids are
+--      choice arguments (never stored fields), and the pause guard lives on the
+--      reserve-updating choice itself.
+--
+-- NON-PUBLIC, experiment-only, toy stand-in over the experimental CIP-0112
+-- settlement scaffold. All value movement rides `SettlementFactory_SettleBatch`.
+module OpenZeppelin.Experimental.Dex.Amm where
+
+import DA.Assert ((===))
+import DA.Date (date, Month(Jan))
+import DA.Time (time)
+import Daml.Script
+
+import OpenZeppelin.Pausable (PauseState(..), whenNotPaused)
+import OpenZeppelin.Experimental.Settlement.Cip112
+import OpenZeppelin.Experimental.TokenStandard.V2.Metadata (emptyMetadata)
+import OpenZeppelin.Experimental.TokenStandard.V2.Holding (InstrumentId(..), Account(..))
+import OpenZeppelin.Experimental.TokenStandard.V2.Allocation
+  ( Reference(..), SettlementInfo(..), TransferLeg(..), AllocationSpecification(..)
+  , TransferSide(..) )
+
+-- | True iff all elements are distinct (local helper; keeps the package's only
+-- stdlib dependency the Prelude).
+allDistinct : Eq a => [a] -> Bool
+allDistinct xs = case xs of
+  [] -> True
+  y :: rest -> not (y `elem` rest) && allDistinct rest
+
+-- | Constant-product AMM state. See 01-dex.md §4.1.
+template Pool
+  with
+    operator : Party
+    lpRegistrar : Party
+    attestorPool : [Party]
+    -- Typed instrument identity (bound to the issuing admin), not bare Text.
+    baseInstrumentId : InstrumentId
+    quoteInstrumentId : InstrumentId
+    -- The canonical account whose holdings ARE the reserves. Bound into every
+    -- swap so the counterparty the trader signed cannot be some other account
+    -- (which would let reserves drift from Σ pool-account holdings).
+    poolAccount : Account
+    baseReserves : Decimal
+    quoteReserves : Decimal
+    feeBps : Decimal
+    d1ComplianceHook : Optional D1ComplianceHook
+  where
+    signatory operator, lpRegistrar
+    signatory attestorPool
+    -- No `observer operator`: operator is already a signatory.
+    ensure
+      baseReserves >= 0.0 &&
+      quoteReserves >= 0.0 &&
+      feeBps >= 0.0 && feeBps <= 10000.0 &&
+      baseInstrumentId /= quoteInstrumentId &&        -- the two legs must differ
+      allDistinct (operator :: lpRegistrar :: attestorPool) &&  -- parties distinct
+      not (null attestorPool)                          -- consensus set non-empty
+
+    -- Reserve update: CONSUMING, co-controlled by the attestors so each swap
+    -- requires their authorization (controllership, not signatory delegation).
+    choice Pool_Swap : (ContractId SettlementReceipt, ContractId Pool)
+      with
+        traderAllocationId : ContractId Allocation   -- trader's committed input (Δin)
+        poolAllocationId : ContractId Allocation      -- pool's OWN output leg (Δout), funded from pool holdings
+        pauseStateId : ContractId PauseState          -- current PauseState, passed in (not stored)
+        baseToQuote : Bool
+        amountIn : Decimal
+        outputAmount : Decimal                        -- trader's signed EXACT output
+        settlementFactoryId : ContractId SettlementFactory
+        settlement : SettlementInfo
+        transferLegs : [TransferLeg]                  -- exactly: trader→pool Δin, pool→trader Δout
+        d1ComplianceRef : Optional Text
+      controller operator :: attestorPool
+      do
+        -- Positivity: the reserve arithmetic below runs off `amountIn` directly,
+        -- so a non-positive input must be rejected before it can touch the curve.
+        assertMsg "positive input required" (amountIn > 0.0)
+        -- Pause guard HERE (Pool_Swap is directly exercisable — guarding only in
+        -- PoolRules would leave a bypass).
+        pause <- fetch pauseStateId
+        whenNotPaused pause
+        -- Constant-product math (integer-bps fee form; division-safe). Derive the
+        -- typed instruments for the chosen direction alongside the reserves.
+        let (reserveIn, reserveOut) =
+              if baseToQuote then (baseReserves, quoteReserves)
+                             else (quoteReserves, baseReserves)
+            (inInstrument, outInstrument) =
+              if baseToQuote then (baseInstrumentId, quoteInstrumentId)
+                             else (quoteInstrumentId, baseInstrumentId)
+            amountInWithFee = amountIn * (10000.0 - feeBps) / 10000.0
+            dOut = (reserveOut * amountInWithFee) / (reserveIn + amountInWithFee)
+        -- k-invariant re-asserted on-ledger; the attestors re-derive it before
+        -- co-signing (they are controllers, so their sign-off is required here).
+        assertMsg "constant-product invariant violated"
+          ((reserveIn + amountInWithFee) * (reserveOut - dOut) >= reserveIn * reserveOut)
+        assertMsg "quote drift: signed output != curve output" (outputAmount == dOut)
+
+        -- ON-LEDGER BINDING (root-cause fix for the reserves-vs-holdings drift):
+        -- read the trader's committed allocation and bind the curve inputs to what
+        -- the trader actually SIGNED, then pin `transferLegs` to exactly the two
+        -- legs those signed sides describe. Without this, `amountIn`, `dOut`,
+        -- `baseToQuote`, and `transferLegs` are independent submitter-supplied
+        -- arguments: the reserve math could run off one set of numbers while the
+        -- holdings move by another, drifting reserves away from holdings and
+        -- checking the k-invariant against amounts that never settled.
+        traderAlloc <- fetch traderAllocationId
+        let traderAccount = traderAlloc.allocation.authorizer
+            signedSides = traderAlloc.allocation.transferLegSides
+        inSide <- case filter (\s -> s.side == SenderSide) signedSides of
+          [s] -> pure s
+          _ -> abort "trader allocation must sign exactly one sender (input) side"
+        outSide <- case filter (\s -> s.side == ReceiverSide) signedSides of
+          [s] -> pure s
+          _ -> abort "trader allocation must sign exactly one receiver (output) side"
+        -- The trader's signed debit is (amountIn, input instrument); the signed
+        -- credit is (dOut, output instrument). `dOut` is the curve output, so this
+        -- ties the signature, the curve, and the settled amounts together.
+        assertMsg "signed input side != (amountIn, input instrument)"
+          (inSide.amount == amountIn && inSide.instrumentId == inInstrument.id)
+        assertMsg "signed output side != (dOut, output instrument)"
+          (outSide.amount == dOut && outSide.instrumentId == outInstrument.id)
+        -- Bind the COUNTERPARTY IDENTITY too: the account on the other side of
+        -- both signed sides must be THIS pool's canonical account. Without this,
+        -- the reserve delta would track whatever account the trader was quoted,
+        -- not the pool's — the last axis of the reserves-vs-holdings drift.
+        assertMsg "input counterparty is not the pool account" (inSide.otherside == poolAccount)
+        assertMsg "output counterparty is not the pool account" (outSide.otherside == poolAccount)
+        -- Reconstruct the two legs the trader signed (trader ⇄ poolAccount) and
+        -- require `transferLegs` to be EXACTLY those — so the holdings that move
+        -- cannot differ from the legs the curve was computed against.
+        let expectedInLeg = TransferLeg with
+              transferLegId = inSide.transferLegId
+              sender = traderAccount; receiver = poolAccount
+              amount = amountIn; instrumentId = inInstrument.id; meta = inSide.meta
+            expectedOutLeg = TransferLeg with
+              transferLegId = outSide.transferLegId
+              sender = poolAccount; receiver = traderAccount
+              amount = dOut; instrumentId = outInstrument.id; meta = outSide.meta
+        assertMsg "settled legs != the two legs the trader signed"
+          (transferLegs == [expectedInLeg, expectedOutLeg])
+
+        -- Atomic DvP: BOTH the trader's input allocation and the pool's own
+        -- output allocation settle in one batch; SettleBatch's both-sided check
+        -- pins each leg's exact amount to a signed allocation side.
+        receipts <- exercise settlementFactoryId SettlementFactory_SettleBatch with
+          settlement
+          transferLegs
+          allocationCids = [traderAllocationId, poolAllocationId]
+          actors = [operator]
+          d1ComplianceRef
+        let (newBase, newQuote) =
+              if baseToQuote then (baseReserves + amountIn, quoteReserves - dOut)
+                             else (baseReserves - dOut, quoteReserves + amountIn)
+        newPool <- create this with baseReserves = newBase; quoteReserves = newQuote
+        traderReceipt <- case receipts of
+          r :: _ -> pure r          -- receipts align with allocationCids order
+          [] -> abort "SettleBatch returned no receipt"
+        pure (traderReceipt, newPool)
+
+-- | Swap execution rules. Stores NO `poolId` / `pauseStateId` field (both are
+-- archive-and-recreate, so a stored cid would brick); passes them as choice
+-- arguments. See 01-dex.md §4.2.
+template PoolRules
+  with
+    operator : Party
+    attestorPool : [Party]
+  where
+    signatory operator
+    signatory attestorPool
+
+    -- Origination gate: a trader signals intent, refused while the venue is
+    -- paused. The committed input `Allocation` / `AllocationRequest` are then
+    -- built through the standard spine lifecycle (executor creates the request,
+    -- trader accepts the instruction to lock funds).
+    nonconsuming choice PoolRules_RequestSwap : ()
+      with
+        trader : Party
+        pauseStateId : ContractId PauseState
+      controller trader
+      do
+        pause <- fetch pauseStateId
+        whenNotPaused pause
+        pure ()
+
+    -- Atomic DvP. Co-controlled by the attestors (NOT `controller operator`):
+    -- PoolRules is itself attestor-signed, so an operator-only choice would
+    -- delegate the attestors' authority and let the operator swap alone.
+    nonconsuming choice PoolRules_Swap : (ContractId SettlementReceipt, ContractId Pool)
+      with
+        poolId : ContractId Pool                      -- CURRENT pool, passed in (not stored)
+        pauseStateId : ContractId PauseState           -- current PauseState, passed in (not stored)
+        traderAllocationId : ContractId Allocation
+        poolAllocationId : ContractId Allocation
+        baseToQuote : Bool
+        amountIn : Decimal
+        outputAmount : Decimal
+        settlementFactoryId : ContractId SettlementFactory
+        settlement : SettlementInfo
+        transferLegs : [TransferLeg]
+        d1ComplianceRef : Optional Text
+      controller operator :: attestorPool
+      do
+        pause <- fetch pauseStateId
+        whenNotPaused pause                            -- defence-in-depth; Pool_Swap re-checks
+        exercise poolId Pool_Swap with
+          traderAllocationId; poolAllocationId; pauseStateId
+          baseToQuote; amountIn; outputAmount
+          settlementFactoryId; settlement; transferLegs; d1ComplianceRef
+
+-- ---------------------------------------------------------------------------
+-- End-to-end swap exemplar: proves the four properties above actually hold at
+-- runtime (not just type-check).
+-- ---------------------------------------------------------------------------
+
+t0 : Time
+t0 = time (date 2026 Jan 1) 0 0 0
+
+t1 : Time
+t1 = time (date 2026 Jan 1) 1 0 0
+
+-- | A trader swaps 1000 base against a pool seeded with 3000 base / 1000 quote
+-- at feeBps = 0. These figures make the constant-product output EXACT —
+-- dOut = (1000 * 1000) / (3000 + 1000) = 250 — with no Decimal rounding, so the
+-- k-invariant holds with equality. (A real pool floors dOut to keep the rounding
+-- dust; that flooring is out of scope for this deterministic exemplar.) Verifies
+-- the new pool reserves, the trader credit, and — crucially — that the operator
+-- CANNOT drive the swap without the attestor (property 1).
+dexSwapExemplar : Script ()
+dexSwapExemplar = script do
+  setTime t0
+  admin <- allocateParty "amm-admin"            -- instrument issuer + settlement executor
+  operator <- allocateParty "amm-operator"
+  lpRegistrar <- allocateParty "amm-lp-registrar"
+  attestor <- allocateParty "amm-attestor"
+  trader <- allocateParty "amm-trader"
+  poolParty <- allocateParty "amm-pool-account"  -- custodies pool holdings (see §12 open detail)
+
+  let baseId = InstrumentId with admin; id = "BASE"
+      quoteId = InstrumentId with admin; id = "QUOTE"
+      traderAccount = Account with owner = Some trader; provider = None; id = "trader-acct"
+      poolAccount = Account with owner = Some poolParty; provider = None; id = "pool-acct"
+      settlement = SettlementInfo with
+        executors = [operator]
+        settlementRef = Reference with id = "amm-swap-1"; cidText = None
+        settlementDeadline = Some t1
+        meta = emptyMetadata
+      -- Δin: trader sends 1000 BASE to the pool.
+      legIn = TransferLeg with
+        transferLegId = "leg-in"; sender = traderAccount; receiver = poolAccount
+        amount = 1000.0; instrumentId = "BASE"; meta = emptyMetadata
+      -- Δout: pool sends dOut QUOTE to the trader. feeBps = 0, reserves 3000/1000:
+      --   dOut = (1000 * 1000) / (3000 + 1000) = 250 (exact)
+      dOut = (1000.0 * 1000.0) / (3000.0 + 1000.0)
+      legOut = TransferLeg with
+        transferLegId = "leg-out"; sender = poolAccount; receiver = traderAccount
+        amount = dOut; instrumentId = "QUOTE"; meta = emptyMetadata
+
+  factory <- submit admin do
+    createCmd SettlementFactory with admin; requiresNodeAttestation = None; featureFlag = experimentalFeatureFlag
+  Some factoryDisclosure <- queryDisclosure @SettlementFactory admin factory
+  pauseState <- submit operator do createCmd PauseState with pauser = operator; paused = False
+
+  -- NOTE ON SCOPE: the pool is seeded with nominal reserves (3000 BASE / 1000
+  -- QUOTE) but the pool account is funded only for the output leg it must deliver
+  -- this swap (dOut QUOTE, below) — the seed is intentionally unfunded otherwise.
+  -- So §7.1's ABSOLUTE binding invariant `reserves == Σ(pool-account holdings)`
+  -- does NOT hold at creation here; that invariant is established by funded
+  -- provision (see §9). What this exemplar proves is the DELTA-consistency
+  -- property that matters for a swap: the reserve delta equals the holdings that
+  -- actually moved (asserted below). Read it as a swap test, not a provision test.
+  pool <- submit (actAs [operator, lpRegistrar, attestor]) do
+    createCmd Pool with
+      operator; lpRegistrar; attestorPool = [attestor]
+      baseInstrumentId = baseId; quoteInstrumentId = quoteId
+      poolAccount
+      baseReserves = 3000.0; quoteReserves = 1000.0; feeBps = 0.0
+      d1ComplianceHook = None
+  rules <- submit (actAs [operator, attestor]) do
+    createCmd PoolRules with operator; attestorPool = [attestor]
+
+  -- Trader's committed allocation: sends BASE (legIn), receives QUOTE (legOut).
+  traderHolding <- submit [admin, trader] do
+    createCmd ToyHolding with
+      admin; account = traderAccount; instrumentId = baseId
+      amount = 1000.0; lock = None; meta = emptyMetadata; featureFlag = experimentalFeatureFlag
+  traderInstr <- submit (actAs trader <> discloseMany [factoryDisclosure]) do
+    exerciseCmd factory SettlementFactory_CreateAllocationInstruction with
+      allocation = AllocationSpecification with
+        settlement; admin; authorizer = traderAccount
+        transferLegSides = [senderSide legIn, receiverSide legOut]
+        nextIterationFunding = None; committed = True; meta = emptyMetadata
+      requestedAt = t0; inputHoldingCids = [traderHolding]
+      d1ComplianceHook = None; actors = [trader]
+  traderResult <- submit trader do
+    exerciseCmd traderInstr AllocationInstruction_Accept with actors = [trader]
+  traderAlloc <- case traderResult of
+    AllocationInstructionCompleted cid -> pure cid
+    _ -> abort "trader allocation did not complete"
+
+  -- Pool's OWN committed allocation: sends QUOTE (legOut), receives BASE (legIn).
+  poolHolding <- submit [admin, poolParty] do
+    createCmd ToyHolding with
+      admin; account = poolAccount; instrumentId = quoteId
+      amount = dOut; lock = None; meta = emptyMetadata; featureFlag = experimentalFeatureFlag
+  poolInstr <- submit (actAs poolParty <> discloseMany [factoryDisclosure]) do
+    exerciseCmd factory SettlementFactory_CreateAllocationInstruction with
+      allocation = AllocationSpecification with
+        settlement; admin; authorizer = poolAccount
+        transferLegSides = [senderSide legOut, receiverSide legIn]
+        nextIterationFunding = None; committed = True; meta = emptyMetadata
+      requestedAt = t0; inputHoldingCids = [poolHolding]
+      d1ComplianceHook = None; actors = [poolParty]
+  poolResult <- submit poolParty do
+    exerciseCmd poolInstr AllocationInstruction_Accept with actors = [poolParty]
+  poolAlloc <- case poolResult of
+    AllocationInstructionCompleted cid -> pure cid
+    _ -> abort "pool allocation did not complete"
+
+  Some poolDisclosure <- queryDisclosure @Pool operator pool
+  Some pauseDisclosure <- queryDisclosure @PauseState operator pauseState
+
+  -- PROPERTY 1: the operator ALONE cannot drive the swap — the attestor is a
+  -- required controller. This must fail.
+  submitMustFail (actAs [operator] <> readAs [admin]) do
+    exerciseCmd rules PoolRules_Swap with
+      poolId = pool; pauseStateId = pauseState
+      traderAllocationId = traderAlloc; poolAllocationId = poolAlloc
+      baseToQuote = True; amountIn = 1000.0; outputAmount = dOut
+      settlementFactoryId = factory; settlement; transferLegs = [legIn, legOut]
+      d1ComplianceRef = None
+
+  -- PROPERTY 2/3 (binding): even with the attestor co-signing, the operator
+  -- cannot run the curve off a larger `amountIn` than the trader signed while
+  -- settling the trader's real (smaller) legs. Here `amountIn = 2000` with its
+  -- matching curve output `dOut = (1000 * 2000) / (3000 + 2000) = 400` passes the
+  -- k-invariant and the quote-drift check, but the trader only signed 1000 BASE —
+  -- so the on-ledger binding to the signed sender side must reject it. This is the
+  -- reserves-vs-holdings drift the binding closes; it must fail.
+  submitMustFail (actAs [operator, attestor] <> readAs [admin]) do
+    exerciseCmd rules PoolRules_Swap with
+      poolId = pool; pauseStateId = pauseState
+      traderAllocationId = traderAlloc; poolAllocationId = poolAlloc
+      baseToQuote = True; amountIn = 2000.0; outputAmount = 400.0
+      settlementFactoryId = factory; settlement; transferLegs = [legIn, legOut]
+      d1ComplianceRef = None
+
+  -- PROPERTY 2/3 (direction binding): flipping `baseToQuote` re-derives the
+  -- in/out instruments, so the trader's signed BASE sender side no longer matches
+  -- the (now QUOTE) input instrument. `outputAmount = 1500` is the matching curve
+  -- output for the flipped direction, so it clears k and quote-drift — but the
+  -- instrument binding to the signed side must still reject it. Must fail.
+  submitMustFail (actAs [operator, attestor] <> readAs [admin]) do
+    exerciseCmd rules PoolRules_Swap with
+      poolId = pool; pauseStateId = pauseState
+      traderAllocationId = traderAlloc; poolAllocationId = poolAlloc
+      baseToQuote = False; amountIn = 1000.0; outputAmount = 1500.0
+      settlementFactoryId = factory; settlement; transferLegs = [legIn, legOut]
+      d1ComplianceRef = None
+
+  -- PROPERTY 2/3 (leg pin): correct amounts/direction, but the settled
+  -- `transferLegs` are reordered away from the two legs the trader signed. The
+  -- `transferLegs == [expectedInLeg, expectedOutLeg]` assertion must reject it,
+  -- so no tampered leg set can settle behind a valid curve. Must fail.
+  submitMustFail (actAs [operator, attestor] <> readAs [admin]) do
+    exerciseCmd rules PoolRules_Swap with
+      poolId = pool; pauseStateId = pauseState
+      traderAllocationId = traderAlloc; poolAllocationId = poolAlloc
+      baseToQuote = True; amountIn = 1000.0; outputAmount = dOut
+      settlementFactoryId = factory; settlement; transferLegs = [legOut, legIn]
+      d1ComplianceRef = None
+
+  -- Happy path: operator + attestor co-authorize the swap.
+  (_receipt, newPool) <- submit (actAs [operator, attestor] <> readAs [admin]) do
+    exerciseCmd rules PoolRules_Swap with
+      poolId = pool; pauseStateId = pauseState
+      traderAllocationId = traderAlloc; poolAllocationId = poolAlloc
+      baseToQuote = True; amountIn = 1000.0; outputAmount = dOut
+      settlementFactoryId = factory; settlement; transferLegs = [legIn, legOut]
+      d1ComplianceRef = None
+
+  -- PROPERTY 2/3: reserves moved by +Δin / −Δout, matching the holdings that
+  -- actually settled.
+  Some newPoolData <- queryContractId operator newPool
+  newPoolData.baseReserves === 4000.0
+  newPoolData.quoteReserves === 1000.0 - dOut
+
+  -- The trader is credited exactly dOut of QUOTE.
+  traderHoldings <- query @ToyHolding trader
+  length (filter (\(_, h) -> h.instrumentId == quoteId && h.amount == dOut && h.lock == None) traderHoldings) === 1

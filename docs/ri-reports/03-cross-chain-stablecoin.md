@@ -5,21 +5,21 @@ in the real OpenZeppelin Canton components in this workspace; it is **not** a
 claim of acceptance, conformance, audit readiness, or production readiness.
 
 > **Source-grounding tags** (used throughout):
-> `[IMPLEMENTED]` real code in the M1 library base (`canton-specs` /
-> `canton-contracts`) · `[EVIDENCE]` real code in an evidence repo
-> (`canton-token-template`, `canton-stablecoin`, `zk-credential-gateway`), not
+> `[IMPLEMENTED]` real code in the M1 library base ([`canton-specs`](https://github.com/OpenZeppelin/canton-specs) /
+> [`canton-contracts`](https://github.com/OpenZeppelin/canton-contracts)) · `[EVIDENCE]` real code in an evidence repo
+> ([`canton-token-template`](https://github.com/OpenZeppelin/canton-token-template), [`canton-stablecoin`](https://github.com/OpenZeppelin/canton-stablecoin)), not
 > the M1 surface · `[UPSTREAM]` Splice / CIP / external-ecosystem reference, not
 > vendored here · `[FUTURE]` proposed RI-level design, not built in M1 scope.
 
 > **Design priority order** governs every interface and snippet, in this exact
-> order: **1) Readability → 2) Simplicity → 3) Security → 4) Auditability.**
+> order: **1) Security → 2) Simplicity → 3) Readability → 4) Auditability.**
 
 > **Scope.** This is the architecture documentation for a Cross-Chain Stablecoin
 > Payment Orchestration reference design on the CIP-0112 / Token Standard V2
 > settlement spine. Two components are **planned / external, not present in this
 > workspace**: the **Standardized Messaging Gateway** (`[FUTURE]`, modeled as a
 > bounded mock) and **USDCx** (an external ecosystem stablecoin, consumed by
-> interface) — both flagged throughout and in Open Questions.
+> interface) — both flagged throughout and in Open Design Questions.
 
 ---
 
@@ -142,9 +142,10 @@ A deterministic sequence of keyless Daml-LF 2.1 state transitions on the
 CIP-0112 spine.
 
 1. **Inbound message.** The external chain finalizes a locked deposit. The
-   gateway (relayer role) creates an `InboundMessage` carrying the hashed
-   payload, external sender id, and Canton recipient. Keyless archive-and-recreate
-   makes it a one-time consumed artifact (replay protection).
+   attester(s) sign an `InboundMessage` carrying the typed `LockAttestation`
+   (§3.5) — locked amount, Canton recipient, target instrument, nonce, expiry.
+   It is consumed one-time by its own `InboundMessage_Consume` choice (§4.1),
+   giving replay protection.
 2. **Allocate + D1 check.** The relayer drives
    [`SettlementFactory_CreateAllocationInstruction`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L228) toward the recipient. Before
    it can target the recipient it must pass the **D1 compliance check**. The RI
@@ -192,22 +193,38 @@ matching amount on Canton:
 data LockAttestation = LockAttestation with
   sourceChainId   : Text       -- e.g. "ethereum-mainnet"
   lockTxId        : Text        -- the source-chain lock/escrow transaction
-  lockedAsset     : Text        -- source-chain asset locked (e.g. USDC)
+  lockedAsset     : Text        -- source-chain asset locked (e.g. USDC) — a
+                                --   foreign-chain string reference, legitimately Text
   lockedAmount    : Decimal     -- exact backing locked on the source chain
   cantonRecipient : Party       -- who may receive the minted wrapped asset
-  cantonInstrumentId : Text     -- the Canton instrument to mint
+  cantonInstrumentId : InstrumentId  -- the Canton instrument to mint: a TYPED
+                                --   on-ledger identity bound to its issuing admin,
+                                --   NOT bare Text (a forged attestation cannot name
+                                --   an arbitrary/unissued instrument). Contrast the
+                                --   foreign-chain refs above, which stay Text.
   nonce           : Text        -- replay-protection sequence id (one-time)
   expiry          : Time        -- attestation validity window
 ```
 
-**Who signs it.** Not a lone relayer. The attestation is co-signed by a
-**threshold N-of-M attestor set**, and verified on-ledger via the spine's
+**Who signs it.** Not a lone relayer. It is verified on-ledger via the spine's
 existing typed node-attestation path —
 [`SettlementFactory_SettleBatchWithAttestation`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L274)
 checked against the
 [`TrustedAttesterRegistry`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L775).
 This separates the relayer's *transport* role (move bytes) from the *trust* role
-(authorize minting): a relayer with no attestor quorum cannot mint.
+(authorize minting): a relayer with no attester authorization cannot mint.
+
+> **Accuracy caveat.** The intended posture is a **threshold N-of-M** attestor
+> set, but the spine's consuming
+> [`NodeComplianceAttestation_Verify`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L836)
+> choice (driven by
+> [`SettlementFactory_SettleBatchWithAttestation`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L274))
+> verifies a **single** registry-rooted attestation — one signed by an attester in
+> a `TrustedAttesterRegistry` whose admin equals the factory admin, consumed
+> single-use and bound to the exact transfer-leg id set (an unbound attestation is
+> rejected) — not an N-of-M quorum. Quorum-signing is the design target, not the
+> current guarantee, and needs an aggregated-attestation or M-attestation-verifying
+> choice (§9).
 
 **The binding (fail-closed).** The inbound
 [`AllocationInstruction`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L379)
@@ -226,6 +243,16 @@ instrument never exceeds the sum of valid, unredeemed `LockAttestation`s for it:
 `mintedSupply ≤ Σ lockedAmount(unredeemed)`. Mint increments the claimed reserve;
 redemption (§3.6) decrements it. This is the on-ledger statement of 1:1 backing.
 
+**Where the coupling must bite.** `SettleBatch` conserves value at *settlement*
+by funding the recipient's leg from a sender's locked holdings — so the actual
+unbacked-issuance surface is the *creation* of the wrapped input holdings that get
+locked, not the settle. The mint of the wrapped instrument must therefore be
+reachable **only** through the attested inbound flow (the `Gateway_ProcessInbound`
+→ attested allocation path, §4.1), consuming a `LockAttestation` with
+`mintedAmount == lockedAmount` — there is **no** standalone admin mint of the
+wrapped instrument. That keeps backing enforced where supply is created, not
+merely where it settles.
+
 ### 3.6 Outbound redemption (burn on Canton → release on source chain) `[FUTURE]`
 
 Redemption is the other half of any bridge and the path a regulated user needs.
@@ -236,13 +263,19 @@ It is the mirror of the inbound flow:
    [`EventLog_HoldingsChange`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L691)
    and producing a typed `RedemptionAttestation` `[FUTURE]`
    `{ amount, sourceChainDestination, nonce }`.
-2. **Attest.** The N-of-M attestor set co-signs the `RedemptionAttestation`
-   (again via the `TrustedAttesterRegistry` path).
+2. **Attest.** A registry-trusted attester signs the `RedemptionAttestation`
+   (again via the `TrustedAttesterRegistry` path) — an N-of-M quorum is the
+   target posture, but see the §3.5 accuracy caveat: the current typed path
+   verifies a single trusted-attester signature, not a threshold.
 3. **Release on the source chain.** The signed burn attestation is submitted to
    the source-chain escrow contract, which releases `amount` of locked backing
-   to `sourceChainDestination` and the reserve is decremented.
+   to `sourceChainDestination` and the reserve is decremented. So the reserve set
+   stays the ground truth, the burn **references and draws down specific unredeemed
+   `LockAttestation`(s)** (marking them redeemed / decrementing their remaining
+   `lockedAmount`), rather than being keyed only by its own new `nonce` — otherwise
+   `Σ lockedAmount(unredeemed)` and actual supply could drift under partial burns.
 
-**Cross-chain atomicity, honestly.** The source-chain release is **not** in the
+**Cross-chain atomicity.** The source-chain release is **not** in the
 same Daml transaction as the Canton burn (no protocol spans both ledgers
 atomically). The design is therefore **burn-first / attested-release**: the
 Canton burn is the irreversible commit, and the foreign release is gated on the
@@ -292,7 +325,7 @@ Names map to real workspace components; RI-level modules (the gateway and
 orchestrator) are tagged `[FUTURE]`. Import paths use the real module names:
 `OpenZeppelin.AccessControl`, `OpenZeppelin.Experimental.Settlement.Cip112`,
 `canton-token-template` `SimpleToken.*`; `KycClaim`/`TrustedIssuerRegistry` are
-the `canton-specs` identity-hook Shape-B types (not zk-credential-gateway).
+the `canton-specs` identity-hook Shape-B types (not credential-gateway).
 
 ### 4.1 Standardized Messaging Gateway (bounded mock) `[FUTURE]`
 
@@ -301,9 +334,9 @@ module CrossChain.Gateway where
 
 import OpenZeppelin.AccessControl (RoleGrant, requireRole)
 import OpenZeppelin.Experimental.Settlement.Cip112 (SettlementFactory)
-import ZkCredentialGateway.GatedAction (CredentialGatedActionRequest)
+import OpenZeppelin.Experimental.Credential.Gateway (CredentialGatedActionRequest)
 -- KycClaim / TrustedIssuerRegistry: canton-specs identity-hook Shape-B
-import IdentityHook.ShapeB (KycClaim, TrustedIssuerRegistry)
+import OpenZeppelin.Experimental.Identity.ShapeB (KycClaim, TrustedIssuerRegistry)
 
 data GatewayRole = Relayer | Seizer deriving (Eq, Show)
 
@@ -316,14 +349,30 @@ template StandardizedMessagingGateway
   with
     admin : Party
     operator : Party
-    registry : ContractId TrustedIssuerRegistry
   where
     signatory admin, operator
+    -- NB: no stored `registry : ContractId TrustedIssuerRegistry` field. The
+    -- registry archive-and-recreates whenever a trusted issuer is added or
+    -- removed, so a stored cid would brick after the first membership change
+    -- (the same dangling-pointer hazard as a stored `PauseState` cid). The
+    -- current registry is passed as a choice ARGUMENT, disclosed at exercise time.
 
+    -- `InboundMessage` is a ONE-TIME carrier: a template SIGNED BY THE ATTESTER(S),
+    -- holding the `LockAttestation` value. It exposes a *consuming* choice
+    -- `InboundMessage_Consume` (controller = the gateway relayer/operator) that
+    -- returns the attestation and archives the carrier — so the relayer's authority
+    -- drives the archive while the attesters' signature is what made the message
+    -- trustworthy (we do NOT `archive` it directly, which would need the attesters'
+    -- authority the gateway does not hold). Consuming the carrier gives one-time
+    -- processing; to also stop a SECOND carrier being minted for the same `nonce`,
+    -- the attesters must not re-attest a used nonce and/or a consumed-nonce registry
+    -- backs it (§3.5). Note the current spine verifies a single trusted attester,
+    -- not N-of-M (see §3.5 caveat); the quorum is `[FUTURE]`.
     nonconsuming choice Gateway_ProcessInbound : ContractId AllocationInstruction
       with
         relayerGrant : ContractId RoleGrant
-        inboundAmount : Decimal
+        registryCid : ContractId TrustedIssuerRegistry  -- current registry, passed in (not stored)
+        inboundMessageCid : ContractId InboundMessage   -- one-time carrier of the LockAttestation
         recipient : Party
         kycClaim : ContractId KycClaim
         settlementFactory : ContractId SettlementFactory
@@ -334,12 +383,46 @@ template StandardizedMessagingGateway
         requireRole operator (roleId Relayer) admin g
 
         -- 2. D1 (Shape B, fail-closed): the KycClaim's subjectParty must match
-        --    the recipient; verified node-applied, no off-ledger oracle.
+        --    the recipient AND its issuer must be trusted by the CURRENT registry;
+        --    verified node-applied, no off-ledger oracle.
+        registry <- fetch registryCid
         claim <- fetch kycClaim
         assertMsg "D1: recipient identity mismatch" (claim.subjectParty == recipient)
+        assertMsg "D1: issuer not in current trusted registry"
+          (claim.declaredIssuer `elem` registry.trustedIssuers)
 
-        -- 3. Drive the spine: create the (committed) allocation instruction.
-        exercise settlementFactory SettlementFactory_CreateAllocationInstruction with ..
+        -- 3. BIND TO BACKING + REPLAY-PROTECT. The mint amount is NOT a free
+        --    operator argument — it is DERIVED from a signed `LockAttestation`, and
+        --    the carrier is CONSUMED (via its own choice, using the relayer's
+        --    authority — not a bare `archive`) so the same lock cannot be minted
+        --    twice. No attestation ⇒ no mint (closes the unbacked-issuance gap).
+        now <- getTime
+        att <- exercise inboundMessageCid InboundMessage_Consume  -- returns the LockAttestation, archives the carrier
+        assertMsg "attestation expired" (now <= att.expiry)
+        assertMsg "recipient != attested recipient" (recipient == att.cantonRecipient)
+        assertMsg "attested instrument admin is not this gateway's admin"
+          (att.cantonInstrumentId.admin == admin)
+        let inboundAmount = att.lockedAmount   -- bound to the attested locked backing
+
+        -- 4. Drive the spine: create the recipient's COMMITTED allocation whose
+        --    single ReceiverSide is EXACTLY (inboundAmount, att.cantonInstrumentId)
+        --    — so the minted leg amount is the attested amount, not a free field.
+        --    `actors = [recipient]` means this create carries the RECIPIENT's
+        --    authority; for an offline treasury that authority is supplied by the
+        --    recipient's standing `TransferPreapproval` (the same delegation the
+        --    §4.2 accept uses), which the relayer triggers — it is NOT authority the
+        --    gateway (admin+operator) holds directly. The matching issuer SenderSide
+        --    of the mint leg is committed separately by the admin (§4.2's
+        --    `issuerSendAllocationId`), so the batch is both-sided.
+        exercise settlementFactory SettlementFactory_CreateAllocationInstruction with
+          allocation = AllocationSpecification with
+            settlement = inboundSettlement; admin
+            authorizer = recipientAccount recipient
+            transferLegSides =
+              [ receiverSide (mintLeg recipient inboundAmount att.cantonInstrumentId) ]
+            nextIterationFunding = None; committed = True; meta = emptyMetadata
+          requestedAt = now; inputHoldingCids = []
+          d1ComplianceHook = None; actors = [recipient]
 ```
 
 ### 4.2 Inbound DvP via `SettleBatch` + delegated accept `[FUTURE]`
@@ -359,22 +442,50 @@ template CrossChainDvP
 
     choice Execute_Inbound_Settlement : ContractId SettlementReceipt
       with
-        allocationRequestId : ContractId AllocationRequest
         instructionId : ContractId AllocationInstruction
+        recipientPreapprovalCid : ContractId TransferPreapproval  -- recipient's standing delegated-accept
+        issuerSendAllocationId : ContractId Allocation  -- issuer's SenderSide of the mint leg (admin-authored)
         batchFactory : ContractId SettlementFactory
+        settlement : SettlementInfo
+        transferLegs : [TransferLeg]
       controller executor
       do
-        -- Recipient's required co-authorization is satisfied via their standing
-        -- TransferPreapproval (delegated accept for an offline treasury).
-        allocationId <- exercise instructionId AllocationInstruction_Accept
+        -- Recipient's required co-authorization: AllocationInstruction_Accept's
+        -- controller is the recipient (the allocation authorizer), which an offline
+        -- treasury cannot provide live. Authority must therefore flow through a
+        -- CHOICE ON THE RECIPIENT-SIGNED `TransferPreapproval` — whose signatory IS
+        -- the recipient — not by passing a party list as `actors` (a party list
+        -- confers no authority). The preapproval's delegated-accept choice runs the
+        -- `AllocationInstruction_Accept` inside its own body, contributing the
+        -- recipient's signature; the executor only triggers it.
+        result <- exercise recipientPreapprovalCid TransferPreapproval_AcceptInboundInstruction with
+          instructionId; executor
+        let allocationId = case result of
+              AllocationInstructionCompleted cid -> cid
+              _ -> error "instruction did not complete"
 
-        -- Atomic DvP via the single spine entrypoint. Settlement conserves value
-        -- per instrument (locked funds must cover sender obligations; surplus
-        -- returns as change); a failed batch returns holdings to the sender.
-        receipt <- exercise batchFactory SettlementFactory_SettleBatch with
-          allocations = [allocationId]
-          requests = [allocationRequestId]
-        return receipt
+        -- Atomic DvP via the single spine entrypoint. The mint leg is
+        -- issuer→recipient, so BOTH sides must be in the batch, each in its OWN
+        -- allocation (the spine's per-allocation leg-side check): the recipient's
+        -- ReceiverSide is `allocationId` (accepted above), the issuer's SenderSide
+        -- is `issuerSendAllocationId` (authored by the admin/issuer, whose mint
+        -- authority the gateway holds). Settlement conserves value per instrument
+        -- (locked funds must cover sender obligations; surplus returns as change);
+        -- a failed batch returns holdings to the sender. D1 is re-checked per leg
+        -- via the attestation path: the shown `d1ComplianceRef = None` is the
+        -- *unenforced base posture*; the RI settles through
+        -- `SettlementFactory_SettleBatchWithAttestation` (or an allocation whose
+        -- `D1ComplianceHook.requiresPerSettlementReference` is set) so a credential
+        -- revoked between accept and settle blocks the leg fail-closed.
+        receipts <- exercise batchFactory SettlementFactory_SettleBatch with
+          settlement
+          transferLegs
+          allocationCids = [issuerSendAllocationId, allocationId]
+          actors = settlement.executors
+          d1ComplianceRef = None
+        case receipts of      -- (Daml's Prelude has no `head`)
+          r :: _ -> pure r
+          [] -> abort "SettleBatch returned no receipt"
 ```
 
 ### 4.3 D2 lock-and-sweep `[FUTURE]` (real mechanism, no bespoke template)
@@ -407,8 +518,7 @@ classDiagram
     class StandardizedMessagingGateway {
         +Party admin
         +Party operator
-        +ContractId~TrustedIssuerRegistry~ registry
-        +Gateway_ProcessInbound() AllocationInstruction
+        +Gateway_ProcessInbound(registryCid, inboundMessageCid) AllocationInstruction
     }
     class RoleGrant {
         +Party admin
@@ -476,8 +586,8 @@ sequenceDiagram
 | [`SettlementFactory`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L191) (CIP-0112 spine) | `canton-specs` | Allocation generation + [`SettlementFactory_SettleBatch`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L249) DvP. | `[IMPLEMENTED]` (experimental) |
 | `TransferPreapproval` | `canton-token-template` (`SimpleToken.Preapproval`) | Delegated recipient accept for offline treasuries. | `[EVIDENCE]` |
 | `SimpleHolding` / `SimpleTokenRules` / `LockedSimpleHolding` / `*_ForcedBurn` | `canton-token-template` | Asset representation, 3-way dispatch, D2 evidence. | `[EVIDENCE]` |
-| `CredentialGatedActionRequest` / `MockVerificationResult` | `zk-credential-gateway` | D1 credential gating. | `[EVIDENCE]` |
-| `KycClaim` / `TrustedIssuerRegistry` | `canton-specs` identity-hook Shape-B (not `zk-credential-gateway` templates; the gateway supplies the gating/verification primitives) | Typed D3 identity for D1 Shape-B node attestation (spine reference field [`D1ComplianceHook`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L41)). | `[IMPLEMENTED]` (experimental) |
+| `CredentialGatedActionRequest` / `MockVerificationResult` | [`credential-gateway`](../../experiments/credential-gateway/daml/OpenZeppelin/Experimental/Credential/Gateway.daml) | D1 credential gating. | `[IMPLEMENTED]` (experimental) |
+| `KycClaim` / `TrustedIssuerRegistry` | `canton-specs` identity-hook Shape-B (not `credential-gateway` templates; the gateway supplies the gating/verification primitives) | Typed D3 identity for D1 Shape-B node attestation (spine reference field [`D1ComplianceHook`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L41)). | `[IMPLEMENTED]` (experimental) |
 
 ### 6.2 External / Planned Dependencies
 
@@ -513,10 +623,11 @@ transitions, not obscure cryptography.
   broken.
 - **1:1 reserve backing (§3.5).** Canton-minted wrapped supply for an instrument
   never exceeds the sum of valid, unredeemed `LockAttestation`s:
-  `mintedSupply ≤ Σ lockedAmount(unredeemed)`. A mint requires a quorum-signed,
+  `mintedSupply ≤ Σ lockedAmount(unredeemed)`. A mint requires a registry-trusted,
   unexpired, non-replayed attestation whose `lockedAmount` equals the minted
-  amount; redemption (§3.6) burns first and decrements the reserve. No mint
-  without locked backing; no double-redeem of one lock.
+  amount (an N-of-M quorum is the target; the scaffold verifies a single trusted
+  attester today — §3.5 caveat); redemption (§3.6) burns first and decrements the
+  reserve. No mint without locked backing; no double-redeem of one lock.
 
 ### 7.2 Threat Model
 
@@ -562,8 +673,8 @@ audit-readiness claim.
 
 > **Shared model:** the cross-synchronizer mechanism (per-synchronizer
 > assignment + unassign/assign reassignment, and the SCU-compliant additive
-> path) is identical across all four RIs and is owned in
-> [`00-portfolio.md`](./00-portfolio.md) §5. This section elaborates only the
+> path) is identical across all four RIs and is defined in
+> the [suite overview](./README.md#cross-synchronizer-model-canonical). This section elaborates only the
 > RI-specific topology (including the cross-chain vs cross-synchronizer
 > distinction below).
 
@@ -653,7 +764,10 @@ audit-readiness claim.
 | Cross-synchronizer / cross-domain operation (D3 deferred; single-domain v1, no multi-synchronizer machinery in the scaffold — see §8) | — (planned) | ⬜ `[FUTURE]` |
 | Cross-chain orchestration / bridge / identity-claim business logic (gateway mock + orchestrator) | — (planned) | ⬜ `[FUTURE]` |
 
-## 9. Open Questions
+## 9. Open Design Questions
+
+Decisions to settle with the internal team before implementation, not M1 build
+items. Each is referenced from the section that motivates it.
 
 - **Production attestor / relayer trust model (decentralization).** §3.5 fixes
   the *shape* — a threshold N-of-M attestor set verified via
@@ -701,8 +815,8 @@ audit-readiness claim.
   global synchronizer? The cross-domain proof-injection trust model must be
   audited.
 - **Cross-synchronizer operation** (see §8) — deferred; tracked there.
-- **Composability with the other RIs** (forward-compatibility; suite view
-  [`00-portfolio.md`](./00-portfolio.md) §3): recipients holding USDCx settled
+- **Composability with the other RIs** (forward-compatibility;
+  the [suite overview](./README.md#how-the-reports-compose)): recipients holding USDCx settled
   here can provide liquidity to the DEX RI ([`01`](./01-dex.md)) pools or
   collateralize a Lending RI ([`02`](./02-lending.md)) vault — all over the same
   `SettlementFactory_SettleBatch` spine, with no parallel settlement path.
@@ -722,8 +836,8 @@ this workspace, except components explicitly marked planned/external.
   `canton-token-template/simple-token/daml/SimpleToken/{Holding,Rules,Preapproval}.daml`
   (`TransferPreapproval` + `TransferPreapproval_Send`/`_MintInto`;
   `LockedSimpleHolding_ForcedBurn`).
-- **Credential gating / verification** `[EVIDENCE]` —
-  `zk-credential-gateway/daml/src/ZkCredentialGateway/{GatedAction,Verification,Types}.daml`.
+- **Credential gating / verification** `[IMPLEMENTED]` (experimental) —
+  `canton-specs/experiments/credential-gateway/daml/OpenZeppelin/Experimental/Credential/Gateway.daml`.
 - **Typed D3 identity (KycClaim, TrustedIssuerRegistry)** `[IMPLEMENTED]` —
   `canton-specs/experiments/identity-hook-shape-b/` and `identity-hook-upgrade-*/`.
 - **Access-control / ownership / pause primitives** `[IMPLEMENTED]` —
@@ -733,4 +847,4 @@ this workspace, except components explicitly marked planned/external.
 - **Planned / external (not in workspace):** the **Standardized Messaging
   Gateway** (OpenZeppelin Contracts-Library component) and **USDCx** (external
   Canton ecosystem stablecoin, bridged natively via Circle xReserve + CCTP). See
-  §6.2 and Open Questions.
+  §6.2 and Open Design Questions.
