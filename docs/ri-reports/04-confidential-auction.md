@@ -319,12 +319,14 @@ template AuctionLaunchpad
     launchedInstrumentId : InstrumentId
     settlementFactoryCid : ContractId SettlementFactory
     minBidPrice : Decimal
+    perInvestorCap : Decimal                  -- ISSUER-set allocation limit (not bidder-set)
     biddingDeadline : Time                    -- no bids / no settlement before this
     settlementDeadline : Time                 -- == the escrow Allocation deadline
   where
     signatory operator, issuer
     ensure
       minBidPrice > 0.0 &&
+      perInvestorCap > 0.0 &&
       biddingDeadline < settlementDeadline &&
       paymentInstrumentId /= launchedInstrumentId &&   -- the two legs must differ
       operator /= issuer
@@ -335,6 +337,41 @@ template AuctionLaunchpad
     -- (disclosed by the pauser at exercise time). Halt/resume route through
     -- oz-pausable PauseState_Set (controller = issuer, validated via requireRole
     -- IssuerRole), not via a mutated local flag or a stale pointer.
+
+    -- Bid GATE: the only way to create a BidRequest. Because `ensure` cannot
+    -- `fetch`, the escrow validation lives here, on the issuer-signed launchpad, so
+    -- the bound values come from trusted state — not from bidder-supplied fields.
+    nonconsuming choice AuctionLaunchpad_PlaceBid : ContractId BidRequest
+      with
+        bidder : Party
+        paymentAllocationCid : ContractId Allocation
+        bidAmount : Decimal
+        bidPrice : Decimal
+        paymentLegId : Text
+        tokenLegId : Text
+      controller bidder
+      do
+        now <- getTime
+        assertMsg "bidding window closed" (now <= biddingDeadline)
+        assertMsg "bid price below floor" (bidPrice >= minBidPrice)
+        -- Per-investor cap read from THIS launchpad (issuer-signed), not a
+        -- bidder-declared field, so the cap actually constrains.
+        assertMsg "bid exceeds per-investor cap" (bidAmount <= perInvestorCap)
+        -- Bind the escrow: it must be the bidder's own committed allocation, in the
+        -- payment instrument, for exactly `bidAmount`, and carry the SAME deadline
+        -- as the auction (so the post-deadline force-refund is actually reachable —
+        -- Allocation_Withdraw checks the allocation's OWN deadline).
+        alloc <- fetch paymentAllocationCid
+        assertMsg "escrow not owned by bidder" (alloc.allocation.authorizer.owner == Some bidder)
+        assertMsg "escrow deadline != auction settlement deadline"
+          (alloc.allocation.settlement.settlementDeadline == Some settlementDeadline)
+        case filter (\s -> s.side == SenderSide) alloc.allocation.transferLegSides of
+          [s] | s.instrumentId == paymentInstrumentId.id && s.amount == bidAmount -> pure ()
+          _ -> abort "escrow must sign exactly one payment side == (bidAmount, payment instrument)"
+        create BidRequest with
+          bidder; auctioneer = operator; launchpadCid = self
+          paymentAllocationCid; bidAmount; bidPrice
+          paymentLegId; tokenLegId; crossDomainRef = None
 ```
 
 ### 4.3 Confidential bid + policy guards `[FUTURE]`
@@ -352,7 +389,9 @@ template BidRequest
     paymentAllocationCid : ContractId Allocation
     bidAmount : Decimal
     bidPrice : Decimal
-    maxAllocationCap : Decimal
+    -- Leg ids the clearing choice binds the settled legs to (see §4.4).
+    paymentLegId : Text
+    tokenLegId : Text
     -- SCU additive extension point for deferred D3 cross-domain identity.
     crossDomainRef : Optional Text
   where
@@ -360,8 +399,12 @@ template BidRequest
     signatory bidder
     observer auctioneer
 
-    -- Policy guard: integrity + per-investor cap.
-    ensure (bidAmount > 0.0 && bidPrice > 0.0 && bidAmount <= maxAllocationCap)
+    -- Basic integrity only. The load-bearing constraints — bid >= floor,
+    -- bid <= the ISSUER-set per-investor cap, and escrow == (bidAmount, payment
+    -- instrument, matching deadline) — are enforced at creation by the issuer-signed
+    -- `AuctionLaunchpad_PlaceBid` gate (§4.2), NOT here: `ensure` cannot `fetch`,
+    -- and a bidder-supplied cap would be vacuous (the bidder could set it freely).
+    ensure (bidAmount > 0.0 && bidPrice > 0.0)
 
     -- IMPORTANT (spine reality): the escrow is a *committed* Allocation, and
     -- Allocation_Withdraw's `requireWithdrawAllowed` BLOCKS withdraw of a
@@ -384,12 +427,18 @@ template BidRequest
     -- WITHOUT the auctioneer — defeats a stalling auctioneer. The bidder is the
     -- Allocation authorizer AND the deadline has passed, so `requireWithdrawAllowed`
     -- now permits the withdraw (committed + now > deadline).
-    choice BidRequest_ForceRefundAfterDeadline : ContractId Allocation
+    -- Returns the spine's AllocationResult (AllocationWithdrawn with the released
+    -- holding cids) — a withdraw releases holdings, it does not yield a new
+    -- Allocation.
+    choice BidRequest_ForceRefundAfterDeadline : AllocationResult
       controller bidder
       do
         now <- getTime
         lp <- fetch launchpadCid
         assertMsg "settlement window still open" (now > lp.settlementDeadline)
+        -- The PlaceBid gate already bound the escrow deadline to the launchpad's,
+        -- so `Allocation_Withdraw` (which checks the allocation's OWN deadline) is
+        -- guaranteed to permit this now that the launchpad deadline has passed.
         exercise paymentAllocationCid Allocation_Withdraw
 ```
 
@@ -411,10 +460,13 @@ template AuctionClearing
     choice Clearing_ExecuteBatch : [ContractId SettlementReceipt]
       with
         settlementFactoryCid : ContractId SettlementFactory
-        paymentAllocations : [ContractId Allocation]      -- winners' locked payment
+        clearingPrice : Decimal                            -- uniform clearing price
+        winningBids : [ContractId BidRequest]              -- the bids being filled
+        paymentAllocations : [ContractId Allocation]       -- winners' locked payment
         tokenAllocations : [ContractId Allocation]         -- issuer's token side
+        issuerTokenAccount : Account                       -- issuer treasury (token source)
         settlement : SettlementInfo
-        transferLegs : [TransferLeg]                       -- routing legs (bidders ↔ tokens)
+        transferLegs : [TransferLeg]                       -- MUST equal the bound legs below
       controller auctioneer
       do
         -- Window guard: bidding must be closed and the settlement deadline not
@@ -423,12 +475,50 @@ template AuctionClearing
         lp <- fetch launchpadCid
         assertMsg "bidding still open" (now > lp.biddingDeadline)
         assertMsg "settlement window closed" (now <= lp.settlementDeadline)
-        -- Single atomic DvP. If any D1ComplianceHook fails on any leg, or the
-        -- math violates conservation, the whole batch fails-closed.
-        -- Real signature: settlement / transferLegs / allocationCids / actors /
-        -- d1ComplianceRef (NOT `allocations`/`requests`). Both sides commit their
-        -- own allocations — winners' payment AND the issuer's token side — so the
-        -- both-sided check funds every leg from a signed source (no mint-from-air).
+        assertMsg "clearing price below floor" (clearingPrice >= lp.minBidPrice)
+
+        -- ON-LEDGER BINDING (root-cause fix for theft-by-leg-omission). Without
+        -- this, `transferLegs` is auctioneer-chosen and the winner's token amount
+        -- is bound to nothing the bidder signed — the auctioneer could settle a
+        -- winner's payment leg while omitting the delivery leg (full payment, zero
+        -- tokens). So DERIVE the legs from each signed bid instead of trusting
+        -- `transferLegs`: each winner pays exactly their signed `bidAmount` and
+        -- receives exactly `bidAmount / clearingPrice` tokens, and their own
+        -- `bidPrice` must be >= `clearingPrice` (uniform-price eligibility — no
+        -- winner is charged above the price they signed).
+        expectedLegs <- forA winningBids \bidCid -> do
+          bid <- fetch bidCid
+          assertMsg "winning bid is below the clearing price" (bid.bidPrice >= clearingPrice)
+          alloc <- fetch bid.paymentAllocationCid
+          let bidderAccount = alloc.allocation.authorizer
+          paySide <- case filter (\s -> s.side == SenderSide) alloc.allocation.transferLegSides of
+            [s] | s.instrumentId == lp.paymentInstrumentId.id -> pure s
+            _ -> abort "bid escrow must sign exactly one payment (sender) side"
+          assertMsg "escrow amount != signed bidAmount" (paySide.amount == bid.bidAmount)
+          let tokenAmount = bid.bidAmount / clearingPrice
+              payLeg = TransferLeg with
+                transferLegId = bid.paymentLegId
+                sender = bidderAccount; receiver = issuerTokenAccount
+                amount = bid.bidAmount; instrumentId = lp.paymentInstrumentId.id; meta = emptyMetadata
+              tokenLeg = TransferLeg with
+                transferLegId = bid.tokenLegId
+                sender = issuerTokenAccount; receiver = bidderAccount
+                amount = tokenAmount; instrumentId = lp.launchedInstrumentId.id; meta = emptyMetadata
+          pure [payLeg, tokenLeg]
+        -- Pin the settled legs to EXACTLY the bound per-winner (pay, deliver) pairs.
+        -- Now a winner cannot be charged without receiving their tokens, and the
+        -- "never theft" guarantee (§1.4, §7.3) is enforced on-ledger, not asserted.
+        assertMsg "settled legs != the bound per-winner (pay, deliver) legs"
+          (transferLegs == concat expectedLegs)
+
+        -- Single atomic DvP. Both sides commit their own allocations — winners'
+        -- payment AND the issuer's token side — so the both-sided check funds every
+        -- leg from a signed source (no mint-from-air), and every leg now matches a
+        -- bound amount above. D1 is engaged per leg via each allocation's
+        -- `D1ComplianceHook` / the typed attestation path (§3.2): the base
+        -- `SettleBatch` with `d1ComplianceRef = None` shown here is the *unenforced*
+        -- base posture; the RI settles the winners through the attestation path so
+        -- a revoked credential blocks the leg fail-closed.
         exercise settlementFactoryCid SettlementFactory_SettleBatch with
           settlement
           transferLegs
@@ -719,7 +809,11 @@ early.
 - **Oversubscription / partial-fill allocation.** How an oversubscribed round
   allocates the scarce token across winning bids (full-fill-by-rank vs. pro-rata
   partial fills, and how partials interact with the single committed escrow
-  `Allocation`) is undesigned and must be specified.
+  `Allocation`) is undesigned and must be specified. Whatever rule is chosen, the
+  per-winner filled amount and returned change **must be bound on-ledger to the
+  signed bid** exactly as the full-fill clearing does (§4.4) — a partial fill is
+  the same theft surface (F1) per slice, so the binding cannot be dropped for the
+  partial-fill path.
 - **Auction-parameter / deadline policy.** Who sets `biddingDeadline` /
   `settlementDeadline`, the minimum bidding window, and whether deadlines can be
   extended (and under what authority) before clearing.

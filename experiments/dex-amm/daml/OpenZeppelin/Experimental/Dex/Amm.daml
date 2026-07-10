@@ -9,9 +9,13 @@
 --      ON-LEDGER to the amounts the trader SIGNED (the choice reads the trader's
 --      committed allocation and asserts its sender side == `amountIn`/input and
 --      its receiver side == `dOut`/output) — not left to attestor diligence.
---   3. Reserves == holdings: `transferLegs` are pinned on-ledger to exactly the
---      two legs the trader signed, and the pool funds its OWN output leg from its
---      own committed allocation, so the reserve delta matches real holding movement.
+--   3. Reserve delta == pool-account holding movement: `transferLegs` are pinned
+--      on-ledger to exactly the two legs the trader signed, the counterparty of
+--      both legs is bound to the pool's canonical `poolAccount`, and the pool
+--      funds its OWN output leg from its own committed allocation — so the reserve
+--      delta tracks real movement of THIS pool's account. (The *absolute*
+--      invariant reserves == Σ(poolAccount holdings) additionally needs funded
+--      provision at seeding; that seeding step is out of scope for this exemplar.)
 --   4. No dangling pointers / no pause bypass: `Pool` and `PauseState` cids are
 --      choice arguments (never stored fields), and the pause guard lives on the
 --      reserve-updating choice itself.
@@ -49,6 +53,10 @@ template Pool
     -- Typed instrument identity (bound to the issuing admin), not bare Text.
     baseInstrumentId : InstrumentId
     quoteInstrumentId : InstrumentId
+    -- The canonical account whose holdings ARE the reserves. Bound into every
+    -- swap so the counterparty the trader signed cannot be some other account
+    -- (which would let reserves drift from Σ pool-account holdings).
+    poolAccount : Account
     baseReserves : Decimal
     quoteReserves : Decimal
     feeBps : Decimal
@@ -128,16 +136,22 @@ template Pool
           (inSide.amount == amountIn && inSide.instrumentId == inInstrument.id)
         assertMsg "signed output side != (dOut, output instrument)"
           (outSide.amount == dOut && outSide.instrumentId == outInstrument.id)
-        -- Reconstruct the two legs the trader signed (its `otherside` is the pool
-        -- account) and require `transferLegs` to be EXACTLY those — so the holdings
-        -- that move cannot differ from the legs the curve was computed against.
+        -- Bind the COUNTERPARTY IDENTITY too: the account on the other side of
+        -- both signed sides must be THIS pool's canonical account. Without this,
+        -- the reserve delta would track whatever account the trader was quoted,
+        -- not the pool's — the last axis of the reserves-vs-holdings drift.
+        assertMsg "input counterparty is not the pool account" (inSide.otherside == poolAccount)
+        assertMsg "output counterparty is not the pool account" (outSide.otherside == poolAccount)
+        -- Reconstruct the two legs the trader signed (trader ⇄ poolAccount) and
+        -- require `transferLegs` to be EXACTLY those — so the holdings that move
+        -- cannot differ from the legs the curve was computed against.
         let expectedInLeg = TransferLeg with
               transferLegId = inSide.transferLegId
-              sender = traderAccount; receiver = inSide.otherside
+              sender = traderAccount; receiver = poolAccount
               amount = amountIn; instrumentId = inInstrument.id; meta = inSide.meta
             expectedOutLeg = TransferLeg with
               transferLegId = outSide.transferLegId
-              sender = outSide.otherside; receiver = traderAccount
+              sender = poolAccount; receiver = traderAccount
               amount = dOut; instrumentId = outInstrument.id; meta = outSide.meta
         assertMsg "settled legs != the two legs the trader signed"
           (transferLegs == [expectedInLeg, expectedOutLeg])
@@ -275,6 +289,7 @@ dexSwapExemplar = script do
     createCmd Pool with
       operator; lpRegistrar; attestorPool = [attestor]
       baseInstrumentId = baseId; quoteInstrumentId = quoteId
+      poolAccount
       baseReserves = 3000.0; quoteReserves = 1000.0; feeBps = 0.0
       d1ComplianceHook = None
   rules <- submit (actAs [operator, attestor]) do
@@ -344,6 +359,31 @@ dexSwapExemplar = script do
       traderAllocationId = traderAlloc; poolAllocationId = poolAlloc
       baseToQuote = True; amountIn = 2000.0; outputAmount = 400.0
       settlementFactoryId = factory; settlement; transferLegs = [legIn, legOut]
+      d1ComplianceRef = None
+
+  -- PROPERTY 2/3 (direction binding): flipping `baseToQuote` re-derives the
+  -- in/out instruments, so the trader's signed BASE sender side no longer matches
+  -- the (now QUOTE) input instrument. `outputAmount = 1500` is the matching curve
+  -- output for the flipped direction, so it clears k and quote-drift — but the
+  -- instrument binding to the signed side must still reject it. Must fail.
+  submitMustFail (actAs [operator, attestor] <> readAs [admin]) do
+    exerciseCmd rules PoolRules_Swap with
+      poolId = pool; pauseStateId = pauseState
+      traderAllocationId = traderAlloc; poolAllocationId = poolAlloc
+      baseToQuote = False; amountIn = 1000.0; outputAmount = 1500.0
+      settlementFactoryId = factory; settlement; transferLegs = [legIn, legOut]
+      d1ComplianceRef = None
+
+  -- PROPERTY 2/3 (leg pin): correct amounts/direction, but the settled
+  -- `transferLegs` are reordered away from the two legs the trader signed. The
+  -- `transferLegs == [expectedInLeg, expectedOutLeg]` assertion must reject it,
+  -- so no tampered leg set can settle behind a valid curve. Must fail.
+  submitMustFail (actAs [operator, attestor] <> readAs [admin]) do
+    exerciseCmd rules PoolRules_Swap with
+      poolId = pool; pauseStateId = pauseState
+      traderAllocationId = traderAlloc; poolAllocationId = poolAlloc
+      baseToQuote = True; amountIn = 1000.0; outputAmount = dOut
+      settlementFactoryId = factory; settlement; transferLegs = [legOut, legIn]
       d1ComplianceRef = None
 
   -- Happy path: operator + attestor co-authorize the swap.

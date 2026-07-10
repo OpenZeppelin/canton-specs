@@ -20,8 +20,8 @@ claim of acceptance, conformance, audit readiness, or production readiness.
 > delivery-versus-payment (DvP) swap** — two committed allocations settled in one
 > all-or-nothing `SettleBatch`. Everything else is a *market structure* layered on
 > that primitive: the constant-product **AMM** is the lead exemplar this document
-> builds out end-to-end, and a **CLOB** and **RFQ** venue are named as *sibling*
-> applications over the same atomic-swap core, not re-parameterizations of the AMM
+> builds out end-to-end for the swap path, and a **CLOB** and **RFQ** venue are
+> named as *sibling* applications over the same atomic-swap core, not re-parameterizations of the AMM
 > (see §1, "The extensible primitive"). This framing is what makes the M2
 > deliverable extensible. Companion deliverables (working reference code, demo
 > front-end, threat model, "how to build DeFi on Canton" materials) are named here
@@ -46,9 +46,12 @@ all-or-nothing `SettleBatch`, with each leg's amount pinned on-ledger to a signe
 allocation side. Every trading venue in scope reduces to *how a price/quantity is
 agreed* on top of that same swap: an AMM derives the price from a
 constant-product curve, a CLOB from a matched resting order, an RFQ from a
-signed dealer quote — but all three *settle* through the identical atomic-swap
-core. The objective is therefore a readable, verifiable, forkable **settlement
-primitive** that ecosystem developers can use to construct exchange variations,
+signed dealer quote — but all three *settle* over the same `SettleBatch` spine
+(a single-shot swap for the AMM; a CLOB that does partial fills additionally
+exercises the iterated-settlement path, §7.1, which is a superset of the
+single-shot swap, not a different settlement authority). The objective is
+therefore a readable, verifiable, forkable **settlement primitive** that
+ecosystem developers can use to construct exchange variations,
 with the constant-product AMM built out here as the lead exemplar.
 
 The architecture is built on the **CIP-0112 / Token Standard V2 settlement
@@ -66,7 +69,7 @@ everything else as an explicit extension point or out-of-scope.
 
 | Feature Category | In-Scope Architectural Components |
 |---|---|
-| Market Structure | A simple **spot** exchange whose enabling primitive is the **atomic DvP swap**. The lead exemplar built out here is a constant-product AMM with a single liquidity pool (`x · y = k`) to establish a spot price. A **CLOB** and an **RFQ** venue are **sibling applications built on the same atomic-swap core** (see *The extensible primitive* below and *Settlement Mechanics*) — they reuse the settlement primitive, differing only in how price/quantity is agreed, not in how trades settle. |
+| Market Structure | A simple **spot** exchange whose enabling primitive is the **atomic DvP swap**. The lead exemplar built out here is a constant-product AMM with a single liquidity pool (`x · y = k`) to establish a spot price. A **CLOB** and an **RFQ** venue are **sibling applications built on the same atomic-swap core** (see *The extensible primitive* below and *Settlement Mechanics*) — they reuse the settlement primitive, differing in how price/quantity is agreed; all settle over the same `SettleBatch` spine (a partial-fill CLOB additionally uses the iterated-settlement path, §7.1). |
 | Core Flows | The four flows the grant M2 acceptance names, each modeled as settlement over the spine: **pool creation** (operator + LP registrar + attestor pool instantiate a `Pool`), **liquidity provision / removal** (deposit both instruments → mint LP tokens; burn LP tokens → withdraw proportional reserves), **swap execution** (two-leg DvP), and **fee collection** (`feeBps` accrues into reserves, raising LP-token redemption value). |
 | Asset Representation | Fungible digital assets compliant with the CIP-0112 Token Standard V2 holding interfaces. LP tokens represent pool-share ownership and are minted/burned via the spine. |
 | Settlement Mechanics | Atomic delivery-versus-payment (DvP) executed **only** through [`SettlementFactory_SettleBatch`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L237). The design uses committed allocations and the optional `nextIterationFunding` field to support prefunded trading and partial fills (explained under *Security Invariants* §7.1). |
@@ -452,7 +455,9 @@ offline attestor cannot stall the pool — is an open question, §9.)
    `Δout` to them, and
 2. archives the current `Pool` (the choice is *consuming*) and creates the new
    `Pool` with reserves updated by `+Δin / −Δout` (which, because the pool's
-   output leg moved exactly `Δout` of real holdings, keeps reserves == holdings),
+   output leg moved exactly `Δout` of the *bound* `poolAccount`'s holdings, keeps
+   the reserve *delta* equal to real pool-account holding movement — see §4.1's
+   `poolAccount` binding),
 
 all under Daml-LF 2.1's all-or-nothing transaction semantics. There is no
 intermediate state in which reserves have moved but the legs have not settled,
@@ -460,7 +465,11 @@ or vice versa: either the whole tuple (reserve update + every settlement leg)
 commits, or the transaction rolls back and nothing changes. This is what keeps
 the published pool price and the assets actually delivered mutually consistent,
 and it is the on-ledger realization of the §7.1 *AMM Conservation* invariant —
-the property is enforced by Canton consensus, not by operator discipline.
+the co-atomicity and the reserve-*delta*/holding-movement equality are enforced
+by Canton consensus, not by operator discipline. (The *absolute* invariant
+`reserves == Σ(poolAccount holdings)` at every instant additionally requires
+funded provision at seeding, tracked as an open item in §7.1/§9 — the binding
+here guarantees the per-swap delta, not the seeding.)
 
 ### Liquidity Provision, Removal, and Fee Accrual
 
@@ -691,6 +700,10 @@ template Pool
     -- its issuing admin, so a Pool can only name instruments that admin issued.
     baseInstrumentId : InstrumentId
     quoteInstrumentId : InstrumentId
+    -- The canonical account whose holdings ARE the reserves. Bound into every
+    -- swap (below) so the counterparty the trader signed cannot be a different
+    -- account — the last axis of reserves-vs-holdings drift.
+    poolAccount : Account
     baseReserves : Decimal
     quoteReserves : Decimal
     feeBps : Decimal
@@ -779,13 +792,18 @@ template Pool
           (inSide.amount == amountIn && inSide.instrumentId == inInstrument.id)
         assertMsg "signed output side != (dOut, output instrument)"
           (outSide.amount == dOut && outSide.instrumentId == outInstrument.id)
+        -- Bind the COUNTERPARTY IDENTITY: both signed sides must face THIS pool's
+        -- canonical account, so the reserve delta tracks the pool's holdings, not
+        -- whatever account the trader happened to be quoted.
+        assertMsg "input counterparty is not the pool account" (inSide.otherside == poolAccount)
+        assertMsg "output counterparty is not the pool account" (outSide.otherside == poolAccount)
         let expectedInLeg = TransferLeg with
               transferLegId = inSide.transferLegId
-              sender = traderAccount; receiver = inSide.otherside
+              sender = traderAccount; receiver = poolAccount
               amount = amountIn; instrumentId = inInstrument.id; meta = inSide.meta
             expectedOutLeg = TransferLeg with
               transferLegId = outSide.transferLegId
-              sender = outSide.otherside; receiver = traderAccount
+              sender = poolAccount; receiver = traderAccount
               amount = dOut; instrumentId = outInstrument.id; meta = outSide.meta
         assertMsg "settled legs != the two legs the trader signed"
           (transferLegs == [expectedInLeg, expectedOutLeg])
@@ -1068,9 +1086,8 @@ containment boundaries.
   [`SettlementFactory_SettleBatch`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L237) over the *exact* committed [`Allocation`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L454) and the
   trader's own [`AllocationRequest`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L299) (whose signed exact-output amount is the
   bound — the spine is exact-in/exact-out; see §3) — it cannot deviate from the
-  authorized leg or fabricate a transfer the trader did not commit. It also
-  cannot deviate from the authorized leg or fabricate a transfer the trader did
-  not commit. The reclaim story is more nuanced than "the trader can always
+  authorized leg or fabricate a transfer the trader did not commit. The reclaim
+  story is more nuanced than "the trader can always
   settle or reclaim independently" (which is **not** true) — precisely:
   settlement is **not** unilateral to the trader (`Allocation_Settle` /
   `Allocation_SettleInBatch` require `admin :: executors` authority, so a trader

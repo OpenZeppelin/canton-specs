@@ -243,7 +243,7 @@ adapts, so they are stated here as decided behavior rather than open design:
   `Vault_BurnStablecoin`, `Vault_Liquidate_ViaSpine`, `Vault_Close`) before the
   solvency check, so across two windows `t₁` then `t₂` the debt grows by
   `P·(1 + r·t₁)·(1 + r·t₂)` — which **compounds** (it exceeds the true simple-interest
-  `P·(1 + r·(t₁+t₂))` by `r²·t₁·t₂`). So the accurate characterization is
+  `P·(1 + r·(t₁+t₂))` by `P·r²·t₁·t₂`). So the accurate characterization is
   **discrete compounding at every interaction**, not simple interest. (The real
   `canton-stablecoin` `accrueDebt` docstring calls itself "linear"; that comment is
   inconsistent with the code's behaviour, and this RI states the behaviour the code
@@ -344,14 +344,17 @@ The initial `VaultFactory_OpenVault` KYC gate is necessary but not sufficient: a
 borrower can lose good standing (credential revoked, jurisdiction change) after
 opening. Because every value-moving `Vault` operation settles through
 `SettleBatch`, the same D1 path (`D1ComplianceHook` / Shape-B attestation, §D1
-below) is engaged **per leg, fail-closed, with no caching**, so compliance is
-re-evaluated on each `Vault_DepositCollateral`, `Vault_WithdrawCollateral`,
-`Vault_MintStablecoin`, `Vault_BurnStablecoin`, and the liquidation legs. A
-`CredentialRevocationStatus` of *revoked* therefore blocks *new* borrows,
-top-ups, and withdrawals immediately. Deliberately, **liquidation and full
-repayment/close are not gated on the borrower's continued compliance** — a
-now-non-compliant position must still be able to be wound down (repaid or
-liquidated), never trapped. (The real `canton-stablecoin` `Vault` has no
+below) is engaged **per leg, fail-closed, with no caching**, and each leg checks
+the compliance of the party *moving value on that leg*. So the **borrower's**
+credential is re-evaluated on each `Vault_DepositCollateral`,
+`Vault_WithdrawCollateral`, and `Vault_MintStablecoin`, and a
+`CredentialRevocationStatus` of *revoked* blocks the borrower's *new* borrows,
+top-ups, and withdrawals immediately. Deliberately, the borrower's continued
+compliance is **not** a precondition for winding the position down: on
+`Vault_BurnStablecoin`/`Vault_Close` the borrower is repaying (reducing risk),
+and on the liquidation legs it is the *liquidator's* compliance that is checked,
+not the borrower's — so a now-non-compliant position can always be repaid or
+liquidated, never trapped. (The real `canton-stablecoin` `Vault` has no
 compliance check at all; this per-operation posture is an RI-level addition.)
 
 ### Oracle Handling: Staleness Guard + Circuit Breaker
@@ -368,11 +371,13 @@ deferred):
   vault's, closing the ambiguity where a feed quoted in a different unit could be
   applied to the wrong debt token.
 - **Committee-attested updates (no single-writer price).** `PriceOracle_UpdatePrice`
-  is `controller admin :: oracleCommittee` — mirroring the DEX `attestorPool`, a
-  quorum of independent attestors must co-sign each price. This is the primary
+  is `controller admin :: oracleCommittee` — mirroring the DEX `attestorPool`, the
+  **full committee (all-of-M)** must co-sign each price. This is the primary
   defence against the "compromised admin sets `price → ε` and liquidates
   everyone" attack: a lone admin can no longer move the price, so it can no longer
   manufacture liquidations. Members are `RoleGrant`-authorized (`OracleProvider`).
+  (An N-of-M *threshold* — needed so one offline attestor cannot stall updates —
+  is the open question in §9, exactly as for the DEX attestor pool.)
 - **Max-staleness guard (consumes `updatedAt`).** `PriceOracle` carries an
   `updatedAt : Time`. Every price-dependent choice (`Vault_Mint*`,
   `Vault_Withdraw*`, `Vault_FlagForLiquidation`, `Vault_Liquidate_ViaSpine`)
@@ -381,10 +386,14 @@ deferred):
   liquidations or fresh borrows against a dead price. (`maxStaleness` /
   `maxDeviation` are additive `[FUTURE]` `VaultParams` fields, SCU-compatible.)
 - **Per-update deviation circuit breaker.** `PriceOracle_UpdatePrice` bounds the
-  jump between consecutive prices (`|newPrice - price| / price <= maxDeviation`);
-  an out-of-band move is rejected, and a breach trips the `oz-pausable`
-  kill-switch (`whenNotPaused`), halting liquidation origination until an admin
-  reviews. This blunts single-update oracle manipulation.
+  jump between consecutive prices against the oracle's own `maxDeviation` field
+  (`|newPrice - price| / price <= maxDeviation`); an out-of-band move **aborts the
+  update**, so the last in-band price stands (and the staleness guard eventually
+  fires if no valid update follows). Note the abort cannot itself flip a pause —
+  an aborting transaction persists nothing — so tripping the `oz-pausable`
+  kill-switch on repeated breaches is a *separate* admin/keeper action, not a
+  side effect of the rejected update. Together this blunts single-update oracle
+  manipulation.
 - **TWAP (deferred).** A time-weighted average price over a window is named as a
   follow-on hardening for manipulation resistance; the additive `Optional`
   carrier for it is an SCU extension point (§9).
@@ -477,12 +486,16 @@ data VaultParams = VaultParams
     liquidationBonus : Decimal     -- fixed-discount penalty, e.g. 0.10
     stabilityFeeRate : Decimal     -- FIXED / immutable rate (open-term, no maturity)
     -- [FUTURE] additive (SCU-appended) risk params — NOT in the current real
-    -- 4-field shape; the oracle-hardening (§3), margin-call (§3), and liquidation
-    -- (§4.4) designs reference these, protocol-set (never liquidator-supplied):
+    -- 4-field shape; the margin-call (§3) and liquidation (§4.4) designs reference
+    -- these, protocol-set (never liquidator-supplied):
     --   maxStaleness : RelTime     -- reject a price older than this
-    --   maxDeviation : Decimal     -- per-update price-jump circuit breaker
     --   gracePeriod  : RelTime     -- margin-call cure window before liquidation
     --   closeFactor  : Decimal     -- max fraction of debt one liquidation may repay
+    -- Because VaultParams is a `data` record it cannot carry its own `ensure`; the
+    -- VaultFactory validates the bounds at open — in particular 0.0 < closeFactor
+    -- <= 1.0 (a 0 close factor would make `debtRepaid <= closeFactor*debt` force
+    -- debtRepaid <= 0 and brick liquidation) and gracePeriod >= 0.
+    -- (maxDeviation lives on the PriceOracle, not here — see below.)
   deriving (Eq, Show)
   -- (collateralInstrumentId / stablecoinInstrumentId : InstrumentId live on
   --  VaultFactory and Vault; the oracle ALSO names both — see below.)
@@ -493,33 +506,42 @@ data VaultParams = VaultParams
 --     RI also names the quote instrument, so `price` is unambiguously "units of
 --     THIS stablecoin per unit of THIS collateral" and consumers assert both.
 --   * `oracleCommittee` + committee-controlled update — the real update path is
---     `controller admin` alone; the RI co-controls it with a quorum (like the DEX
+--     `controller admin` alone; the RI co-controls it with the full committee (like the DEX
 --     attestorPool) so no single compromised admin can move the price (§3, §7.3).
 -- The update path is *consuming* (archive-and-recreate to publish), so the cid is
 -- passed to consumers at exercise time (liquidation's `oracleCid`), never stored.
 template PriceOracle
   with
     admin : Party
-    oracleCommittee : [Party]      -- [FUTURE] attestor quorum co-signing updates
+    oracleCommittee : [Party]      -- [FUTURE] attestor set co-signing updates (all-of-M)
     collateralInstrumentId : InstrumentId
     stablecoinInstrumentId : InstrumentId  -- [FUTURE] the unit `price` is quoted in
     price : Decimal                -- units of stablecoinInstrumentId per collateral unit
+    -- Circuit-breaker bound, set at creation and mutable ONLY via a separate
+    -- governance choice — NOT a per-update argument, so a submitting committee
+    -- cannot widen its own deviation bound (the writer-set-bound anti-pattern).
+    maxDeviation : Decimal
     updatedAt : Time
     observers : [Party]            -- real field: distinct readers (NOT admin)
   where
     signatory admin, oracleCommittee
     observer observers             -- legitimate (observers /= the admin signatory)
-    ensure price > 0.0 && collateralInstrumentId /= stablecoinInstrumentId
+    ensure price > 0.0 && maxDeviation > 0.0 &&
+           collateralInstrumentId /= stablecoinInstrumentId
 
-    -- Committee-attested, RoleGrant-gated, deviation-bounded price publish.
+    -- Committee-attested, RoleGrant-gated, deviation-bounded price publish. The
+    -- deviation bound is read from `this.maxDeviation` (trusted signed state), not
+    -- supplied by the caller.
     choice PriceOracle_UpdatePrice : ContractId PriceOracle
       with
         newPrice : Decimal
-        maxDeviation : Decimal     -- protocol-set (VaultParams), not writer-set
-      controller admin :: oracleCommittee   -- quorum co-signs; no single writer
+      controller admin :: oracleCommittee   -- full committee co-signs; no single writer
       do
         assertMsg "price must be positive" (newPrice > 0.0)
-        -- per-update circuit breaker; a breach should trip the pausable kill-switch
+        -- Per-update circuit breaker against `this.maxDeviation`. A breach ABORTS
+        -- the update (the stale-but-safe last price stands, and staleness guards
+        -- eventually fire); pausing on repeated breaches is a separate admin
+        -- action, since an aborting transaction cannot also persist a pause.
         assertMsg "price deviation out of band"
           (abs (newPrice - price) / price <= maxDeviation)
         now <- getTime
@@ -573,8 +595,11 @@ template LendingVaultFactory
 ```daml
 -- canton-stablecoin Vault fields (exact): admin, owner, collateralInstrumentId,
 -- stablecoinInstrumentId, collateralAmount, debtAmount, params, lastAccrualTime.
--- The RI adds ONE additive (SCU-appended) field for the margin-call flow:
---   liquidationFlaggedAt : Optional Time   -- None until flagged; set by the flag choice
+-- The RI adds TWO additive (SCU-appended) fields:
+--   liquidationFlaggedAt : Optional Time  -- None until flagged; set by the flag choice
+--   principalAmount      : Decimal        -- borrowed principal, tracked apart from
+--                                         --   accrued fee so the fee split (§3) is
+--                                         --   computable; debtAmount stays the total
 -- The real `Vault_Liquidate` seizes the WHOLE vault in one shot and, in its
 -- under-water branch, hands over ALL collateral regardless of how much the
 -- liquidator pays (booking the gap as badDebt) — the critical vuln. The RI
@@ -613,7 +638,10 @@ template LendingVaultFactory
         oracleCid : ContractId PriceOracle             -- current oracle, passed in (mutable)
         settlementFactoryCid : ContractId SettlementFactory
         debtAllocationId : ContractId Allocation       -- liquidator's committed stablecoin
-        vaultCollateralAllocationId : ContractId Allocation  -- VAULT's committed collateral (funds the seize leg)
+        vaultCollateralAllocationId : ContractId Allocation  -- VAULT's committed collateral (funds the seize leg);
+                                                             -- committed by admin+owner (the collateral custody
+                                                             -- account's parties) via the standard spine lifecycle
+                                                             -- when the vault is flagged/serviced, not by the liquidator
         settlement : SettlementInfo
         transferLegs : [TransferLeg]                   -- exact legs (debt in / collateral out / fee out)
       controller liquidator
@@ -642,37 +670,72 @@ template LendingVaultFactory
         assertMsg "vault is solvent"
           (collateralRatio collateralAmount accruedDebt oracle.price < params.liquidationRatio)
 
-        -- ON-LEDGER BINDING (root-cause fix for "pay 1 unit, seize everything"):
-        -- read how much stablecoin the liquidator actually SIGNED to pay, and drive
-        -- seizure off THAT — never off the vault's full accrued debt.
+        -- ON-LEDGER BINDING — PAY SIDE (root-cause fix for "pay 1 unit, seize
+        -- everything"): read how much stablecoin the liquidator actually SIGNED to
+        -- pay, and drive seizure off THAT — never off the vault's full accrued debt.
         liqAlloc <- fetch debtAllocationId
-        debtRepaid <- case filter (\s -> s.side == SenderSide) liqAlloc.allocation.transferLegSides of
-          [s] | s.instrumentId == stablecoinInstrumentId.id -> pure s.amount
+        let liquidatorAccount = liqAlloc.allocation.authorizer
+        paySide <- case filter (\s -> s.side == SenderSide) liqAlloc.allocation.transferLegSides of
+          [s] | s.instrumentId == stablecoinInstrumentId.id -> pure s
           _ -> abort "liquidator must sign exactly one stablecoin payment (sender) side"
+        let debtRepaid = paySide.amount
         assertMsg "payment must be positive" (debtRepaid > 0.0)
         -- PARTIAL / PROPORTIONAL liquidation: one call may repay at most a
         -- `closeFactor` slice of the debt (enough to restore health, not the whole
-        -- position), and never more than the outstanding debt.
+        -- position), and never more than the outstanding debt. (The VaultFactory
+        -- validates `0.0 < closeFactor <= 1.0` at open, so this cap can never
+        -- brick to 0.)
         assertMsg "repayment exceeds close-factor cap"
           (debtRepaid <= min accruedDebt (params.closeFactor * accruedDebt))
         -- Collateral seized is EXACTLY what the payment (plus bonus) buys, capped by
         -- what the vault holds. A tiny payment now seizes only a tiny slice.
         let collateralToSeize =
               min collateralAmount ((debtRepaid * (1.0 + params.liquidationBonus)) / oracle.price)
-        -- Split the payment: the accrued-fee fraction of the cleared debt routes to
-        -- the insurance fund (see §3 "Fees are routed, not burned"); the principal
-        -- fraction is burned via BurnerCapability. `feePortion` derives from the
-        -- vault's principal vs accrued-fee split (RI tracks principalAmount additively).
 
-        -- Atomic DvP via the single spine entrypoint. Each side commits its OWN
-        -- allocation (like the DEX pool funding its output leg, §01 §4.1):
-        --   leg 1 — debtAllocationId: liquidator's `debtRepaid` stablecoin, split
-        --           into a burn leg (principal) and an insurance-fund leg (fee);
-        --   leg 2 — vaultCollateralAllocationId: `collateralToSeize` of the VAULT's
-        --           own collateral → liquidator.
+        -- ON-LEDGER BINDING — SEIZE SIDE (the other half; without this the seize
+        -- amount would be operator-asserted via `transferLegs`, re-opening the very
+        -- gap). Read the VAULT's own committed collateral allocation and require its
+        -- signed sender side to be EXACTLY `collateralToSeize` of the collateral
+        -- instrument, then pin `transferLegs` to exactly the two bound legs — mirror
+        -- of the DEX `Pool_Swap` fix (§01 §4.1).
+        vaultCollAlloc <- fetch vaultCollateralAllocationId
+        let vaultCollateralAccount = vaultCollAlloc.allocation.authorizer
+        collSide <- case filter (\s -> s.side == SenderSide) vaultCollAlloc.allocation.transferLegSides of
+          [s] | s.instrumentId == collateralInstrumentId.id -> pure s
+          _ -> abort "vault must sign exactly one collateral (sender) side"
+        assertMsg "seized collateral != collateralToSeize" (collSide.amount == collateralToSeize)
+        assertMsg "collateral must be delivered to the paying liquidator"
+          (collSide.otherside == liquidatorAccount)
+        -- The payment must be delivered to the protocol account (the issuer/admin),
+        -- so it cannot be redirected; binding the receiver mirrors the pool-account
+        -- identity binding in the DEX.
+        assertMsg "payment must be delivered to the protocol (admin) account"
+          (paySide.otherside.owner == Some admin)
+        let expectedPayLeg = TransferLeg with
+              transferLegId = paySide.transferLegId
+              sender = liquidatorAccount; receiver = paySide.otherside
+              amount = debtRepaid; instrumentId = stablecoinInstrumentId.id; meta = paySide.meta
+            expectedSeizeLeg = TransferLeg with
+              transferLegId = collSide.transferLegId
+              sender = vaultCollateralAccount; receiver = liquidatorAccount
+              amount = collateralToSeize; instrumentId = collateralInstrumentId.id; meta = collSide.meta
+        assertMsg "settled legs != the bound (payment, seize) legs"
+          (transferLegs == [expectedPayLeg, expectedSeizeLeg])
+
+        -- FEE SPLIT (see §3 "Fees are routed, not burned"). The debt commingles
+        -- principal and accrued fee; the RI tracks `principalAmount` (an additive
+        -- field, below) so the split is computable. Of the `debtRepaid` received at
+        -- the protocol account, the principal fraction is burned via
+        -- `BurnerCapability` (removing backing from supply, preserving the 1:1
+        -- invariant) and the fee fraction is retained as insurance-fund capital.
+        let principalRepaid =
+              if accruedDebt == 0.0 then 0.0 else debtRepaid * (principalAmount / accruedDebt)
+
+        -- Atomic DvP via the single spine entrypoint over the two bound allocations.
         -- `SettleBatch`'s both-sided check pins each leg's exact amount to a signed
-        -- allocation side, so the liquidator can neither over-seize nor under-pay,
-        -- and the amounts must match `debtRepaid` / `collateralToSeize` above.
+        -- allocation side, and `transferLegs` is already pinned to the two legs
+        -- whose amounts are `debtRepaid` / `collateralToSeize` above — so neither
+        -- over-seizure nor under-payment can settle.
         receipts <- exercise settlementFactoryCid SettlementFactory_SettleBatch with
           settlement
           transferLegs
@@ -680,23 +743,26 @@ template LendingVaultFactory
           actors = settlement.executors
           d1ComplianceRef = None
 
-        -- Recreate the (partially) liquidated vault: debt and collateral each fall
-        -- by the settled amounts, so collateralAmount stays == real holdings. If the
-        -- position is now healthy the flag is cleared; if still under-water it stays
-        -- flagged (and, being already past grace, is immediately re-liquidatable).
-        -- `controller liquidator` is safe: the successor's signatories (admin+owner)
-        -- delegate to this choice's consequences, and every amount is deterministic
-        -- and payment-bound on-ledger, so the liquidator cannot deviate.
+        -- Recreate the (partially) liquidated vault: debt, principal, and collateral
+        -- each fall by the settled amounts, so `collateralAmount` stays == real
+        -- holdings. If the position is now healthy the flag clears; if still
+        -- under-water the ORIGINAL flag time is preserved (NOT reset to `now`), so
+        -- the vault — already past grace — is immediately re-liquidatable rather
+        -- than granted a fresh grace window each partial pass.
         let remainingDebt = accruedDebt - debtRepaid
             remainingCollateral = collateralAmount - collateralToSeize
             stillUnhealthy =
               collateralRatio remainingCollateral remainingDebt oracle.price < params.liquidationRatio
+        receipt <- case receipts of   -- (Daml's Prelude has no `head`)
+          r :: _ -> pure r            -- receipts align with allocationCids order
+          [] -> abort "SettleBatch returned no receipt"
         newVault <- create this with
           collateralAmount = remainingCollateral
           debtAmount = remainingDebt
+          principalAmount = principalAmount - principalRepaid
           lastAccrualTime = now
-          liquidationFlaggedAt = if stillUnhealthy then Some now else None
-        return (newVault, head receipts)  -- receipts align with allocationCids order
+          liquidationFlaggedAt = if stillUnhealthy then liquidationFlaggedAt else None
+        return (newVault, receipt)
 
     -- D2 lock-and-sweep: NO bespoke "D2SeizureHook_Sweep" template — D2SeizureHook
     -- is a spine config record (seizureCaseRef, custodianDestination,
@@ -884,7 +950,7 @@ gate is `dpm build --all` plus the Daml Script suites run by
 
 | Vector | Failure Mode | Mitigation |
 |---|---|---|
-| Oracle manipulation by a compromised admin | Admin sets `price → ε` and self-liquidates every vault, stealing all collateral. | `PriceOracle_UpdatePrice` is **co-controlled by the oracle committee** (`controller admin :: oracleCommittee`), so a lone admin cannot move the price; plus a per-update deviation bound whose breach trips the `oz-pausable` kill-switch. This is the primary defence; committee quorum is the structural fix, the breaker/pause is defence-in-depth. |
+| Oracle manipulation by a compromised admin | Admin sets `price → ε` and self-liquidates every vault, stealing all collateral. | `PriceOracle_UpdatePrice` is **co-controlled by the oracle committee** (`controller admin :: oracleCommittee`), so a lone admin cannot move the price; plus a per-update deviation bound (read from the oracle's own `maxDeviation`) whose breach aborts the update, with a separate admin/keeper `oz-pausable` trip on repeated breaches. This is the primary defence; committee co-signing is the structural fix, the breaker/pause is defence-in-depth. |
 | Oracle staleness | `PriceOracle` stalled → liquidations/borrows against a dead price. | Price-dependent choices (`Vault_Mint*`, `Vault_Withdraw*`, `Vault_FlagForLiquidation`, `Vault_Liquidate_ViaSpine`) reject when `now - updatedAt > maxStaleness`. TWAP + multiple feeds are a named follow-on (§9). |
 | Under-paying liquidator ("pay 1, take all") | Liquidator supplies a tiny stablecoin amount and seizes the whole vault. | Seizure is **bound on-ledger to the liquidator's signed payment**: `collateralToSeize = min(collateralAmount, debtRepaid·(1+bonus)/price)` with `debtRepaid` read from the liquidator's own allocation and pinned by `SettleBatch`'s both-sided check. A small payment seizes only a small, proportional slice (§4.4). |
 | Liquidation front-running the borrower | A liquidation lands before the owner can top up. | Two-phase margin call: `Vault_FlagForLiquidation` opens a `gracePeriod` the owner owns for curing; `Vault_Liquidate_ViaSpine` asserts the vault is flagged and the grace period has elapsed, so it cannot pre-empt the cure window (§3). |

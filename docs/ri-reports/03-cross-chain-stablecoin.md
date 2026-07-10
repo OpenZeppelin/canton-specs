@@ -239,6 +239,16 @@ instrument never exceeds the sum of valid, unredeemed `LockAttestation`s for it:
 `mintedSupply ≤ Σ lockedAmount(unredeemed)`. Mint increments the claimed reserve;
 redemption (§3.6) decrements it. This is the on-ledger statement of 1:1 backing.
 
+**Where the coupling must bite.** `SettleBatch` conserves value at *settlement*
+by funding the recipient's leg from a sender's locked holdings — so the actual
+unbacked-issuance surface is the *creation* of the wrapped input holdings that get
+locked, not the settle. The mint of the wrapped instrument must therefore be
+reachable **only** through the attested inbound flow (the `Gateway_ProcessInbound`
+→ attested allocation path, §4.1), consuming a `LockAttestation` with
+`mintedAmount == lockedAmount` — there is **no** standalone admin mint of the
+wrapped instrument. That keeps backing enforced where supply is created, not
+merely where it settles.
+
 ### 3.6 Outbound redemption (burn on Canton → release on source chain) `[FUTURE]`
 
 Redemption is the other half of any bridge and the path a regulated user needs.
@@ -255,7 +265,11 @@ It is the mirror of the inbound flow:
    verifies a single trusted-attester signature, not a threshold.
 3. **Release on the source chain.** The signed burn attestation is submitted to
    the source-chain escrow contract, which releases `amount` of locked backing
-   to `sourceChainDestination` and the reserve is decremented.
+   to `sourceChainDestination` and the reserve is decremented. So the reserve set
+   stays the ground truth, the burn **references and draws down specific unredeemed
+   `LockAttestation`(s)** (marking them redeemed / decrementing their remaining
+   `lockedAmount`), rather than being keyed only by its own new `nonce` — otherwise
+   `Σ lockedAmount(unredeemed)` and actual supply could drift under partial burns.
 
 **Cross-chain atomicity, honestly.** The source-chain release is **not** in the
 same Daml transaction as the Canton burn (no protocol spans both ledgers
@@ -339,11 +353,16 @@ template StandardizedMessagingGateway
     -- (the same dangling-pointer hazard as a stored `PauseState` cid). The
     -- current registry is passed as a choice ARGUMENT, disclosed at exercise time.
 
+    -- `InboundMessage` is a ONE-TIME carrier: a template whose signatories are the
+    -- attester quorum, holding the `LockAttestation` value. It is CONSUMED here, so
+    -- the keyless archive gives the replay protection §3.5 relies on (the nonce
+    -- cannot be processed twice). Note the current spine verifies a single trusted
+    -- attester, not N-of-M (see §3.5 caveat); the quorum is `[FUTURE]`.
     nonconsuming choice Gateway_ProcessInbound : ContractId AllocationInstruction
       with
         relayerGrant : ContractId RoleGrant
         registryCid : ContractId TrustedIssuerRegistry  -- current registry, passed in (not stored)
-        inboundAmount : Decimal
+        inboundMessageCid : ContractId InboundMessage   -- one-time carrier of the LockAttestation
         recipient : Party
         kycClaim : ContractId KycClaim
         settlementFactory : ContractId SettlementFactory
@@ -362,7 +381,22 @@ template StandardizedMessagingGateway
         assertMsg "D1: issuer not in current trusted registry"
           (claim.declaredIssuer `elem` registry.trustedIssuers)
 
-        -- 3. Drive the spine: create the (committed) allocation instruction.
+        -- 3. BIND TO BACKING + REPLAY-PROTECT. The mint amount is NOT a free
+        --    operator argument — it is DERIVED from a signed `LockAttestation`, and
+        --    the carrier is consumed so the same lock cannot be minted twice. No
+        --    attestation ⇒ no mint (closes the unbacked-issuance gap).
+        now <- getTime
+        msg <- fetch inboundMessageCid
+        let att = msg.attestation
+        assertMsg "attestation expired" (now <= att.expiry)
+        assertMsg "recipient != attested recipient" (recipient == att.cantonRecipient)
+        assertMsg "attested instrument admin is not this gateway's admin"
+          (att.cantonInstrumentId.admin == admin)
+        archive inboundMessageCid       -- one-time consumption ⇒ nonce cannot replay
+        let inboundAmount = att.lockedAmount   -- bound to the attested locked backing
+
+        -- 4. Drive the spine: create the (committed) allocation instruction for
+        --    EXACTLY `inboundAmount` of `att.cantonInstrumentId` to `recipient`.
         exercise settlementFactory SettlementFactory_CreateAllocationInstruction with ..
 ```
 
@@ -384,14 +418,20 @@ template CrossChainDvP
     choice Execute_Inbound_Settlement : ContractId SettlementReceipt
       with
         instructionId : ContractId AllocationInstruction
+        recipientPreapprovalCid : ContractId TransferPreapproval  -- recipient's standing delegated-accept
         batchFactory : ContractId SettlementFactory
         settlement : SettlementInfo
         transferLegs : [TransferLeg]
       controller executor
       do
-        -- Recipient's required co-authorization is satisfied via their standing
-        -- TransferPreapproval (delegated accept for an offline treasury).
-        result <- exercise instructionId AllocationInstruction_Accept
+        -- Recipient's required co-authorization: AllocationInstruction_Accept's
+        -- controller is the recipient (the allocation authorizer), which an offline
+        -- treasury cannot provide live. The recipient's standing TransferPreapproval
+        -- carries that delegated authority, so we fetch it and accept ON THEIR
+        -- BEHALF via the preapproved actors — the executor cannot self-authorize.
+        preapproval <- fetch recipientPreapprovalCid
+        result <- exercise instructionId AllocationInstruction_Accept with
+          actors = preapproval.preapprovedActors   -- recipient's delegated authority
         let allocationId = case result of
               AllocationInstructionCompleted cid -> cid
               _ -> error "instruction did not complete"
@@ -399,16 +439,20 @@ template CrossChainDvP
         -- Atomic DvP via the single spine entrypoint. Settlement conserves value
         -- per instrument (locked funds must cover sender obligations; surplus
         -- returns as change); a failed batch returns holdings to the sender.
-        -- Real signature: settlement / transferLegs / allocationCids / actors /
-        -- d1ComplianceRef — NOT `allocations`/`requests` — and it returns a LIST
-        -- of receipts (one per allocation).
+        -- D1 is re-checked per leg via the attestation path: the shown
+        -- `d1ComplianceRef = None` is the *unenforced base posture*; the RI settles
+        -- through `SettlementFactory_SettleBatchWithAttestation` (or an allocation
+        -- whose `D1ComplianceHook.requiresPerSettlementReference` is set) so a
+        -- credential revoked between accept and settle blocks the leg fail-closed.
         receipts <- exercise batchFactory SettlementFactory_SettleBatch with
           settlement
           transferLegs
           allocationCids = [allocationId]
           actors = settlement.executors
           d1ComplianceRef = None
-        return (head receipts)
+        case receipts of      -- (Daml's Prelude has no `head`)
+          r :: _ -> pure r
+          [] -> abort "SettleBatch returned no receipt"
 ```
 
 ### 4.3 D2 lock-and-sweep `[FUTURE]` (real mechanism, no bespoke template)
@@ -441,8 +485,7 @@ classDiagram
     class StandardizedMessagingGateway {
         +Party admin
         +Party operator
-        +ContractId~TrustedIssuerRegistry~ registry
-        +Gateway_ProcessInbound() AllocationInstruction
+        +Gateway_ProcessInbound(registryCid, inboundMessageCid) AllocationInstruction
     }
     class RoleGrant {
         +Party admin
