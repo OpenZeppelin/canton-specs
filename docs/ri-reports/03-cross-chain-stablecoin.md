@@ -142,9 +142,10 @@ A deterministic sequence of keyless Daml-LF 2.1 state transitions on the
 CIP-0112 spine.
 
 1. **Inbound message.** The external chain finalizes a locked deposit. The
-   gateway (relayer role) creates an `InboundMessage` carrying the hashed
-   payload, external sender id, and Canton recipient. Keyless archive-and-recreate
-   makes it a one-time consumed artifact (replay protection).
+   attester(s) sign an `InboundMessage` carrying the typed `LockAttestation`
+   (§3.5) — locked amount, Canton recipient, target instrument, nonce, expiry.
+   It is consumed one-time by its own `InboundMessage_Consume` choice (§4.1),
+   giving replay protection.
 2. **Allocate + D1 check.** The relayer drives
    [`SettlementFactory_CreateAllocationInstruction`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L216) toward the recipient. Before
    it can target the recipient it must pass the **D1 compliance check**. The RI
@@ -353,11 +354,17 @@ template StandardizedMessagingGateway
     -- (the same dangling-pointer hazard as a stored `PauseState` cid). The
     -- current registry is passed as a choice ARGUMENT, disclosed at exercise time.
 
-    -- `InboundMessage` is a ONE-TIME carrier: a template whose signatories are the
-    -- attester quorum, holding the `LockAttestation` value. It is CONSUMED here, so
-    -- the keyless archive gives the replay protection §3.5 relies on (the nonce
-    -- cannot be processed twice). Note the current spine verifies a single trusted
-    -- attester, not N-of-M (see §3.5 caveat); the quorum is `[FUTURE]`.
+    -- `InboundMessage` is a ONE-TIME carrier: a template SIGNED BY THE ATTESTER(S),
+    -- holding the `LockAttestation` value. It exposes a *consuming* choice
+    -- `InboundMessage_Consume` (controller = the gateway relayer/operator) that
+    -- returns the attestation and archives the carrier — so the relayer's authority
+    -- drives the archive while the attesters' signature is what made the message
+    -- trustworthy (we do NOT `archive` it directly, which would need the attesters'
+    -- authority the gateway does not hold). Consuming the carrier gives one-time
+    -- processing; to also stop a SECOND carrier being minted for the same `nonce`,
+    -- the attesters must not re-attest a used nonce and/or a consumed-nonce registry
+    -- backs it (§3.5). Note the current spine verifies a single trusted attester,
+    -- not N-of-M (see §3.5 caveat); the quorum is `[FUTURE]`.
     nonconsuming choice Gateway_ProcessInbound : ContractId AllocationInstruction
       with
         relayerGrant : ContractId RoleGrant
@@ -383,21 +390,30 @@ template StandardizedMessagingGateway
 
         -- 3. BIND TO BACKING + REPLAY-PROTECT. The mint amount is NOT a free
         --    operator argument — it is DERIVED from a signed `LockAttestation`, and
-        --    the carrier is consumed so the same lock cannot be minted twice. No
-        --    attestation ⇒ no mint (closes the unbacked-issuance gap).
+        --    the carrier is CONSUMED (via its own choice, using the relayer's
+        --    authority — not a bare `archive`) so the same lock cannot be minted
+        --    twice. No attestation ⇒ no mint (closes the unbacked-issuance gap).
         now <- getTime
-        msg <- fetch inboundMessageCid
-        let att = msg.attestation
+        att <- exercise inboundMessageCid InboundMessage_Consume  -- returns the LockAttestation, archives the carrier
         assertMsg "attestation expired" (now <= att.expiry)
         assertMsg "recipient != attested recipient" (recipient == att.cantonRecipient)
         assertMsg "attested instrument admin is not this gateway's admin"
           (att.cantonInstrumentId.admin == admin)
-        archive inboundMessageCid       -- one-time consumption ⇒ nonce cannot replay
         let inboundAmount = att.lockedAmount   -- bound to the attested locked backing
 
-        -- 4. Drive the spine: create the (committed) allocation instruction for
-        --    EXACTLY `inboundAmount` of `att.cantonInstrumentId` to `recipient`.
-        exercise settlementFactory SettlementFactory_CreateAllocationInstruction with ..
+        -- 4. Drive the spine: create a COMMITTED allocation instruction whose single
+        --    ReceiverSide is EXACTLY (inboundAmount, att.cantonInstrumentId) to the
+        --    recipient's account — so the minted leg amount is the attested amount,
+        --    not a free field.
+        exercise settlementFactory SettlementFactory_CreateAllocationInstruction with
+          allocation = AllocationSpecification with
+            settlement = inboundSettlement; admin
+            authorizer = recipientAccount recipient
+            transferLegSides =
+              [ receiverSide (mintLeg recipient inboundAmount att.cantonInstrumentId) ]
+            nextIterationFunding = None; committed = True; meta = emptyMetadata
+          requestedAt = now; inputHoldingCids = []
+          d1ComplianceHook = None; actors = [recipient]
 ```
 
 ### 4.2 Inbound DvP via `SettleBatch` + delegated accept `[FUTURE]`
@@ -426,12 +442,14 @@ template CrossChainDvP
       do
         -- Recipient's required co-authorization: AllocationInstruction_Accept's
         -- controller is the recipient (the allocation authorizer), which an offline
-        -- treasury cannot provide live. The recipient's standing TransferPreapproval
-        -- carries that delegated authority, so we fetch it and accept ON THEIR
-        -- BEHALF via the preapproved actors — the executor cannot self-authorize.
-        preapproval <- fetch recipientPreapprovalCid
-        result <- exercise instructionId AllocationInstruction_Accept with
-          actors = preapproval.preapprovedActors   -- recipient's delegated authority
+        -- treasury cannot provide live. Authority must therefore flow through a
+        -- CHOICE ON THE RECIPIENT-SIGNED `TransferPreapproval` — whose signatory IS
+        -- the recipient — not by passing a party list as `actors` (a party list
+        -- confers no authority). The preapproval's delegated-accept choice runs the
+        -- `AllocationInstruction_Accept` inside its own body, contributing the
+        -- recipient's signature; the executor only triggers it.
+        result <- exercise recipientPreapprovalCid TransferPreapproval_AcceptInboundInstruction with
+          instructionId; executor
         let allocationId = case result of
               AllocationInstructionCompleted cid -> cid
               _ -> error "instruction did not complete"

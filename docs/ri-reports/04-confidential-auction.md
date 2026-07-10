@@ -439,7 +439,9 @@ template BidRequest
         -- The PlaceBid gate already bound the escrow deadline to the launchpad's,
         -- so `Allocation_Withdraw` (which checks the allocation's OWN deadline) is
         -- guaranteed to permit this now that the launchpad deadline has passed.
-        exercise paymentAllocationCid Allocation_Withdraw
+        -- `actors` must be the escrow's account parties; for a bidder-owned,
+        -- provider-less escrow that is just the bidder.
+        exercise paymentAllocationCid Allocation_Withdraw with actors = [bidder]
 ```
 
 ### 4.4 Atomic settlement via the spine `[FUTURE]`
@@ -462,9 +464,12 @@ template AuctionClearing
         settlementFactoryCid : ContractId SettlementFactory
         clearingPrice : Decimal                            -- uniform clearing price
         winningBids : [ContractId BidRequest]              -- the bids being filled
-        paymentAllocations : [ContractId Allocation]       -- winners' locked payment
-        tokenAllocations : [ContractId Allocation]         -- issuer's token side
-        issuerTokenAccount : Account                       -- issuer treasury (token source)
+        paymentAllocations : [ContractId Allocation]       -- winners' locked payment (SenderSide of each pay leg)
+        winnerTokenAllocations : [ContractId Allocation]   -- winners' POST-CLEARING token-receive commitments
+                                                           -- (ReceiverSide of each token leg; see note below)
+        issuerAllocations : [ContractId Allocation]        -- issuer side: SenderSide of every token leg +
+                                                           -- ReceiverSide of every pay leg (one issuer, all legs)
+        issuerTokenAccount : Account                       -- issuer treasury (token source / payment sink)
         settlement : SettlementInfo
         transferLegs : [TransferLeg]                       -- MUST equal the bound legs below
       controller auctioneer
@@ -476,6 +481,10 @@ template AuctionClearing
         assertMsg "bidding still open" (now > lp.biddingDeadline)
         assertMsg "settlement window closed" (now <= lp.settlementDeadline)
         assertMsg "clearing price below floor" (clearingPrice >= lp.minBidPrice)
+        -- Bind the token source/payment-sink to the issuer, so payment cannot be
+        -- redirected to a non-issuer account and tokens cannot be sourced elsewhere.
+        assertMsg "token/payment account is not the issuer treasury"
+          (issuerTokenAccount.owner == Some lp.issuer)
 
         -- ON-LEDGER BINDING (root-cause fix for theft-by-leg-omission). Without
         -- this, `transferLegs` is auctioneer-chosen and the winner's token amount
@@ -511,18 +520,22 @@ template AuctionClearing
         assertMsg "settled legs != the bound per-winner (pay, deliver) legs"
           (transferLegs == concat expectedLegs)
 
-        -- Single atomic DvP. Both sides commit their own allocations — winners'
-        -- payment AND the issuer's token side — so the both-sided check funds every
-        -- leg from a signed source (no mint-from-air), and every leg now matches a
-        -- bound amount above. D1 is engaged per leg via each allocation's
-        -- `D1ComplianceHook` / the typed attestation path (§3.2): the base
-        -- `SettleBatch` with `d1ComplianceRef = None` shown here is the *unenforced*
-        -- base posture; the RI settles the winners through the attestation path so
-        -- a revoked credential blocks the leg fail-closed.
+        -- BOTH-SIDEDNESS across three side-sources. SettleBatch requires BOTH the
+        -- SenderSide and ReceiverSide of every leg to be present in the batch's
+        -- allocations. Each winner's payment escrow (committed at bid time) supplies
+        -- the pay-leg SenderSide, but the token-leg ReceiverSide amount is
+        -- `bidAmount / clearingPrice` — UNKNOWN at bid time — so it CANNOT be in the
+        -- bid-time escrow. It is therefore committed POST-CLEARING (once the price
+        -- is published) as `winnerTokenAllocations`; the issuer's allocation covers
+        -- the issuer's SenderSide (tokens out) and ReceiverSide (payment in) of every
+        -- leg. This post-clearing winner commitment is a deliberate liveness step
+        -- (a winner who never commits their token-receive side is simply not
+        -- settled and reclaims their escrow after the deadline via
+        -- BidRequest_ForceRefundAfterDeadline) — tracked in §9.
         exercise settlementFactoryCid SettlementFactory_SettleBatch with
           settlement
           transferLegs
-          allocationCids = paymentAllocations ++ tokenAllocations
+          allocationCids = paymentAllocations ++ winnerTokenAllocations ++ issuerAllocations
           actors = settlement.executors
           d1ComplianceRef = None
 ```
@@ -814,6 +827,14 @@ early.
   signed bid** exactly as the full-fill clearing does (§4.4) — a partial fill is
   the same theft surface (F1) per slice, so the binding cannot be dropped for the
   partial-fill path.
+- **Post-clearing token-receive commitment (liveness).** Because the token
+  amount a winner receives (`bidAmount / clearingPrice`) is unknown at bid time,
+  the winner's token-leg ReceiverSide cannot be in the bid-time escrow; it is
+  committed post-clearing (`winnerTokenAllocations`, §4.4). Decide the exact
+  mechanism (a standing `TransferPreapproval` credit vs. an explicit per-winner
+  accept) and the policy for a winner who never commits it (forfeit-and-refund
+  vs. auctioneer-driven default) — this is the settlement-time liveness dependency
+  the pin in §4.4 introduces.
 - **Auction-parameter / deadline policy.** Who sets `biddingDeadline` /
   `settlementDeadline`, the minimum bidding window, and whether deadlines can be
   extended (and under what authority) before clearing.

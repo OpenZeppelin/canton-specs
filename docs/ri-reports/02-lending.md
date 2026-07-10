@@ -383,8 +383,9 @@ deferred):
   `Vault_Withdraw*`, `Vault_FlagForLiquidation`, `Vault_Liquidate_ViaSpine`)
   rejects when `now - updatedAt >
   maxStaleness` (a `VaultParams` bound), so a stalled feed cannot drive
-  liquidations or fresh borrows against a dead price. (`maxStaleness` /
-  `maxDeviation` are additive `[FUTURE]` `VaultParams` fields, SCU-compatible.)
+  liquidations or fresh borrows against a dead price. (`maxStaleness` is an
+  additive `[FUTURE]` `VaultParams` field; `maxDeviation` lives on the
+  `PriceOracle` itself — see §4.2 — both SCU-compatible.)
 - **Per-update deviation circuit breaker.** `PriceOracle_UpdatePrice` bounds the
   jump between consecutive prices against the oracle's own `maxDeviation` field
   (`|newPrice - price| / price <= maxDeviation`); an out-of-band move **aborts the
@@ -595,11 +596,16 @@ template LendingVaultFactory
 ```daml
 -- canton-stablecoin Vault fields (exact): admin, owner, collateralInstrumentId,
 -- stablecoinInstrumentId, collateralAmount, debtAmount, params, lastAccrualTime.
--- The RI adds TWO additive (SCU-appended) fields:
+-- The RI adds THREE additive (SCU-appended) fields:
 --   liquidationFlaggedAt : Optional Time  -- None until flagged; set by the flag choice
 --   principalAmount      : Decimal        -- borrowed principal, tracked apart from
 --                                         --   accrued fee so the fee split (§3) is
 --                                         --   computable; debtAmount stays the total
+--   collateralAccount    : Account        -- the CANONICAL custody account whose
+--                                         --   holdings ARE collateralAmount; bound into
+--                                         --   deposit/withdraw/liquidation so the vault's
+--                                         --   accounting cannot decouple from real holdings
+--                                         --   (the analogue of the DEX pool's poolAccount)
 -- The real `Vault_Liquidate` seizes the WHOLE vault in one shot and, in its
 -- under-water branch, hands over ALL collateral regardless of how much the
 -- liquidator pays (booking the gap as badDebt) — the critical vuln. The RI
@@ -642,6 +648,10 @@ template LendingVaultFactory
                                                              -- committed by admin+owner (the collateral custody
                                                              -- account's parties) via the standard spine lifecycle
                                                              -- when the vault is flagged/serviced, not by the liquidator
+        protocolAllocationId : ContractId Allocation   -- protocol/treasury's committed RECEIVER side for the
+                                                       -- payment leg — needed so SettleBatch's both-sided check
+                                                       -- sees the admin-side of the liquidator→protocol payment
+                                                       -- (three parties: liquidator, protocol, vault custody)
         settlement : SettlementInfo
         transferLegs : [TransferLeg]                   -- exact legs (debt in / collateral out / fee out)
       controller liquidator
@@ -703,14 +713,24 @@ template LendingVaultFactory
         collSide <- case filter (\s -> s.side == SenderSide) vaultCollAlloc.allocation.transferLegSides of
           [s] | s.instrumentId == collateralInstrumentId.id -> pure s
           _ -> abort "vault must sign exactly one collateral (sender) side"
+        -- ACCOUNT-IDENTITY BINDING (the DEX poolAccount analogue): the collateral
+        -- MUST be sourced from THIS vault's canonical custody account, else the
+        -- recreate could draw down `collateralAmount` while some other account's
+        -- holdings actually moved — decoupling the vault's accounting from reality.
+        assertMsg "collateral not sourced from this vault's custody account"
+          (vaultCollateralAccount == collateralAccount)
         assertMsg "seized collateral != collateralToSeize" (collSide.amount == collateralToSeize)
         assertMsg "collateral must be delivered to the paying liquidator"
           (collSide.otherside == liquidatorAccount)
         -- The payment must be delivered to the protocol account (the issuer/admin),
         -- so it cannot be redirected; binding the receiver mirrors the pool-account
-        -- identity binding in the DEX.
+        -- identity binding in the DEX. That protocol account must ALSO be the
+        -- authorizer of `protocolAllocationId`, so its ReceiverSide of the payment
+        -- leg is present in the batch (both-sidedness holds across all three
+        -- parties: liquidator, protocol, vault custody).
+        protocolAlloc <- fetch protocolAllocationId
         assertMsg "payment must be delivered to the protocol (admin) account"
-          (paySide.otherside.owner == Some admin)
+          (paySide.otherside.owner == Some admin && protocolAlloc.allocation.authorizer == paySide.otherside)
         let expectedPayLeg = TransferLeg with
               transferLegId = paySide.transferLegId
               sender = liquidatorAccount; receiver = paySide.otherside
@@ -731,15 +751,15 @@ template LendingVaultFactory
         let principalRepaid =
               if accruedDebt == 0.0 then 0.0 else debtRepaid * (principalAmount / accruedDebt)
 
-        -- Atomic DvP via the single spine entrypoint over the two bound allocations.
-        -- `SettleBatch`'s both-sided check pins each leg's exact amount to a signed
-        -- allocation side, and `transferLegs` is already pinned to the two legs
-        -- whose amounts are `debtRepaid` / `collateralToSeize` above — so neither
-        -- over-seizure nor under-payment can settle.
+        -- Atomic DvP over the three bound allocations (liquidator payment side,
+        -- protocol receiver side, vault collateral side) — every leg now has BOTH
+        -- signed sides in the batch. `transferLegs` is already pinned to the two
+        -- legs whose amounts are `debtRepaid` / `collateralToSeize` above, so
+        -- neither over-seizure nor under-payment can settle.
         receipts <- exercise settlementFactoryCid SettlementFactory_SettleBatch with
           settlement
           transferLegs
-          allocationCids = [debtAllocationId, vaultCollateralAllocationId]
+          allocationCids = [debtAllocationId, protocolAllocationId, vaultCollateralAllocationId]
           actors = settlement.executors
           d1ComplianceRef = None
 

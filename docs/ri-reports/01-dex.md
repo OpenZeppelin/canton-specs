@@ -653,7 +653,9 @@ today) are tagged `[FUTURE]`.
 > at runtime the four properties the prose argues: (1) the operator alone
 > **cannot** drive a swap — the attestors are required controllers
 > (`submitMustFail`); (2) the pool delivers exactly the curve's `dOut`; (3) the
-> pool funds its own output leg so reserves match holdings; (4) no stored
+> pool funds its own output leg from its bound `poolAccount`, so the reserve
+> *delta* matches real holding movement (the absolute reserves==Σholdings needs
+> funded seeding — §7.1/§9); (4) no stored
 > `Pool`/`PauseState` cids and the pause guard sits on the reserve-updating
 > choice. The snippet below is the shape; the module is the source of truth.
 
@@ -955,8 +957,10 @@ classDiagram
         +List~Party~ attestorPool
         +InstrumentId baseInstrumentId
         +InstrumentId quoteInstrumentId
+        +Account poolAccount
         +Decimal baseReserves
         +Decimal quoteReserves
+        +Decimal feeBps
         +Optional~D1ComplianceHook~ d1ComplianceHook
         +Pool_Swap()
     }
