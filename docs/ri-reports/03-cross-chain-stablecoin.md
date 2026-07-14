@@ -288,10 +288,17 @@ Redemption is the other half of any bridge and the path a regulated user needs.
 It is the mirror of the inbound flow:
 
 1. **Burn on Canton.** The holder requests redemption; the wrapped holding is
-   burned (`BurnerCapability`-gated burn), emitting an
+   burned, emitting an
    [`EventLog_HoldingsChange`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L691)
    and producing a typed `RedemptionAttestation` `[FUTURE]`
-   `{ amount, sourceChainDestination, nonce }`.
+   `{ amount, sourceChainDestination, nonce }`. The burn gate is **not** the D2
+   [`BurnerCapability`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L98):
+   that is the Custodian's *seizure* credential (assignee = Custodian, scope =
+   D2 mandates) and must never be reused for user-initiated redemption. The
+   redemption burn is gated by a separate `[FUTURE]`
+   `RedemptionBurnCapability` — same witness shape (admin-signed, choice-less,
+   instrument-scoped) but held by the redemption operator — exercised in a
+   choice co-authorized by the holder (it is the holder's asset being burned).
 2. **Attest.** A registry-trusted attester signs the `RedemptionAttestation`
    (again via the `TrustedAttesterRegistry` path) — an N-of-M quorum is the
    target posture, but see the §3.5 accuracy caveat: the current typed path
@@ -349,7 +356,15 @@ and fail-closed:
   verification.)*
 - **D2 — seizure (lock-and-sweep).** Under mandate, the Custodian uses the
   single-admin [`BurnerCapability`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L98) to sweep a targeted holding to an admin-preset
-  `custodianDestination`. For in-flight allocations this is the spine's
+  `custodianDestination`. `BurnerCapability` is **deliberately choice-less** — a
+  capability *witness*, not an actor: it carries no behavior of its own, and the
+  D2 sweep choices fetch it and validate `admin` / `assignee` / `instrumentScope`
+  before archiving any holding. The authority lives in the sweep choices; the
+  capability is the credential they check (holding the contract ≠ holding a
+  method). Revocation today is structural — the admin (sole signatory) archives
+  the contract — but there is **no rotation/reissue choice yet**; an
+  SCU-additive `BurnerCapability_Revoke`/`_Rotate` is required before any
+  public authority surface (§9). For in-flight allocations this is the spine's
   [`Allocation_MarkD2InFlightSeizure`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L592) → [`Allocation_SweepD2InFlightSeizure`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L622); for
   settled holdings the forced-burn-to-custodian path
   (`LockedSimpleHolding_ForcedBurn` evidence). It **does not** burn the asset and
@@ -855,6 +870,14 @@ items. Each is referenced from the section that motivates it.
   resubmission protocol and SLA for a stalled source-chain release, and whether a
   bounded grace window before burn (escrow-then-burn) is ever preferable to
   burn-first for specific source chains.
+- **Capability lifecycle (revocation / rotation) and the redemption-burn
+  capability.** `BurnerCapability` is a choice-less capability witness (D1–D4
+  attachment, D2): validated by the sweep choices, revocable only by the admin
+  archiving it. Open before any public authority surface: the SCU-additive
+  `BurnerCapability_Revoke`/`_Rotate` shape (single contract vs. registry of
+  capabilities), and the concrete holder/co-authorization model for the
+  `[FUTURE]` `RedemptionBurnCapability` that gates outbound redemption burns
+  (§3.6) — kept strictly separate from the Custodian's seizure credential.
 - **Aligning gateway scope with native rails.** USDCx bridges natively via Circle
   xReserve + CCTP (§1), so this RI settles it rather than bridging it. Open: a
   general rule for when an inbound asset already has a native Canton rail (settle
