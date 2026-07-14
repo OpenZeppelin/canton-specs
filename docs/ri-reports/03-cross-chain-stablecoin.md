@@ -107,15 +107,6 @@ drives the spine: [`SettlementFactory_CreateAllocationInstruction`](../../experi
 (recipient accept) [`AllocationInstruction_Accept`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L392) → [`Allocation`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L474), plus a
 recipient-targeted [`AllocationRequest`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L322).
 
-The recipient's **co-authorization** is a Canton-model requirement in *any*
-design, spine or bespoke direct transfer alike: a party cannot be bound as a
-new signatory without its authority. That authority is supplied by a
-**recipient-signed artifact** — a live `AllocationInstruction_Accept`, or for
-offline treasuries a standing `TransferPreapproval` whose choice body
-contributes the recipient's signature when the relayer exercises it (§3 step 3,
-§4.2). Delegated in advance is still the recipient's authorization — the spine
-does not "solve" co-authorization, and the preapproval does not bypass it.
-
 ### Party and Role Model
 
 | Operational Role | `roleId` wrapper | Responsibilities / trust boundary |
