@@ -33,6 +33,17 @@ accept an inbound asset representation (e.g. USDCx) while keeping the settlement
 amount, payer/payee identities, and compliance markers projected only to
 explicitly authorized parties.
 
+> **Privacy scope (explicit non-goal).** The privacy guarantee covers the
+> **Canton side only**. The source-chain lock is a public transaction on its own
+> chain, and it necessarily encodes enough routing data (e.g. a Canton-recipient
+> reference) for the attesters to produce the `LockAttestation` — so an external
+> observer who reads the source chain can link a public lock of amount *N* to the
+> fact that some identified Canton recipient will be credited *N*. What Canton's
+> per-party projection hides is everything downstream: the settled holding, the
+> receipt, compliance markers, and all subsequent private transfers. Decoupling
+> or hiding the source-chain linkage itself (hashed commitments, shielded
+> payloads, relayer-side blinding) is out of scope for this RI.
+
 The design uses a **Standardized Messaging Gateway** `[FUTURE]` (modeled as a
 bounded mock) on top of the **CIP-0112 / Token Standard V2 settlement spine**
 `[IMPLEMENTED]` (`OpenZeppelin.Experimental.Settlement.Cip112`).
