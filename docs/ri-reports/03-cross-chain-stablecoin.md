@@ -102,11 +102,27 @@ node boundaries and capability grants so no participant can unilaterally force a
 state transition without the required co-authorization.
 
 When a cross-chain locking event occurs externally, the gateway (holding a
-`RoleGrant` as relayer) emits an `InboundMessage` on Canton. Rather than a
-direct transfer — which would violate Canton's co-authorization model — the
-relayer drives the spine: [`SettlementFactory_CreateAllocationInstruction`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L228) →
+`RoleGrant` as relayer) emits an `InboundMessage` on Canton, and the relayer
+drives the spine: [`SettlementFactory_CreateAllocationInstruction`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L228) →
 (recipient accept) [`AllocationInstruction_Accept`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L392) → [`Allocation`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L474), plus a
 recipient-targeted [`AllocationRequest`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L322).
+
+Two distinct requirements motivate this shape, and they are satisfied by two
+different mechanisms — the spine does not "solve" co-authorization, and the
+preapproval does not bypass it:
+
+- **Recipient co-authorization** is a Canton-model requirement in *any* design,
+  spine or bespoke direct transfer alike: a party cannot be bound as a new
+  signatory without its authority. That authority is supplied by a
+  **recipient-signed artifact** — a live `AllocationInstruction_Accept`, or for
+  offline treasuries a standing `TransferPreapproval` whose choice body
+  contributes the recipient's signature when the relayer exercises it (§3 step 3,
+  §4.2). Delegated in advance is still the recipient's authorization.
+- **The settlement spine** is chosen for what a bespoke direct transfer would
+  give up: CIP-0112 / Token Standard V2 compatibility, atomic DvP with
+  per-instrument value conservation, D1/D2 hook attachment points, and a
+  `SettlementReceipt` audit artifact — with no parallel settlement path to
+  maintain (§9, composability).
 
 ### Party and Role Model
 
