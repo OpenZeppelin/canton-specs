@@ -463,11 +463,27 @@ template StandardizedMessagingGateway
 
 ### 4.2 Inbound DvP via `SettleBatch` + delegated accept `[FUTURE]`
 
+> **Implementation detail, to be consolidated at implementation time.** The
+> `canton-token-template` evidence template `SimpleToken.Preapproval
+> (TransferPreapproval)` is a **toy simple-holding preapproval**: today it
+> exposes only `TransferPreapproval_Send` — it
+> has **no** `TransferPreapproval_AcceptInboundInstruction` and no awareness of
+> the spine's `AllocationInstruction`. What the snippet below relies on is the
+> *pattern*, which is real: a recipient-signed standing contract whose choice
+> body contributes the recipient's authority when a third party exercises it.
+> The delegated-accept choice shown is therefore an RI-level `[FUTURE]` design —
+> to be consolidated when implementing, either as an SCU-additive choice on the
+> evidence template or as a dedicated RI `DelegatedAcceptGrant` template signed
+> by the recipient; the evidence template as it stands does not support this
+> flow.
+
 ```daml
 module CrossChain.Orchestrator where
 
 import OpenZeppelin.Experimental.Settlement.Cip112
--- TransferPreapproval is canton-token-template (SimpleToken.Preapproval)
+-- TransferPreapproval: canton-token-template (SimpleToken.Preapproval) supplies
+-- the recipient-signed preapproval PATTERN; the delegated-accept choice used
+-- below is [FUTURE] (see the note above this snippet).
 import SimpleToken.Preapproval (TransferPreapproval)
 
 template CrossChainDvP
@@ -494,6 +510,9 @@ template CrossChainDvP
         -- confers no authority). The preapproval's delegated-accept choice runs the
         -- `AllocationInstruction_Accept` inside its own body, contributing the
         -- recipient's signature; the executor only triggers it.
+        -- NB: `TransferPreapproval_AcceptInboundInstruction` is a [FUTURE]
+        -- RI-level extension (the evidence template only has _Send);
+        -- see the consolidation note above this snippet.
         result <- exercise recipientPreapprovalCid TransferPreapproval_AcceptInboundInstruction with
           instructionId; executor
         let allocationId = case result of
@@ -620,7 +639,7 @@ sequenceDiagram
 | `oz-ownable` | `canton-specs` / `canton-contracts` | [`Ownership`](../../ownable/daml/OpenZeppelin/Ownable.daml) over hooks/factories; secure handoff via [`OwnershipOffer`](../../ownable/daml/OpenZeppelin/Ownable.daml). | `[IMPLEMENTED]` |
 | `oz-pausable` | `canton-specs` / `canton-contracts` | [`PauseState`](../../pausable/daml/OpenZeppelin/Pausable.daml) ([`whenNotPaused`](../../pausable/daml/OpenZeppelin/Pausable.daml)) halts inbound requests during anomalies. | `[IMPLEMENTED]` |
 | [`SettlementFactory`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L191) (CIP-0112 spine) | `canton-specs` | Allocation generation + [`SettlementFactory_SettleBatch`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L249) DvP. | `[IMPLEMENTED]` (experimental) |
-| `TransferPreapproval` | `canton-token-template` (`SimpleToken.Preapproval`) | Delegated recipient accept for offline treasuries. | `[EVIDENCE]` |
+| `TransferPreapproval` | `canton-token-template` (`SimpleToken.Preapproval`) | Recipient-signed preapproval pattern; the spine-aware delegated-accept choice the RI uses (§4.2) is a `[FUTURE]` extension — the evidence template only ships `_Send`. | `[EVIDENCE]` (+ `[FUTURE]` extension) |
 | `SimpleHolding` / `SimpleTokenRules` / `LockedSimpleHolding` / `*_ForcedBurn` | `canton-token-template` | Asset representation, 3-way dispatch, D2 evidence. | `[EVIDENCE]` |
 | `CredentialGatedActionRequest` / `MockVerificationResult` | [`credential-gateway`](../../experiments/credential-gateway/daml/OpenZeppelin/Experimental/Credential/Gateway.daml) | D1 credential gating. | `[IMPLEMENTED]` (experimental) |
 | `KycClaim` / `TrustedIssuerRegistry` | `canton-specs` identity-hook Shape-B (not `credential-gateway` templates; the gateway supplies the gating/verification primitives) | Typed D3 identity for D1 Shape-B node attestation (spine reference field [`D1ComplianceHook`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L41)). | `[IMPLEMENTED]` (experimental) |
@@ -873,7 +892,7 @@ this workspace, except components explicitly marked planned/external.
   [`Allocation_Settle`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L490)).
 - **Holdings / rules / preapproval / forced-burn** `[EVIDENCE]` —
   `canton-token-template/simple-token/daml/SimpleToken/{Holding,Rules,Preapproval}.daml`
-  (`TransferPreapproval` + `TransferPreapproval_Send`/`_MintInto`;
+  (`TransferPreapproval` + `TransferPreapproval_Send`;
   `LockedSimpleHolding_ForcedBurn`).
 - **Credential gating / verification** `[IMPLEMENTED]` (experimental) —
   `canton-specs/experiments/credential-gateway/daml/OpenZeppelin/Experimental/Credential/Gateway.daml`.
