@@ -249,6 +249,24 @@ references a `LockAttestation` id, and the mint asserts:
 
 If any check fails the batch fails closed — no mint, no partial credit.
 
+**How the `nonce` is enforced on Canton.** Two layers:
+
+1. **Carrier consumption `[FUTURE]` (in the mock).** The `InboundMessage`
+   carrying the attestation is archived by its own consuming
+   `InboundMessage_Consume` choice (§4.1), so one carrier can never be processed
+   twice.
+2. **Consumed-nonce registry `[FUTURE]`.** Carrier consumption does not stop a
+   *second* carrier being attested for the same lock. On-ledger dedup: an
+   admin-signed `ConsumedNonceRegistry` contract; `Gateway_ProcessInbound`
+   records `(sourceChainId, nonce)` at consumption and **fails closed** if the
+   pair is already present — a duplicate carrier cannot mint even if the
+   attesters misbehave. Without this layer, dedup rests solely on the honesty
+   assumption that attesters never re-attest a used nonce.
+
+Since `lockTxId` already uniquely identifies the source-chain lock, an
+implementation may key the registry by `(sourceChainId, lockTxId)` and drop the
+separate `nonce` field.
+
 **Reserve invariant (§7.1).** Total Canton-minted wrapped supply for an
 instrument never exceeds the sum of valid, unredeemed `LockAttestation`s for it:
 `mintedSupply ≤ Σ lockedAmount(unredeemed)`. Mint increments the claimed reserve;
