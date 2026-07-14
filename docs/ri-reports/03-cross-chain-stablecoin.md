@@ -286,6 +286,31 @@ relayer) can resubmit until the escrow releases. The failure mode is *delayed
 release*, never *double-spend* or *unbacked supply*. This residual asymmetry is
 called out in §7 and §9.
 
+**Inbound delivery guarantees and recovery.** The mirror question for the
+inbound leg: nothing guarantees the Canton-side settlement *executes* — delivery
+liveness is bounded by the trusted relayer/attester set (§7.2). The design
+deliberately adds no automatic cross-chain recovery protocol: compensating
+messages back to the source chain would require multi-round message passing with
+its own delay, cost, and failure surface. The guarantees are instead structural
+and fail-closed:
+
+- **Before settlement, nothing is credited.** A stalled or failed relayer leaves
+  the source-chain backing locked and the Canton side untouched — no partial
+  state, no unbacked credit.
+- **On Canton, stalled committed value is recoverable.** A committed
+  [`Allocation`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L474)
+  becomes releasable once its settlement deadline passes: the executors may
+  [`Allocation_Cancel`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L570)
+  and the authorizer may
+  [`Allocation_Withdraw`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L583),
+  both returning the locked holdings (blocked while a D2 seizure is in flight).
+  Because a committed allocation with `settlementDeadline = None` can **never**
+  be released, the RI mandates a finite `settlementDeadline` on every committed
+  inbound allocation.
+- **The source-chain lock itself** is outside Canton's authority; reclaiming it
+  after a permanently failed inbound flow (timeout + forced refund at the escrow)
+  is a gateway-contract concern, tracked as an open question (§7.2, §9).
+
 ### D1–D4 Attachment
 
 - **D1 — compliance.** Node-applied, fail-closed — the intended per-settlement
@@ -799,16 +824,19 @@ items. Each is referenced from the section that motivates it.
   relayer detect a recipient holding a deprecated `TransferPreapproval`, and what
   is the fallback from delegated-accept to an interactive two-step offer?
 - **Expired / unsettled inbound-allocation lifecycle.** A committed inbound
-  `Allocation` locks bridging funds until settlement; if the DvP never completes
-  (recipient never finalizes, origin reorg, deadline lapses), the local CIP-0112
-  scaffold has **no cancel/withdraw/reject path** — the choices today are
-  `Allocation_Settle` and the two D2 seizure choices. The upstream Token Standard
-  V2 Allocation lifecycle `[UPSTREAM]` separates an allocation's expiry from its
-  settlement deadline and adds cancel/withdraw/reject semantics, which would let
-  an automated handler reclaim dead capital without the original signer. Whether
-  M1 reserves this via an additive `[FUTURE]` cancel choice on the RI orchestrator
-  (return-to-sender on expiry) or defers entirely to the upstream lifecycle once
-  imported is open. (Maps to the transfer-failure return-to-sender rule.)
+  `Allocation` locks bridging funds until settlement. The scaffold now provides
+  the release primitives — post-deadline
+  [`Allocation_Cancel`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L570)
+  (executors) and
+  [`Allocation_Withdraw`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L583)
+  (authorizer), both returning locked holdings (§3.6) — so the open questions are
+  narrower: who *operationally* runs the reclaim for a dead inbound flow (an
+  automated handler needs executor or authorizer authority), how the RI enforces
+  the mandatory finite `settlementDeadline` on committed inbound allocations
+  (a `None` deadline is unreleasable), and how this local lifecycle aligns with
+  the upstream Token Standard V2 Allocation lifecycle `[UPSTREAM]`, which
+  separates allocation expiry from the settlement deadline, once imported.
+  (Maps to the transfer-failure return-to-sender rule.)
 - **Cross-domain identity proof injection (D3).** When ONCHAINID / ERC-3643
   equivalents are supported, does the `TrustedIssuerRegistry` ingest external
   state proofs via an oracle, or rely on a CCID protocol synchronized across the
