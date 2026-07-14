@@ -80,7 +80,7 @@ an explicit extension point or out-of-scope.
 | Cross-Chain Bridge | An inbound/outbound bridge **interface** (the Standardized Messaging Gateway) as a **bounded, verifiable mock**. | Production bridge/relayer nodes, external oracle infra, validator networks, cryptographic light-client proofs. |
 | Compliance & Control | D1 fail-closed verification on every leg (`CredentialGatedActionRequest` + `TrustedIssuerRegistry`); D2 lock-and-sweep via [`BurnerCapability`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L98). | Off-ledger caching of compliance status, probabilistic risk scoring, heuristic filtering. |
 | Identity Framework | Single-domain v1, issuer-held KYC, deterministic claims. | Cross-domain identity resolution (ONCHAINID / ERC-3643 / Chainlink CCID) — deferred, SCU-forward-compatible only. |
-| Asset Issuance | The integration **shape** for an existing Canton stablecoin (USDCx) as the settled instrument. | The stablecoin issuance / peg / CDP mechanism itself. |
+| Asset Issuance | The gateway-minted wrapped instrument (`wTOK`) and the integration **shape** for settling an existing native Canton stablecoin (e.g. USDCx) by interface. | The stablecoin issuance / peg / CDP mechanism itself. |
 
 Narrowing scope to the standardized interface boundary means a production
 gateway can be swapped in later without modifying the settlement spine or the
@@ -888,7 +888,7 @@ items. Each is referenced from the section that motivates it.
   chain (Ethereum/Polygon) deep-reorgs? Does the gateway manage confirmation
   delays internally, or must the relayer Daml contract use a time-locked
   `AllocationInstruction` to mitigate cross-chain rollback risk?
-- **USDCx forced upgrades.** Active holdings upgrade-on-use via factory routing,
+- **Settled-instrument forced upgrades.** Active holdings upgrade-on-use via factory routing,
   but a forced upgrade for passive holders raises a question: how does the
   relayer detect a recipient holding a deprecated `TransferPreapproval`, and what
   is the fallback from delegated-accept to an interactive two-step offer?
@@ -913,8 +913,8 @@ items. Each is referenced from the section that motivates it.
   audited.
 - **Cross-synchronizer operation** (see §8) — deferred; tracked there.
 - **Composability with the other RIs** (forward-compatibility;
-  the [suite overview](./README.md#how-the-reports-compose)): recipients holding USDCx settled
-  here can provide liquidity to the DEX RI ([`01`](./01-dex.md)) pools or
+  the [suite overview](./README.md#how-the-reports-compose)): recipients holding instruments settled
+  here (`wTOK`, or native USDCx) can provide liquidity to the DEX RI ([`01`](./01-dex.md)) pools or
   collateralize a Lending RI ([`02`](./02-lending.md)) vault — all over the same
   `SettlementFactory_SettleBatch` spine, with no parallel settlement path.
 
