@@ -29,9 +29,10 @@ This Reference Implementation (RI) is an architectural blueprint for private,
 atomic settlement on Canton of stablecoin payments originating on external
 blockchains. It resolves the tension between cross-chain liquidity and the
 privacy requirements of enterprise compliance: institutional participants can
-accept an inbound asset representation (e.g. USDCx) while keeping the settlement
-amount, payer/payee identities, and compliance markers projected only to
-explicitly authorized parties.
+accept an inbound asset representation — an already-native stablecoin such as
+USDCx, or a gateway-minted wrapped instrument, written **`wTOK`** throughout —
+while keeping the settlement amount, payer/payee identities, and compliance
+markers projected only to explicitly authorized parties.
 
 The design uses a **Standardized Messaging Gateway** `[FUTURE]` (modeled as a
 bounded mock) on top of the **CIP-0112 / Token Standard V2 settlement spine**
@@ -92,6 +93,14 @@ introduced. The reserve / lock-attestation model in §3.5 is the design for the
 generic case; for USDCx the equivalent guarantees are provided by xReserve and
 are out of this architecture's scope.
 
+**Naming convention.** Because the two asset models must not blur, the rest of
+this report uses **`wTOK`** for the *generic gateway-minted wrapped instrument*
+— the asset the flows in §2–§4 mint, settle, and redeem, whose issuing admin
+**is** this RI's StablecoinAdmin. **USDCx** appears only as the
+settled-not-bridged counter-example: an externally-issued, already-native
+instrument this architecture consumes by interface and has **no** issuing
+authority over.
+
 ---
 
 ## 2. Architecture Overview
@@ -115,7 +124,7 @@ recipient-targeted [`AllocationRequest`](../../experiments/cip112-settlement/dam
 | BridgeRelayer | `Relayer` | Monitors the external chain; submits `InboundMessage`; operates the gateway mock; acts as settlement executor. |
 | ComplianceVerifier | `Verifier` | Maintains the `TrustedIssuerRegistry`; issues the `KycClaim` for D1 attestation. |
 | Custodian | `Seizer` | Holds the `BurnerCapability` for D2 lock-and-sweep to a preset destination under mandate. |
-| StablecoinAdmin | `Issuer` | Single-admin authority for the settled asset (USDCx); oversees `SimpleTokenRules`. |
+| StablecoinAdmin | `Issuer` | Issuing admin of the gateway-minted wrapped instrument (`wTOK`) — its mint leg is admin-authored and the §4.1 gateway asserts `att.cantonInstrumentId.admin == admin`; oversees `SimpleTokenRules`. It has **no** authority over an externally-issued instrument like USDCx (§1): in the settled-native case there is no RI-side issuer role. |
 | Recipient | Implicit (end-user) | Treasury receiving funds; may use `TransferPreapproval` to accept compliance-gated inflows without a live signature. |
 
 ### Trust and Topology
@@ -159,8 +168,8 @@ CIP-0112 spine.
 3. **Recipient co-authorization via `TransferPreapproval`.** A recipient cannot
    be bound unilaterally; a new signatory must co-authorize. For an offline
    corporate treasury that cannot provide a live interactive signature, the
-   recipient's wallet pre-establishes a `TransferPreapproval` for the USDCx
-   instrument. The relayer leverages it to complete the recipient's required
+   recipient's wallet pre-establishes a `TransferPreapproval` for the wrapped
+   instrument (`wTOK`). The relayer leverages it to complete the recipient's required
    accept in a single atomic submission, converting the [`AllocationInstruction`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L379)
    into a committed [`Allocation`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L474). *(This delegated-accept pattern is what makes
    the flow work for cold/offline recipients; it is not a workaround for any
@@ -699,8 +708,8 @@ audit-readiness claim.
 
 | Element | Single-synchronizer (today) | Cross-synchronizer (planned) |
 |---|---|---|
-| Inbound `Allocation` / `SettlementReceipt` | Created/settled on the recipient's synchronizer. | Reassignable: inbound allocation assigned to the synchronizer hosting the recipient's USDCx holding before `SettleBatch`. |
-| USDCx instrument admin | Same synchronizer as settlement. | If USDCx is administered on another synchronizer, the settled instrument must be reachable there or reassigned in. |
+| Inbound `Allocation` / `SettlementReceipt` | Created/settled on the recipient's synchronizer. | Reassignable: inbound allocation assigned to the synchronizer hosting the recipient's settled-instrument holding before `SettleBatch`. |
+| Settled-instrument admin (`wTOK` StablecoinAdmin, or native USDCx) | Same synchronizer as settlement. | If the settled instrument is administered on another synchronizer, it must be reachable there or reassigned in. |
 | D1 `TrustedIssuerRegistry` | One synchronizer. | Synchronizer-aware registry; compliance re-checked on the settling synchronizer (no stale cross-domain attestation reuse). |
 | D3 identity | Single-domain `KycClaim`. | Cross-domain proof (ONCHAINID / ERC-3643 / CCID) resolved into a synchronizer-aware registry — the deferred D3 work. |
 
