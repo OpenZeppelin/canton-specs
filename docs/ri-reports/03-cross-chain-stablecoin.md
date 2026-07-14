@@ -75,31 +75,17 @@ Narrowing scope to the standardized interface boundary means a production
 gateway can be swapped in later without modifying the settlement spine or the
 compliance logic.
 
-### USDCx: settled, not re-bridged `[UPSTREAM]`
+### Instrument naming: `wTOK` vs USDCx `[UPSTREAM]`
 
-USDCx is the named instrument, but the architecture treats it as **external and
-already-native**. USDCx went live on Canton (December 2025) via Circle's
-**xReserve** lock-and-mint plus **CCTP**, explicitly *without reliance on
-third-party bridges*: the lock/attestation/mint is Circle's own rail. Routing
-USDCx through a generic CCIP/LayerZero-style gateway would therefore **re-bridge
-an asset that is already bridged** — adding trust surface, not removing it.
-
-So this RI **settles** USDCx (consumes the already-minted Canton instrument by
-interface) rather than bridging it. The generic Standardized Messaging Gateway
-(§3, §4.1) is the reference rail for assets that **lack** a native Canton
-lock-and-mint path; where a native rail exists (USDCx via xReserve/CCTP), the
-native mint output is the settled instrument and no parallel bridge is
-introduced. The reserve / lock-attestation model in §3.5 is the design for the
-generic case; for USDCx the equivalent guarantees are provided by xReserve and
-are out of this architecture's scope.
-
-**Naming convention.** Because the two asset models must not blur, the rest of
-this report uses **`wTOK`** for the *generic gateway-minted wrapped instrument*
-— the asset the flows in §2–§4 mint, settle, and redeem, whose issuing admin
-**is** this RI's StablecoinAdmin. **USDCx** appears only as the
-settled-not-bridged counter-example: an externally-issued, already-native
-instrument this architecture consumes by interface and has **no** issuing
-authority over.
+All flows in this report (§2–§4) mint, settle, and redeem a **generic
+gateway-minted wrapped instrument, `wTOK`**, whose issuing admin is this RI's
+StablecoinAdmin. **USDCx is not that instrument**: it is already native on
+Canton via Circle's own xReserve lock-and-mint + CCTP rail, so routing it
+through this gateway would re-bridge an already-bridged asset, adding trust
+surface. Where a native rail exists, the RI simply *settles* the native mint
+output by interface (no RI-side issuer role); the gateway is the reference rail
+only for assets that **lack** a native Canton path. The general
+native-rail-vs-gateway rule is an open question (§9).
 
 ---
 
@@ -153,8 +139,11 @@ CIP-0112 spine.
 1. **Inbound message.** The external chain finalizes a locked deposit. The
    attester(s) sign an `InboundMessage` carrying the typed `LockAttestation`
    (§3.5) — locked amount, Canton recipient, target instrument, nonce, expiry.
-   It is consumed one-time by its own `InboundMessage_Consume` choice (§4.1),
-   giving replay protection.
+   The carrier is **created directly by the attesters' own authority** (a plain
+   attester-signed `create`), *not* through a gateway choice — the gateway's
+   single choice, `Gateway_ProcessInbound`, only *consumes* an already-existing
+   carrier via its `InboundMessage_Consume` choice (§4.1), one-time, giving
+   replay protection.
 2. **Allocate + D1 check.** The relayer drives
    [`SettlementFactory_CreateAllocationInstruction`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L228) toward the recipient. Before
    it can target the recipient it must pass the **D1 compliance check**. The RI
