@@ -108,9 +108,8 @@ node boundaries and capability grants so no participant can unilaterally force a
 state transition without the required co-authorization.
 
 When a cross-chain locking event occurs externally, the gateway (holding a
-`RoleGrant` as relayer) emits an `InboundMessage` on Canton. Rather than a
-direct transfer — which would violate Canton's co-authorization model — the
-relayer drives the spine: [`SettlementFactory_CreateAllocationInstruction`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L228) →
+`RoleGrant` as relayer) emits an `InboundMessage` on Canton, and the relayer
+drives the spine: [`SettlementFactory_CreateAllocationInstruction`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L228) →
 (recipient accept) [`AllocationInstruction_Accept`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L392) → [`Allocation`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L474), plus a
 recipient-targeted [`AllocationRequest`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L322).
 
