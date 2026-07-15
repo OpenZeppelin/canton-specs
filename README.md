@@ -39,6 +39,9 @@ M1 target scope:
 
 Repository-local report surfaces:
 
+- [`docs/m1-delivery.md`](docs/m1-delivery.md) maps every M1 proposal
+  deliverable and acceptance criterion 1:1 to its artifact, location, and
+  validation command.
 - [`docs/architecture/`](docs/architecture/) holds the CIP-0112 / Token Standard
   V2 architecture, promotion-boundary, import-gate, DPM, license, and source-of-
   record notes. The adopted D1–D4 design decisions are recorded in
@@ -150,6 +153,17 @@ for the Ledger API port to be reachable before returning. The proof script
 performs the same DPM bootstrap as the build/test scripts, so the default
 up/proof/down sequence works in non-interactive validation shells when DPM is
 installed on `PATH` or at `~/.dpm/bin/dpm`.
+
+The CIP-0086 / CIP-0103 / CIP-0104 interop criteria are validated on a LocalNet
+with a single repo-local gate that boots a static-time sandbox, runs all interop
+exemplar scripts over the Ledger API gRPC endpoint, and tears the sandbox down:
+
+```sh
+./scripts/localnet-cip-interop-validation.sh
+```
+
+Procedure, per-script criteria mapping, and the latest evidence run are recorded
+in [`docs/experiments/cip-interop-localnet-validation.md`](docs/experiments/cip-interop-localnet-validation.md).
 
 ## Hello-World Scaffold
 
