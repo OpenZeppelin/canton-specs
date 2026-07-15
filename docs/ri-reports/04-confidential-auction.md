@@ -104,7 +104,7 @@ improvement over a public mempool.
 > [Canton dev-fund proposal](https://github.com/canton-foundation/canton-dev-fund/blob/main/proposals/2026-04-OpenZeppelin-canton-ecosystem-stack.md)
 > (the initial implementation is explicitly off-chain there). Migrating the
 > clearing on-ledger (verifiable clearing) is a **future exploration** within
-> the agreement, not an M1 item (§7.4, §9).
+> the agreement, not an M1 item.
 
 ---
 
