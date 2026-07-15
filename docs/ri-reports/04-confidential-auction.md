@@ -41,10 +41,7 @@ only to its signatories/observers, and a `BidRequest` with `signatory bidder,
 observer auctioneer` materializes only on those two parties' nodes. The
 synchronizer's sequencer orders the transaction by its confirmation-tree shape
 but does not see the bid plaintext, so the sealed-bid property is achieved
-without commit-reveal and front-running is structurally prevented. If an
-institution wants protection against the auctioneer too, a commit-reveal hash
-can be layered onto `BidRequest` as a non-breaking SCU extension — but native
-projection privacy suffices for the stated scope.
+without commit-reveal and front-running is structurally prevented.
 
 ### 1.2 In-Scope vs. Out-of-Scope
 
@@ -612,7 +609,7 @@ sequenceDiagram
     Note over B,A: Phase 2 — confidential bid
     B->>A: create BidRequest (Allocation id + bid math)
     Note right of B: projection: sequencer orders, sees no plaintext
-    Note over A,TR: Phase 3 — off-ledger reveal/clearing
+    Note over A,TR: Phase 3 — off-ledger clearing
     A->>A: compute clearing price (off-ledger engine)
     A->>TR: reserve tokens for winners
     TR-->>A: committed Allocation (tokens)
@@ -828,7 +825,7 @@ synchronizer before `SettleBatch`.
 | Emergency halt (pause the sale) | [`PauseState`](../../pausable/daml/OpenZeppelin/Pausable.daml) · [`whenNotPaused`](../../pausable/daml/OpenZeppelin/Pausable.daml) | ✅ |
 | Node-applied signed D1 attestation (Shape B enforcement) | `D1ComplianceHook` (field only) `[FUTURE]` | ⬜ |
 | Real TSv2 holding interface (replace `ToyHolding`) | `canton-token-template` `[EVIDENCE]` `[FUTURE]` | ⬜ |
-| Sealed-bid / commit-reveal confidential auction logic | `credential-gateway` `[IMPLEMENTED]` (experimental) `[FUTURE]` | ⬜ |
+| Sealed-bid confidential auction logic | `credential-gateway` `[IMPLEMENTED]` (experimental) `[FUTURE]` | ⬜ |
 | Bid privacy via projection + credential gating | `credential-gateway` `[IMPLEMENTED]` (experimental) `[FUTURE]` | ⬜ |
 | Cross-synchronizer operation (D3 deferred) | §8 `[FUTURE]` | ⬜ |
 | On-ledger multi-sig authority (D4 → M3) | `oz-access-control` `[FUTURE]` | ⬜ |
