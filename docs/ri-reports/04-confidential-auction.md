@@ -331,14 +331,14 @@ template AuctionLaunchpad
     launchedInstrumentId : InstrumentId
     settlementFactoryCid : ContractId SettlementFactory
     minBidPrice : Decimal
-    perInvestorCap : Decimal                  -- ISSUER-set allocation limit (not bidder-set)
+    perBidCap : Decimal                       -- ISSUER-set per-bid ceiling (not bidder-set)
     biddingDeadline : Time                    -- no bids / no settlement before this
     settlementDeadline : Time                 -- == the escrow Allocation deadline
   where
     signatory operator, issuer
     ensure
       minBidPrice > 0.0 &&
-      perInvestorCap > 0.0 &&
+      perBidCap > 0.0 &&
       biddingDeadline < settlementDeadline &&
       paymentInstrumentId /= launchedInstrumentId &&   -- the two legs must differ
       operator /= issuer
@@ -366,9 +366,9 @@ template AuctionLaunchpad
         now <- getTime
         assertMsg "bidding window closed" (now <= biddingDeadline)
         assertMsg "bid price below floor" (bidPrice >= minBidPrice)
-        -- Per-investor cap read from THIS launchpad (issuer-signed), not a
+        -- Per-bid cap read from THIS launchpad (issuer-signed), not a
         -- bidder-declared field, so the cap actually constrains.
-        assertMsg "bid exceeds per-investor cap" (bidAmount <= perInvestorCap)
+        assertMsg "bid exceeds per-bid cap" (bidAmount <= perBidCap)
         -- Bind the escrow: it must be the bidder's own committed allocation, in the
         -- payment instrument, for exactly `bidAmount`, and carry the SAME deadline
         -- as the auction (so the post-deadline force-refund is actually reachable —
@@ -412,7 +412,7 @@ template BidRequest
     observer auctioneer
 
     -- Basic integrity only. The load-bearing constraints — bid >= floor,
-    -- bid <= the ISSUER-set per-investor cap, and escrow == (bidAmount, payment
+    -- bid <= the ISSUER-set per-bid cap, and escrow == (bidAmount, payment
     -- instrument, matching deadline) — are enforced at creation by the issuer-signed
     -- `AuctionLaunchpad_PlaceBid` gate (§4.2), NOT here: `ensure` cannot `fetch`,
     -- and a bidder-supplied cap would be vacuous (the bidder could set it freely).
