@@ -41,10 +41,10 @@ only to its signatories/observers, and a `BidRequest` with `signatory bidder,
 observer auctioneer` materializes only on those two parties' nodes. The
 synchronizer's sequencer orders the transaction by its confirmation-tree shape
 but does not see the bid plaintext, so the sealed-bid property is achieved
-without commit-reveal and front-running is structurally prevented. If an
-institution wants protection against the auctioneer too, a commit-reveal hash
-can be layered onto `BidRequest` as a non-breaking SCU extension — but native
-projection privacy suffices for the stated scope.
+without commit-reveal and front-running is structurally prevented. (The
+auctioneer necessarily sees all bids to run clearing — §1.4; commit-reveal
+elsewhere in this report is about making the *clearing verifiable*, §7.4, not
+about hiding bids from the auctioneer.)
 
 ### 1.2 In-Scope vs. Out-of-Scope
 
