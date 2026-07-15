@@ -95,12 +95,14 @@ it does **not** deliver:
 
 This is acceptable for a confidential-submission launchpad where the issuer *is*
 the auctioneer and bidders trust the issuer's clearing, and it is a real
-improvement over a public mempool. Whether it is acceptable for the target
-deployments — or whether a **commit-reveal / verifiable clearing** layer is
-required to remove auctioneer trust — is a primary open decision (§7.4, §9), to
-be settled with the internal team before implementation. A commit-reveal hash on
-`BidRequest` is a non-breaking SCU extension, so the choice does not re-architect
-the core.
+improvement over a public mempool.
+
+> **Decision (July 2026, internal review).** M1 keeps clearing **off-ledger by
+> the trusted auctioneer**, matching the scope of the
+> [Canton dev-fund proposal](https://github.com/canton-foundation/canton-dev-fund/blob/main/proposals/2026-04-OpenZeppelin-canton-ecosystem-stack.md)
+> (the initial implementation is explicitly off-chain there). Migrating the
+> clearing on-ledger (verifiable clearing) is a **future exploration** within
+> the agreement, not an M1 item.
 
 ---
 
@@ -720,22 +722,22 @@ As stated in §1.4, the design provides confidential *submission* but rests on a
 **trusted auctioneer** for clearing. The ledger invariants guarantee that no
 value is stolen and that losing bids are returned; they do **not** guarantee that
 the clearing price was computed honestly or that allocation among equal bids was
-fair. The two ways to address this, to be decided with the internal team:
+fair. The two ways to address this:
 
 1. **Accept the trust** where the issuer is the auctioneer and bidders rely on the
    issuer's clearing (the conservation + return-to-sender + liveness guarantees
    already bound the damage to *unfairness*, never *theft* or *lock-up*).
 2. **Remove the trust with commit-reveal / verifiable clearing.** Bidders commit a
-   hash of `(bidAmount, bidPrice, nonce)` on `BidRequest` (an additive `Optional`
-   field — non-breaking SCU), reveal after `biddingDeadline`, and the clearing
+   hash of `(bidAmount, bidPrice, nonce)` on `BidRequest`, reveal after
+   `biddingDeadline`, and the clearing
    choice re-derives winners/price on-ledger from the revealed bids so the
    computation is checkable rather than asserted. This adds a reveal round and
    non-revelation handling (forfeit / ignore) but yields ledger-auditable
    fairness.
 
-The recommended path is to layer commit-reveal where auctioneer honesty cannot be
-assumed; the SCU-additive shape means the core single-round flow above does not
-change.
+**Decided (§1.4): option 1 for M1** — trusted off-ledger clearing, per the
+dev-fund proposal scope. Option 2 is the recorded future path if/when
+auctioneer honesty cannot be assumed.
 
 ---
 
@@ -833,14 +835,27 @@ synchronizer before `SettleBatch`.
 ## 9. Open Design Questions
 
 Decisions to settle with the internal team before implementation, not M1 build
-items; each is referenced from the section that motivates it. The auctioneer-trust
-decision shapes the design and should be opened early.
+items; each is referenced from the section that motivates it.
 
-- **Auctioneer trust → commit-reveal / verifiable clearing.** The central
-  decision (§1.4, §7.4): accept a trusted off-ledger auctioneer, or add
-  commit-reveal so clearing is ledger-verifiable and auctioneer honesty is not
-  assumed. Includes the non-revelation policy (forfeit escrow vs. ignore the
-  unrevealed bid) if commit-reveal is adopted.
+- **Auctioneer trust — DECIDED (July 2026 internal review; §1.4, §7.4).** M1
+  accepts the trusted off-ledger auctioneer, matching the dev-fund proposal
+  scope; on-ledger / verifiable clearing is a recorded **future exploration**
+  within the agreement. Still open *for that future phase*: the non-revelation
+  policy (forfeit escrow vs. ignore the unrevealed bid) and the reveal-round
+  disclosure model.
+- **Issuer visibility minimized to settlement — documented improvement,
+  deferred.** Today every bid is witnessed by the launchpad's signatories
+  (issuer + operator): `AuctionLaunchpad_PlaceBid` is a choice on the
+  issuer-signed launchpad, and signatories see the exercise arguments and the
+  `BidRequest` create under it. Agreed improvement (July 2026 internal review),
+  to evaluate before implementation rather than change now: move the issuer's
+  first sight of any bid to the settlement point, where it learns only the
+  winning legs (recipient + amounts). Candidate shapes: move the floor/cap/escrow
+  validation from the bid-time gate into `Clearing_ExecuteBatch` (bids created
+  bidder-signed, auctioneer-observed only; invalid bids rejected at clearing),
+  or an auctioneer-signed `BidGate` carrying a role-authorized parameter copy.
+  Only matters when issuer ≠ auctioneer — the auctioneer must see all bids to
+  clear regardless.
 - **Tie-breaking at the clearing price.** When bids tie at the marginal price and
   supply is insufficient for all, the allocation rule (pro-rata, time-priority,
   random-with-seed, or issuer-chosen) is unspecified and is a primary fairness
