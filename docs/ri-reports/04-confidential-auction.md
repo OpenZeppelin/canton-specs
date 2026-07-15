@@ -104,9 +104,7 @@ improvement over a public mempool.
 > [Canton dev-fund proposal](https://github.com/canton-foundation/canton-dev-fund/blob/main/proposals/2026-04-OpenZeppelin-canton-ecosystem-stack.md)
 > (the initial implementation is explicitly off-chain there). Migrating the
 > clearing on-ledger (verifiable clearing) is a **future exploration** within
-> the agreement, not an M1 item. A commit-reveal hash on `BidRequest` is a
-> non-breaking SCU extension, so revisiting the choice later does not
-> re-architect the core (§7.4, §9).
+> the agreement, not an M1 item (§7.4, §9).
 
 ---
 
@@ -727,8 +725,8 @@ fair. The two ways to address this:
    issuer's clearing (the conservation + return-to-sender + liveness guarantees
    already bound the damage to *unfairness*, never *theft* or *lock-up*).
 2. **Remove the trust with commit-reveal / verifiable clearing.** Bidders commit a
-   hash of `(bidAmount, bidPrice, nonce)` on `BidRequest` (an additive `Optional`
-   field — non-breaking SCU), reveal after `biddingDeadline`, and the clearing
+   hash of `(bidAmount, bidPrice, nonce)` on `BidRequest`, reveal after
+   `biddingDeadline`, and the clearing
    choice re-derives winners/price on-ledger from the revealed bids so the
    computation is checkable rather than asserted. This adds a reveal round and
    non-revelation handling (forfeit / ignore) but yields ledger-auditable
@@ -736,8 +734,7 @@ fair. The two ways to address this:
 
 **Decided (§1.4): option 1 for M1** — trusted off-ledger clearing, per the
 dev-fund proposal scope. Option 2 is the recorded future path if/when
-auctioneer honesty cannot be assumed; the SCU-additive shape means the core
-single-round flow above does not change when it is layered on.
+auctioneer honesty cannot be assumed.
 
 ---
 
