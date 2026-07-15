@@ -664,7 +664,12 @@ cannot output more value than its inputs. Conservation is enforced unconditional
 on every settle path; there is no carve-out. (`nextIterationFunding` is inert
 forward-compatible metadata and performs no accounting.) (b)
 **confidentiality** — bid amount/parties are projected only to bidder,
-auctioneer, and the designated verifier; (c) **liveness** — past
+auctioneer, and the designated verifier. This holds **through settlement**:
+`SettleBatch` exercises each allocation with only the legs its own authorizer
+is party to (`legsForAuthorizer` in `settleAllocations`), so one winner never
+witnesses another winner's legs via the exercise arguments on its own
+allocation — the full leg list is visible only at the factory level (admin +
+executors); (c) **liveness** — past
 `settlementDeadline` every bidder can unilaterally reclaim escrow.
 Conservation/confidentiality do **not** imply clearing *honesty* or allocation
 *fairness* — see §7.4.
