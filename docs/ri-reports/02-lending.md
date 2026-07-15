@@ -15,9 +15,9 @@ claim of acceptance, conformance, audit readiness, or production readiness.
 > order: **1) Security → 2) Simplicity → 3) Readability → 4) Auditability.**
 > Security leads and governs the design: where security and readability conflict,
 > security wins. Liquidation seizure is bound on-ledger to the liquidator's signed
-> payment (§4.4) rather than the terser "seize the whole vault"; the oracle is
-> committee-attested rather than single-admin (§3); and stablecoin minting is
-> reachable only through a solvency-coupled path (§3).
+> payment ([section 4.4](#44-margin-call--payment-proportional-liquidation-future-correcting-vault_liquidate-evidence)) rather than the terser "seize the whole vault"; the oracle is
+> committee-attested rather than single-admin ([section 3](#3-how-we-implement-it)); and stablecoin minting is
+> reachable only through a solvency-coupled path ([section 3](#3-how-we-implement-it)).
 
 > **Scope.** This is the architecture documentation for a vault-based
 > institutional lending reference design targeting **CIP-0112 / Token Standard
@@ -81,18 +81,18 @@ settlement semantics the spine depends on.
 
 ### Scope Definition
 
-The bias favors simplicity, modular extensibility, and a demonstrably correct
+Scope favors simplicity, modular extensibility, and a demonstrably correct
 core over feature complexity.
 
-| Capability Domain | IN SCOPE (Reference design) | OUT OF SCOPE (Excluded) |
+| Capability Domain | In-Scope (Reference design) | Out-of-Scope (Excluded) |
 |---|---|---|
-| Interest Model | Fixed, immutable `stabilityFeeRate` in `VaultParams`; open-term positions (no maturity). Accrual **compounds discretely** across operations (§3). | Dynamic / variable / algorithmic rates, utilization rate curves, floating-rate oracles, fixed maturity/term dates. |
-| Collateralization | Overcollateralized borrowing against on-ledger assets; collateral **transferred into vault custody** (not minted/burned), so **institution-supplied / third-party-issued collateral** is supported (§3). | Undercollateralized loans, flash loans, recursive leverage, rehypothecation. |
-| Liquidation | `Vault_Liquidate_ViaSpine` on undercollateralization, after a **margin-call grace period** (§3). **Partial, payment-proportional** seizure: collateral seized is bound on-ledger to the stablecoin the liquidator actually repays (§4.4). | Market-driven bidding-war auctions; whole-vault forced seizure regardless of payment (the `canton-stablecoin` `Vault_Liquidate` behaviour the RI corrects). |
+| Interest Model | Fixed, immutable `stabilityFeeRate` in `VaultParams`; open-term positions (no maturity). Accrual **compounds discretely** across operations ([section 3](#3-how-we-implement-it)). | Dynamic / variable / algorithmic rates, utilization rate curves, floating-rate oracles, fixed maturity/term dates. |
+| Collateralization | Overcollateralized borrowing against on-ledger assets; collateral **transferred into vault custody** (not minted/burned), so **institution-supplied / third-party-issued collateral** is supported ([section 3](#3-how-we-implement-it)). | Undercollateralized loans, flash loans, recursive leverage, rehypothecation. |
+| Liquidation | `Vault_Liquidate_ViaSpine` on undercollateralization, after a **margin-call grace period** ([section 3](#3-how-we-implement-it)). **Partial, payment-proportional** seizure: collateral seized is bound on-ledger to the stablecoin the liquidator actually repays ([section 4.4](#44-margin-call--payment-proportional-liquidation-future-correcting-vault_liquidate-evidence)). | Market-driven bidding-war auctions; whole-vault forced seizure regardless of payment (the `canton-stablecoin` `Vault_Liquidate` behaviour the RI corrects). |
 | Settlement | Atomic DvP **only** via `SettlementFactory_SettleBatch`. | Direct un-batched `Allocation_Settle` for co-settlement. |
-| Pricing | `PriceOracle` mapping a single collateral asset to a named `stablecoinInstrumentId`, with staleness + deviation guards and a **committee-attested** update path (§3, §4.2). | Multi-asset dynamic oracles, external off-chain TWAP aggregators. |
-| Fees | Stability fee + liquidation bonus **routed to a protocol treasury / insurance fund** (not burned); only the backing principal is burned on repay (§3). | Per-position LP reward streams; algorithmic fee markets. |
-| Identity & Compliance | D1 Shape B (signed node attestation) using `KycClaim` + `TrustedIssuerRegistry`; credential gating via `credential-gateway`, **re-checked on every value-moving operation** (§3), not only at open. | Cross-domain identity aggregation (ERC-3643, ONCHAINID, Chainlink CCID) — deferred, SCU-forward-compatible only. |
+| Pricing | `PriceOracle` mapping a single collateral asset to a named `stablecoinInstrumentId`, with staleness + deviation guards and a **committee-attested** update path ([section 3](#3-how-we-implement-it), [section 4.2](#42-configuration-and-pricing-evidence-canton-stablecoin-shapes)). | Multi-asset dynamic oracles, external off-chain TWAP aggregators. |
+| Fees | Stability fee + liquidation bonus **routed to a protocol treasury / insurance fund** (not burned); only the backing principal is burned on repay ([section 3](#3-how-we-implement-it)). | Per-position LP reward streams; algorithmic fee markets. |
+| Identity & Compliance | D1 Shape B (signed node attestation) using `KycClaim` + `TrustedIssuerRegistry`; credential gating via `credential-gateway`, **re-checked on every value-moving operation** ([section 3](#3-how-we-implement-it)), not only at open. | Cross-domain identity aggregation (ERC-3643, ONCHAINID, Chainlink CCID) — deferred, SCU-forward-compatible only. |
 | Authority & Access | Capability-based (`oz-access-control`) for mint/burn/seizure/handoff; **oracle updates committee-attested** so no single admin can move the price. Full on-ledger multi-sig is a **named M3 extension**. | On-ledger multi-sig / DAO execution. |
 
 ### Target Users
@@ -116,7 +116,7 @@ custody, debt issuance, economic parameterization, and liquidation.
 |---|---|---|---|
 | `VaultParams` | `canton-stablecoin` | Immutable risk config: `minCollateralRatio`, `liquidationRatio`, `liquidationBonus`, fixed `stabilityFeeRate`. | `[EVIDENCE]` |
 | `VaultFactory` | `canton-stablecoin` | Vault creation entry point (`VaultFactory_OpenVault`); the RI layers an initial compliance check before opening. | `[EVIDENCE]` |
-| `Vault` | `canton-stablecoin` | Stateful CDP: `collateralAmount`, `debtAmount`, `params`, `lastAccrualTime`; choices `Vault_DepositCollateral`, `Vault_WithdrawCollateral`, `Vault_MintStablecoin`, `Vault_BurnStablecoin`, `Vault_Liquidate` (RI adapts → `Vault_FlagForLiquidation` + `Vault_Liquidate_ViaSpine`, §4.4), `Vault_Close`; helpers `accrueDebt`, `collateralRatio`. | `[EVIDENCE]` |
+| `Vault` | `canton-stablecoin` | Stateful CDP: `collateralAmount`, `debtAmount`, `params`, `lastAccrualTime`; choices `Vault_DepositCollateral`, `Vault_WithdrawCollateral`, `Vault_MintStablecoin`, `Vault_BurnStablecoin`, `Vault_Liquidate` (RI adapts → `Vault_FlagForLiquidation` + `Vault_Liquidate_ViaSpine`, [section 4.4](#44-margin-call--payment-proportional-liquidation-future-correcting-vault_liquidate-evidence)), `Vault_Close`; helpers `accrueDebt`, `collateralRatio`. | `[EVIDENCE]` |
 | `PriceOracle` | `canton-stablecoin` | Trusted feed: `collateralInstrumentId`, `price`, `updatedAt`, `observers`; updated via `PriceOracle_UpdatePrice`. | `[EVIDENCE]` |
 | [`SettlementFactory`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L191) | `OpenZeppelin.Experimental.Settlement.Cip112` | Atomic multi-leg settlement: [`SettlementFactory_CreateAllocationRequest`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L205), [`SettlementFactory_CreateAllocationInstruction`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L228), [`SettlementFactory_SettleBatch`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L249). | `[IMPLEMENTED]` |
 | Role management | `oz-access-control` | [`RoleGrant`](../../access-control/daml/OpenZeppelin/AccessControl.daml), [`RoleAdmin`](../../access-control/daml/OpenZeppelin/AccessControl.daml), [`requireRole`](../../access-control/daml/OpenZeppelin/AccessControl.daml); `roleId : MyRole -> Text` closed-sum wrapper prevents string-matching role collisions. | `[IMPLEMENTED]` |
@@ -131,30 +131,30 @@ Data visibility is bounded by contract participation (signatory/observer).
 - **Admin / Issuer** — primary underwriter of the **stablecoin (debt) token**.
   Assigned via `RoleAdmin`; holds the `BurnerCapability` and configures the
   `TrustedIssuerRegistry`. The admin's mint/burn authority is scoped to the
-  **stablecoin instrument only** — never the collateral (see §3, "Collateral
-  is custodied, not minted"). Its mint authority is reachable *only* through
+  **stablecoin instrument only** — never the collateral (see [Collateral is
+  custodied, not minted](#collateral-is-custodied-not-minted-institution-supplied-collateral)). Its mint authority is reachable *only* through
   `Vault_MintStablecoin`, which couples issuance atomically to a solvency-checked
-  debt increment, so the admin cannot issue unbacked stablecoin (§3, "Mint is
-  coupled to debt").
+  debt increment, so the admin cannot issue unbacked stablecoin ([Mint is coupled
+  to debt](#mint-is-coupled-to-debt-no-unbacked-issuance)).
 - **Borrower** — institutional entity locking collateral. Must present a valid
   `MockVerificationResult` derived from a `KycClaim` to interact with the
   `VaultFactory`, and remains subject to the compliance re-check on every
-  subsequent value-moving operation (§3). Visibility limited to their own
+  subsequent value-moving operation ([section 3](#3-how-we-implement-it)). Visibility limited to their own
   `Vault`s and public config.
 - **Liquidator** — specialized role granted via `oz-access-control`. Runs
   off-ledger monitoring of `PriceOracle` and vault solvency; authorized to
   exercise `Vault_Liquidate_ViaSpine` **only after the margin-call grace period
-  has elapsed** on a flagged, still-unhealthy vault (§3). Seizure is bound
+  has elapsed** on a flagged, still-unhealthy vault ([section 3](#3-how-we-implement-it)). Seizure is bound
   on-ledger to the stablecoin the liquidator actually repays.
 - **Oracle Committee** — a set of independent attestors (mirroring the DEX
   `attestorPool`) that **co-control** `PriceOracle_UpdatePrice` alongside the
   admin (`controller admin :: oracleCommittee`). No single party — not even a
   compromised admin — can move the published price, which closes the
-  "admin sets price to 0 and self-liquidates everyone" attack (§3, §7.3). Members
+  "admin sets price to 0 and self-liquidates everyone" attack ([section 3](#3-how-we-implement-it)). Members
   are authorized via `RoleGrant` (`OracleProvider`).
 - **Treasury / Insurance-fund holder** — the party that receives the routed
-  stability-fee and liquidation-bonus portions (§3, "Fees are routed, not
-  burned"); the accumulated fund is the first absorber of recognized bad debt.
+  stability-fee and liquidation-bonus portions ([Fees are routed, not
+  burned](#fees-are-routed-not-burned-protocol-revenue--insurance-fund)); the accumulated fund is the first absorber of recognized bad debt.
 
 ### Trust and Topology
 
@@ -223,7 +223,7 @@ co-settlement of interdependent legs.
    atomically burns the liquidator's principal, routes the `liquidationBonus` to the
    insurance fund, and sweeps **collateral proportional to the amount actually
    repaid** (a partial liquidation restoring health, not a whole-vault seizure —
-   §4.4). The residual collateral is recreated in a new `Vault` for the borrower.
+   [section 4.4](#44-margin-call--payment-proportional-liquidation-future-correcting-vault_liquidate-evidence)). The residual collateral is recreated in a new `Vault` for the borrower.
 
 ### Interest Accrual and Bad-Debt Recognition (grounded in `Vault.daml` `[EVIDENCE]`)
 
@@ -248,9 +248,9 @@ adapts, so they are stated here as decided behavior rather than open design:
   actually exhibits.) Whether to keep discrete compounding, switch to **true simple
   interest** accrued off the original principal, or offer a **continuously-compounding**
   variant — each with explicit rounding bounds so accrual is reproducible and
-  formally checkable — is the named open question (§9), not a silent default.
+  formally checkable — is the named open question, not a silent default.
 - **Bad debt is recognized, quantified, and absorbed by the insurance fund.**
-  The RI's liquidation (`Vault_Liquidate_ViaSpine`, §4.4) seizes collateral
+  The RI's liquidation (`Vault_Liquidate_ViaSpine`, [section 4.4](#44-margin-call--payment-proportional-liquidation-future-correcting-vault_liquidate-evidence)) seizes collateral
   **proportional to the stablecoin the liquidator actually repays** —
   `collateralToSeize = min(collateralAmount, (debtRepaid · (1 + liquidationBonus)) / oracle.price)`
   where `debtRepaid` is read from the liquidator's *signed* allocation, not from
@@ -264,7 +264,7 @@ adapts, so they are stated here as decided behavior rather than open design:
   Any genuine shortfall on a deeply under-water position is still quantified as
   `badDebt` in the returned `VaultLiquidationResult`, and its **disposition** is
   the protocol **insurance fund** capitalized from routed fees (below); a
-  socialized-loss / admin-write-off fallback is the residual open decision (§9).
+  socialized-loss / admin-write-off fallback is the residual open decision.
 
 ### Collateral is Custodied, Not Minted (institution-supplied collateral)
 
@@ -295,7 +295,7 @@ stablecoin to the borrower via a `SettleBatch` leg. There is no standalone
 admin-mint choice, so the admin cannot conjure stablecoin that is not matched by
 recorded, solvency-checked vault debt. Symmetrically, `Vault_BurnStablecoin`
 reduces `debtAmount` by exactly the principal burned. This is the on-ledger
-realisation of the **debt-conservation invariant** (§7.1): every stablecoin unit
+realisation of the **debt-conservation invariant**: every stablecoin unit
 in circulation is backed 1:1 by outstanding vault debt — the defining property of
 a collateral-backed stablecoin, and the admin cannot mint at will.
 
@@ -341,8 +341,8 @@ extensions over the `canton-stablecoin` base.)
 The initial `VaultFactory_OpenVault` KYC gate is necessary but not sufficient: a
 borrower can lose good standing (credential revoked, jurisdiction change) after
 opening. Because every value-moving `Vault` operation settles through
-`SettleBatch`, the same D1 path (`D1ComplianceHook` / Shape-B attestation, §D1
-below) is engaged **per leg, fail-closed, with no caching**, and each leg checks
+`SettleBatch`, the same D1 path (`D1ComplianceHook` / Shape-B attestation — the
+[D1–D4 attachment](#d1d4-attachment-strategy) below) is engaged **per leg, fail-closed, with no caching**, and each leg checks
 the compliance of the party *moving value on that leg*. So the **borrower's**
 credential is re-evaluated on each `Vault_DepositCollateral`,
 `Vault_WithdrawCollateral`, and `Vault_MintStablecoin`, and a
@@ -375,7 +375,7 @@ deferred):
   everyone" attack: a lone admin can no longer move the price, so it can no longer
   manufacture liquidations. Members are `RoleGrant`-authorized (`OracleProvider`).
   (An N-of-M *threshold* — needed so one offline attestor cannot stall updates —
-  is the open question in §9, exactly as for the DEX attestor pool.)
+  is an open question, exactly as for the DEX attestor pool.)
 - **Max-staleness guard (consumes `updatedAt`).** `PriceOracle` carries an
   `updatedAt : Time`. Every price-dependent choice (`Vault_Mint*`,
   `Vault_Withdraw*`, `Vault_FlagForLiquidation`, `Vault_Liquidate_ViaSpine`)
@@ -383,7 +383,7 @@ deferred):
   maxStaleness` (a `VaultParams` bound), so a stalled feed cannot drive
   liquidations or fresh borrows against a dead price. (`maxStaleness` is an
   additive `[FUTURE]` `VaultParams` field; `maxDeviation` lives on the
-  `PriceOracle` itself — see §4.2 — both SCU-compatible.)
+  `PriceOracle` itself — see [section 4.2](#42-configuration-and-pricing-evidence-canton-stablecoin-shapes) — both SCU-compatible.)
 - **Per-update deviation circuit breaker.** `PriceOracle_UpdatePrice` bounds the
   jump between consecutive prices against the oracle's own `maxDeviation` field
   (`|newPrice - price| / price <= maxDeviation`); an out-of-band move **aborts the
@@ -395,7 +395,7 @@ deferred):
   manipulation.
 - **TWAP (deferred).** A time-weighted average price over a window is named as a
   follow-on hardening for manipulation resistance; the additive `Optional`
-  carrier for it is an SCU extension point (§9).
+  carrier for it is an SCU extension point.
 
 ### D1–D4 Attachment Strategy
 
@@ -416,8 +416,9 @@ deferred):
   spine's [`D2SeizureHook`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L46) config record), gated by the single-admin
   [`BurnerCapability`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L98). In-flight allocations use the real spine choices
   [`Allocation_MarkD2InFlightSeizure`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L595) → [`Allocation_SweepD2InFlightSeizure`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L625);
-  locked vault collateral uses the forced-burn-to-custodian path
-  (`LockedSimpleHolding_ForcedBurn` evidence). Seized assets are **never** burned
+  locked vault collateral uses a forced sweep to the custodian
+  (`LockedSimpleHolding_ForcedBurn` `[FUTURE]` — the evidence template ships only
+  `_Unlock`). Seized assets are **never** burned
   and **never** returned to sender; ordinary transfer *failures* do return to
   sender.
 - **D3 — identity.** Single-domain v1 with issuer-held KYC. Cross-domain
@@ -474,18 +475,18 @@ roleId Pauser         = "PAUSER"
 
 ```daml
 -- Real canton-stablecoin shapes (grounded in Stablecoin/Vault.daml and
--- Stablecoin/Oracle.daml). VaultParams is a DATA record (embedded by value in
--- VaultFactory / Vault), NOT a template — so there is no `paramsCid` to store or
+-- Stablecoin/Oracle.daml). VaultParams is a data record (embedded by value in
+-- VaultFactory / Vault), not a template — so there is no `paramsCid` to store or
 -- brick; the config travels with the contract that embeds it. Instrument ids are
--- `InstrumentId` (bound to the issuing admin), NOT `Text`.
+-- `InstrumentId` (bound to the issuing admin), not `Text`.
 data VaultParams = VaultParams
   with
     minCollateralRatio : Decimal   -- e.g. 1.50 (150%)
     liquidationRatio : Decimal     -- triggers liquidation-flag below this
     liquidationBonus : Decimal     -- fixed-discount penalty, e.g. 0.10
-    stabilityFeeRate : Decimal     -- FIXED / immutable rate (open-term, no maturity)
-    -- [FUTURE] additive (SCU-appended) risk params — NOT in the current real
-    -- 4-field shape; the margin-call (§3) and liquidation (§4.4) designs reference
+    stabilityFeeRate : Decimal     -- fixed / immutable rate (open-term, no maturity)
+    -- [FUTURE] additive (SCU-appended) risk params — not in the current real
+    -- 4-field shape; the margin-call (section 3) and liquidation (section 4.4) designs reference
     -- these, protocol-set (never liquidator-supplied):
     --   maxStaleness : RelTime     -- reject a price older than this
     --   gracePeriod  : RelTime     -- margin-call cure window before liquidation
@@ -503,10 +504,10 @@ data VaultParams = VaultParams
 -- real 5-field shape (both [FUTURE] additive / SCU-appended):
 --   * `stablecoinInstrumentId` — the real oracle names only the collateral; the
 --     RI also names the quote instrument, so `price` is unambiguously "units of
---     THIS stablecoin per unit of THIS collateral" and consumers assert both.
+--     this stablecoin per unit of this collateral" and consumers assert both.
 --   * `oracleCommittee` + committee-controlled update — the real update path is
 --     `controller admin` alone; the RI co-controls it with the full committee (like the DEX
---     attestorPool) so no single compromised admin can move the price (§3, §7.3).
+--     attestorPool) so no single compromised admin can move the price (section 3).
 -- The update path is *consuming* (archive-and-recreate to publish), so the cid is
 -- passed to consumers at exercise time (liquidation's `oracleCid`), never stored.
 template PriceOracle
@@ -516,15 +517,15 @@ template PriceOracle
     collateralInstrumentId : InstrumentId
     stablecoinInstrumentId : InstrumentId  -- [FUTURE] the unit `price` is quoted in
     price : Decimal                -- units of stablecoinInstrumentId per collateral unit
-    -- Circuit-breaker bound, set at creation and mutable ONLY via a separate
-    -- governance choice — NOT a per-update argument, so a submitting committee
+    -- Circuit-breaker bound, set at creation and mutable only via a separate
+    -- governance choice — not a per-update argument, so a submitting committee
     -- cannot widen its own deviation bound (the writer-set-bound anti-pattern).
     maxDeviation : Decimal
     updatedAt : Time
-    observers : [Party]            -- real field: distinct readers (NOT admin)
+    observers : [Party]            -- real field: distinct readers (not the admin)
   where
     signatory admin, oracleCommittee
-    observer observers             -- legitimate (observers /= the admin signatory)
+    observer observers
     ensure price > 0.0 && maxDeviation > 0.0 &&
            collateralInstrumentId /= stablecoinInstrumentId
 
@@ -537,7 +538,7 @@ template PriceOracle
       controller admin :: oracleCommittee   -- full committee co-signs; no single writer
       do
         assertMsg "price must be positive" (newPrice > 0.0)
-        -- Per-update circuit breaker against `this.maxDeviation`. A breach ABORTS
+        -- Per-update circuit breaker against `this.maxDeviation`. A breach aborts
         -- the update (the stale-but-safe last price stands, and staleness guards
         -- eventually fire); pausing on repeated breaches is a separate admin
         -- action, since an aborting transaction cannot also persist a pause.
@@ -565,12 +566,12 @@ template LendingVaultFactory
     signatory admin
 
     -- New RI choice wrapping the canton-stablecoin VaultFactory_OpenVault path.
-    -- Two deliberate pointer choices, mirroring the DEX fixes:
-    --  * `VaultFactory` is nonconsuming (reusable — it does NOT archive on open),
-    --    so its cid is stable and safe to STORE. `VaultParams` rides inside it as
+    -- Two deliberate pointer choices, mirroring the DEX pointer rules:
+    --  * `VaultFactory` is nonconsuming (reusable — it does not archive on open),
+    --    so its cid is stable and safe to store. `VaultParams` rides inside it as
     --    an embedded `data` value, so there is no separate params cid to brick.
     --  * `TrustedIssuerRegistry` archive-and-recreates on issuer add/remove, so
-    --    it is passed as a choice ARGUMENT (disclosed at exercise time), never
+    --    it is passed as a choice argument (disclosed at exercise time), never
     --    stored — the same dangling-pointer hazard as a stored `PauseState` cid.
     nonconsuming choice LendingVaultFactory_OpenGatedVault : ContractId Vault
       with
@@ -594,27 +595,27 @@ template LendingVaultFactory
 ```daml
 -- canton-stablecoin Vault fields (exact): admin, owner, collateralInstrumentId,
 -- stablecoinInstrumentId, collateralAmount, debtAmount, params, lastAccrualTime.
--- The RI adds THREE additive (SCU-appended) fields:
+-- The RI adds three additive (SCU-appended) fields:
 --   liquidationFlaggedAt : Optional Time  -- None until flagged; set by the flag choice
 --   principalAmount      : Decimal        -- borrowed principal, tracked apart from
---                                         --   accrued fee so the fee split (§3) is
+--                                         --   accrued fee so the fee split (section 3) is
 --                                         --   computable; debtAmount stays the total
---   collateralAccount    : Account        -- the CANONICAL custody account whose
+--   collateralAccount    : Account        -- the canonical custody account whose
 --                                         --   holdings back collateralAmount; bound into
---                                         --   deposit/withdraw/liquidation so each DELTA is
+--                                         --   deposit/withdraw/liquidation so each delta is
 --                                         --   sourced from the right account (the analogue of
 --                                         --   the DEX pool's poolAccount; the absolute
 --                                         --   collateralAmount == Σ holdings also needs funded
 --                                         --   deposits, like the DEX seeding caveat)
--- The real `Vault_Liquidate` seizes the WHOLE vault in one shot and, in its
--- under-water branch, hands over ALL collateral regardless of how much the
--- liquidator pays (booking the gap as badDebt) — the critical vuln. The RI
+-- The real `Vault_Liquidate` seizes the whole vault in one shot and, in its
+-- under-water branch, hands over all collateral regardless of how much the
+-- liquidator pays (booking the gap as badDebt) — a critical vulnerability. The RI
 -- replaces that with (1) a margin-call flag + grace period, and (2) a
 -- payment-proportional liquidation whose seizure is bound on-ledger to the
 -- stablecoin the liquidator actually signed for.
 
-    -- PHASE 1 — margin call. Permissionless: anyone may flag an unhealthy vault,
-    -- which starts the owner's cure clock. It does NOT move value.
+    -- Phase 1 — margin call. Permissionless: anyone may flag an unhealthy vault,
+    -- which starts the owner's cure clock. It does not move value.
     choice Vault_FlagForLiquidation : ContractId Vault
       with
         flagger : Party
@@ -636,7 +637,7 @@ template LendingVaultFactory
           debtAmount = accruedDebt; lastAccrualTime = now
           liquidationFlaggedAt = Some now
 
-    -- PHASE 2 — liquidation, only after the grace period, and only proportional
+    -- Phase 2 — liquidation, only after the grace period, and only proportional
     -- to what the liquidator pays.
     choice Vault_Liquidate_ViaSpine : (ContractId Vault, ContractId SettlementReceipt)
       with
@@ -661,12 +662,12 @@ template LendingVaultFactory
         assertMsg "oracle instrument mismatch"
           (oracle.collateralInstrumentId == collateralInstrumentId &&
            oracle.stablecoinInstrumentId == stablecoinInstrumentId)
-        -- Oracle freshness: `maxStaleness` is a protocol-set VaultParams field, NOT
+        -- Oracle freshness: `maxStaleness` is a protocol-set VaultParams field, not
         -- a liquidator-supplied arg — a liquidator must not widen it to liquidate
         -- against a dead price.
         assertMsg "oracle stale" (subTime now oracle.updatedAt <= params.maxStaleness)
 
-        -- MARGIN CALL GATE: the vault must have been flagged AND the grace period
+        -- Margin-call gate: the vault must have been flagged and the grace period
         -- must have elapsed. This removes the top-up-vs-liquidation race: the owner
         -- owns the whole [flaggedAt, flaggedAt + gracePeriod] window to cure.
         case liquidationFlaggedAt of
@@ -675,14 +676,14 @@ template LendingVaultFactory
             assertMsg "grace period has not elapsed"
               (subTime now flaggedAt >= params.gracePeriod)
 
-        -- Accrue, then confirm STILL unhealthy (the owner may have partially cured).
+        -- Accrue, then confirm still unhealthy (the owner may have partially cured).
         let accruedDebt = accrueDebt debtAmount lastAccrualTime now params.stabilityFeeRate
         assertMsg "vault is solvent"
           (collateralRatio collateralAmount accruedDebt oracle.price < params.liquidationRatio)
 
-        -- ON-LEDGER BINDING — PAY SIDE (root-cause fix for "pay 1 unit, seize
-        -- everything"): read how much stablecoin the liquidator actually SIGNED to
-        -- pay, and drive seizure off THAT — never off the vault's full accrued debt.
+        -- On-ledger binding — pay side: read how much stablecoin the liquidator
+        -- actually signed to pay, and drive seizure off that — never off the
+        -- vault's full accrued debt.
         liqAlloc <- fetch debtAllocationId
         let liquidatorAccount = liqAlloc.allocation.authorizer
         paySide <- case filter (\s -> s.side == SenderSide) liqAlloc.allocation.transferLegSides of
@@ -690,31 +691,31 @@ template LendingVaultFactory
           _ -> abort "liquidator must sign exactly one stablecoin payment (sender) side"
         let debtRepaid = paySide.amount
         assertMsg "payment must be positive" (debtRepaid > 0.0)
-        -- PARTIAL / PROPORTIONAL liquidation: one call may repay at most a
+        -- Partial / proportional liquidation: one call may repay at most a
         -- `closeFactor` slice of the debt (enough to restore health, not the whole
         -- position), and never more than the outstanding debt. (The VaultFactory
         -- validates `0.0 < closeFactor <= 1.0` at open, so this cap can never
         -- brick to 0.)
         assertMsg "repayment exceeds close-factor cap"
           (debtRepaid <= min accruedDebt (params.closeFactor * accruedDebt))
-        -- Collateral seized is EXACTLY what the payment (plus bonus) buys, capped by
+        -- Collateral seized is exactly what the payment (plus bonus) buys, capped by
         -- what the vault holds. A tiny payment now seizes only a tiny slice.
         let collateralToSeize =
               min collateralAmount ((debtRepaid * (1.0 + params.liquidationBonus)) / oracle.price)
 
-        -- ON-LEDGER BINDING — SEIZE SIDE (the other half; without this the seize
+        -- On-ledger binding — seize side (the other half; without this the seize
         -- amount would be operator-asserted via `transferLegs`, re-opening the very
-        -- gap). Read the VAULT's own committed collateral allocation and require its
-        -- signed sender side to be EXACTLY `collateralToSeize` of the collateral
+        -- gap). Read the vault's own committed collateral allocation and require its
+        -- signed sender side to be exactly `collateralToSeize` of the collateral
         -- instrument, then pin `transferLegs` to exactly the two bound legs — mirror
-        -- of the DEX `Pool_Swap` fix (§01 §4.1).
+        -- of the DEX `Pool_Swap` leg binding (RI-01, section 4.1).
         vaultCollAlloc <- fetch vaultCollateralAllocationId
         let vaultCollateralAccount = vaultCollAlloc.allocation.authorizer
         collSide <- case filter (\s -> s.side == SenderSide) vaultCollAlloc.allocation.transferLegSides of
           [s] | s.instrumentId == collateralInstrumentId.id -> pure s
           _ -> abort "vault must sign exactly one collateral (sender) side"
-        -- ACCOUNT-IDENTITY BINDING (the DEX poolAccount analogue): the collateral
-        -- MUST be sourced from THIS vault's canonical custody account, else the
+        -- Account-identity binding (the DEX poolAccount analogue): the collateral
+        -- must be sourced from this vault's canonical custody account, else the
         -- recreate could draw down `collateralAmount` while some other account's
         -- holdings actually moved — decoupling the vault's accounting from reality.
         assertMsg "collateral not sourced from this vault's custody account"
@@ -724,7 +725,7 @@ template LendingVaultFactory
           (collSide.otherside == liquidatorAccount)
         -- The payment must be delivered to the protocol account (the issuer/admin),
         -- so it cannot be redirected; binding the receiver mirrors the pool-account
-        -- identity binding in the DEX. That protocol account must ALSO be the
+        -- identity binding in the DEX. That protocol account must also be the
         -- authorizer of `protocolAllocationId`, so its ReceiverSide of the payment
         -- leg is present in the batch (both-sidedness holds across all three
         -- parties: liquidator, protocol, vault custody).
@@ -742,7 +743,7 @@ template LendingVaultFactory
         assertMsg "settled legs != the bound (payment, seize) legs"
           (transferLegs == [expectedPayLeg, expectedSeizeLeg])
 
-        -- FEE SPLIT (see §3 "Fees are routed, not burned"). The debt commingles
+        -- Fee split (see section 3, "Fees are routed, not burned"). The debt commingles
         -- principal and accrued fee; the RI tracks `principalAmount` (an additive
         -- field, below) so the split is computable. Of the `debtRepaid` received at
         -- the protocol account, the principal fraction is burned via
@@ -752,7 +753,7 @@ template LendingVaultFactory
               if accruedDebt == 0.0 then 0.0 else debtRepaid * (principalAmount / accruedDebt)
 
         -- Atomic DvP over the three bound allocations (liquidator payment side,
-        -- protocol receiver side, vault collateral side) — every leg now has BOTH
+        -- protocol receiver side, vault collateral side) — every leg now has both
         -- signed sides in the batch. `transferLegs` is already pinned to the two
         -- legs whose amounts are `debtRepaid` / `collateralToSeize` above, so
         -- neither over-seizure nor under-payment can settle.
@@ -764,17 +765,17 @@ template LendingVaultFactory
           d1ComplianceRef = None
 
         -- Recreate the (partially) liquidated vault: debt, principal, and collateral
-        -- each fall by the settled amounts, so the `collateralAmount` DELTA matches
+        -- each fall by the settled amounts, so the `collateralAmount` delta matches
         -- the collateral that actually moved from `collateralAccount`. If the
         -- position is now healthy the flag clears; if still
-        -- under-water the ORIGINAL flag time is preserved (NOT reset to `now`), so
+        -- under-water the original flag time is preserved (not reset to `now`), so
         -- the vault — already past grace — is immediately re-liquidatable rather
         -- than granted a fresh grace window each partial pass.
         let remainingDebt = accruedDebt - debtRepaid
             remainingCollateral = collateralAmount - collateralToSeize
             stillUnhealthy =
               collateralRatio remainingCollateral remainingDebt oracle.price < params.liquidationRatio
-        receipt <- case receipts of   -- (Daml's Prelude has no `head`)
+        receipt <- case receipts of
           r :: _ -> pure r            -- receipts align with allocationCids order
           [] -> abort "SettleBatch returned no receipt"
         newVault <- create this with
@@ -785,7 +786,7 @@ template LendingVaultFactory
           liquidationFlaggedAt = if stillUnhealthy then liquidationFlaggedAt else None
         return (newVault, receipt)
 
-    -- D2 lock-and-sweep: NO bespoke "D2SeizureHook_Sweep" template — D2SeizureHook
+    -- D2 lock-and-sweep: no bespoke "D2SeizureHook_Sweep" template — D2SeizureHook
     -- is a spine config record (seizureCaseRef, custodianDestination,
     -- inFlightHandlingStatus). Seizure is gated by BurnerCapability and routes to
     -- the preset custodianDestination; never burn, never return-to-sender.
@@ -865,7 +866,7 @@ sequenceDiagram
     activate V
     V->>O: fetch price (assert instruments + freshness)
     V->>V: assert flagged && now >= flaggedAt + gracePeriod
-    V->>V: read debtRepaid from liquidator's SIGNED allocation
+    V->>V: read debtRepaid from liquidator's signed allocation
     V->>V: collateralToSeize = debtRepaid*(1+bonus)/price (capped)
     note over V,SF: begin atomic DvP
     V->>SF: SettlementFactory_SettleBatch
@@ -888,8 +889,8 @@ sequenceDiagram
 
 | Package | Consumed Templates / Primitives | Rationale | Tag |
 |---|---|---|---|
-| `canton-token-template` | `SimpleHolding`, `LockedSimpleHolding`, `SimpleTokenRules`, `TransferPreapproval`, `*_ForcedBurn` | Asset representation + forced-burn/seizure evidence (D2 collateral sweep). | `[EVIDENCE]` |
-| `canton-stablecoin` | `Vault`, `VaultFactory`, `VaultParams`, `PriceOracle`, `Vault_Liquidate` (adapted → `Vault_Liquidate_ViaSpine`) | Core CDP mechanics — the lending operational logic. The RI **corrects** the real `Vault_Liquidate` (whole-vault seizure + under-water branch) into a spine-routed, margin-called, payment-proportional `Vault_Liquidate_ViaSpine` (§4.4). | `[EVIDENCE]` |
+| `canton-token-template` | `SimpleHolding`, `LockedSimpleHolding`, `SimpleTokenRules`, `TransferPreapproval` | Asset representation; the D2 forced-sweep choice (`LockedSimpleHolding_ForcedBurn`) is a `[FUTURE]` extension — the evidence template ships only `_Unlock`. | `[EVIDENCE]` (+ `[FUTURE]` extension) |
+| `canton-stablecoin` | `Vault`, `VaultFactory`, `VaultParams`, `PriceOracle`, `Vault_Liquidate` (adapted → `Vault_Liquidate_ViaSpine`) | Core CDP mechanics — the lending operational logic. The RI **corrects** the real `Vault_Liquidate` (whole-vault seizure + under-water branch) into a spine-routed, margin-called, payment-proportional `Vault_Liquidate_ViaSpine` ([section 4.4](#44-margin-call--payment-proportional-liquidation-future-correcting-vault_liquidate-evidence)). | `[EVIDENCE]` |
 | `oz-access-control` | [`RoleGrant`](../../access-control/daml/OpenZeppelin/AccessControl.daml), [`RoleAdmin`](../../access-control/daml/OpenZeppelin/AccessControl.daml), `DefaultAdminTransferOffer`, [`requireRole`](../../access-control/daml/OpenZeppelin/AccessControl.daml) | Capability-based authority and the party/role model. | `[IMPLEMENTED]` |
 | `oz-ownable` | [`Ownership`](../../ownable/daml/OpenZeppelin/Ownable.daml), [`OwnershipOffer`](../../ownable/daml/OpenZeppelin/Ownable.daml) | Administrative handoff between legal entities. | `[IMPLEMENTED]` |
 | `oz-pausable` | [`PauseState`](../../pausable/daml/OpenZeppelin/Pausable.daml), [`whenNotPaused`](../../pausable/daml/OpenZeppelin/Pausable.daml) | Emergency protocol freeze. | `[IMPLEMENTED]` |
@@ -927,24 +928,24 @@ property testing, and formal proofs.
   inside `Vault_MintStablecoin`, atomically with a solvency-checked `debtAmount`
   increment, and burned only against a `debtAmount` decrement — there is no
   standalone admin mint. So every circulating stablecoin unit is backed 1:1 by
-  recorded vault debt; the admin cannot mint at will (§3, "Mint is coupled to debt").
+  recorded vault debt; the admin cannot mint at will ([Mint is coupled to debt](#mint-is-coupled-to-debt-no-unbacked-issuance)).
 - **Seizure is payment-bound.** Liquidation seizes collateral **exactly
   proportional to the stablecoin the liquidator signed for**
   (`collateralToSeize = min(collateralAmount, debtRepaid·(1+bonus)/price)`,
   `debtRepaid` read from the liquidator's own allocation). A liquidator can never
   take more than their payment buys — closing the `canton-stablecoin`
-  "pay-1-unit-seize-everything" vulnerability (§4.4).
+  "pay-1-unit-seize-everything" vulnerability ([section 4.4](#44-margin-call--payment-proportional-liquidation-future-correcting-vault_liquidate-evidence)).
 - **Partial, minimal liquidation.** A single liquidation may repay at most a
   `closeFactor` slice of the debt and seizes only the matching collateral, so an
   unhealthy position is restored with the **least** collateral consumed rather
   than wholesale — favourable to the borrower and re-runnable until healthy.
 - **Margin call before seizure.** Liquidation requires a prior
   `Vault_FlagForLiquidation` plus an elapsed `gracePeriod`, giving the owner a
-  deterministic cure window instead of a submission-timing race (§3).
+  deterministic cure window instead of a submission-timing race ([section 3](#3-how-we-implement-it)).
 - **Fee integrity.** On repay/liquidation the backing **principal** is burned
   (preserving the 1:1 invariant) while the **stability fee + liquidation bonus**
   route to the treasury / insurance fund — value is neither destroyed nor
-  leaked (§3, "Fees are routed, not burned").
+  leaked ([Fees are routed, not burned](#fees-are-routed-not-burned-protocol-revenue--insurance-fund)).
 - **Price freshness + no single-writer price.** Price-dependent choices reject a
   stale oracle (`now - updatedAt > maxStaleness`); `PriceOracle_UpdatePrice`
   enforces a per-update deviation bound **and is co-signed by the oracle
@@ -972,13 +973,13 @@ gate is `dpm build --all` plus the Daml Script suites run by
 | Vector | Failure Mode | Mitigation |
 |---|---|---|
 | Oracle manipulation by a compromised admin | Admin sets `price → ε` and self-liquidates every vault, stealing all collateral. | `PriceOracle_UpdatePrice` is **co-controlled by the oracle committee** (`controller admin :: oracleCommittee`), so a lone admin cannot move the price; plus a per-update deviation bound (read from the oracle's own `maxDeviation`) whose breach aborts the update, with a separate admin/keeper `oz-pausable` trip on repeated breaches. This is the primary defence; committee co-signing is the structural fix, the breaker/pause is defence-in-depth. |
-| Oracle staleness | `PriceOracle` stalled → liquidations/borrows against a dead price. | Price-dependent choices (`Vault_Mint*`, `Vault_Withdraw*`, `Vault_FlagForLiquidation`, `Vault_Liquidate_ViaSpine`) reject when `now - updatedAt > maxStaleness`. TWAP + multiple feeds are a named follow-on (§9). |
-| Under-paying liquidator ("pay 1, take all") | Liquidator supplies a tiny stablecoin amount and seizes the whole vault. | Seizure is **bound on-ledger to the liquidator's signed payment**: `collateralToSeize = min(collateralAmount, debtRepaid·(1+bonus)/price)` with `debtRepaid` read from the liquidator's own allocation and pinned by `SettleBatch`'s both-sided check. A small payment seizes only a small, proportional slice (§4.4). |
-| Liquidation front-running the borrower | A liquidation lands before the owner can top up. | Two-phase margin call: `Vault_FlagForLiquidation` opens a `gracePeriod` the owner owns for curing; `Vault_Liquidate_ViaSpine` asserts the vault is flagged and the grace period has elapsed, so it cannot pre-empt the cure window (§3). |
+| Oracle staleness | `PriceOracle` stalled → liquidations/borrows against a dead price. | Price-dependent choices (`Vault_Mint*`, `Vault_Withdraw*`, `Vault_FlagForLiquidation`, `Vault_Liquidate_ViaSpine`) reject when `now - updatedAt > maxStaleness`. TWAP + multiple feeds are a named follow-on. |
+| Under-paying liquidator ("pay 1, take all") | Liquidator supplies a tiny stablecoin amount and seizes the whole vault. | Seizure is **bound on-ledger to the liquidator's signed payment**: `collateralToSeize = min(collateralAmount, debtRepaid·(1+bonus)/price)` with `debtRepaid` read from the liquidator's own allocation and pinned by `SettleBatch`'s both-sided check. A small payment seizes only a small, proportional slice ([section 4.4](#44-margin-call--payment-proportional-liquidation-future-correcting-vault_liquidate-evidence)). |
+| Liquidation front-running the borrower | A liquidation lands before the owner can top up. | Two-phase margin call: `Vault_FlagForLiquidation` opens a `gracePeriod` the owner owns for curing; `Vault_Liquidate_ViaSpine` asserts the vault is flagged and the grace period has elapsed, so it cannot pre-empt the cure window ([section 3](#3-how-we-implement-it)). |
 | Settlement-leg failure | Liquidator under-funds the batch → attempted broken liquidation. | Daml atomicity: the `SettleBatch` reverts entirely; collateral stays locked, no debt cleared. Liquidations are partial/proportional, so a well-formed under-funded batch simply liquidates less. |
-| Bad debt / under-water position | Collateral worth less than debt → protocol-level shortfall. | `Vault_Liquidate_ViaSpine` recognizes and quantifies the shortfall in `VaultLiquidationResult.badDebt`; the **insurance fund** (capitalized from routed fees, §3) is its first absorber, with socialized-loss / admin-write-off as the residual open decision (§9). |
-| Unbacked issuance | Admin mints stablecoin not matched by collateral. | Stablecoin is mintable only inside `Vault_MintStablecoin`, atomically coupled to a solvency-checked debt increment — no standalone admin mint exists (§3, §7.1 "Debt conservation"). |
-| Compliance evasion (D1), incl. post-open drift | Borrower bypasses KYC, or becomes non-compliant after opening. | Shape B `KycClaim` validated against the `TrustedIssuerRegistry` at open **and re-checked per settlement leg** (fail-closed, no caching) on every value-moving `Vault` operation; a revoked credential blocks new borrows/top-ups/withdrawals immediately, while repay/close/liquidation stay open so a position is never trapped (§3). |
+| Bad debt / under-water position | Collateral worth less than debt → protocol-level shortfall. | `Vault_Liquidate_ViaSpine` recognizes and quantifies the shortfall in `VaultLiquidationResult.badDebt`; the **insurance fund** (capitalized from routed fees, [section 3](#3-how-we-implement-it)) is its first absorber, with socialized-loss / admin-write-off as the residual open decision. |
+| Unbacked issuance | Admin mints stablecoin not matched by collateral. | Stablecoin is mintable only inside `Vault_MintStablecoin`, atomically coupled to a solvency-checked debt increment — no standalone admin mint exists ([Mint is coupled to debt](#mint-is-coupled-to-debt-no-unbacked-issuance)). |
+| Compliance evasion (D1), incl. post-open drift | Borrower bypasses KYC, or becomes non-compliant after opening. | Shape B `KycClaim` validated against the `TrustedIssuerRegistry` at open **and re-checked per settlement leg** (fail-closed, no caching) on every value-moving `Vault` operation; a revoked credential blocks new borrows/top-ups/withdrawals immediately, while repay/close/liquidation stay open so a position is never trapped ([section 3](#3-how-we-implement-it)). |
 | Unauthorized admin action | Attacker tries to mint unbacked debt or invoke D2 seizure. | Requires a valid `BurnerCapability` / `RoleAdmin` contract id, unforgeable under Daml-LF semantics; D2 sweep is hardcoded to the preset `custodianDestination`. |
 
 ---
@@ -1069,48 +1070,44 @@ atomicity and privacy across domains.
 | Holding lock / conserve / unlock helpers | [`lockInputHoldings`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L953) · [`archiveAndTallyLockedHoldings`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L1028) · [`conserveSenderSides`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L1048) · [`unlockHoldings`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L1165) | 🟡 |
 | Toy holding (stand-in for the real TSv2 holding interface) | [`ToyHolding`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L133) | 🟡 |
 | Experimental feature flag | [`experimentalFeatureFlag`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L72) | 🟡 |
-| Spine test coverage (33 `test_` scripts) | [`Cip112Settlement.daml`](../../test/daml/OpenZeppelin/Test/Cip112Settlement.daml) | ✅ |
+| Spine test coverage (43 `test_` scripts) | [`Cip112Settlement.daml`](../../test/daml/OpenZeppelin/Test/Cip112Settlement.daml) | ✅ |
 | Role / capability authority (D4) | [`RoleGrant`](../../access-control/daml/OpenZeppelin/AccessControl.daml) · [`RoleAdmin`](../../access-control/daml/OpenZeppelin/AccessControl.daml) · [`requireRole`](../../access-control/daml/OpenZeppelin/AccessControl.daml) · [`hasRole`](../../access-control/daml/OpenZeppelin/AccessControl.daml) | ✅ |
 | Admin handoff | [`Ownership`](../../ownable/daml/OpenZeppelin/Ownable.daml) · [`OwnershipOffer`](../../ownable/daml/OpenZeppelin/Ownable.daml) | ✅ |
 | Emergency freeze | [`PauseState`](../../pausable/daml/OpenZeppelin/Pausable.daml) · [`whenNotPaused`](../../pausable/daml/OpenZeppelin/Pausable.daml) | ✅ |
 | Real TSv2 holding interface (replaces `ToyHolding`) | — `[FUTURE]` | ⬜ |
 | Node-applied signed D1 attestation (on-ledger verification at exercise) | — `[FUTURE]` | ⬜ |
 | Vault / CDP (`Vault`, `VaultFactory`, `VaultParams`) | `canton-stablecoin` `[EVIDENCE]` (`stablecoin/daml/Stablecoin/Vault.daml`) | ⬜ |
-| Interest accrual (`accrueDebt`, fixed `stabilityFeeRate`; discretely compounding — §3) | `canton-stablecoin` `[EVIDENCE]` `[FUTURE]` (RI logic not built in M1) | ⬜ |
+| Interest accrual (`accrueDebt`, fixed `stabilityFeeRate`; discretely compounding — [section 3](#3-how-we-implement-it)) | `canton-stablecoin` `[EVIDENCE]` `[FUTURE]` (RI logic not built in M1) | ⬜ |
 | Margin call + payment-proportional liquidation (`Vault_FlagForLiquidation`, `Vault_Liquidate_ViaSpine`) | `canton-stablecoin` `[EVIDENCE]` `[FUTURE]` (RI correction of `Vault_Liquidate`; not built in M1) | ⬜ |
-| Fee routing / insurance fund (fees → treasury, not burned — §3) | — `[FUTURE]` (RI logic not built in M1) | ⬜ |
+| Fee routing / insurance fund (fees → treasury, not burned — [section 3](#3-how-we-implement-it)) | — `[FUTURE]` (RI logic not built in M1) | ⬜ |
 | Price oracle (`PriceOracle`, committee-attested `PriceOracle_UpdatePrice`, `stablecoinInstrumentId`) | `canton-stablecoin` `[EVIDENCE]` (`stablecoin/daml/Stablecoin/Oracle.daml`) `[FUTURE]` | ⬜ |
-| Cross-synchronizer operation (D3 deferred) | — `[FUTURE]` (see §8) | ⬜ |
+| Cross-synchronizer operation (D3 deferred) | — `[FUTURE]` (see [section 8](#8-cross-synchronizer-domain-extension-planned-future)) | ⬜ |
 | On-ledger multi-sig authority (D4→M3) | — `[FUTURE]` | ⬜ |
 
 ## 9. Open Design Questions
 
 Decisions to settle with the internal team before implementation, not M1 build
-items. The design above resolves several points earlier drafts left open —
-payment-proportional partial liquidation, a margin-call grace period, a
-committee-attested oracle, and fee routing to an insurance fund. What remains are
-residual parameterizations and deeper hardening choices, each referenced from the
-section that motivates it.
+items.
 
 - **Bad-debt disposition beyond the insurance fund.** The design routes fees to a
   protocol **insurance fund** as the first absorber of `VaultLiquidationResult.badDebt`
-  (§3). Still open: what happens when the fund is exhausted — a **socialized-loss**
+  ([section 3](#3-how-we-implement-it)). Still open: what happens when the fund is exhausted — a **socialized-loss**
   path across outstanding positions, an **admin write-off**, or a capital top-up
   obligation — and how the fund's fee slice is sized against expected loss.
 - **Interest-accrual method.** Accrual **compounds discretely** across operations
-  today (§3), which earlier drafts mislabelled "linear". Decide whether to keep
+  today ([section 3](#3-how-we-implement-it)). Decide whether to keep
   that, switch to **true simple interest** off the original principal (requires
   tracking `principalAmount` separately), or offer a **continuously-compounding**
   variant — with explicit rounding bounds so accrual is reproducible and formally
   checkable. One method, or several configurable per `VaultParams`?
-- **Partial-liquidation parameters + keeper sizing.** Liquidation is now
-  partial/payment-proportional with a `closeFactor` cap (§4.4). Still open: the
+- **Partial-liquidation parameters + keeper sizing.** Liquidation is
+  partial/payment-proportional with a `closeFactor` cap ([section 4.4](#44-margin-call--payment-proportional-liquidation-future-correcting-vault_liquidate-evidence)). Still open: the
   concrete `closeFactor` value, keeper incentives (is the `liquidationBonus`
   enough to attract keepers for small slices?), and whether to add a *minimum*
   liquidation size to avoid dust liquidations.
 - **Oracle hardening beyond the committee + breaker.** The design co-signs price
   updates with an oracle committee and adds max-staleness + per-update deviation
-  guards (§3). Still open: whether to also require a **TWAP** (and its window)
+  guards ([section 3](#3-how-we-implement-it)). Still open: whether to also require a **TWAP** (and its window)
   and/or multiple independent feeds, the committee quorum size/threshold, and
   where the bounds live (`VaultParams` vs a separate oracle-policy contract).
 - **Multi-party attestation scaling (M3).** Multi-attestation can be expressed by
@@ -1128,7 +1125,7 @@ section that motivates it.
 - **Oracle update economics.** `PriceOracle` has no inherent on-chain incentive;
   whether high-frequency updates need a fee carve-out from `stabilityFeeRate` to
   offset node-attestation costs is open.
-- **Cross-synchronizer operation** (see §8) — deferred; tracked there until
+- **Cross-synchronizer operation** (see [section 8](#8-cross-synchronizer-domain-extension-planned-future)) — deferred; tracked there until
   ecosystem reassignment tooling matures.
 - **Composability with the other RIs** (forward-compatibility;
   the [suite overview](./README.md#how-the-reports-compose)): seized collateral from
@@ -1151,16 +1148,18 @@ this workspace. Authoritative sources:
   (`VaultParams`, `VaultFactory` + `VaultFactory_OpenVault`, `Vault` +
   `Vault_{DepositCollateral,WithdrawCollateral,MintStablecoin,BurnStablecoin,Liquidate,Close}`,
   the `accrueDebt` helper (discretely compounding in behaviour, despite its
-  "linear" docstring — §3) and `collateralRatio`, the `VaultLiquidationResult`
+  "linear" docstring — [section 3](#3-how-we-implement-it)) and `collateralRatio`, the `VaultLiquidationResult`
   record carrying the `badDebt` field, and `PriceOracle` +
   `PriceOracle_UpdatePrice` with its `updatedAt` field). The real
   `Vault_Liquidate` seizes the whole vault and, in its under-water branch,
   hands over all collateral regardless of payment — the vulnerability the RI's
-  `Vault_Liquidate_ViaSpine` corrects (§4.4).
+  `Vault_Liquidate_ViaSpine` corrects ([section 4.4](#44-margin-call--payment-proportional-liquidation-future-correcting-vault_liquidate-evidence)).
 - **Settlement spine** `[IMPLEMENTED]` —
   `canton-specs/experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml`.
-- **Holdings / forced-burn / rules / preapproval** `[EVIDENCE]` —
-  `canton-token-template/simple-token/daml/SimpleToken/{Holding,Rules,Preapproval}.daml`.
+- **Holdings / rules / preapproval** `[EVIDENCE]` —
+  `canton-token-template/simple-token/daml/SimpleToken/{Holding,Rules,Preapproval}.daml`
+  (the D2 forced-sweep choice `LockedSimpleHolding_ForcedBurn` is `[FUTURE]` —
+  the evidence template ships only `_Unlock`).
 - **Credential gating / verification** `[IMPLEMENTED]` (experimental) —
   `canton-specs/experiments/credential-gateway/daml/OpenZeppelin/Experimental/Credential/Gateway.daml`.
 - **Typed D3 identity (KycClaim, TrustedIssuerRegistry)** `[IMPLEMENTED]` —
@@ -1171,7 +1170,7 @@ this workspace. Authoritative sources:
 - **Diagram tooling** `[FUTURE]` — proposed `canton-settlement-explorer`; not
   built in this repo.
 - **Validation ladder** `[FUTURE]` — proposed `daml-lint`, `daml-props`,
-  `daml-verify` (§7.2); external OZ tools, not wired into this repo's CI. The
+  `daml-verify` ([section 7.2](#72-the-validation-ladder-future)); external OZ tools, not wired into this repo's CI. The
   real M1 gate is `dpm build --all` + `scripts/run-tests.sh` +
   `scripts/check-scaffold.sh` ([`.github/workflows/ci.yml`](../../.github/workflows/ci.yml)).
 - **Token Standard V2 upstream** `[UPSTREAM]` — `hyperledger-labs/splice`
