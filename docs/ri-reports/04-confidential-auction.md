@@ -127,8 +127,12 @@ auction mechanics can be upgraded or substituted.
   co-settlement).
 - **Assets** — `canton-token-template` `[EVIDENCE]` (`SimpleHolding`,
   `LockedSimpleHolding`, `SimpleTokenRules` 3-way dispatch); the launched token
-  is minted via `Rules_Mint` / `MintProposal` (cold recipient → propose →
-  accept, honoring Canton co-authorization). `canton-stablecoin`'s `Vault` /
+  is minted via `Rules_Mint` / `MintProposal` `[FUTURE]` (cold recipient →
+  propose → accept, honoring Canton co-authorization). **Note:** `Rules_Mint`,
+  `MintProposal`, and `RoleCapability` do **not** exist in the evidence repo
+  today — they are RI-level `[FUTURE]` extensions of the evidence template, to
+  be consolidated at implementation time (the same consolidation rule as the
+  RI-03 delegated-accept choice). `canton-stablecoin`'s `Vault` /
   `VaultFactory` / `Vault_Liquidate` / `PriceOracle` are **excluded** (CDP
   mechanics, not primary issuance).
 - **Compliance/identity** — the in-repo [`credential-gateway`](../../experiments/credential-gateway/daml/OpenZeppelin/Experimental/Credential/Gateway.daml) experiment `[IMPLEMENTED]` (experimental)
@@ -143,7 +147,7 @@ auction mechanics can be upgraded or substituted.
 - **Operator** — deploys the launchpad contracts and manages the
   `SettlementFactory`; operational, not financial, authority.
 - **Issuer** — launches the token; single-admin authority; holds the
-  [`BurnerCapability`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L98) (D2 seizure) and authorizes `Rules_Mint` via `MintProposal`.
+  [`BurnerCapability`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L98) (D2 seizure) and authorizes `Rules_Mint` via `MintProposal` (both `[FUTURE]`, §2.1).
 - **Auctioneer** — delegated by the Issuer via [`RoleGrant`](../../access-control/daml/OpenZeppelin/AccessControl.daml); observes
   `BidRequest`s, runs the off-ledger clearing engine, and builds the
   `SettleBatch` payload; cannot misdirect funds (constrained by the spine's
@@ -160,7 +164,7 @@ Each contract configures the nodes that validate it. The `BidRequest`'s
 parties' nodes, shielding bids from the network. Daml-LF 2.1 is keyless
 (archive-and-recreate, not in-place mutation), and any new signatory must
 co-authorize — so the Auctioneer cannot push a minted token into a Bidder's
-wallet: the Issuer creates a `MintProposal` and the Bidder actively accepts it.
+wallet: the Issuer creates a `MintProposal` (`[FUTURE]`, §2.1) and the Bidder actively accepts it.
 Synchronizer sequencers order transactions by confirmation-tree shape while
 remaining blinded to bid plaintext, eliminating sequencer front-running / MEV.
 
@@ -625,7 +629,7 @@ sequenceDiagram
 | `oz-access-control` | [`RoleGrant`](../../access-control/daml/OpenZeppelin/AccessControl.daml), `RoleAdmin`, `DefaultAdminTransferOffer`, [`requireRole`](../../access-control/daml/OpenZeppelin/AccessControl.daml) | Authority model; closed-sum `roleId` checks. | `[IMPLEMENTED]` |
 | `oz-ownable` | [`Ownership`](../../ownable/daml/OpenZeppelin/Ownable.daml), [`OwnershipOffer`](../../ownable/daml/OpenZeppelin/Ownable.daml) | Secure admin handoff. | `[IMPLEMENTED]` |
 | `oz-pausable` | [`PauseState`](../../pausable/daml/OpenZeppelin/Pausable.daml), [`whenNotPaused`](../../pausable/daml/OpenZeppelin/Pausable.daml) | Circuit breaker (halt the sale). | `[IMPLEMENTED]` |
-| `canton-token-template` | `SimpleHolding`, `LockedSimpleHolding`, `SimpleTokenRules`, `TransferPreapproval`, `RoleCapability`, `MintProposal`, `Rules_Mint` | Asset structure, 3-way dispatch, cold-recipient mint. | `[EVIDENCE]` |
+| `canton-token-template` | `SimpleHolding`, `LockedSimpleHolding`, `SimpleTokenRules`, `TransferPreapproval` (real); `RoleCapability`, `MintProposal`, `Rules_Mint` are `[FUTURE]` extensions — not in the evidence repo today (§2.1). | Asset structure, 3-way dispatch, cold-recipient mint. | `[EVIDENCE]` (+ `[FUTURE]` extensions) |
 | `canton-stablecoin` | (none consumed; `Vault`/`VaultFactory`/`Vault_Liquidate`/`PriceOracle` **excluded** — CDP, not issuance) | Referenced for contrast only. | `[EVIDENCE]` |
 | [`credential-gateway`](../../experiments/credential-gateway/daml/OpenZeppelin/Experimental/Credential/Gateway.daml) | `CredentialGatedActionRequest`, `MockVerificationResult`, `CredentialRevocationStatus` | D1/D3 credential gating. | `[IMPLEMENTED]` (experimental) |
 | `canton-specs` identity-hook Shape-B | `KycClaim`, `TrustedIssuerRegistry` | Typed D3 identity, layered via SCU. | `[IMPLEMENTED]` (experimental) |
@@ -887,10 +891,11 @@ this workspace.
 
 - **Settlement spine** `[IMPLEMENTED]` —
   `canton-specs/experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml`.
-- **Holdings / rules / mint / preapproval / capability** `[EVIDENCE]` —
+- **Holdings / rules / preapproval** `[EVIDENCE]` —
   `canton-token-template/simple-token/daml/SimpleToken/{Holding,Rules,Preapproval}.daml`
-  (`SimpleHolding`, `LockedSimpleHolding` + `_ForcedBurn`, `SimpleTokenRules`,
-  `Rules_Mint`, `MintProposal`, `RoleCapability`).
+  (`SimpleHolding`, `LockedSimpleHolding` + `_ForcedBurn`, `SimpleTokenRules`).
+  `Rules_Mint`, `MintProposal`, `RoleCapability` are `[FUTURE]` extensions, not
+  in the evidence repo (§2.1).
 - **Credential gating / verification** `[IMPLEMENTED]` (experimental) —
   `canton-specs/experiments/credential-gateway/daml/OpenZeppelin/Experimental/Credential/Gateway.daml`.
 - **Typed D3 identity (KycClaim, TrustedIssuerRegistry)** `[IMPLEMENTED]` —
