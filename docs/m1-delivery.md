@@ -1,28 +1,10 @@
 # M1 Delivery Map — Token Foundation and dApp Framework
 
-Status: delivery mapping for **Milestone 1** of the OpenZeppelin Canton
-Ecosystem Stack grant. This document gives a 1:1 mapping from every M1 item in
-the approved proposal to the delivered artifact, where it lives, and how to
-validate it. It is a locator and validation index, not a stability or
-conformance claim; the boundaries recorded in
-[`architecture/cip0112-m1-ri-spec.md`](architecture/cip0112-m1-ri-spec.md) and
-[`architecture/cip0112-public-api-promotion-boundary.md`](architecture/cip0112-public-api-promotion-boundary.md)
-govern every claim below.
+Status: delivery mapping for **Milestone 1** of the OpenZeppelin Canton Ecosystem Stack grant. This document gives a 1:1 mapping from every M1 item in the approved proposal to the delivered artifact, where it lives, and how to validate it. It is a locator and validation index, not a stability or conformance claim; the boundaries recorded in [`architecture/cip0112-m1-ri-spec.md`](architecture/cip0112-m1-ri-spec.md) and [`architecture/cip0112-public-api-promotion-boundary.md`](architecture/cip0112-public-api-promotion-boundary.md) govern every claim below.
 
-**Proposal of record:**
-[`canton-foundation/canton-dev-fund` → `proposals/2026-04-OpenZeppelin-canton-ecosystem-stack.md`](https://github.com/canton-foundation/canton-dev-fund/blob/main/proposals/2026-04-OpenZeppelin-canton-ecosystem-stack.md)
-(last touched at commit `42c0b97246e960f6fc78ff9111d1d53edd9a3fee`,
-2026-07-10). M1 = "Token Foundation and dApp Framework", estimated delivery
-Q1 (May–July 2026).
+**Proposal of record:** [`canton-foundation/canton-dev-fund` → `proposals/2026-04-OpenZeppelin-canton-ecosystem-stack.md`](https://github.com/canton-foundation/canton-dev-fund/blob/main/proposals/2026-04-OpenZeppelin-canton-ecosystem-stack.md) (last touched at commit `42c0b97246e960f6fc78ff9111d1d53edd9a3fee`, 2026-07-10). M1 = "Token Foundation and dApp Framework", estimated delivery Q1 (May–July 2026).
 
-**Scope note on CIP-56.** The proposal was written against CIP-56; the
-approved Token Standard V2 upgrade (CIP-0112) superseded it. Per the accepted
-M1 boundary (B4 in the M1 RI spec), the token foundation is delivered as the
-**CIP-0112 settlement primitive**, and CIP-86 / CIP-103 / CIP-104 are
-delivered as **interoperability evidence against that settlement surface**,
-not as standalone middleware, wallet-provider, or Scan/SV reward deliverables.
-CIP-56 remains background and migration evidence only
-(`canton-token-template`).
+**Scope note on CIP-56.** The proposal was written against CIP-56; the approved Token Standard V2 upgrade (CIP-0112) superseded it. Per the accepted M1 boundary (B4 in the M1 RI spec), the token foundation is delivered as the **CIP-0112 settlement primitive**, and CIP-86 / CIP-103 / CIP-104 are delivered as **interoperability evidence against that settlement surface**, not as standalone middleware, wallet-provider, or Scan/SV reward deliverables. CIP-56 remains background and migration evidence only (`canton-token-template`).
 
 ## Deliverables — 1:1 map
 
@@ -75,8 +57,7 @@ CIP-56 remains background and migration evidence only
 
 ## Validation quickstart
 
-From the repo root, with DPM and Java 21 installed (see README build
-instructions):
+From the repo root, with DPM and Java 21 installed (see README build instructions):
 
 ```sh
 OZ_DAML_TOOLCHAIN=dpm dpm build --all        # criterion 1: compile
@@ -87,14 +68,8 @@ OZ_DAML_TOOLCHAIN=dpm dpm build --all        # criterion 1: compile
 
 ## Gaps to close before milestone acceptance
 
-1. **Repository visibility** — make `canton-specs` and `canton-contracts`
-   public (criterion 7).
-2. **Audit report** — the security row ships a threat model and
-   audit-readiness material; a published audit report for the library
-   components is still outstanding.
-3. **OpenZeppelin Documentation Canton section** — external deliverable;
-   confirm and link its status.
-4. **CIP-103 literal reading** — decide whether the acceptance packet leans on
-   the B4 acceptance-note framing or adds a Splice Wallet Kernel smoke test.
-5. **DA review sign-off of the RI reports** — collect the review evidence from
-   the engagement workspace into the acceptance packet.
+1. **Repository visibility** — make `canton-specs` and `canton-contracts` public (criterion 7).
+2. **Audit report** — the security row ships a threat model and audit-readiness material; a published audit report for the library components is still outstanding.
+3. **OpenZeppelin Documentation Canton section** — external deliverable; confirm and link its status.
+4. **CIP-103 literal reading** — decide whether the acceptance packet leans on the B4 acceptance-note framing or adds a Splice Wallet Kernel smoke test.
+5. **DA review sign-off of the RI reports** — collect the review evidence from the engagement workspace into the acceptance packet.
