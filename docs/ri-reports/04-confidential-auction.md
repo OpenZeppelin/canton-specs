@@ -175,8 +175,12 @@ off-ledger clearing → atomic on-ledger settlement.
 
 1. **Configuration + access gating.** The Issuer instantiates `AuctionLaunchpad`
    (payment instrument id, launched instrument id, the `SettlementFactory`
-   reference, the governing `TrustedIssuerRegistry`) and delegates the Auctioneer
-   role via `RoleGrant`.
+   reference — see §4.2 for the full field set) and delegates the Auctioneer
+   role via `RoleGrant`. The governing `TrustedIssuerRegistry` is **not stored
+   on the launchpad**: it archive-and-recreates on membership change, so a
+   stored cid would brick (the same hazard as a stored `PauseState` cid). It
+   governs via the step-2 credential path, passed as a choice argument at
+   exercise time.
 2. **Credential verification.** The Bidder obtains a `KycClaim` and submits a
    `CredentialGatedActionRequest`; the Verifier issues a `MockVerificationResult`
    on-ledger, unlocking participation. This is the entry gate, *not* a
