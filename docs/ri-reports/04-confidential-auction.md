@@ -183,25 +183,38 @@ off-ledger clearing → atomic on-ledger settlement.
    check-once: the same D1 path is re-evaluated per settlement leg, fail-closed,
    with no caching (§3, §7), so a credential revoked after this step still blocks
    settlement.
-3. **Escrow + confidential bid.** The Bidder commits payment capital by creating
-   an `AllocationInstruction` (via [`SettlementFactory_CreateAllocationInstruction`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L228))
+3. **Escrow + receive pre-approval + confidential bid.** The Bidder commits
+   payment capital by creating an `AllocationInstruction` (via
+   [`SettlementFactory_CreateAllocationInstruction`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L228))
    and accepting it ([`AllocationInstruction_Accept`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L392)), producing a committed
    [`Allocation`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L474) that locks the funds under the Bidder's authority while
-   delegating settlement execution to the [`SettlementFactory`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L191). Simultaneously the
-   Bidder creates a `BidRequest` (`signatory bidder, observer auctioneer`)
-   carrying the `Allocation` reference, bid amount, and price — projected only to
-   bidder and auctioneer.
+   delegating settlement execution to the [`SettlementFactory`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L191). The Bidder also
+   signs a standing `LaunchTokenReceivePreapproval` `[FUTURE]` (§4.5) — the
+   explicit acceptance to receive the launched instrument, capped at
+   `bidAmount / minBidPrice` (the worst-case token amount), expiring at
+   `settlementDeadline`, observed by the **auctioneer only**. Then the Bidder
+   creates a `BidRequest` (`signatory bidder, observer auctioneer`) carrying the
+   `Allocation` and pre-approval references, bid amount, and price — projected
+   only to bidder and auctioneer. **Entering the auction is binding**: the
+   committed escrow cannot be withdrawn before `settlementDeadline` (§3.5), and
+   the pre-approval means no further bidder action is ever needed to settle.
 4. **Closure + clearing.** The Auctioneer halts new submissions via `oz-pausable`
    ([`PauseState`](../../pausable/daml/OpenZeppelin/Pausable.daml)), queries its node for active `BidRequest`s, and runs the
    off-ledger clearing engine to determine the clearing price, winners, and exact
    asset routing.
-5. **Atomic co-settlement.** Once the clearing price is published, each winner
-   commits a **single two-sided allocation** — pay `bidAmount` out, receive
-   `bidAmount / clearingPrice` tokens in (both of a winner's sides must live in
-   one allocation, per the spine's per-allocation leg-side check) — and the Issuer
-   commits **one** allocation carrying every leg's issuer side. The Auctioneer then
-   binds the legs to the signed bids and submits a single
-   [`SettlementFactory_SettleBatch`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L249) over `winnerAllocations ++ [issuerAllocation]`
+5. **Atomic co-settlement (single-commitment).** Once the clearing price is
+   determined, the Auctioneer — with **no further bidder action** — amends each
+   winner's *bid-time escrow in place*: exercising the pre-approval's
+   `ReceivePreapproval_AddReceiverSide` (§4.5) adds the token ReceiverSide
+   (`bidAmount / clearingPrice`, `clearingPrice ≤ bidPrice`) to the escrow
+   `Allocation`, with the recipient authority supplied by the bidder-signed
+   pre-approval — never by the auctioneer. This satisfies the spine's
+   per-allocation leg-side check (both of a winner's sides in one allocation)
+   **without a second allocation or a second lock**: the payment funds locked at
+   bid time are the only capital ever locked. The Issuer commits **one**
+   allocation carrying every leg's issuer side. The Auctioneer then binds the
+   legs to the signed bids and submits a single
+   [`SettlementFactory_SettleBatch`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L249) over `amendedEscrows ++ [issuerAllocation]`
    (§4.4). Settlement enforces conservation per instrument (each authorizer's
    locked funds must cover its SenderSide obligations; surplus returns as change)
    and runs the D1 hooks; on success it commits atomically, delivering tokens to
@@ -348,6 +361,7 @@ template AuctionLaunchpad
       with
         bidder : Party
         paymentAllocationCid : ContractId Allocation
+        receivePreapprovalCid : ContractId LaunchTokenReceivePreapproval  -- §4.5, bidder-signed
         bidAmount : Decimal
         bidPrice : Decimal
         paymentLegId : Text
@@ -356,6 +370,13 @@ template AuctionLaunchpad
       do
         now <- getTime
         assertMsg "bidding window closed" (now <= biddingDeadline)
+        -- Bind the standing receive acceptance: bidder-signed, launched
+        -- instrument, cap covers the worst-case fill, lives to the deadline.
+        pre <- fetch receivePreapprovalCid
+        assertMsg "preapproval not signed by bidder" (pre.bidder == bidder)
+        assertMsg "preapproval is for the wrong instrument" (pre.instrumentId == launchedInstrumentId)
+        assertMsg "preapproval cap below worst-case fill" (pre.maxTokenAmount >= bidAmount / minBidPrice)
+        assertMsg "preapproval expires before settlement" (pre.expiry >= settlementDeadline)
         assertMsg "bid price below floor" (bidPrice >= minBidPrice)
         -- Per-investor cap read from THIS launchpad (issuer-signed), not a
         -- bidder-declared field, so the cap actually constrains.
@@ -373,7 +394,7 @@ template AuctionLaunchpad
           _ -> abort "escrow must sign exactly one payment side == (bidAmount, payment instrument)"
         create BidRequest with
           bidder; auctioneer = operator; launchpadCid = self
-          paymentAllocationCid; bidAmount; bidPrice
+          paymentAllocationCid; receivePreapprovalCid; bidAmount; bidPrice
           paymentLegId; tokenLegId; crossDomainRef = None
 ```
 
@@ -390,6 +411,7 @@ template BidRequest
     auctioneer : Party
     launchpadCid : ContractId AuctionLaunchpad
     paymentAllocationCid : ContractId Allocation
+    receivePreapprovalCid : ContractId LaunchTokenReceivePreapproval  -- §4.5
     bidAmount : Decimal
     bidPrice : Decimal
     -- Leg ids the clearing choice binds the settled legs to (see §4.4).
@@ -466,10 +488,9 @@ template AuctionClearing
       with
         settlementFactoryCid : ContractId SettlementFactory
         clearingPrice : Decimal                            -- uniform clearing price
-        winningBids : [ContractId BidRequest]              -- the bids being filled
-        winnerAllocations : [ContractId Allocation]        -- 1:1 with winningBids; each is the winner's
-                                                           -- SINGLE post-clearing allocation carrying BOTH its
-                                                           -- pay SenderSide AND its token ReceiverSide
+        winningBids : [ContractId BidRequest]              -- the bids being filled; each carries its escrow
+                                                           -- + receive pre-approval — NO post-clearing winner
+                                                           -- allocation exists (single-commitment, §3.1 step 5)
         issuerAllocation : ContractId Allocation           -- the ONE issuer allocation carrying every leg's
                                                            -- issuer side (token SenderSide + payment ReceiverSide)
         issuerTokenAccount : Account                       -- issuer treasury (token source / payment sink)
@@ -489,68 +510,103 @@ template AuctionClearing
         assertMsg "token/payment account is not the issuer treasury"
           (issuerTokenAccount.owner == Some lp.issuer)
 
-        -- ON-LEDGER BINDING (root-cause fix for theft-by-leg-omission). `transferLegs`
-        -- is auctioneer-chosen, so DERIVE the legs from each signed bid and its
-        -- winner allocation instead of trusting it: each winner pays exactly their
-        -- signed `bidAmount` and receives exactly `bidAmount / clearingPrice` tokens,
-        -- and their `bidPrice` must be >= `clearingPrice` (uniform-price eligibility).
+        -- SINGLE-COMMITMENT AMEND + ON-LEDGER BINDING. No post-clearing winner
+        -- allocation exists: each winner's bid-time escrow is amended IN PLACE via
+        -- the bidder-signed pre-approval (§4.5), which supplies the recipient
+        -- authority for the token ReceiverSide — the auctioneer only triggers it.
+        -- The amended escrow then carries BOTH the winner's sides (pay SenderSide
+        -- from bid time + token ReceiverSide from the amend), satisfying the
+        -- spine's per-allocation `allAuthorizerLegSidesPresent` check with the
+        -- SAME funds locked at bid time — no second lock, no renege window.
         --
-        -- The winner's TWO sides (pay out, tokens in) live in ONE allocation, not
-        -- two. The spine settles each allocation through `Allocation_SettleInBatch`,
-        -- which enforces `allAuthorizerLegSidesPresent` PER ALLOCATION: every leg on
-        -- which an allocation's authorizer is sender/receiver must have that side in
-        -- THAT allocation. The winner is sender of the pay leg AND receiver of the
-        -- token leg, so both sides must be in the winner's own allocation (splitting
-        -- them across two allocations would abort with `eAllocationLegMismatch`). The
-        -- token side is committed POST-CLEARING because `bidAmount / clearingPrice`
-        -- is unknown at bid time — a deliberate liveness step (a winner who never
-        -- commits it is simply not settled and reclaims the bid-time escrow after the
-        -- deadline via `BidRequest_ForceRefundAfterDeadline`; see §9).
-        expectedLegs <- forA (zip winningBids winnerAllocations) \(bidCid, winnerAllocCid) -> do
+        -- `transferLegs` is auctioneer-chosen, so DERIVE the legs from each signed
+        -- bid instead of trusting it: each winner pays exactly their signed
+        -- `bidAmount` and receives exactly `bidAmount / clearingPrice` tokens, and
+        -- their `bidPrice` must be >= `clearingPrice` (uniform-price eligibility).
+        results <- forA winningBids \bidCid -> do
           bid <- fetch bidCid
           assertMsg "winning bid is below the clearing price" (bid.bidPrice >= clearingPrice)
           escrow <- fetch bid.paymentAllocationCid
-          winnerAlloc <- fetch winnerAllocCid
           let bidderAccount = escrow.allocation.authorizer
-          assertMsg "winner allocation not authorized by the bidder"
-            (winnerAlloc.allocation.authorizer == bidderAccount)
-          paySide <- case filter (\s -> s.side == SenderSide) winnerAlloc.allocation.transferLegSides of
-            [s] | s.instrumentId == lp.paymentInstrumentId.id -> pure s
-            _ -> abort "winner allocation must sign exactly one payment (sender) side"
-          tokSide <- case filter (\s -> s.side == ReceiverSide) winnerAlloc.allocation.transferLegSides of
-            [s] | s.instrumentId == lp.launchedInstrumentId.id -> pure s
-            _ -> abort "winner allocation must sign exactly one token (receiver) side"
-          let tokenAmount = bid.bidAmount / clearingPrice
-          assertMsg "winner pay side != signed bidAmount" (paySide.amount == bid.bidAmount)
-          assertMsg "winner token side != bidAmount/clearingPrice" (tokSide.amount == tokenAmount)
-          assertMsg "payment not routed to issuer treasury" (paySide.otherside == issuerTokenAccount)
-          assertMsg "tokens not sourced from issuer treasury" (tokSide.otherside == issuerTokenAccount)
+              tokenAmount = bid.bidAmount / clearingPrice
+          -- Amend: recipient authority flows from the bidder-signed pre-approval;
+          -- the [FUTURE] spine choice accepts RECEIVER sides only (§4.5).
+          amendedCid <- exercise bid.receivePreapprovalCid ReceivePreapproval_AddReceiverSide with
+            allocationCid = bid.paymentAllocationCid
+            amount = tokenAmount
+            source = issuerTokenAccount
+            legId = bid.tokenLegId
           let payLeg = TransferLeg with
                 transferLegId = bid.paymentLegId
                 sender = bidderAccount; receiver = issuerTokenAccount
-                amount = bid.bidAmount; instrumentId = lp.paymentInstrumentId.id; meta = paySide.meta
+                amount = bid.bidAmount; instrumentId = lp.paymentInstrumentId.id; meta = emptyMetadata
               tokenLeg = TransferLeg with
                 transferLegId = bid.tokenLegId
                 sender = issuerTokenAccount; receiver = bidderAccount
-                amount = tokenAmount; instrumentId = lp.launchedInstrumentId.id; meta = tokSide.meta
-          pure [payLeg, tokenLeg]
+                amount = tokenAmount; instrumentId = lp.launchedInstrumentId.id; meta = emptyMetadata
+          pure (amendedCid, [payLeg, tokenLeg])
         -- Pin the settled legs to EXACTLY the bound per-winner (pay, deliver) pairs.
         -- A winner cannot be charged without receiving their tokens, and the
         -- "never theft" guarantee (§1.4, §7.3) is enforced on-ledger, not asserted.
+        let (amendedEscrows, expectedLegs) = unzip results
         assertMsg "settled legs != the bound per-winner (pay, deliver) legs"
           (transferLegs == concat expectedLegs)
 
-        -- Both-sidedness now holds under BOTH spine checks: factory-level
+        -- Both-sidedness holds under BOTH spine checks: factory-level
         -- `allTransferLegsAuthorized` (every leg's two sides appear across the
-        -- batch) and per-allocation `allAuthorizerLegSidesPresent` (each account's
-        -- sides are all in its own allocation — each winner's two sides in its
-        -- winner allocation, all issuer sides in the single issuer allocation).
+        -- batch) and per-allocation `allAuthorizerLegSidesPresent` (each winner's
+        -- two sides in its amended escrow, all issuer sides in the single issuer
+        -- allocation). Amend + settle run in ONE transaction, so no intermediate
+        -- amended-but-unsettled state is ever exposed.
         exercise settlementFactoryCid SettlementFactory_SettleBatch with
           settlement
           transferLegs
-          allocationCids = winnerAllocations ++ [issuerAllocation]
+          allocationCids = amendedEscrows ++ [issuerAllocation]
           actors = settlement.executors
           d1ComplianceRef = None
+```
+
+### 4.5 Single-commitment extensions `[FUTURE]`
+
+```daml
+-- Bidder-signed standing acceptance to receive the launched instrument.
+-- Observer is the AUCTIONEER ONLY: the issuer learns nothing at bid time and
+-- sees winners first at settlement (cf. the point-5 improvement thread).
+template LaunchTokenReceivePreapproval
+  with
+    bidder : Party
+    auctioneer : Party
+    instrumentId : InstrumentId     -- the launched instrument
+    maxTokenAmount : Decimal        -- >= bidAmount / minBidPrice (worst-case fill)
+    expiry : Time                   -- >= the auction settlementDeadline
+  where
+    signatory bidder
+    observer auctioneer
+    ensure maxTokenAmount > 0.0
+
+    -- Delegated amend (RI-03 delegated-accept pattern): the bidder's signature
+    -- on THIS contract authorizes the new receiver side; the auctioneer only
+    -- triggers it. Nonconsuming: the cap+expiry bound it, and losing bids'
+    -- pre-approvals simply expire unused.
+    nonconsuming choice ReceivePreapproval_AddReceiverSide : ContractId Allocation
+      with
+        allocationCid : ContractId Allocation
+        amount : Decimal
+        source : Account
+        legId : Text
+      controller auctioneer
+      do
+        now <- getTime
+        assertMsg "preapproval expired" (now <= expiry)
+        assertMsg "amount exceeds preapproved cap" (amount <= maxTokenAmount)
+        -- [FUTURE] SCU-additive SPINE choice: archive-and-recreate the committed
+        -- Allocation with ONE added ReceiverSide (receiver sides ONLY — value
+        -- in, never value out — so the amendment can never increase the
+        -- authorizer's obligations). It requires the recipient authority this
+        -- pre-approval supplies; the spine never gains an
+        -- "add legs without acceptance" primitive (general-spine safety, §9).
+        exercise allocationCid Allocation_AddPreapprovedReceiverSide with
+          instrumentId; amount; source; legId; recipientAuthority = bidder
 ```
 
 ---
@@ -597,9 +653,10 @@ sequenceDiagram
     participant TR as Token side (V2)
     participant SF as SettlementFactory
 
-    Note over B,PR: Phase 1 — escrow
+    Note over B,PR: Phase 1 — escrow + receive pre-approval
     B->>PR: CreateAllocationInstruction + AllocationInstruction_Accept (lock payment)
     PR-->>B: committed Allocation (payment)
+    B->>A: sign LaunchTokenReceivePreapproval (auctioneer-only observer)
     Note over B,A: Phase 2 — confidential bid
     B->>A: create BidRequest (Allocation id + bid math)
     Note right of B: projection: sequencer orders, sees no plaintext
@@ -607,8 +664,8 @@ sequenceDiagram
     A->>A: compute clearing price (off-ledger engine)
     A->>TR: reserve tokens for winners
     TR-->>A: committed Allocation (tokens)
-    Note over A,SF: Phase 4 — atomic co-settlement
-    A->>SF: SettlementFactory_SettleBatch
+    Note over A,SF: Phase 4 — amend escrows + atomic co-settlement (one tx)
+    A->>SF: ReceivePreapproval_AddReceiverSide per winner, then SettlementFactory_SettleBatch
     Note right of SF: validates conservation, routing, D1 hooks
     SF-->>B: deliver token holding to bidder
     SF-->>A: deliver payment to issuer + SettlementReceipts
@@ -812,6 +869,8 @@ synchronizer before `SettleBatch`.
 | Authority / role model (Issuer, Auctioneer) | [`RoleGrant`](../../access-control/daml/OpenZeppelin/AccessControl.daml) · [`requireRole`](../../access-control/daml/OpenZeppelin/AccessControl.daml) | ✅ |
 | Admin handoff (two-step ownership) | [`Ownership`](../../ownable/daml/OpenZeppelin/Ownable.daml) · [`OwnershipOffer`](../../ownable/daml/OpenZeppelin/Ownable.daml) | ✅ |
 | Emergency halt (pause the sale) | [`PauseState`](../../pausable/daml/OpenZeppelin/Pausable.daml) · [`whenNotPaused`](../../pausable/daml/OpenZeppelin/Pausable.daml) | ✅ |
+| Receive pre-approval (bidder-signed standing acceptance, §4.5) | `LaunchTokenReceivePreapproval` `[FUTURE]` | ⬜ |
+| Spine receiver-side amendment (single-commitment settle, §4.5) | `Allocation_AddPreapprovedReceiverSide` `[FUTURE]` | ⬜ |
 | Node-applied signed D1 attestation (Shape B enforcement) | `D1ComplianceHook` (field only) `[FUTURE]` | ⬜ |
 | Real TSv2 holding interface (replace `ToyHolding`) | `canton-token-template` `[EVIDENCE]` `[FUTURE]` | ⬜ |
 | Sealed-bid / commit-reveal confidential auction logic | `credential-gateway` `[IMPLEMENTED]` (experimental) `[FUTURE]` | ⬜ |
@@ -842,15 +901,22 @@ decision shapes the design and should be opened early.
   signed bid** exactly as the full-fill clearing does (§4.4) — a partial fill is
   the same theft surface (F1) per slice, so the binding cannot be dropped for the
   partial-fill path.
-- **Post-clearing winner allocation (liveness).** Because the token amount a
-  winner receives (`bidAmount / clearingPrice`) is unknown at bid time, the
-  winner's two-sided allocation (pay out + tokens in) can only be committed
-  post-clearing (`winnerAllocations`, §4.4); the bid-time escrow provides only the
-  pre-clearing commitment + force-refund. Decide the exact mechanism (a standing
-  `TransferPreapproval`-style credit vs. an explicit per-winner commit) and the
-  policy for a winner who never commits it (forfeit-and-refund vs.
-  auctioneer-driven default) — this is the settlement-time liveness dependency the
-  pin in §4.4 introduces.
+- **General-spine safety of receiver-side amendment.** The single-commitment
+  design (§3.1 step 5, §4.5) resolves the former post-clearing winner-allocation
+  liveness question: the bid-time escrow + bidder-signed
+  `LaunchTokenReceivePreapproval` make settlement possible with no second lock
+  and no second bidder action. What stays open is the **spine-level rule**: under
+  what conditions is `Allocation_AddPreapprovedReceiverSide` safe for arbitrary
+  settlement scenarios (not just this auction)? Receiver sides only + explicit
+  recipient authority via a recipient-signed contract is the proposed bound;
+  whether that suffices for every spine consumer must be settled before the
+  choice is added to the shared scaffold.
+- **Confidentiality of *participation*.** The pre-approval is auctioneer-only
+  observed, so the issuer stays blind pre-settlement — but whoever observes a
+  bidder's pre-approval learns they intend to participate (not their amounts).
+  Decide whether "confidential" covers only bid amounts/prices or also the fact
+  of participation, and against whom (ties into the point-5 improvement:
+  issuer-visibility minimized to the settlement point).
 - **Auction-parameter / deadline policy.** Who sets `biddingDeadline` /
   `settlementDeadline`, the minimum bidding window, and whether deadlines can be
   extended (and under what authority) before clearing.
