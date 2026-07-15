@@ -28,16 +28,30 @@ oz_has_java_21 || {
 printf 'run-tests: building all packages\n'
 (cd "$ROOT" && dpm build --all)
 
-printf 'run-tests: running the spine test suite (test/)\n'
-(cd "$ROOT/test" && dpm test)
+# Coverage: each dpm test run saves its template/choice coverage results to
+# .coverage/, the spine run prints the detailed report (--all counts the
+# dependency packages' templates/choices as measurable surface), and the final
+# step merges everything into .coverage/all.json for automated reporting.
+mkdir -p "$ROOT/.coverage"
+
+printf 'run-tests: running the spine test suite (test/) with coverage\n'
+(cd "$ROOT/test" && dpm test --all --show-coverage --save-coverage "$ROOT/.coverage/spine.json")
 
 printf 'run-tests: running the deep settlement exemplar scripts (experiments/settlement-exemplar/)\n'
-(cd "$ROOT/experiments/settlement-exemplar" && dpm test)
+(cd "$ROOT/experiments/settlement-exemplar" && dpm test --save-coverage "$ROOT/.coverage/settlement-exemplar.json")
 
 printf 'run-tests: running the DEX AMM exemplar scripts (experiments/dex-amm/)\n'
-(cd "$ROOT/experiments/dex-amm" && dpm test)
+(cd "$ROOT/experiments/dex-amm" && dpm test --save-coverage "$ROOT/.coverage/dex-amm.json")
 
 printf 'run-tests: running the CIP-0086/0103/0104 interop exemplar scripts (experiments/cip-interop-exemplar/)\n'
-(cd "$ROOT/experiments/cip-interop-exemplar" && dpm test)
+(cd "$ROOT/experiments/cip-interop-exemplar" && dpm test --save-coverage "$ROOT/.coverage/cip-interop-exemplar.json")
+
+printf 'run-tests: aggregating coverage into .coverage/all.json\n'
+(cd "$ROOT/test" && dpm test --load-coverage-only \
+	--load-coverage "$ROOT/.coverage/spine.json" \
+	--load-coverage "$ROOT/.coverage/settlement-exemplar.json" \
+	--load-coverage "$ROOT/.coverage/dex-amm.json" \
+	--load-coverage "$ROOT/.coverage/cip-interop-exemplar.json" \
+	--save-coverage "$ROOT/.coverage/all.json")
 
 printf 'run-tests: OK\n'
