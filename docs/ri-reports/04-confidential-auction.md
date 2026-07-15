@@ -53,7 +53,7 @@ mechanics.
 
 | Feature Category | In-Scope |
 |---|---|
-| Auction mechanism | Single-round **sealed-bid**; first-price default, second-price as a parameterization computed by the auctioneer's off-ledger pricing engine. |
+| Auction mechanism | Single-round **sealed-bid**, settling at a **uniform clearing price**; the pricing rule selecting that price (e.g. lowest accepted bid, highest rejected bid) is an off-ledger parameter of the auctioneer's clearing engine. |
 | Confidentiality | Bid isolation via per-party projection — bidder, issuer/auctioneer, and the credential verifier only; no bidder projects competitor bids. |
 | Escrow | Locked escrow via `LockedSimpleHolding` / `Allocation`; funds cryptographically bound to the settlement outcome. |
 | Atomic settlement | Token-for-payment exchange **only** via [`SettlementFactory_SettleBatch`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L249) (atomic DvP, single transaction). |
@@ -89,8 +89,9 @@ it does **not** deliver:
 - **auctioneer honesty** — a malicious or compromised auctioneer that observes
   all bids can favor a colluding bidder, leak bids, or compute a dishonest
   clearing price;
-- **verifiable second-price** — the "second-price as a parameterization" is an
-  off-ledger computation the ledger cannot check;
+- **a verifiable pricing rule** — the rule selecting the uniform clearing price
+  is an off-ledger computation; the ledger checks only the price bounds
+  (`>= minBidPrice`, `<=` each winner's `bidPrice`);
 - **ledger-enforced fairness of allocation** — the conservation / leg-authorization
   invariants prevent value *theft* (no leg settles that a party did not sign),
   but they do not prevent *unfair allocation* at a sound clearing price.
@@ -862,8 +863,8 @@ decision shapes the design and should be opened early.
 - **Auction-parameter / deadline policy.** Who sets `biddingDeadline` /
   `settlementDeadline`, the minimum bidding window, and whether deadlines can be
   extended (and under what authority) before clearing.
-- **Single-round, first-price scope.** The core is single-round first-price
-  (second-price is an off-ledger parameterization today). Multi-round / Dutch /
+- **Single-round, uniform-price scope.** The core is single-round at a uniform
+  clearing price (the pricing rule is off-ledger). Multi-round / Dutch /
   bonding-curve variants are out of scope and depend on the iterated-settlement
   work below.
 - **Iterated-settlement extensions.** M1 enforces conservation unconditionally and
