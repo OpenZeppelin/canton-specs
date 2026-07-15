@@ -54,3 +54,104 @@ test_identityHookUpgrade_v2_typedClaimTransfer = script do
   transferred.owner === bob
   transferred.amount === 150
   pure ()
+
+-- | v0.1.0 baseline path on the upgraded package: a registry with no identity
+-- extension mints, and the original opaque-attestation transfer choice still
+-- works unchanged — the SCU guarantee the spike exists to prove.
+test_identityHookUpgrade_v1_baselineTransfer : Script ()
+test_identityHookUpgrade_v1_baselineTransfer = script do
+  issuer <- allocateParty "identity-hook-upgrade-v1-issuer"
+  alice <- allocateParty "identity-hook-upgrade-v1-alice"
+  bob <- allocateParty "identity-hook-upgrade-v1-bob"
+
+  registry <- submit issuer do
+    createCmd ToyRegistry with
+      issuer
+      featureFlag = experimentalFeatureFlag
+      identityExtension = None
+  holding <- submit issuer do
+    exerciseCmd registry ToyRegistry_Mint with owner = alice, amount = 100
+  bobHolding <- submit alice do
+    exerciseCmd holding ToyHolding_Transfer with
+      newOwner = bob
+      identityAttestation = baselineAttestation
+  Some transferred <- queryContractId bob bobHolding
+  transferred.owner === bob
+  transferred.amount === 100
+  pure ()
+
+-- Destruction authority (the implicit Archive choice)
+-------------------------------------------------------
+
+-- | The trusted issuer revokes a claim by archiving it; the typed-claim
+-- transfer presenting the stale claim fails. The subject cannot destroy the
+-- issuer's claim.
+test_identityHookUpgrade_archivedClaimBlocksTypedTransfer : Script ()
+test_identityHookUpgrade_archivedClaimBlocksTypedTransfer = script do
+  setTime t0
+  issuer <- allocateParty "identity-hook-upgrade-revoke-issuer"
+  trustedIssuer <- allocateParty "identity-hook-upgrade-revoke-trusted-issuer"
+  alice <- allocateParty "identity-hook-upgrade-revoke-alice"
+  bob <- allocateParty "identity-hook-upgrade-revoke-bob"
+
+  registry <- submit issuer do
+    createCmd ToyRegistry with
+      issuer
+      featureFlag = experimentalFeatureFlag
+      identityExtension = Some IdentityExtensionConfig with
+        trustedIssuers = [trustedIssuer]
+  holding <- submit issuer do
+    exerciseCmd registry ToyRegistry_Mint with owner = alice, amount = 150
+  claim <- submit trustedIssuer do
+    createCmd KycClaim with
+      claimSigner = trustedIssuer
+      declaredIssuer = trustedIssuer
+      subjectParty = bob
+      claimKind = KYC_VALIDATED
+      validUntil = t1
+      claimId = "identity-hook-upgrade-revoke-kyc-001"
+  submitMustFail bob do archiveCmd claim
+  submit trustedIssuer do archiveCmd claim
+  submitMustFail [alice, bob] do
+    exerciseCmd holding ToyHolding_TransferWithClaim with
+      newOwner = bob
+      identityAttestation = baselineAttestation
+      claimCid = claim
+  pure ()
+
+-- | Only the issuer can destroy the registry; the mint surface on the stale cid
+-- is gone afterwards.
+test_identityHookUpgrade_registryArchiveRemovesMintSurface : Script ()
+test_identityHookUpgrade_registryArchiveRemovesMintSurface = script do
+  issuer <- allocateParty "identity-hook-upgrade-reg-archive-issuer"
+  alice <- allocateParty "identity-hook-upgrade-reg-archive-alice"
+
+  registry <- submit issuer do
+    createCmd ToyRegistry with
+      issuer
+      featureFlag = experimentalFeatureFlag
+      identityExtension = None
+  submitMustFail alice do archiveCmd registry
+  submit issuer do archiveCmd registry
+  submitMustFail issuer do
+    exerciseCmd registry ToyRegistry_Mint with owner = alice, amount = 100
+  pure ()
+
+-- | Destruction authority over a toy holding sits with the issuer (its sole
+-- signatory); the owner only observes it and cannot archive it.
+test_identityHookUpgrade_holdingArchiveIsIssuerOnly : Script ()
+test_identityHookUpgrade_holdingArchiveIsIssuerOnly = script do
+  issuer <- allocateParty "identity-hook-upgrade-hold-archive-issuer"
+  alice <- allocateParty "identity-hook-upgrade-hold-archive-alice"
+
+  registry <- submit issuer do
+    createCmd ToyRegistry with
+      issuer
+      featureFlag = experimentalFeatureFlag
+      identityExtension = None
+  holding <- submit issuer do
+    exerciseCmd registry ToyRegistry_Mint with owner = alice, amount = 100
+  submitMustFail alice do archiveCmd holding
+  submit issuer do archiveCmd holding
+  res <- queryContractId issuer holding
+  res === None

@@ -64,3 +64,75 @@ test_shapeA_denyBlocksTransfer = script do
   submitMustFail alice do
     exerciseCmd holding ToyHolding_Transfer with newOwner = bob, resultCid = deny
   pure ()
+
+-- Destruction authority (the implicit Archive choice)
+-------------------------------------------------------
+
+-- | The provider revokes an issued allow token by archiving it; a transfer
+-- presenting the stale result fails. The presenter (observer) cannot destroy
+-- someone else's compliance result.
+test_shapeA_archivedResultBlocksTransfer : Script ()
+test_shapeA_archivedResultBlocksTransfer = script do
+  issuer <- allocateParty "shape-a-revoke-issuer"
+  provider <- allocateParty "shape-a-revoke-provider"
+  alice <- allocateParty "shape-a-revoke-alice"
+  bob <- allocateParty "shape-a-revoke-bob"
+  custodian <- allocateParty "shape-a-revoke-custodian"
+
+  registry <- submit issuer do
+    createCmd ToyRegistry with
+      issuer
+      featureFlag = experimentalFeatureFlag
+      seizureDestination = custodian
+  holding <- submit issuer do
+    exerciseCmd registry ToyRegistry_Mint with owner = alice, amount = 100
+  allow <- submit provider do
+    createCmd OffLedgerComplianceResult with
+      provider
+      presenter = alice
+      decision = Allow
+      opaqueResultId = "shape-a-revoke-001"
+  submitMustFail alice do archiveCmd allow
+  submit provider do archiveCmd allow
+  submitMustFail alice do
+    exerciseCmd holding ToyHolding_Transfer with newOwner = bob, resultCid = allow
+  pure ()
+
+-- | Only the issuer can destroy the registry; the mint surface on the stale cid
+-- is gone afterwards.
+test_shapeA_registryArchiveRemovesMintSurface : Script ()
+test_shapeA_registryArchiveRemovesMintSurface = script do
+  issuer <- allocateParty "shape-a-reg-archive-issuer"
+  alice <- allocateParty "shape-a-reg-archive-alice"
+  custodian <- allocateParty "shape-a-reg-archive-custodian"
+
+  registry <- submit issuer do
+    createCmd ToyRegistry with
+      issuer
+      featureFlag = experimentalFeatureFlag
+      seizureDestination = custodian
+  submitMustFail alice do archiveCmd registry
+  submit issuer do archiveCmd registry
+  submitMustFail issuer do
+    exerciseCmd registry ToyRegistry_Mint with owner = alice, amount = 100
+  pure ()
+
+-- | Destruction authority over a toy holding sits with the issuer (its sole
+-- signatory); the owner only observes it and cannot archive it.
+test_shapeA_holdingArchiveIsIssuerOnly : Script ()
+test_shapeA_holdingArchiveIsIssuerOnly = script do
+  issuer <- allocateParty "shape-a-hold-archive-issuer"
+  alice <- allocateParty "shape-a-hold-archive-alice"
+  custodian <- allocateParty "shape-a-hold-archive-custodian"
+
+  registry <- submit issuer do
+    createCmd ToyRegistry with
+      issuer
+      featureFlag = experimentalFeatureFlag
+      seizureDestination = custodian
+  holding <- submit issuer do
+    exerciseCmd registry ToyRegistry_Mint with owner = alice, amount = 100
+  submitMustFail alice do archiveCmd holding
+  submit issuer do archiveCmd holding
+  res <- queryContractId issuer holding
+  res === None

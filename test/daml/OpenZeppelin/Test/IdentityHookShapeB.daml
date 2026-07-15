@@ -139,3 +139,58 @@ test_identityHookShapeB_untrustedIssuerBlocksTransfer = script do
   submitMustFail (actAs [alice, bob]) do
     exerciseCmd holding ToyHolding_Transfer with newOwner = bob, claimCid = untrustedClaim
   pure ()
+
+-- Destruction authority (the implicit Archive choice)
+-------------------------------------------------------
+
+-- | The trusted issuer revokes a claim by archiving it; a transfer presenting
+-- the stale claim fails. The subject cannot destroy the issuer's claim.
+test_identityHookShapeB_archivedClaimBlocksTransfer : Script ()
+test_identityHookShapeB_archivedClaimBlocksTransfer = script do
+  setTime t0
+  registryAdmin <- allocateParty "identity-shape-b-revoke-registry-admin"
+  trustedIssuer <- allocateParty "identity-shape-b-revoke-trusted-issuer"
+  alice <- allocateParty "identity-shape-b-revoke-alice"
+  bob <- allocateParty "identity-shape-b-revoke-bob"
+
+  holding <- mintHolding registryAdmin [trustedIssuer] alice
+  claim <- createClaim trustedIssuer trustedIssuer bob KYC_VALIDATED t1 "identity-shape-b-revoke-001"
+  submitMustFail bob do archiveCmd claim
+  submit trustedIssuer do archiveCmd claim
+  submitMustFail (actAs [alice, bob]) do
+    exerciseCmd holding ToyHolding_Transfer with newOwner = bob, claimCid = claim
+  pure ()
+
+-- | Only the registry admin can destroy the registry — the archive step of the
+-- archive-and-recreate membership change; a trusted issuer cannot. The mint
+-- surface on the stale cid is gone afterwards.
+test_identityHookShapeB_registryArchiveIsAdminOnly : Script ()
+test_identityHookShapeB_registryArchiveIsAdminOnly = script do
+  registryAdmin <- allocateParty "identity-shape-b-reg-archive-registry-admin"
+  trustedIssuer <- allocateParty "identity-shape-b-reg-archive-trusted-issuer"
+  alice <- allocateParty "identity-shape-b-reg-archive-alice"
+
+  registry <- submit registryAdmin do
+    createCmd TrustedIssuerRegistry with
+      registryAdmin
+      trustedIssuers = [trustedIssuer]
+      featureFlag = experimentalFeatureFlag
+  submitMustFail trustedIssuer do archiveCmd registry
+  submit registryAdmin do archiveCmd registry
+  submitMustFail registryAdmin do
+    exerciseCmd registry TrustedIssuerRegistry_Mint with owner = alice, amount = 100
+  pure ()
+
+-- | Destruction authority over a toy holding sits with the registry admin (its
+-- sole signatory); the owner only observes it and cannot archive it.
+test_identityHookShapeB_holdingArchiveIsAdminOnly : Script ()
+test_identityHookShapeB_holdingArchiveIsAdminOnly = script do
+  registryAdmin <- allocateParty "identity-shape-b-hold-archive-registry-admin"
+  trustedIssuer <- allocateParty "identity-shape-b-hold-archive-trusted-issuer"
+  alice <- allocateParty "identity-shape-b-hold-archive-alice"
+
+  holding <- mintHolding registryAdmin [trustedIssuer] alice
+  submitMustFail alice do archiveCmd holding
+  submit registryAdmin do archiveCmd holding
+  res <- queryContractId registryAdmin holding
+  res === None

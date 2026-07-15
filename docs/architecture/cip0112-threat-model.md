@@ -138,8 +138,7 @@ new optional fields and new choices; baseline choice arguments are never mutated
 ## 9. Test-coverage map
 
 Spine suite [`Cip112Settlement.daml`](../../test/daml/OpenZeppelin/Test/Cip112Settlement.daml)
-(41 `test_` scripts; count via `grep -cE '^test_.* : Script'`) + the 2 deep
-settlement exemplar scripts (`experiments/settlement-exemplar/`) + the 11
++ the deep settlement exemplar scripts (`experiments/settlement-exemplar/`) + the
 CIP-0086/0103/0104 interop exemplar scripts (`experiments/cip-interop-exemplar/`),
 all run by `scripts/run-tests.sh`. Coverage by area:
 
