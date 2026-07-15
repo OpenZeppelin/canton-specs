@@ -855,9 +855,7 @@ decision shapes the design and should be opened early.
   per-winner filled amount and returned change **must be bound on-ledger to the
   signed bid** exactly as the full-fill clearing does (§4.4) — a partial fill is
   the same theft surface (F1) per slice, so the binding cannot be dropped for the
-  partial-fill path. True **per-investor** allocation limits (summed per party
-  across bids and across accounts — `perBidCap` bounds a single bid only) are
-  deferred with this multi-bid consolidation design.
+  partial-fill path.
 - **Post-clearing winner allocation (liveness).** Because the token amount a
   winner receives (`bidAmount / clearingPrice`) is unknown at bid time, the
   winner's two-sided allocation (pay out + tokens in) can only be committed
