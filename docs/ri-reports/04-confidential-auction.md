@@ -374,6 +374,7 @@ template AuctionLaunchpad
         -- instrument, cap covers the worst-case fill, lives to the deadline.
         pre <- fetch receivePreapprovalCid
         assertMsg "preapproval not signed by bidder" (pre.bidder == bidder)
+        assertMsg "preapproval names the wrong auctioneer" (pre.auctioneer == operator)
         assertMsg "preapproval is for the wrong instrument" (pre.instrumentId == launchedInstrumentId)
         assertMsg "preapproval cap below worst-case fill" (pre.maxTokenAmount >= bidAmount / minBidPrice)
         assertMsg "preapproval expires before settlement" (pre.expiry >= settlementDeadline)
@@ -529,6 +530,13 @@ template AuctionClearing
           escrow <- fetch bid.paymentAllocationCid
           let bidderAccount = escrow.allocation.authorizer
               tokenAmount = bid.bidAmount / clearingPrice
+          -- Re-assert the escrow shape at settlement (PlaceBid bound amount and
+          -- instrument; routing to the issuer treasury is only checkable here).
+          case filter (\s -> s.side == SenderSide) escrow.allocation.transferLegSides of
+            [s] | s.instrumentId == lp.paymentInstrumentId.id
+                  && s.amount == bid.bidAmount
+                  && s.otherside == issuerTokenAccount -> pure ()
+            _ -> abort "escrow pay side != (bidAmount, payment instrument, issuer treasury)"
           -- Amend: recipient authority flows from the bidder-signed pre-approval;
           -- the [FUTURE] spine choice accepts RECEIVER sides only (§4.5).
           amendedCid <- exercise bid.receivePreapprovalCid ReceivePreapproval_AddReceiverSide with
@@ -572,6 +580,14 @@ template AuctionClearing
 -- Bidder-signed standing acceptance to receive the launched instrument.
 -- Observer is the AUCTIONEER ONLY: the issuer learns nothing at bid time and
 -- sees winners first at settlement (cf. the point-5 improvement thread).
+--
+-- CONSENT ENVELOPE (why one step is still explicit approval): the bidder signs
+-- (bidAmount, bidPrice) on the BidRequest and (instrument, maxTokenAmount,
+-- expiry) here; settlement can only ever charge exactly bidAmount and deliver
+-- bidAmount / clearingPrice with clearingPrice <= bidPrice (a LOWER clearing
+-- price only delivers MORE tokens). Nothing outside that bidder-signed envelope
+-- is settleable, so removing the second signature removes a liveness dependency,
+-- not consent.
 template LaunchTokenReceivePreapproval
   with
     bidder : Party
