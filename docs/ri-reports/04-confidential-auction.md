@@ -608,7 +608,7 @@ sequenceDiagram
     Note over B,A: Phase 2 — confidential bid
     B->>A: create BidRequest (Allocation id + bid math)
     Note right of B: projection: sequencer orders, sees no plaintext
-    Note over A,TR: Phase 3 — off-ledger reveal/clearing
+    Note over A,TR: Phase 3 — off-ledger clearing
     A->>A: compute clearing price (off-ledger engine)
     A->>TR: reserve tokens for winners
     TR-->>A: committed Allocation (tokens)
@@ -819,7 +819,7 @@ synchronizer before `SettleBatch`.
 | Emergency halt (pause the sale) | [`PauseState`](../../pausable/daml/OpenZeppelin/Pausable.daml) · [`whenNotPaused`](../../pausable/daml/OpenZeppelin/Pausable.daml) | ✅ |
 | Node-applied signed D1 attestation (Shape B enforcement) | `D1ComplianceHook` (field only) `[FUTURE]` | ⬜ |
 | Real TSv2 holding interface (replace `ToyHolding`) | `canton-token-template` `[EVIDENCE]` `[FUTURE]` | ⬜ |
-| Sealed-bid / commit-reveal confidential auction logic | `credential-gateway` `[IMPLEMENTED]` (experimental) `[FUTURE]` | ⬜ |
+| Sealed-bid confidential auction logic | `credential-gateway` `[IMPLEMENTED]` (experimental) `[FUTURE]` | ⬜ |
 | Bid privacy via projection + credential gating | `credential-gateway` `[IMPLEMENTED]` (experimental) `[FUTURE]` | ⬜ |
 | Cross-synchronizer operation (D3 deferred) | §8 `[FUTURE]` | ⬜ |
 | On-ledger multi-sig authority (D4 → M3) | `oz-access-control` `[FUTURE]` | ⬜ |
