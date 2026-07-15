@@ -2,32 +2,32 @@
 
 Maps every Milestone 1 item of the [approved proposal](https://github.com/canton-foundation/canton-dev-fund/blob/main/proposals/2026-04-OpenZeppelin-canton-ecosystem-stack.md) (pinned at `42c0b972`; delivery Q1, May–July 2026) 1:1 to its delivered artifact, where it lives, and the command that validates it. It is a locator and validation index; the claims are bounded by [architecture/cip0112-m1-ri-spec.md](architecture/cip0112-m1-ri-spec.md) and [architecture/cip0112-public-api-promotion-boundary.md](architecture/cip0112-public-api-promotion-boundary.md).
 
-One consolidation applies throughout: the proposal targeted CIP-56, and the ecosystem has since approved the Token Standard V2 upgrade (CIP-0112) superseding it. The CIP-56 implementation is delivered by the public [canton-token-template](https://github.com/OpenZeppelin/canton-token-template) (CIP-056 token standard template) and [canton-stablecoin](https://github.com/OpenZeppelin/canton-stablecoin) (a stablecoin built on it), and **this repo consolidates the token foundation on CIP-0112** by adding the Token Standard V2-aligned settlement primitive. Per [boundary B4](architecture/cip0112-m1-ri-spec.md#2-promotion-boundary-status-and-open-questions) — the CIP-0086/0103/0104 acceptance note in the M1 RI spec — CIP-86 / CIP-103 / CIP-104 ship as **interoperability evidence against that settlement surface** — not standalone middleware, wallet-provider, or Scan/SV reward deliverables.
+One consolidation applies throughout: the proposal targeted CIP-56, and the ecosystem has since approved the Token Standard V2 upgrade (CIP-0112) superseding it. The CIP-56 implementation is delivered by the public [canton-token-template](https://github.com/OpenZeppelin/canton-token-template) (CIP-056 token standard template) and [canton-stablecoin](https://github.com/OpenZeppelin/canton-stablecoin) (a stablecoin built on it), and **this repo consolidates the token foundation on CIP-0112** by adding the Token Standard V2-aligned settlement primitive.
 
 ## Deliverables — 1:1 map
 
 ### Reference Implementations
 
-| Proposal item | Delivered as | Location | How to validate |
-| --- | --- | --- | --- |
-| Research and design for Year 1 RIs: DEX | RI architecture report (living document, anchored into RI code) | [ri-reports/01-dex.md](ri-reports/01-dex.md) | Read; run `scripts/refresh-ri-anchors.sh` to re-verify every code anchor resolves |
-| — Lending | RI architecture report | [ri-reports/02-lending.md](ri-reports/02-lending.md) | Same |
-| — Cross-Chain Stablecoin Payment Orchestration | RI architecture report | [ri-reports/03-cross-chain-stablecoin.md](ri-reports/03-cross-chain-stablecoin.md) | Same |
-| — Confidential Auction Launchpad | RI architecture report | [ri-reports/04-confidential-auction.md](ri-reports/04-confidential-auction.md) | Same |
-| (shared RI base) | CIP-0112 settlement scaffold all four RIs inherit, plus deep settlement and DEX exemplars | [experiments/cip112-settlement/](../experiments/cip112-settlement/), [experiments/settlement-exemplar/](../experiments/settlement-exemplar/), [experiments/dex-amm/](../experiments/dex-amm/) | `./scripts/run-tests.sh` |
+| Proposal item | Delivered as | Location |
+| --- | --- | --- |
+| Research and design for Year 1 RIs: DEX | RI architecture report (living document, anchored into RI code) | [ri-reports/01-dex.md](ri-reports/01-dex.md) |
+| — Lending | RI architecture report | [ri-reports/02-lending.md](ri-reports/02-lending.md) |
+| — Cross-Chain Stablecoin Payment Orchestration | RI architecture report | [ri-reports/03-cross-chain-stablecoin.md](ri-reports/03-cross-chain-stablecoin.md) |
+| — Confidential Auction Launchpad | RI architecture report | [ri-reports/04-confidential-auction.md](ri-reports/04-confidential-auction.md) |
+| (shared RI base) | CIP-0112 settlement scaffold all four RIs inherit, plus deep settlement and DEX exemplars | [experiments/cip112-settlement/](../experiments/cip112-settlement/), [experiments/settlement-exemplar/](../experiments/settlement-exemplar/), [experiments/dex-amm/](../experiments/dex-amm/) |
 
 ### Contracts Library
 
-| Proposal item | Delivered as | Location | How to validate |
-| --- | --- | --- | --- |
-| CIP-56 Canton Network Token Standard implementation | CIP-056 token standard template plus a stablecoin implementation built on it (both public) | [OpenZeppelin/canton-token-template](https://github.com/OpenZeppelin/canton-token-template), [OpenZeppelin/canton-stablecoin](https://github.com/OpenZeppelin/canton-stablecoin) | `dpm test` in each repo |
-| (CIP-0112 addition — see consolidation note) | Token Standard V2-aligned settlement primitive with D1 compliance and D2 seizure extension points, over a mock V2 interface layer; Splice DAR import stays gated | [experiments/cip112-settlement/](../experiments/cip112-settlement/), [experiments/token-standard-v2-mock/](../experiments/token-standard-v2-mock/); decisions in [architecture/cip0112-m1-ri-spec.md](architecture/cip0112-m1-ri-spec.md) | `./scripts/run-tests.sh` (spine suite incl. 20 settlement scripts) |
-| (foundational primitives) | Decoupled access-control / ownable / pausable packages consumed by the settlement RI | Source of truth: [OpenZeppelin/canton-contracts](https://github.com/OpenZeppelin/canton-contracts); vendored snapshot here: [access-control/](../access-control/), [ownable/](../ownable/), [pausable/](../pausable/) | `dpm build --all && cd test && dpm test` |
-| CIP-86 ERC20 Compatible Interface implementation | ERC-20 facade interop exemplar: `transfer`/`balanceOf`/`totalSupply`/`approve`/`transferFrom` mapped onto the CIP-0112 settlement surface (5 scripts) | [experiments/cip-interop-exemplar/.../Cip0086Erc20.daml](../experiments/cip-interop-exemplar/daml/OpenZeppelin/Experimental/Interop/Cip0086Erc20.daml) | `./scripts/localnet-cip-interop-validation.sh`; criteria table in [experiments/cip-interop-localnet-validation.md](experiments/cip-interop-localnet-validation.md) |
-| CIP-103 dApp Standard library components | Wallet/dApp interop exemplar: full lifecycle, V1-wallet direct path, privacy scoping, fail-closed error surfacing (4 scripts) | [experiments/cip-interop-exemplar/.../Cip0103Wallet.daml](../experiments/cip-interop-exemplar/daml/OpenZeppelin/Experimental/Interop/Cip0103Wallet.daml) | Same LocalNet gate |
-| CIP-104 Traffic-Based App Rewards library support | Rewards interop exemplar: app-provider participation attributable from settlement views alone, executor authority required to settle, no reward-marker templates (2 scripts) | [experiments/cip-interop-exemplar/.../Cip0104AppRewards.daml](../experiments/cip-interop-exemplar/daml/OpenZeppelin/Experimental/Interop/Cip0104AppRewards.daml) | Same LocalNet gate |
-| All library code published to GitHub with >90% test coverage | 130 Daml Script tests across the workspace; merged coverage report over the shipped surface | Coverage artifacts in `.coverage/` (generated); gate: [scripts/run-tests.sh](../scripts/run-tests.sh); CI: [.github/workflows/ci.yml](../.github/workflows/ci.yml) | `./scripts/run-tests.sh` — latest run (2026-07-15): 130/130 scripts pass; merged report: 30/30 (100%) measurable templates created, 81/81 (100%) measurable choices exercised |
-| Initial Canton section on OpenZeppelin Documentation | External deliverable (docs.openzeppelin.com), not tracked in this repo | — | Tracked outside this repo (see Gaps) |
+| Proposal item | Delivered as | Location |
+| --- | --- | --- |
+| CIP-56 Canton Network Token Standard implementation | CIP-056 token standard template plus a stablecoin implementation built on it (both public) | [OpenZeppelin/canton-token-template](https://github.com/OpenZeppelin/canton-token-template), [OpenZeppelin/canton-stablecoin](https://github.com/OpenZeppelin/canton-stablecoin) |
+| (CIP-0112 addition — see consolidation note) | Token Standard V2-aligned settlement primitive with D1 compliance and D2 seizure extension points, over a mock V2 interface layer; Splice DAR import stays gated | [experiments/cip112-settlement/](../experiments/cip112-settlement/), [experiments/token-standard-v2-mock/](../experiments/token-standard-v2-mock/); decisions in [architecture/cip0112-m1-ri-spec.md](architecture/cip0112-m1-ri-spec.md) |
+| (foundational primitives) | Decoupled access-control / ownable / pausable packages consumed by the settlement RI | Source of truth: [OpenZeppelin/canton-contracts](https://github.com/OpenZeppelin/canton-contracts); vendored snapshot here: [access-control/](../access-control/), [ownable/](../ownable/), [pausable/](../pausable/) |
+| CIP-86 ERC20 Compatible Interface implementation | ERC-20 facade interop exemplar: `transfer`/`balanceOf`/`totalSupply`/`approve`/`transferFrom` mapped onto the CIP-0112 settlement surface (5 scripts) | [experiments/cip-interop-exemplar/.../Cip0086Erc20.daml](../experiments/cip-interop-exemplar/daml/OpenZeppelin/Experimental/Interop/Cip0086Erc20.daml) |
+| CIP-103 dApp Standard library components | Wallet/dApp interop exemplar: full lifecycle, V1-wallet direct path, privacy scoping, fail-closed error surfacing (4 scripts) | [experiments/cip-interop-exemplar/.../Cip0103Wallet.daml](../experiments/cip-interop-exemplar/daml/OpenZeppelin/Experimental/Interop/Cip0103Wallet.daml) |
+| CIP-104 Traffic-Based App Rewards library support | Rewards interop exemplar: app-provider participation attributable from settlement views alone, executor authority required to settle, no reward-marker templates (2 scripts) | [experiments/cip-interop-exemplar/.../Cip0104AppRewards.daml](../experiments/cip-interop-exemplar/daml/OpenZeppelin/Experimental/Interop/Cip0104AppRewards.daml) |
+| All library code published to GitHub with >90% test coverage | 130 Daml Script tests across the workspace; merged coverage report over the shipped surface | Coverage artifacts in `.coverage/` (generated); gate: [scripts/run-tests.sh](../scripts/run-tests.sh); CI: [.github/workflows/ci.yml](../.github/workflows/ci.yml) |
+| Initial Canton section on OpenZeppelin Documentation | External deliverable (docs.openzeppelin.com), not tracked in this repo | — |
 
 ### Security
 
