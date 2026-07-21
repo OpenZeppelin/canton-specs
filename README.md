@@ -165,6 +165,18 @@ exemplar scripts over the Ledger API gRPC endpoint, and tears the sandbox down:
 Procedure, per-script criteria mapping, and the latest evidence run are recorded
 in [`docs/experiments/cip-interop-localnet-validation.md`](docs/experiments/cip-interop-localnet-validation.md).
 
+CIP-0103 third-party interoperability is validated against the Canton Wallet
+Gateway (formerly Splice Wallet Kernel) running from its published npm package,
+with the wallet user held as an externally-signed party and every wallet-side
+action driven through the gateway's CIP-0103 dApp API (requires Node.js >= 20):
+
+```sh
+./scripts/wallet-gateway-cip0103-interop.sh
+```
+
+Procedure and evidence are recorded in
+[`docs/experiments/cip0103-wallet-gateway-interop.md`](docs/experiments/cip0103-wallet-gateway-interop.md).
+
 ## Hello-World Scaffold
 
 `daml/HelloWorld/HelloWorld.daml` is a minimal Daml source file for the M0
