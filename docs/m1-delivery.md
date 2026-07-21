@@ -59,11 +59,13 @@ One consolidation applies throughout: the proposal targeted CIP-56, and the ecos
 From the repo root, with DPM and Java 21 installed (see README build instructions):
 
 ```sh
-OZ_DAML_TOOLCHAIN=dpm dpm build --all        # compile
-./scripts/run-tests.sh                        # full suite + coverage
-./scripts/localnet-cip-interop-validation.sh  # CIP-86/103/104 on LocalNet
-./scripts/wallet-gateway-cip0103-interop.sh   # CIP-103 vs Canton Wallet Gateway (third party)
-./scripts/refresh-ri-anchors.sh               # RI report anchors resolve
+OZ_DAML_TOOLCHAIN=dpm dpm build --all         # compile every package
+./scripts/check-scaffold.sh                   # scaffold, toolchain, and drift checks (CI step 1)
+./scripts/run-tests.sh                        # full suite + merged coverage (CI step 2)
+./scripts/localnet-cip-interop-validation.sh  # CIP-86/103/104 on LocalNet over gRPC
+./scripts/wallet-gateway-cip0103-interop.sh   # CIP-103 vs Canton Wallet Gateway (third party; needs Node >= 20, ~1 min)
+./scripts/identity-hook-upgrade-smoke.sh      # SCU upgrade smoke test for the identity hook on LocalNet
+./scripts/refresh-ri-anchors.sh               # RI report anchors resolve (CI step 3)
 ```
 
 
