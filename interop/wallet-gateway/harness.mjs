@@ -175,7 +175,7 @@ async function exerciseViaGateway(token, party, label, templateId, contractId, c
     token
   )
   const done = await poll(`transaction ${commandId} executed`, 30_000, 300, async () => {
-    const { transaction } = { transaction: await rpc(USER_API, 'getTransaction', { transactionId: tx.id }, token) }
+    const transaction = await rpc(USER_API, 'getTransaction', { transactionId: tx.id }, token)
     if (transaction.status === 'failed') throw new Error(`transaction failed: ${JSON.stringify(transaction)}`)
     return transaction.status === 'executed' ? transaction : undefined
   })
