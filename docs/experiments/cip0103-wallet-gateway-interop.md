@@ -44,6 +44,16 @@ The script builds the exemplar package, boots a **wallclock** sandbox with the J
 
 Ports and the gateway package pin are overridable via `OZ_LEDGER_PORT`, `OZ_JSON_API_PORT`, `OZ_GATEWAY_PORT`, and `OZ_GATEWAY_PKG`.
 
+## External ledger mode (devnet/testnet)
+
+The same gate runs against a real network: set `OZ_USE_EXTERNAL_LEDGER=1` plus the connection variables documented in the script header, in an env file **outside the repo** (e.g. `~/.config/oz-canton/devnet.env`, `chmod 600`), and source it before running. Point `OZ_INTEROP_WORK_DIR` outside the repo too — the generated gateway config and token file land there. No network identifier, endpoint, or credential lives in the repo; everything is env-injected.
+
+External mode differs from the local topology in three ways, each reflecting what managed validators actually provide:
+
+- **No party allocation.** The runner uses two pre-allocated `CanActAs` parties: the wallet party (adopted by the gateway via `syncWallets`, signed by the participant rather than the gateway's own Ed25519 driver) and an operator party playing admin, executor, and receiver. The wallet stays distinct from the operator, so the balance assertions keep their meaning.
+- **JSON Ledger API only.** Managed validators typically expose no gRPC endpoint, so the operator-side phases (setup / settle / verify) run through the JSON Ledger API v2 directly from the harness instead of `dpm script`; the DAR ships through the validator's upload service when `OZ_DAR_UPLOAD_URL` is set. The wallet-side phases are unchanged — everything the wallet does still goes through the gateway's CIP-0103 dApp API.
+- **Delta-based assertions.** A shared ledger accumulates state across runs, so every post-settlement check (balances, receipts, event-log entries) asserts deltas against baselines captured at setup; repeated runs stay green.
+
 ## Constraints that differ from the LocalNet gate
 
 - **Wallclock time, not static time.** The gateway and its signing worker run on real time, so `gatewaySettlement` carries no settlement deadline and no script here calls `setTime`. Deadline-based fail-closed behavior stays with the [LocalNet gate](cip-interop-localnet-validation.md).
@@ -55,6 +65,8 @@ Ports and the gateway package pin are overridable via `OZ_LEDGER_PORT`, `OZ_JSON
 
 Latest run: 2026-07-22, DPM 1.0.21 (SDK and Canton 3.4.11), OpenJDK 21.0.11, Node v24.10.0, `@canton-network/wallet-gateway-remote@1.6.0`, macOS. All six phases passed: wallet party `oz-cip0103-wallet::1220…` allocated by the gateway; `connect`/`status`/`listAccounts` OK; 3 commands executed through `prepareExecute` + `sign`/`execute` with 9 `txChanged` events observed (`pending`/`signed`/`executed` × 3, each `executed` carrying an `updateId`); batch settled; wallet observed 1 `SettlementReceipt`, 1 `SettlementEventLogEntry`, and its 15.0 change holding through `ledgerApi`; admin/executor/receiver projections verified (receiver 25.0, supply conserved at 40.0, 2 receipts).
 
-The run transcript is committed as a versioned fixture at [`interop/wallet-gateway/evidence/gateway-run.json`](../../interop/wallet-gateway/evidence/gateway-run.json) (environment, wallet allocation contract id, and the full `txChanged` event sequence). Both interop gates also run automatically — nightly and on demand — via the [`interop-gates` workflow](../../.github/workflows/interop-gates.yml), which uploads each run's evidence JSON and logs as a build artifact, so the acceptance evidence is reproducible rather than resting on a single manual run.
+External ledger run: 2026-07-22, against a managed DevNet validator (Canton 3.5.9, JSON Ledger API only, DAR shipped through the validator's upload service, wallet party adopted via `syncWallets` with participant signing). All six phases passed with delta-based assertions (receiver +25.0, wallet +15.0, supply +40.0, receipts +2); the wallet observed its receipt, event-log entry, and change through the gateway `ledgerApi`, with `txChanged` `pending → executed` frames carrying real network completion offsets. This demonstrates the same CIP-0103 compatibility on a live multi-participant network, beyond the local sandbox.
+
+The run transcripts are committed as versioned fixtures at [`interop/wallet-gateway/evidence/gateway-run.json`](../../interop/wallet-gateway/evidence/gateway-run.json) (local) and [`interop/wallet-gateway/evidence/gateway-run-devnet.json`](../../interop/wallet-gateway/evidence/gateway-run-devnet.json) (external; endpoints and credentials omitted — each contains the environment, wallet allocation contract id, and the full `txChanged` event sequence). Both interop gates also run automatically — nightly and on demand — via the [`interop-gates` workflow](../../.github/workflows/interop-gates.yml), which uploads each run's evidence JSON and logs as a build artifact, so the acceptance evidence is reproducible rather than resting on a single manual run.
 
 This is interoperability evidence for the CIP-0103 acceptance criterion against the CIP-0112 settlement surface. The token asset remains the experiment's `ToyHolding` stand-in until the Splice Token Standard V2 DAR import gate lands ([`cip0112-splice-token-standard-v2-import-gate.md`](../architecture/cip0112-splice-token-standard-v2-import-gate.md)); no wallet-provider, middleware, or production claim is made.

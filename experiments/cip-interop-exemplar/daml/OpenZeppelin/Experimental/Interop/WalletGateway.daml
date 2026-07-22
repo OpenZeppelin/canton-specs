@@ -162,7 +162,10 @@ template GatewayAllocationOffer
           AllocationInstructionCompleted cid -> pure cid
           _ -> abort "wallet-gateway interop: allocation instruction did not complete"
 
--- | Everything the off-ledger harness needs to drive the gateway phase.
+-- | Everything the off-ledger harness needs to drive the gateway phase. The
+-- baseline fields snapshot pre-run state so the verify phase can assert
+-- deltas: on a shared external ledger (devnet/testnet) the parties accumulate
+-- holdings and receipts across runs.
 data GatewaySetupOutput = GatewaySetupOutput with
     admin : Party
     app : Party
@@ -172,6 +175,10 @@ data GatewaySetupOutput = GatewaySetupOutput with
     holdingOfferCid : ContractId GatewayHoldingOffer
     allocationOfferCid : ContractId GatewayAllocationOffer
     receiverAllocationCid : ContractId Allocation
+    baselineWalletBalance : Decimal
+    baselineReceiverBalance : Decimal
+    baselineSupply : Decimal
+    baselineReceiptCount : Int
   deriving (Eq, Show)
 
 -- | Phase 1 (Daml Script, local parties): allocate admin / app / receiver,
@@ -183,6 +190,29 @@ setup_gatewayInterop wallet = do
   admin <- allocateParty "gateway-admin"
   app <- allocateParty "gateway-app"
   receiver <- allocateParty "gateway-receiver"
+  setupGatewayInteropWith wallet admin app receiver
+
+data GatewayExternalSetupInput = GatewayExternalSetupInput with
+    wallet : Party
+    operator : Party
+  deriving (Eq, Show)
+
+-- | Setup variant for external ledgers (devnet/testnet) where the runner
+-- cannot allocate parties: the wallet party and a single pre-allocated
+-- operator party (playing admin, executor, and receiver) are passed in. The
+-- wallet stays distinct from the operator, so the balance assertions keep
+-- their meaning (receiver 25.0 / wallet change 15.0).
+setup_gatewayInteropExternal : GatewayExternalSetupInput -> Script GatewaySetupOutput
+setup_gatewayInteropExternal input =
+  setupGatewayInteropWith input.wallet input.operator input.operator input.operator
+
+setupGatewayInteropWith : Party -> Party -> Party -> Party -> Script GatewaySetupOutput
+setupGatewayInteropWith wallet admin app receiver = do
+  baselineWalletBalance <- erc20BalanceOf admin (basicAccount wallet)
+  baselineReceiverBalance <- erc20BalanceOf admin (basicAccount receiver)
+  baselineSupply <- erc20TotalSupply admin
+  baselineReceipts <- query @SettlementReceipt app
+  let baselineReceiptCount = length baselineReceipts
   (factoryCid, factoryDisc) <- mkFactory admin
   now <- getTime
   let walletAcct = basicAccount wallet
@@ -213,6 +243,7 @@ setup_gatewayInterop wallet = do
   pure GatewaySetupOutput with
     admin; app; receiver; factoryCid; requestCid
     holdingOfferCid; allocationOfferCid; receiverAllocationCid
+    baselineWalletBalance; baselineReceiverBalance; baselineSupply; baselineReceiptCount
 
 data GatewaySettleInput = GatewaySettleInput with
     admin : Party
@@ -243,6 +274,10 @@ data GatewayVerifyInput = GatewayVerifyInput with
     app : Party
     wallet : Party
     receiver : Party
+    baselineWalletBalance : Decimal
+    baselineReceiverBalance : Decimal
+    baselineSupply : Decimal
+    baselineReceiptCount : Int
   deriving (Eq, Show)
 
 -- | Phase 4 (Daml Script, local parties): assert the settled end state on the
@@ -253,13 +288,13 @@ data GatewayVerifyInput = GatewayVerifyInput with
 verify_gatewayInterop : GatewayVerifyInput -> Script ()
 verify_gatewayInterop input = do
   receiverBalance <- erc20BalanceOf input.admin (basicAccount input.receiver)
-  receiverBalance === gatewayTransferAmount
+  receiverBalance - input.baselineReceiverBalance === gatewayTransferAmount
   walletBalance <- erc20BalanceOf input.admin (basicAccount input.wallet)
-  walletBalance === gatewayMintAmount - gatewayTransferAmount
+  walletBalance - input.baselineWalletBalance === gatewayMintAmount - gatewayTransferAmount
   supply <- erc20TotalSupply input.admin
-  supply === gatewayMintAmount
+  supply - input.baselineSupply === gatewayMintAmount
   receipts <- query @SettlementReceipt input.app
-  length receipts === 2
+  length receipts - input.baselineReceiptCount === 2
   entries <- query @SettlementEventLogEntry input.admin
   assertMsg "wallet-gateway interop: expected settlement event log entries" (not (null entries))
 
@@ -293,6 +328,10 @@ test_cip0103_gatewayOfferFlowInMemory = do
     app = setup.app
     wallet
     receiver = setup.receiver
+    baselineWalletBalance = setup.baselineWalletBalance
+    baselineReceiverBalance = setup.baselineReceiverBalance
+    baselineSupply = setup.baselineSupply
+    baselineReceiptCount = setup.baselineReceiptCount
   walletReceipts <- query @SettlementReceipt wallet
   assertMsg "wallet-gateway interop: wallet should observe its receipt" (not (null walletReceipts))
   walletEntries <- query @SettlementEventLogEntry wallet

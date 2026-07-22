@@ -1,0 +1,56 @@
+{
+  "run": "2026-07-22",
+  "gate": "scripts/wallet-gateway-cip0103-interop.sh (OZ_USE_EXTERNAL_LEDGER=1)",
+  "result": "PASS (all six phases)",
+  "environment": {
+    "ledger": "external managed DevNet validator, Canton 3.5.9, JSON Ledger API v2 only (no gRPC)",
+    "walletParty": "pre-allocated participant party adopted by the gateway via syncWallets (participant signing)",
+    "walletGateway": "@canton-network/wallet-gateway-remote@1.6.0",
+    "node": "v24.10.0",
+    "darDistribution": "exemplar DAR uploaded through the validator's DAR upload service"
+  },
+  "walletAllocationCid": "00d70c47add6e673125b05e11d428c9ed979c8588abd3f49e72158d48ee4188c47ca121220fa5f26ed55026e2052e4ded19c8cfe72286ba3ff0be13b525df81bf52519a625",
+  "baseline": {
+    "receipts": 0,
+    "eventLogEntries": 0,
+    "unlockedBalance": 0
+  },
+  "txChangedEvents": [
+    {
+      "status": "pending",
+      "commandId": "oz-cip0103-interop-holding-offer"
+    },
+    {
+      "status": "executed",
+      "commandId": "oz-cip0103-interop-holding-offer",
+      "payload": {
+        "updateId": "122059b37199ca2e35fe0d9ea0f1b8582601d271ef4864286381f57bcb8543c4afdd",
+        "completionOffset": 2003227
+      }
+    },
+    {
+      "status": "pending",
+      "commandId": "oz-cip0103-interop-allocation-request"
+    },
+    {
+      "status": "executed",
+      "commandId": "oz-cip0103-interop-allocation-request",
+      "payload": {
+        "updateId": "1220fe42d86c7c8edaf6ea8da0eb664b47411fa7fad0e62cfecc014befeea8466aed",
+        "completionOffset": 2003230
+      }
+    },
+    {
+      "status": "pending",
+      "commandId": "oz-cip0103-interop-allocation-offer"
+    },
+    {
+      "status": "executed",
+      "commandId": "oz-cip0103-interop-allocation-offer",
+      "payload": {
+        "updateId": "1220bb18ebacd39952f9611e787a7428a5f52cbfc027db174bc3447fa528c5a6d214",
+        "completionOffset": 2003233
+      }
+    }
+  ]
+}

@@ -28,6 +28,7 @@ const JSON_API = process.env.OZ_JSON_API_URL ?? 'http://127.0.0.1:7575'
 const NETWORK_ID = process.env.OZ_GATEWAY_NETWORK_ID ?? 'canton:local-sandbox'
 const WORK_DIR = process.env.OZ_INTEROP_WORK_DIR ?? '.cache/wallet-gateway-interop'
 const LEDGER_USER = 'oz-cip0103-interop'
+const EXTERNAL = process.env.OZ_USE_EXTERNAL_LEDGER === '1'
 
 const PKG_INTEROP = '#oz-experimental-cip-interop-exemplar'
 const PKG_SETTLEMENT = '#oz-experimental-cip112-settlement'
@@ -37,6 +38,8 @@ const T = {
   holdingOffer: `${PKG_INTEROP}:${MOD_GATEWAY}:GatewayHoldingOffer`,
   allocationOffer: `${PKG_INTEROP}:${MOD_GATEWAY}:GatewayAllocationOffer`,
   allocationRequest: `${PKG_SETTLEMENT}:${MOD_ENGINE}:AllocationRequest`,
+  factory: `${PKG_SETTLEMENT}:${MOD_ENGINE}:SettlementFactory`,
+  instruction: `${PKG_SETTLEMENT}:${MOD_ENGINE}:AllocationInstruction`,
   toyHolding: `${PKG_SETTLEMENT}:${MOD_ENGINE}:ToyHolding`,
   allocation: `${PKG_SETTLEMENT}:${MOD_ENGINE}:Allocation`,
   receipt: `${PKG_SETTLEMENT}:${MOD_ENGINE}:SettlementReceipt`,
@@ -240,6 +243,214 @@ function listenTxChanged(token) {
   }
 }
 
+// --- external mode: operator-side phases over the JSON Ledger API -----------
+//
+// On managed devnet/testnet validators (e.g. ChainSafe dev1) only the JSON
+// Ledger API is exposed — there is no gRPC endpoint for `dpm script` to use.
+// In external mode the operator-side phases (setup / settle / verify) are
+// therefore driven directly against the JSON Ledger API as the operator
+// party. These values MUST mirror the Daml module's deterministic constants
+// (`gatewayRef`, `gatewaySettlement`, `gatewayLeg`, amounts, feature flag):
+// the on-ledger accept choice rebuilds them independently and the settle
+// batch compares them for equality.
+
+const REF = 'cip0103-wallet-gateway-interop'
+const META = { entries: [] }
+const FEATURE_FLAG = 'experimental.cip112-settlement.enabled'
+const MINT = '40.0'
+const TRANSFER = '25.0'
+const acct = (p) => ({ owner: p, provider: null, id: '' })
+const settlementInfo = (op) => ({
+  executors: [op],
+  settlementRef: { id: REF, cidText: null },
+  settlementDeadline: null,
+  meta: META,
+})
+const transferLeg = (wallet, op) => ({
+  transferLegId: `${REF}-leg`,
+  sender: acct(wallet),
+  receiver: acct(op),
+  amount: TRANSFER,
+  instrumentId: 'USD',
+  meta: META,
+})
+const legSide = (side, leg) => ({
+  transferLegId: leg.transferLegId,
+  side,
+  otherside: side === 'SenderSide' ? leg.receiver : leg.sender,
+  amount: leg.amount,
+  instrumentId: leg.instrumentId,
+  meta: leg.meta,
+})
+
+async function jsonApiDirect(token, method, path, body) {
+  const res = await fetch(`${JSON_API}${path}`, {
+    method,
+    headers: { 'content-type': 'application/json', authorization: `Bearer ${token}` },
+    body: body ? JSON.stringify(body) : undefined,
+  })
+  const text = await res.text()
+  if (!res.ok) throw new Error(`${method} ${path}: HTTP ${res.status}: ${text.slice(0, 500)}`)
+  return text ? JSON.parse(text) : undefined
+}
+
+let extCmd = 0
+async function submitAndWait(token, actAs, label, commands) {
+  const commandId = `oz-cip0103-external-${label}-${++extCmd}`
+  log(`submit ${label} (as ${actAs.slice(0, 24)}…)`)
+  const res = await jsonApiDirect(token, 'POST', '/v2/commands/submit-and-wait-for-transaction', {
+    commands: { commands, commandId, actAs: [actAs] },
+  })
+  const events = res?.transaction?.events ?? []
+  const created = []
+  for (const e of events) {
+    const ev = e?.CreatedEvent ?? e?.created ?? e?.CreatedTreeEvent?.value
+    if (ev) created.push({ contractId: ev.contractId, templateId: ev.templateId, payload: ev.createArgument ?? ev.createArguments })
+  }
+  return { created, updateId: res?.transaction?.updateId }
+}
+
+const createdOf = (result, entity) => {
+  const hit = result.created.find((c) => c.templateId?.endsWith(`:${entity}`) || c.templateId?.includes(`:${entity}`))
+  if (!hit) throw new Error(`no created ${entity} in transaction; created: ${result.created.map((c) => c.templateId).join(', ')}`)
+  return hit.contractId
+}
+
+// Direct ACS read as the operator (the wallet's reads go through the gateway
+// ledgerApi instead — that is the surface under test; this one is plumbing).
+async function acsDirect(token, party, templateId) {
+  const end = await jsonApiDirect(token, 'GET', '/v2/state/ledger-end')
+  const request = {
+    filter: {
+      filtersByParty: {
+        [party]: { cumulative: [{ identifierFilter: { TemplateFilter: { value: { templateId, includeCreatedEventBlob: false } } } }] },
+      },
+    },
+    verbose: false,
+    activeAtOffset: end.offset,
+  }
+  const res = await jsonApiDirect(token, 'POST', '/v2/state/active-contracts', request)
+  const items = Array.isArray(res) ? res : Array.isArray(res?.body) ? res.body : []
+  const contracts = []
+  for (const item of items) {
+    const entry = item?.contractEntry?.JsActiveContract ?? item?.contractEntry?.activeContract
+    const ev = entry?.createdEvent
+    if (ev) contracts.push({ contractId: ev.contractId, payload: ev.createArgument ?? ev.createArguments })
+  }
+  return contracts
+}
+
+const unlockedUsd = (hs) => hs.filter((h) => !h.payload?.lock && h.payload?.instrumentId?.id === 'USD')
+const balanceOf = (hs, party) =>
+  unlockedUsd(hs).filter((h) => h.payload?.account?.owner === party).reduce((a, h) => a + Number(h.payload.amount), 0)
+
+async function operatorContext() {
+  const { partyId: wallet } = readJson('wallet.json')
+  const operator = process.env.OZ_LEDGER_OPERATOR_PARTY
+  const token = await oidcToken()
+  return { wallet, operator, token }
+}
+
+async function setupExternal() {
+  const { wallet, operator: op, token } = await operatorContext()
+  const now = new Date().toISOString()
+
+  // Baselines for delta-based verification on a reused ledger.
+  const holdings = await acsDirect(token, op, T.toyHolding)
+  const receipts = await acsDirect(token, op, T.receipt)
+  const baselineWalletBalance = balanceOf(holdings, wallet)
+  const baselineReceiverBalance = balanceOf(holdings, op)
+  const baselineSupply = unlockedUsd(holdings).reduce((a, h) => a + Number(h.payload.amount), 0)
+  const baselineReceiptCount = receipts.length
+  log(`baselines: wallet=${baselineWalletBalance} receiver=${baselineReceiverBalance} supply=${baselineSupply} receipts=${baselineReceiptCount}`)
+
+  const factory = await submitAndWait(token, op, 'factory', [
+    { CreateCommand: { templateId: T.factory, createArguments: { admin: op, requiresNodeAttestation: null, featureFlag: FEATURE_FLAG } } },
+  ])
+  const factoryCid = createdOf(factory, 'SettlementFactory')
+
+  const leg = transferLeg(wallet, op)
+  const request = await submitAndWait(token, op, 'request', [
+    { ExerciseCommand: { templateId: T.factory, contractId: factoryCid, choice: 'SettlementFactory_CreateAllocationRequest', choiceArgument: {
+      authorizer: acct(wallet),
+      settlement: settlementInfo(op),
+      allocations: [{ admin: op, transferLegSides: [legSide('SenderSide', leg)], nextIterationFunding: null, committed: false, meta: META }],
+      requestedAt: now,
+      settleAt: null,
+      actors: [op],
+    } } },
+  ])
+  const requestCid = createdOf(request, 'AllocationRequest')
+
+  const holdingOffer = await submitAndWait(token, op, 'holding-offer', [
+    { CreateCommand: { templateId: T.holdingOffer, createArguments: { admin: op, owner: wallet, amount: MINT } } },
+  ])
+  const holdingOfferCid = createdOf(holdingOffer, 'GatewayHoldingOffer')
+
+  const allocationOffer = await submitAndWait(token, op, 'allocation-offer', [
+    { CreateCommand: { templateId: T.allocationOffer, createArguments: { admin: op, owner: wallet, app: op, receiver: op } } },
+  ])
+  const allocationOfferCid = createdOf(allocationOffer, 'GatewayAllocationOffer')
+
+  const instruction = await submitAndWait(token, op, 'receiver-instruction', [
+    { ExerciseCommand: { templateId: T.factory, contractId: factoryCid, choice: 'SettlementFactory_CreateAllocationInstruction', choiceArgument: {
+      allocation: { settlement: settlementInfo(op), admin: op, authorizer: acct(op), transferLegSides: [legSide('ReceiverSide', leg)], nextIterationFunding: null, committed: false, meta: META },
+      requestedAt: now,
+      inputHoldingCids: [],
+      d1ComplianceHook: null,
+      actors: [op],
+    } } },
+  ])
+  const instructionCid = createdOf(instruction, 'AllocationInstruction')
+  const accepted = await submitAndWait(token, op, 'receiver-accept', [
+    { ExerciseCommand: { templateId: T.instruction, contractId: instructionCid, choice: 'AllocationInstruction_Accept', choiceArgument: { actors: [op] } } },
+  ])
+  const receiverAllocationCid = createdOf(accepted, 'Allocation')
+
+  writeJson('setup-output.json', {
+    admin: op, app: op, receiver: op, factoryCid, requestCid, holdingOfferCid, allocationOfferCid, receiverAllocationCid,
+    baselineWalletBalance, baselineReceiverBalance, baselineSupply, baselineReceiptCount,
+  })
+  log('external setup complete')
+}
+
+async function settleExternal() {
+  const { wallet, operator: op, token } = await operatorContext()
+  const setup = readJson('setup-output.json')
+  const { walletAllocationCid } = readJson('gateway-output.json')
+  const result = await submitAndWait(token, op, 'settle', [
+    { ExerciseCommand: { templateId: T.factory, contractId: setup.factoryCid, choice: 'SettlementFactory_SettleBatch', choiceArgument: {
+      settlement: settlementInfo(op),
+      transferLegs: [transferLeg(wallet, op)],
+      allocationCids: [walletAllocationCid, setup.receiverAllocationCid],
+      actors: [op],
+      d1ComplianceRef: null,
+    } } },
+  ])
+  const receipts = result.created.filter((c) => c.templateId?.includes(':SettlementReceipt'))
+  if (receipts.length !== 2) fail(`expected 2 receipts from SettleBatch, saw ${receipts.length}`)
+  log(`settled batch: 2 receipts (updateId ${result.updateId})`)
+}
+
+async function verifyExternal() {
+  const { wallet, operator: op, token } = await operatorContext()
+  const setup = readJson('setup-output.json')
+  const holdings = await acsDirect(token, op, T.toyHolding)
+  const receipts = await acsDirect(token, op, T.receipt)
+  const entries = await acsDirect(token, op, T.eventLog)
+
+  const receiverDelta = balanceOf(holdings, op) - setup.baselineReceiverBalance
+  if (Math.abs(receiverDelta - 25) > 1e-9) fail(`receiver balance delta ${receiverDelta}, expected +25`)
+  const walletDelta = balanceOf(holdings, wallet) - setup.baselineWalletBalance
+  if (Math.abs(walletDelta - 15) > 1e-9) fail(`wallet balance delta ${walletDelta}, expected +15`)
+  const supplyDelta = unlockedUsd(holdings).reduce((a, h) => a + Number(h.payload.amount), 0) - setup.baselineSupply
+  if (Math.abs(supplyDelta - 40) > 1e-9) fail(`supply delta ${supplyDelta}, expected +40`)
+  const receiptDelta = receipts.length - setup.baselineReceiptCount
+  if (receiptDelta !== 2) fail(`receipt count delta ${receiptDelta}, expected +2`)
+  if (entries.length < 1) fail('expected settlement event log entries')
+  log(`operator verification passed: receiver +25, wallet +15, supply +40, receipts +2, ${entries.length} event log entrie(s)`)
+}
+
 // --- subcommands -------------------------------------------------------------
 
 // Provision the wallet user's ledger user on the participant. This is
@@ -271,7 +482,58 @@ async function ensureLedgerUser(userId) {
   throw new Error(`failed to create ledger user ${userId}: HTTP ${res.status}: ${text.slice(0, 400)}`)
 }
 
+// External mode (devnet/testnet): mint a real OIDC access token with the
+// client-credentials grant. All identifiers and secrets come from the
+// environment — nothing network-specific lives in the repo.
+async function oidcToken() {
+  const res = await fetch(process.env.OZ_OIDC_TOKEN_URL, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({
+      grant_type: 'client_credentials',
+      client_id: process.env.OZ_OIDC_CLIENT_ID,
+      client_secret: process.env.OZ_OIDC_CLIENT_SECRET,
+      audience: process.env.OZ_OIDC_AUDIENCE,
+    }),
+  })
+  if (!res.ok) throw new Error(`OIDC token request failed: HTTP ${res.status}`)
+  const { access_token: accessToken } = await res.json()
+  if (!accessToken) throw new Error('OIDC token response carried no access_token')
+  return accessToken
+}
+
+// External mode: the runner cannot allocate parties, so instead of
+// createWallet (which allocates an externally-signed party) the gateway
+// ADOPTS the pre-allocated participant-local party the token can act as:
+// addSession auto-syncs the user's ledger parties into gateway wallets with
+// the `participant` signing provider, and the flow proceeds through the same
+// CIP-0103 surfaces with participant-side signing.
+async function createWalletExternal() {
+  const partyId = process.env.OZ_LEDGER_PARTY
+  const operator = process.env.OZ_LEDGER_OPERATOR_PARTY
+  if (!partyId || !operator) fail('external mode requires OZ_LEDGER_PARTY and OZ_LEDGER_OPERATOR_PARTY')
+  log(`user API: ${USER_API}, network: ${NETWORK_ID} (external ledger)`)
+  const accessToken = await oidcToken()
+  log('obtained OIDC access token (client_credentials)')
+  await rpc(USER_API, 'addSession', { networkId: NETWORK_ID }, accessToken)
+  log('session added')
+  await rpc(USER_API, 'syncWallets', undefined, accessToken).catch((err) => log(`syncWallets: ${err.message}`))
+  const wallet = await poll(`gateway wallet for ${partyId}`, 60_000, 500, async () => {
+    const wallets = await rpc(USER_API, 'listWallets', {}, accessToken)
+    const list = Array.isArray(wallets) ? wallets : wallets.wallets
+    return list.find((w) => w.partyId === partyId)
+  })
+  if (!wallet.primary) {
+    await rpc(USER_API, 'setPrimaryWallet', { partyId }, accessToken)
+    log('marked wallet primary')
+  }
+  log(`gateway adopted wallet party: ${wallet.partyId} (signing: ${wallet.signingProviderId})`)
+  writeJson('wallet.json', { partyId, accessToken })
+  writeJson('setup-input.json', { wallet: partyId, operator })
+}
+
 async function createWallet() {
+  if (EXTERNAL) return createWalletExternal()
   log(`user API: ${USER_API}, network: ${NETWORK_ID}`)
   await ensureLedgerUser(LEDGER_USER)
   const { accessToken } = await rpc(USER_API, 'selfSignedAccessToken', {
@@ -315,32 +577,49 @@ async function dappFlow() {
   if (!mine) fail(`listAccounts does not include wallet party ${partyId}`)
   log(`listAccounts includes wallet party (primary=${mine.primary})`)
 
+  // Baselines: a shared external ledger accumulates state across runs, so all
+  // post-settlement checks are deltas against what the wallet sees now.
+  const isUnlocked = (h) => !h.payload?.lock
+  const unlockedBalance = (hs) => hs.filter(isUnlocked).reduce((acc, h) => acc + Number(h.payload?.amount ?? 0), 0)
+  const preHoldings = await acs(accessToken, partyId, T.toyHolding)
+  const baseline = {
+    receipts: (await acs(accessToken, partyId, T.receipt)).length,
+    eventLogEntries: (await acs(accessToken, partyId, T.eventLog)).length,
+    unlockedBalance: unlockedBalance(preHoldings),
+  }
+  const preHoldingCids = new Set(preHoldings.map((h) => h.contractId))
+  log(`baselines: ${JSON.stringify(baseline)}`)
+
   const sse = listenTxChanged(accessToken)
 
   // 1. Wallet receives its funding holding (propose-accept mint).
   await exerciseViaGateway(accessToken, partyId, 'holding-offer', T.holdingOffer, setup.holdingOfferCid, 'GatewayHoldingOffer_Accept', {})
-  const holdings = await poll('wallet ToyHolding in ACS', 30_000, 500, async () => {
+  const minted = await poll('freshly minted wallet ToyHolding in ACS', 30_000, 500, async () => {
     const hs = await acs(accessToken, partyId, T.toyHolding)
-    return hs.length > 0 ? hs : undefined
+    const fresh = hs.filter((h) => !preHoldingCids.has(h.contractId) && isUnlocked(h) && Number(h.payload?.amount ?? 0) === 40)
+    return fresh.length > 0 ? fresh : undefined
   })
-  const holdingCid = holdings[0].contractId
+  const holdingCid = minted[0].contractId
   log(`wallet holding: ${holdingCid}`)
 
   // 2. Wallet accepts the app's CIP-0103 allocation request.
   await exerciseViaGateway(accessToken, partyId, 'allocation-request', T.allocationRequest, setup.requestCid, 'AllocationRequest_Accept', { actors: [partyId] })
 
   // 3. Wallet funds and accepts the sender-side allocation.
+  const preAllocations = new Set((await acs(accessToken, partyId, T.allocation)).map((a) => a.contractId))
   await exerciseViaGateway(accessToken, partyId, 'allocation-offer', T.allocationOffer, setup.allocationOfferCid, 'GatewayAllocationOffer_Accept', { holdingCids: [holdingCid] })
   const allocations = await poll('wallet Allocation in ACS', 30_000, 500, async () => {
-    const as = await acs(accessToken, partyId, T.allocation)
+    const as = (await acs(accessToken, partyId, T.allocation)).filter((a) => !preAllocations.has(a.contractId))
     return as.length > 0 ? as : undefined
   })
   const walletAllocationCid = allocations[0].contractId
   log(`wallet allocation: ${walletAllocationCid}`)
 
-  // Pre-settlement: the wallet must not yet see any receipt.
+  // Pre-settlement: this run's settlement must not have produced receipts yet.
   const preReceipts = await acs(accessToken, partyId, T.receipt)
-  if (preReceipts.length !== 0) fail(`expected 0 receipts before settlement, saw ${preReceipts.length}`)
+  if (preReceipts.length !== baseline.receipts) {
+    fail(`expected ${baseline.receipts} receipts before settlement, saw ${preReceipts.length}`)
+  }
 
   // SSE frames are delivered asynchronously: the user-API poll above only
   // guarantees each transaction executed, not that its `executed` frame has
@@ -358,7 +637,7 @@ async function dappFlow() {
   log(`txChanged events observed: ${txEvents.length}`)
   for (const e of txEvents) log(`  ${JSON.stringify(e)}`)
 
-  writeJson('gateway-output.json', { walletAllocationCid, txChangedEvents: txEvents })
+  writeJson('gateway-output.json', { walletAllocationCid, baseline, txChangedEvents: txEvents })
   writeJson('settle-input.json', {
     admin: setup.admin,
     app: setup.app,
@@ -373,25 +652,35 @@ async function dappFlow() {
     app: setup.app,
     wallet: partyId,
     receiver: setup.receiver,
+    baselineWalletBalance: setup.baselineWalletBalance,
+    baselineReceiverBalance: setup.baselineReceiverBalance,
+    baselineSupply: setup.baselineSupply,
+    baselineReceiptCount: setup.baselineReceiptCount,
   })
 }
 
 async function verifyWalletView() {
   const { partyId, accessToken } = readJson('wallet.json')
+  const { baseline } = readJson('gateway-output.json')
 
   const receipts = await acs(accessToken, partyId, T.receipt)
-  if (receipts.length < 1) fail(`wallet sees ${receipts.length} settlement receipts, expected >= 1`)
-  log(`wallet sees ${receipts.length} settlement receipt(s) via gateway ledgerApi`)
+  if (receipts.length < baseline.receipts + 1) {
+    fail(`wallet sees ${receipts.length} settlement receipts, expected >= ${baseline.receipts + 1}`)
+  }
+  log(`wallet sees ${receipts.length - baseline.receipts} new settlement receipt(s) via gateway ledgerApi`)
 
   const entries = await acs(accessToken, partyId, T.eventLog)
-  if (entries.length < 1) fail(`wallet sees ${entries.length} event log entries, expected >= 1`)
-  log(`wallet sees ${entries.length} settlement event log entrie(s)`)
+  if (entries.length < baseline.eventLogEntries + 1) {
+    fail(`wallet sees ${entries.length} event log entries, expected >= ${baseline.eventLogEntries + 1}`)
+  }
+  log(`wallet sees ${entries.length - baseline.eventLogEntries} new settlement event log entrie(s)`)
 
   const holdings = await acs(accessToken, partyId, T.toyHolding)
   const unlocked = holdings.filter((h) => !h.payload?.lock)
-  const change = unlocked.reduce((acc, h) => acc + Number(h.payload?.amount ?? 0), 0)
-  if (Math.abs(change - 15) > 1e-9) fail(`wallet change balance is ${change}, expected 15`)
-  log(`wallet change holding is 15.0 as expected`)
+  const balance = unlocked.reduce((acc, h) => acc + Number(h.payload?.amount ?? 0), 0)
+  const delta = balance - baseline.unlockedBalance
+  if (Math.abs(delta - 15) > 1e-9) fail(`wallet balance delta is ${delta}, expected +15 (minted 40, sent 25)`)
+  log(`wallet balance delta is +15.0 as expected`)
 
   log('wallet-view verification passed')
 }
@@ -401,6 +690,9 @@ const commands = {
   'create-wallet': createWallet,
   'dapp-flow': dappFlow,
   'verify-wallet-view': verifyWalletView,
+  'setup-external': setupExternal,
+  'settle-external': settleExternal,
+  'verify-external': verifyExternal,
 }
 if (!commands[command]) {
   console.error(`usage: harness.mjs <${Object.keys(commands).join('|')}>`)
