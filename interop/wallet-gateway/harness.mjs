@@ -130,12 +130,21 @@ async function acs(token, party, templateId) {
     activeAtOffset: offset,
   }
   const res = await ledgerApi(token, 'post', '/v2/state/active-contracts', request)
-  const items = Array.isArray(res) ? res : (res?.body ?? [])
+  const items = Array.isArray(res) ? res : Array.isArray(res?.body) ? res.body : null
+  if (items === null) {
+    throw new Error(`active-contracts: unrecognized response shape: ${JSON.stringify(res).slice(0, 400)}`)
+  }
   const contracts = []
   for (const item of items) {
     const entry = item?.contractEntry?.JsActiveContract ?? item?.contractEntry?.activeContract
     const ev = entry?.createdEvent
     if (ev) contracts.push({ contractId: ev.contractId, payload: ev.createArgument ?? ev.createArguments })
+  }
+  // Fail loudly on schema drift: a non-empty response none of whose entries
+  // parse means the pinned gateway/ledger schema changed, and returning []
+  // would surface only as an opaque downstream poll timeout.
+  if (items.length > 0 && contracts.length === 0) {
+    throw new Error(`active-contracts: ${items.length} entries but none parseable; first: ${JSON.stringify(items[0]).slice(0, 400)}`)
   }
   return contracts
 }
