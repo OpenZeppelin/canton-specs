@@ -236,6 +236,11 @@ function listenTxChanged(token) {
 // Provision the wallet user's ledger user on the participant. This is
 // admin-side IAM provisioning against the sandbox, NOT part of the wallet
 // surface under test; on a real network the validator operator does this.
+// NOTE: the request carries no Authorization header — it assumes an auth-less
+// local participant (the dev sandbox accepts unauthenticated admin calls; the
+// gateway's self-signed bearer tokens are likewise not validated by it).
+// Against an IAM-protected participant this call would 401 and must be
+// replaced by the operator's own user-provisioning flow.
 async function ensureLedgerUser(userId) {
   const res = await fetch(`${JSON_API}/v2/users`, {
     method: 'POST',
