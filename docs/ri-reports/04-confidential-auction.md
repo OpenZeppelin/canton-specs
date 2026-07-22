@@ -55,9 +55,10 @@ throughout:
   sequencer orders the transaction by its confirmation-tree shape but never sees
   the bid plaintext. The sealed-bid property is thus **structural** — no public
   mempool, no commit-reveal, front-running prevented by construction.
-- **Daml-LF 2.1 is keyless.** State changes by archive-and-recreate, and any new
-  signatory must actively co-authorize — so two-step handshakes (e.g. the Issuer's
-  `MintProposal` that a Bidder accepts) are a necessity, not a style choice.
+- **Daml is keyless.** State changes by archive-and-recreate, and a Party cannot be
+  made a signatory without actively authorizing the transition that adds it — so
+  two-step handshakes (e.g. the Issuer's `MintProposal` that a Bidder accepts) are a
+  necessity, not a style choice.
 
 *(For readers from public ledgers: a sealed-bid auction there needs commit-reveal —
 publish a bid hash, reveal later — with its friction and non-revelation risk;
@@ -242,7 +243,7 @@ flagged sender (ordinary transfer *failures* do return to sender).
 
 ### D3 identity and the SCU extension rule
 
-The SCU rule: never mutate an existing choice's args to require a new field; extend
+The Smart Contract Upgrade (SCU) rule: never mutate an existing choice's args to require a new field; extend
 via appended `Optional` fields, new types, and new choices. D3 today is
 single-synchronizer v1 (`TrustedIssuerRegistry` + `KycClaim`). To add cross-synchronizer
 identity (ONCHAINID / ERC-3643 / CCID) later: define a new `CrossSynchronizerIdentity`
@@ -658,7 +659,7 @@ living-doc anchors validated by `scripts/refresh-ri-anchors.sh`.
 - **D1** — [`D1ComplianceHook`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L41), Shape B signed node attestation per leg,
   fail-closed. Enforced D1 is *design-intent*, not an already-closed gate: base
   `SettleBatch` can settle with no attestation, and the typed node-attestation path
-  (`SettlementFactory_SettleBatchWithAttestation` + `TrustedAttesterRegistry`) turns
+  ([`SettlementFactory_SettleBatchWithAttestation`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L274) + [`TrustedAttesterRegistry`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L778)) turns
   the requirement on ([D1 compliance](#d1-compliance-node-applied-attestation-shape-b), [Q10](#9-open-design-questions)).
 - **D2** — [`D2SeizureHook`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L46) config + [`BurnerCapability`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L98)-gated lock-and-sweep to a
   preset custodian; no burn; losing bids return to sender.

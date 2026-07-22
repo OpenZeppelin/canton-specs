@@ -41,7 +41,7 @@ expect. Those expectations — not a bridge feature list — drive every choice 
 | **Compliance officer / regulator** | Compliance enforced on the settlement path, fail-closed — not at a front-end. | D1 checked per leg, node-applied, via the [`D1ComplianceHook`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L41) / typed-attestation path ([§3](#3-how-we-implement-it)); D2 seizure to a preset custodian. |
 | **Bridge relayer / operator** | Move value across chains without custody or the power to mint unbacked supply. | Transport role separated from attestation/trust role; every mint bound to a registry-attested `LockAttestation` ([§3.5](#35-reserve--lock-attestation-model-future), [Q1](#9-open-design-questions)). |
 | **Protocol architect / integrator** | Swap in a production gateway later without touching the settlement core. | The gateway is a bounded mock behind a standardized interface; spine and compliance logic are unchanged when it is replaced ([§4.1](#41-standardized-messaging-gateway-bounded-mock-future)). |
-| **Auditor** | 1:1 backing provable on-ledger; explicit seizure authority and upgrade story. | Reserve invariant `mintedSupply ≤ Σ lockedAmount(unredeemed)` ([§3.5](#35-reserve--lock-attestation-model-future)); single-admin D2 to a preset custodian; SCU non-mutation rule ([§3](#3-how-we-implement-it)). |
+| **Auditor** | 1:1 backing provable on-ledger; explicit seizure authority and upgrade story. | Reserve invariant `mintedSupply ≤ Σ lockedAmount(unredeemed)` ([§3.5](#35-reserve--lock-attestation-model-future)); single-admin D2 to a preset custodian; Smart Contract Upgrade (SCU) non-mutation rule ([§3](#3-how-we-implement-it)). |
 
 Target users are regulated financial institutions, multinational treasuries, and
 compliance-first DeFi platforms accepting inbound liquidity from public networks
@@ -67,7 +67,7 @@ Three Canton facts shape the whole design; stated once here, referenced througho
   stakeholder Parties. The inbound message does not mint-and-broadcast into a
   globally visible state; it drives an isolated, recipient-targeted allocation on
   the spine, so cross-chain settlement inherits Canton's data compartmentalization.
-- **Daml-LF 2.1 is keyless.** State changes by archive-and-recreate, not mutation,
+- **Daml is keyless.** State changes by archive-and-recreate, not mutation,
   and any new signatory must actively co-authorize a transition — so a recipient
   cannot be bound unilaterally ([§3](#3-how-we-implement-it) step 3).
 

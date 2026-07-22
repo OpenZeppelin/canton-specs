@@ -57,7 +57,7 @@ here and elaborated in a report only where the application differs.
   via
   [`Allocation_SweepD2InFlightSeizure`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L625),
   transfer *failures* return to sender; D3 single-synchronizer v1, cross-synchronizer deferred
-  but SCU-forward-compatible; D4 single-admin capability (multi-sig → M3).
+  but forward-compatible via Smart Contract Upgrade (SCU); D4 single-admin capability (multi-sig → M3).
 - **SCU rule:** never mutate an existing choice's args to require a new field;
   extend via appended `Optional` fields, new serializable types, and new choices.
 - **Priority order:** Security → Simplicity → Readability → Auditability.

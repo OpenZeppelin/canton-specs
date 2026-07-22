@@ -51,7 +51,7 @@ list — drive every choice in this document.
 | **Compliance officer / regulator** | Compliance on the settlement path, fail-closed and continuous — not bolted onto a front-end. | D1 Shape-B check re-run per value-moving leg, no caching ([§3](#3-how-we-implement-it)). |
 | **Liquidator / keeper** | Deterministic, fair liquidation with no submission-timing race. | Margin-call grace period, then payment-proportional seizure bound on-ledger to the amount actually repaid ([§4.4](#44-margin-call--payment-proportional-liquidation-future-correcting-vault_liquidate-evidence)). |
 | **Risk / oracle operator** | No single party can move the price and manufacture liquidations. | Committee-attested `PriceOracle_UpdatePrice` plus staleness and deviation guards ([§3](#3-how-we-implement-it)). |
-| **Auditor** | Explicit authority boundaries, a predictable rate primitive, and a clean upgrade story. | Capability authority (D4); immutable `stabilityFeeRate`; SCU non-mutation rule ([§3](#3-how-we-implement-it)). |
+| **Auditor** | Explicit authority boundaries, a predictable rate primitive, and a clean upgrade story. | Capability authority (D4); immutable `stabilityFeeRate`; Smart Contract Upgrade (SCU) non-mutation rule ([§3](#3-how-we-implement-it)). |
 
 ### The Canton design model these expectations assume
 
@@ -66,7 +66,7 @@ referenced throughout:
   stakeholder Parties — the borrower, the issuer, and designated regulatory
   Parties. There is no globally visible pooled-vault contract broadcasting every
   participant's collateral balance and liquidation threshold.
-- **Daml-LF 2.1 is keyless.** There are no contract keys; configuration
+- **Daml is keyless.** There are no contract keys; configuration
   (`VaultParams`) and state (`Vault`) are separate *contracts* referenced by
   ContractId, and every state change is archive-and-recreate. A new signatory must
   actively co-authorize a transition, so **two-step handshakes are a necessity, not
@@ -906,7 +906,7 @@ the Daml Script suites run by `scripts/run-tests.sh` and `scripts/check-scaffold
 | Bad debt / under-water position | Collateral worth less than debt → protocol shortfall. | Quantified in `VaultLiquidationResult.badDebt`; the **insurance fund** (from routed fees) is its first absorber, with socialized-loss / admin-write-off the residual open decision ([Q2](#9-open-design-questions)). |
 | Unbacked issuance | Admin mints stablecoin not matched by collateral. | Mintable only inside `Vault_MintStablecoin`, atomically coupled to a solvency-checked debt increment — no standalone admin mint ([Mint is coupled to debt](#mint-is-coupled-to-debt-no-unbacked-issuance)). |
 | Compliance evasion (D1), incl. post-open drift | Borrower bypasses KYC, or becomes non-compliant after opening. | Shape B `KycClaim` validated against `TrustedIssuerRegistry` at open **and re-checked per settlement leg** (fail-closed, no caching); a revoked credential blocks new borrows/top-ups/withdrawals, while repay/close/liquidation stay open so a position is never trapped ([§3](#3-how-we-implement-it)). |
-| Unauthorized admin action | Attacker tries to mint unbacked debt or invoke D2 seizure. | Requires a valid `BurnerCapability` / `RoleAdmin` contract id, unforgeable under Daml-LF; D2 sweep is hardcoded to the preset `custodianDestination`. |
+| Unauthorized admin action | Attacker tries to mint unbacked debt or invoke D2 seizure. | Requires a valid `BurnerCapability` / `RoleAdmin` contract id, unforgeable under Canton; D2 sweep is hardcoded to the preset `custodianDestination`. |
 
 ---
 

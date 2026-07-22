@@ -46,19 +46,29 @@ Three Canton facts shape the whole design; they are stated once here and referen
 throughout:
 
 - **Party is the actor.** Signatories, observers, controllers, and executors are
-  **Parties**, each hosted on one or more participant nodes. Backend endpoints are
-  scoped to Party access. "Who may do X" is always a Party question.
-- **Per-Party projection is the privacy model.** A contract is visible only to its
-  stakeholder Parties. There is no globally readable pool state that any anonymous
-  participant can mutate, and no public mempool.
-- **Daml-LF 2.1 is keyless.** State changes by archive-and-recreate, not in-place
-  mutation, and any new signatory must actively co-authorize a transition — so
-  **two-step handshakes are a necessity, not a style choice** ([§3](#3-how-we-implement-it)).
+  **Parties** (each hosted on one or more participant nodes). Backend endpoints are
+  scoped to Party access, and a contract is authorized by its signatory Parties, not
+  by nodes. "Who may do X" is always a Party question.
+- **Per-Party projection is the privacy model**, enforced by the Canton protocol: a
+  contract is visible only to its stakeholder Parties. There is no globally readable
+  pool state an anonymous participant can mutate, and no public mempool.
+- **Daml is keyless.** State changes by archive-and-recreate, not in-place mutation,
+  and a Party cannot be made a signatory without actively authorizing the transition
+  that adds it — so **two-step handshakes are a necessity, not a style choice**
+  ([§3](#3-how-we-implement-it)).
+- **Code must be vetted, not merely present.** A Daml package (DAR) must be uploaded
+  *and vetted* on a participant node before the Parties it hosts can transact with it;
+  un-vetting a DAR blocks those Parties from *any* transaction using it — including a
+  D2 lock-and-sweep. A transaction commits only if the hosting participants of **all**
+  its signatories and observers have the **same** DAR version vetted (necessary, not
+  sufficient), which makes upgrade/vetting coordination an operational prerequisite
+  (SCU rollout, [§3](#3-how-we-implement-it); failure modes, [§7.4](#74-throughput-and-contention)).
 
-*(For readers coming from EVM: there is no autonomous globally-visible contract and
-no shared public state tree; a Canton contract is a commitment among a specific set
-of Parties. MEV does not vanish — it moves from a public mempool into the operator's
-private view, addressed in [Q6](#9-open-design-questions).)*
+*(For readers coming from EVM: an EVM contract is globally callable by any account,
+off a shared public state tree. A Canton contract is different — an instance of a
+Daml template, carrying both state and choices (business logic), authorized by its
+signatory Parties and visible only to its stakeholders. MEV does not vanish; it moves
+from a public mempool into the operator's private view ([Q6](#9-open-design-questions)).)*
 
 ### The primitive: atomic swaps, not the AMM
 
@@ -66,29 +76,34 @@ The load-bearing primitive is the **atomic DvP swap**: two committed `Allocation
 the taker's input leg and the counterparty's output leg — settled in one
 all-or-nothing [`SettlementFactory_SettleBatch`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L249),
 where the both-sided check pins each leg's exact amount to a signed allocation side.
-The primitive carries the security, compliance, and privacy guarantees
-*independently of how the price was discovered*.
+Reusable primitives that cooperate this way — rather than one monolithic venue —
+carry the security, compliance, and privacy guarantees *regardless of how the price
+was discovered*.
 
-Price discovery is the only axis on which venues differ. Each is a thin layer that
-produces a signed (amount-in, amount-out) pair and hands it to the same swap core:
-an AMM derives it from an `x·y=k` curve (built out here), a CLOB from a matched
-resting order, an RFQ venue from a signed dealer quote. Each is a separate
-application emitting swap legs into the same `SettleBatch` — not a
-re-parameterization of the pool — and inherits the primitive's guarantees without
-re-deriving them. **This is the scope choice:** the RI ships the primitive and its
-usage guidance, with the AMM as the reference instantiation, rather than a
-specialized venue adopters would rewrite. The AMM RI is not yet implemented; the
-demonstration is the design and its compiling exemplar ([§4](#4-interfaces--usage-examples)).
+Price discovery is the only axis on which venues differ. Each venue is a thin layer
+that produces a signed (amount-in, amount-out) pair and hands it to the same swap
+core: an AMM derives the pair from an `x·y=k` curve (built out here), a CLOB from a
+matched resting order, an RFQ venue from a signed dealer quote. Each is a separate
+application that emits swap legs into the same `SettleBatch` — not a
+re-parameterization of the pool — so it inherits the primitive's guarantees without
+re-deriving them. **Hence the scope choice:** this RI delivers the swap primitive and
+the guidance for building venues on it; the AMM is the one venue built out in full, as
+a **design plus a compiling exemplar** ([§4](#4-interfaces--usage-examples)), not a
+production venue. Adopters build CLOB / RFQ / other venues on the same core.
 
 The architecture builds on the **CIP-0112 / Token Standard V2 settlement spine**
-`[IMPLEMENTED]` (`OpenZeppelin.Experimental.Settlement.Cip112`), so reservation,
-swaps, and liquidity mechanics execute through standardized allocation and
-settlement contracts — no custom, siloed off-ledger balance sheet.
+`[IMPLEMENTED]` (`OpenZeppelin.Experimental.Settlement.Cip112` — the `Experimental`
+segment marks the pre-promotion module namespace, which graduates to a stable path
+once the primitive is promoted into `canton-contracts`), so reservation, swaps, and
+liquidity mechanics execute through standardized allocation and settlement contracts —
+no custom, siloed off-ledger balance sheet.
 
 ### Scope
 
-Scope favors simplicity and modular extensibility: ship the small, obviously-correct
-core; name everything else as an explicit extension point or out-of-scope.
+The scope is a deliberate engineering posture, not minimalism: keep the shipped core
+small and obviously correct so it can be audited and reused across the suite, and name
+everything deferred as an explicit extension point or out-of-scope — so a reviewer sees
+the boundary precisely instead of guessing it.
 
 | In scope | Detail |
 |---|---|
@@ -110,12 +125,12 @@ core; name everything else as an explicit extension point or out-of-scope.
 
 ### Positioning
 
-The differentiation is institutional posture in the settlement layer, not market
-mechanics: compliance is on the settlement path, positions are private by
-construction, and value moves only on the standardized spine (any V2 asset lists
-without bespoke integration). The intent is a readable, forkable institutional
-baseline that composes with the rest of this suite over one spine. A measured
-feature comparison against named live Canton venues is deferred to M2 ([Q10](#9-open-design-questions)).
+The differentiation is institutional posture in the settlement layer: compliance on
+the settlement path, positions private by construction, and value moving only on the
+standardized spine (any V2 asset lists without bespoke integration). The goal is a
+readable, forkable institutional baseline that composes with the rest of this suite
+over one spine — benchmarking against other venues is out of scope until the mechanics
+are built and can be measured ([Q10](#9-open-design-questions)).
 
 ---
 
@@ -123,7 +138,34 @@ feature comparison against named live Canton venues is deferred to M2 ([Q10](#9-
 
 Operations partition into **Market State**, **Funding & Authorization**, **Asset
 Reservation** (the spine), and **Registry Definitions**, orchestrated by reused
-role-management, pausing, and settlement primitives.
+role-management, pausing, and settlement primitives. The data/state flow across those
+layers:
+
+```mermaid
+flowchart LR
+    subgraph Governance
+      RG["RoleGrant (oz-access-control)"]
+      PSt["PauseState (oz-pausable)"]
+    end
+    subgraph MarketState
+      PR["PoolRules"] --> P["Pool: reserves, feeBps"]
+    end
+    subgraph Funding
+      AI["AllocationInstruction"] --> AL["Allocation (committed)"]
+      ARq["AllocationRequest"]
+    end
+    subgraph Spine
+      SF["SettlementFactory"] --> SB["SettleBatch"]
+    end
+    Hold[("Pool-account holdings")]
+    RG -. authorizes .-> PR
+    PSt -. whenNotPaused .-> PR
+    P -->|Pool_Swap| SB
+    AL --> SB
+    ARq --> SB
+    SB <-->|debit / credit| Hold
+    SB --> RC["SettlementReceipt"]
+```
 
 ### Core components and library mapping
 
@@ -141,20 +183,22 @@ role-management, pausing, and settlement primitives.
 
 Duties are segregated across discrete Parties:
 
-- **Venue Operator (`CANTON_OPERATOR`)** — runs the venue backend: quotes swaps off
+- **Venue Operator (`DEX_OPERATOR`)** — runs the venue backend: quotes swaps off
   the public `Pool` reserves, creates `PoolRules`, and submits batch settlements.
   Has execution authority to call the settlement factory but never holds custody of,
   nor any unilateral transfer right over, trader funds. (An AMM has no matching
   engine — the curve sets the price.)
-- **LP Registrar (`CANTON_LP_REGISTRAR`)** — manages LP-token policy; separated from
+- **LP Registrar (`DEX_LP_REGISTRAR`)** — manages LP-token policy; separated from
   the operator to allow future delegation to a regulated custodian.
-- **Asset Administrator (`CANTON_ADMIN`)** — issuer/registrar of the base and quote
+- **Asset Administrator (`DEX_ADMIN`)** — issuer/registrar of the base and quote
   instruments; holds the [`BurnerCapability`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L98) for D2 seizure.
 - **Trader / Liquidity Provider** — end-user Party authoring `Allocation`s from their
   wallet; the sole Party able to lock their own holdings.
-- **Attestor Pool** — a per-pool set of Parties (`attestorPool : [Party]`), each
-  hosted on its operating entity's participant node, acting as joint signatories on
-  the `Pool` state.
+- **Attestor Pool** — a per-pool set of **Parties** (`attestorPool : [Party]`) that
+  co-authorize pool state transitions, each hosted on its operating entity's
+  participant node (the validating infrastructure), acting as joint signatories on the
+  `Pool`. It is both a consortium of Parties (the actors) and, underneath, their
+  independent participant nodes.
 
 ### Trust topology: signatory vs. controller (canonical)
 
@@ -180,14 +224,18 @@ the swap choice**. This distinction is load-bearing and is relied on throughout:
 must *approve this swap*.** The latter is what keeps the operator from moving
 reserves, and it is referenced (not re-argued) in [§3](#3-how-we-implement-it) and [§4](#4-interfaces--usage-examples).
 
-**Who holds the attestor keys.** Each attestor is a Party whose signing key is held
-by the entity operating its node; LPs and traders trust that per-pool set as they
-trust the operator not to take custody. Different pools may carry different attestor
-sets. The M1 reference models attestors as **all-of-M** required controllers; the
-liveness cost of all-of-M and the widening privacy circle it implies are open
-questions ([Q1](#9-open-design-questions), [Q2](#9-open-design-questions)). Node-backed Parties as required
-signatories is an existing Canton pattern, so an enterprise node-consensus layer is
-intended to be a drop-in, not a rewrite.
+**Who holds the attestor keys.** Each attestor is a Party whose signing key is held by
+the entity operating its participant node; LPs and traders trust that per-pool set as
+they trust the operator not to take custody. Different pools may carry different
+attestor sets. The intended model is a configurable **N-of-M threshold** — all-of-M is
+just the `N = M` special case, and is what the exemplar code shows for simplicity.
+N-of-M is the target precisely because all-of-M is unlikely to be acceptable: one
+offline attestor stalls every swap. The threshold construction, the liveness cost, and
+the privacy circle a larger set widens are open questions ([Q1](#9-open-design-questions),
+[Q2](#9-open-design-questions)). Parties acting as joint required signatories across
+independent participant nodes — a decentralized, multi-hosted arrangement — is an
+existing Canton pattern, so integrating a production node-consensus layer is intended
+to be a drop-in, not a rewrite.
 
 ---
 
@@ -206,11 +254,11 @@ without a resolution path and that the exchange is atomic.
 2. **Allocation generation.** The trader signs
    [`SettlementFactory_CreateAllocationInstruction`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L228), then
    [`AllocationInstruction_Accept`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L392) locks their Token A and creates a committed
-   [`Allocation`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L474) naming `CANTON_OPERATOR` as executor.
+   [`Allocation`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L474) naming `DEX_OPERATOR` as executor.
 3. **Request formulation.** The trader formulates an [`AllocationRequest`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L322) (via
    [`SettlementFactory_CreateAllocationRequest`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L205)) naming Token B and its
    **exact** requested amount.
-4. **Batch formulation.** `CANTON_OPERATOR` aggregates the trader's `Allocation` and
+4. **Batch formulation.** `DEX_OPERATOR` aggregates the trader's `Allocation` and
    `AllocationRequest` with the pool's state into a
    [`SettlementFactory_SettleBatch`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L249) instruction.
 5. **Attestor verification.** The `attestorPool` Parties verify the AMM invariant
@@ -287,10 +335,10 @@ co-controlled by `attestorPool`):
 2. archives the current `Pool` (consuming choice) and creates the successor with
    reserves updated by `+Δin / −Δout`.
 
-Under Daml-LF 2.1 all-or-nothing semantics there is no state where reserves moved but
-legs did not, or vice versa. This is the on-ledger realization of the [§7.1](#71-security-invariants)
-*AMM Conservation* invariant, enforced by Canton consensus rather than operator
-discipline.
+Under **Canton's** all-or-nothing transaction semantics there is no state where
+reserves moved but legs did not, or vice versa. This is the on-ledger realization of
+the [§7.1](#71-security-invariants) *AMM Conservation* invariant, enforced by Canton
+consensus rather than operator discipline.
 
 **Reserves vs. holdings.** `baseReserves`/`quoteReserves` are `Decimal` *accounting*
 figures, not the assets. The real value lives in TSv2 holdings owned by a dedicated
@@ -307,11 +355,11 @@ invariant, funded seeding, and consolidation cadence are tracked as [Q3](#9-open
 All non-swap flows stay atomic via `SettleBatch` and are guarded by `whenNotPaused`
 at origination:
 
-- **Pool creation.** `CANTON_OPERATOR`, `CANTON_LP_REGISTRAR`, and `attestorPool`
+- **Pool creation.** `DEX_OPERATOR`, `DEX_LP_REGISTRAR`, and `attestorPool`
   jointly create the `Pool`; initial reserves are seeded by the first provision.
 - **Liquidity provision.** The LP allocates *both* instruments; the operator
   batch-settles them into the pool account and, in the same transaction,
-  `CANTON_LP_REGISTRAR` mints LP tokens proportional to the contributed share.
+  `DEX_LP_REGISTRAR` mints LP tokens proportional to the contributed share.
 - **Liquidity removal.** The LP burns LP tokens; the batch settles a proportional
   withdrawal of *both* reserves back to the LP.
 - **Fee accrual.** `feeBps` is retained on each swap, so reserves grow relative to
@@ -324,17 +372,21 @@ The intended D1 posture is compliance checked per settlement, **no caching**,
 **fail-closed**. This is a design commitment, not an already-closed gate: base
 [`SettlementFactory_SettleBatch`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L249) can settle with **no** attestation; the requirement
 is engaged by the allocation's optional [`D1ComplianceHook`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L41) (when
-`requiresPerSettlementReference` is set) and the additive typed-attestation path
-(`SettlementFactory_SettleBatchWithAttestation` + `TrustedAttesterRegistry`).
+`requiresPerSettlementReference` is set) and the additive typed-attestation path — the
+real spine choice [`SettlementFactory_SettleBatchWithAttestation`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L274)
+against a [`TrustedAttesterRegistry`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L778)
+(a factory can be configured to make that path mandatory).
 
 The RI selects **Shape B** (signed node attestation) over Shape A (an off-ledger API
 gate), which would add a centralized failure point, latency, and conflict with the
 attestor topology. The on-ledger seam is the `D1ComplianceHook` config record
 (`hookRef`, `requiresPerSettlementReference`) carried on the `Pool`; at `SettleBatch`
 time the node-side check requires a `CredentialGatedActionRequest` with a
-`MockVerificationResult` (stand-in for a production ZK verification result) proving
-the trader is unflagged within current ledger-time bounds. Whether the contract
-stays oblivious or verifies a signed attestation on-ledger is [Q8](#9-open-design-questions).
+`MockVerificationResult` — a stand-in for a live compliance-verification result (which
+in production could be a signed node attestation or a zero-knowledge proof; nothing
+here *requires* ZK) — proving the trader is unflagged within current ledger-time
+bounds. Whether the contract stays oblivious or verifies a signed attestation
+on-ledger is [Q8](#9-open-design-questions).
 
 ### D2 seizure: admin-preset custodian lock-and-sweep
 
@@ -375,15 +427,30 @@ multi-hosted-party authority are deferred to M3, keeping the M1 core small.
 
 ### The SCU extension story (canonical)
 
-The **non-negotiable SCU rule**: an existing choice's arguments must never be mutated
-to require a new field. Extensions use appended `Optional` fields, new serializable
-types, and **new, parallel choices**. This also dictates how new interfaces are
-gained: Daml 3.x removed **retroactive interface instances** `[UPSTREAM]` (they broke
-clean upgrades), so a new compliance/reporting facet is added by a new template
-implementing the interface plus a new choice — never by re-instancing an existing
-`Pool` / `PoolRules`. Example: granular jurisdictional compliance is added as a new
+**Smart Contract Upgrade (SCU)** is Canton's mechanism for evolving **templates**
+safely. The non-negotiable rule: an existing choice's argument type must never be
+mutated to require a new field — extensions use appended `Optional` fields, new
+serializable types, and **new, parallel choices**.
+
+Interfaces are governed by different rules and must not be conflated with templates.
+An **interface *definition* is immutable** — you cannot change or remove an interface a
+template already implements — but a template *may add* a new interface, and an
+interface *instance*'s **implementation** (the code behind its methods) *can* change
+([Canton SCU docs](https://docs.canton.network/appdev/deep-dives/smart-contract-upgrade#upgrading-interfaces)).
+Daml 3.x additionally removed **retroactive interface instances** `[UPSTREAM]` (they
+broke clean upgrades). So a new compliance/reporting facet is added by a new choice
+and/or a new template implementing a new interface — never by mutating an existing
+choice's args or retroactively re-instancing an existing `Pool` / `PoolRules`.
+Example: granular jurisdictional compliance is added as a new
 `PoolRules_SwapWithJurisdiction` reading a newly appended
 `Optional JurisdictionalComplianceHook`, not by mutating `PoolRules_Swap`.
+
+**An upgrade takes effect by vetting, not by deployment alone.** A new package version
+is live only once its DAR is **vetted** on the participant nodes hosting the affected
+Parties, and a transaction commits only if all its signatories' and observers' hosting
+participants have the same version vetted ([§1](#1-product-definition)). Vetting (and
+un-vetting) is therefore the real lever for enabling a new choice or retiring an old
+one across the venue; coordinating it is an operational prerequisite.
 
 **Closing the weaker path is a body change, not frontend routing.** Adding a stricter
 parallel choice does *not* close the looser one; leaving `PoolRules_Swap` live and
@@ -418,7 +485,8 @@ The reserve-update logic lives **here**, as a *consuming* choice on `Pool` (not 
 recreating the successor `Pool` runs on the signatories' inherited authority
 (`operator + lpRegistrar + attestorPool`), while forcing the attestors to validate
 *this* swap is separate — they are made **controllers** (`controller operator ::
-attestorPool`). All-of-M controllers here for the reference ([Q1](#9-open-design-questions)).
+attestorPool`). The exemplar shows all-of-M (every attestor a required controller) for
+simplicity; the intended model is a configurable N-of-M threshold ([Q1](#9-open-design-questions)).
 
 ```daml
 -- Pool AND PoolRules live in one module in the realized package.
@@ -832,6 +900,16 @@ critical path, and several allocations can ride one `SettleBatch`. Removing the 
 mempool relocates the ordering advantage to the operator ([Q6](#9-open-design-questions)); hot-pool
 contention mitigations (pool sharding, operator-side batching) are [Q9](#9-open-design-questions).
 
+**Batch atomicity and its failure modes.** `SettleBatch` is all-or-nothing: if any one
+leg fails, the whole batch reverts and nothing settles. The usual cause is concurrent
+state change — the committed `Allocation` was already archived (reclaimed after its
+deadline, or seized), or the holdings backing it were archived/altered by another
+transaction — surfacing as a contract-not-active error. This is inherent to keyless
+archive-and-recreate, not a bug; the venue minimizes it by serializing per-pool
+submissions and keeping the window between allocation and batch small. Package
+**vetting** is a related liveness dependency: an un-vetted DAR on any involved
+participant blocks that Party's legs ([§1](#1-product-definition)).
+
 ---
 
 ## 8. Cross-Synchronizer Extension (Planned) `[FUTURE]`
@@ -954,7 +1032,7 @@ Referenced by ID (`Qk`) throughout this report.
 12. **LP-token force-upgrade semantics.** Active holdings upgrade-on-use during factory
     routing, but passive LP tokens held idly do not. Threshold criteria and off-ledger
     trigger for an issuer force-upgrade are an operational policy for
-    `CANTON_LP_REGISTRAR`.
+    `DEX_LP_REGISTRAR`.
 13. **Composability with the other RIs** (forward-compatibility): DEX pools can be
     seeded with **cross-chain stablecoin inflows** ([`03`](./03-cross-chain-stablecoin.md)),
     and the DEX is the **secondary market** for tokens from the Auction RI
