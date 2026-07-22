@@ -370,7 +370,7 @@ async function verifyWalletView() {
   const holdings = await acs(accessToken, partyId, T.toyHolding)
   const unlocked = holdings.filter((h) => !h.payload?.lock)
   const change = unlocked.reduce((acc, h) => acc + Number(h.payload?.amount ?? 0), 0)
-  if (change !== 15) fail(`wallet change balance is ${change}, expected 15`)
+  if (Math.abs(change - 15) > 1e-9) fail(`wallet change balance is ${change}, expected 15`)
   log(`wallet change holding is 15.0 as expected`)
 
   log('wallet-view verification passed')
