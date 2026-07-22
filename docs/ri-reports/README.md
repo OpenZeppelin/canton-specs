@@ -98,6 +98,30 @@ Every report carries a §8 "Cross-Synchronizer Domain Extension (Planned)
 `[FUTURE]`". The mechanism is identical across all four and is defined here; each
 report's §8 elaborates only its RI-specific topology.
 
+> **Synchronizer vs. node vs. party (terminology, canonical for the suite).** These
+> are different layers; the reports keep them distinct.
+> - **Party** — the ledger *actor* (signatory / observer / controller / executor /
+>   submitter). A party is *hosted on* one or more participant nodes and is the
+>   dominant actor in Canton; backend endpoints are scoped to **party** access. "Who
+>   may do X" is always a party question, never a node question.
+> - **Node** — a software process you deploy: a **participant node** (hosts parties,
+>   submits transactions, stores their ledger state), a **sequencer node** (orders
+>   messages), or a **mediator node** (coordinates transaction confirmation). "Node"
+>   in these docs means infrastructure — plus the D1 "node-side / node-applied"
+>   compliance rail term.
+> - **Synchronizer** — the *coordination network / trust boundary* between
+>   participants, itself made of one or more sequencer nodes, one or more mediator
+>   nodes, and topology/governance config. A synchronizer is **not** a node and
+>   **not** a participant. **"Synchronizer" is the current name for the earlier
+>   "domain"** — treat them as synonyms; prefer "synchronizer". Each contract is
+>   assigned to exactly one synchronizer at a time; a participant may connect to
+>   several synchronizers simultaneously, but any single transaction stays within one.
+>
+> **Cross-chain ≠ cross-synchronizer.** Cross-*chain* (different blockchains) is a
+> separate concern from cross-*synchronizer* (Canton synchronizer domains). Only the
+> Stablecoin RI (`03`) has an in-scope cross-*chain* story (a mock); cross-synchronizer
+> is deferred in **all four**.
+
 Cross-synchronizer (cross-domain) operation is **out of scope for M1 and
 deferred** — single synchronizer today, no multi-synchronizer machinery in the
 CIP-0112 scaffold, D3 cross-domain identity deferred. On Canton each contract is
