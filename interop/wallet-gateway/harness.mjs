@@ -342,15 +342,21 @@ async function dappFlow() {
   const preReceipts = await acs(accessToken, partyId, T.receipt)
   if (preReceipts.length !== 0) fail(`expected 0 receipts before settlement, saw ${preReceipts.length}`)
 
+  // SSE frames are delivered asynchronously: the user-API poll above only
+  // guarantees each transaction executed, not that its `executed` frame has
+  // arrived. Drain the stream until all three frames are in before stopping.
+  const collectTxEvents = () =>
+    sse.events
+      .flatMap((e) => (Array.isArray(e.data) ? e.data : [e.data]))
+      .filter((d) => d && typeof d === 'object' && d.status)
+      .map((d) => ({ status: d.status, commandId: d.commandId, ...(d.payload ? { payload: d.payload } : {}) }))
+  await poll('3 executed txChanged frames', 30_000, 200, () =>
+    collectTxEvents().filter((e) => e.status === 'executed').length >= 3 ? true : undefined
+  )
   await sse.stop()
-  const rawEvents = sse.events.flatMap((e) => (Array.isArray(e.data) ? e.data : [e.data]))
-  const txEvents = rawEvents
-    .filter((d) => d && typeof d === 'object' && d.status)
-    .map((d) => ({ status: d.status, commandId: d.commandId, ...(d.payload ? { payload: d.payload } : {}) }))
+  const txEvents = collectTxEvents()
   log(`txChanged events observed: ${txEvents.length}`)
   for (const e of txEvents) log(`  ${JSON.stringify(e)}`)
-  const executedEvents = txEvents.filter((e) => e.status === 'executed')
-  if (executedEvents.length < 3) fail(`expected >= 3 executed txChanged events, saw ${executedEvents.length}`)
 
   writeJson('gateway-output.json', { walletAllocationCid, txChangedEvents: txEvents })
   writeJson('settle-input.json', {
