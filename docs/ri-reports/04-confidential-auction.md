@@ -132,7 +132,7 @@ mechanics can be upgraded or substituted.
 
 | Component suite | Templates / libraries | Function |
 |---|---|---|
-| Access Control `[IMPLEMENTED]` | `oz-access-control`: [`RoleGrant`](../../access-control/daml/OpenZeppelin/AccessControl.daml), `RoleAdmin`, `DefaultAdminTransferOffer`, [`requireRole`](../../access-control/daml/OpenZeppelin/AccessControl.daml) (`roleId : MyRole -> Text` closed-sum wrapper) | Issuer / Auctioneer roles; the wrapper prevents cross-domain role collision. |
+| Access Control `[IMPLEMENTED]` | `oz-access-control`: [`RoleGrant`](../../access-control/daml/OpenZeppelin/AccessControl.daml), `RoleAdmin`, `DefaultAdminTransferOffer`, [`requireRole`](../../access-control/daml/OpenZeppelin/AccessControl.daml) (`roleId : MyRole -> Text` closed-sum wrapper) | Issuer / Auctioneer roles; the wrapper prevents role collision across administrative scopes. |
 | Ownership `[IMPLEMENTED]` | `oz-ownable`: [`Ownership`](../../ownable/daml/OpenZeppelin/Ownable.daml), [`OwnershipOffer`](../../ownable/daml/OpenZeppelin/Ownable.daml) | Two-step admin handoff (D4). |
 | Venue constraint `[IMPLEMENTED]` | `oz-pausable`: [`PauseState`](../../pausable/daml/OpenZeppelin/Pausable.daml), [`whenNotPaused`](../../pausable/daml/OpenZeppelin/Pausable.daml) | Emergency halt of the sale. |
 | Settlement spine `[IMPLEMENTED]` | `Cip112`: [`SettlementFactory`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L191), [`AllocationRequest`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L322), [`AllocationInstruction`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L379), [`Allocation`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L474), [`SettlementReceipt`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L695) | All asset movement; atomic DvP routes **only** through [`SettlementFactory_SettleBatch`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L249). Direct [`Allocation_Settle`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L493) proves authorization, not multi-party atomic co-settlement, so it is bypassed for the exchange. |
@@ -244,9 +244,9 @@ flagged sender (ordinary transfer *failures* do return to sender).
 
 The SCU rule: never mutate an existing choice's args to require a new field; extend
 via appended `Optional` fields, new types, and new choices. D3 today is
-single-domain v1 (`TrustedIssuerRegistry` + `KycClaim`). To add cross-domain
-identity (ONCHAINID / ERC-3643 / CCID) later: define a new `CrossDomainIdentity`
-type, append `crossDomainRef : Optional CrossDomainIdentity` to `BidRequest`, and add
+single-synchronizer v1 (`TrustedIssuerRegistry` + `KycClaim`). To add cross-synchronizer
+identity (ONCHAINID / ERC-3643 / CCID) later: define a new `CrossSynchronizerIdentity`
+type, append `crossSynchronizerRef : Optional CrossSynchronizerIdentity` to `BidRequest`, and add
 a **new** choice `BidRequest_UpdateIdentity`. Legacy bid choices stay untouched — the
 additive path proven in the `canton-specs` identity-hook upgrade spike. Schema
 finalization is [Q9](#9-open-design-questions).
@@ -363,7 +363,7 @@ template AuctionLaunchpad
         create BidRequest with
           bidder; auctioneer = operator; launchpadCid = self
           paymentAllocationCid; bidAmount; bidPrice
-          paymentLegId; tokenLegId; crossDomainRef = None
+          paymentLegId; tokenLegId; crossSynchronizerRef = None
 ```
 
 ### 4.3 Confidential bid + policy guards `[FUTURE]`
@@ -384,8 +384,8 @@ template BidRequest
     -- Leg ids the clearing choice binds the settled legs to (see section 4.4).
     paymentLegId : Text
     tokenLegId : Text
-    -- SCU additive extension point for deferred D3 cross-domain identity.
-    crossDomainRef : Optional Text
+    -- SCU additive extension point for deferred D3 cross-synchronizer identity.
+    crossSynchronizerRef : Optional Text
   where
     -- Confidentiality boundary: only bidder + auctioneer project this contract.
     signatory bidder
@@ -663,7 +663,7 @@ living-doc anchors validated by `scripts/refresh-ri-anchors.sh`.
 - **D2** — [`D2SeizureHook`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L46) config + [`BurnerCapability`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L98)-gated lock-and-sweep to a
   preset custodian; no burn; losing bids return to sender.
 - **D3** — `credential-gateway` + Shape-B `KycClaim` gated at bid acceptance **and
-  re-checked per settlement leg** (fail-closed, no caching); cross-domain deferred,
+  re-checked per settlement leg** (fail-closed, no caching); cross-synchronizer deferred,
   SCU-forward-compatible.
 - **D4** — `oz-access-control` single-admin capability for M1; multi-sig → M3.
 
@@ -687,7 +687,7 @@ recorded future path ([Q1](#9-open-design-questions)).
 
 ---
 
-## 8. Cross-Synchronizer Domain Extension (Planned) `[FUTURE]`
+## 8. Cross-Synchronizer Extension (Planned) `[FUTURE]`
 
 > **Shared model:** the cross-synchronizer mechanism (per-synchronizer assignment +
 > unassign/assign reassignment, and the SCU-compliant additive path) is identical
@@ -696,7 +696,7 @@ recorded future path ([Q1](#9-open-design-questions)).
 > elaborates only the RI-specific topology.
 >
 > **Status: out of scope for M1; deferred and planned.** The auction and the
-> CIP-0112 scaffold are **single-synchronizer** today; D3 cross-domain identity is
+> CIP-0112 scaffold are **single-synchronizer** today; D3 cross-synchronizer identity is
 > deferred. This plans the extension so it can be added later **without
 > re-architecting the settlement core.**
 
@@ -712,11 +712,11 @@ reassigning the winning legs onto one synchronizer before `SettleBatch`.
 | `BidRequest` | Bidder + auctioneer on one synchronizer. | Bid may originate on the bidder's home synchronizer; the auctioneer must be reachable there or the bid reassigned for clearing. |
 | Payment / token `Allocation` | Created and settled on the launchpad's synchronizer. | Reassignable: winning bids' payment allocations unassigned and assigned to the settling synchronizer before `SettleBatch`. |
 | D1 compliance | Node-applied on the settling synchronizer. | Re-evaluated on whichever synchronizer the leg settles; no cross-synchronizer attestation reuse. |
-| D3 identity | Single-domain `KycClaim`. | Cross-domain proof (ONCHAINID / ERC-3643 / CCID) into a synchronizer-aware `TrustedIssuerRegistry` — deferred D3 work. |
+| D3 identity | Single-synchronizer `KycClaim`. | Cross-synchronizer proof (ONCHAINID / ERC-3643 / CCID) into a synchronizer-aware `TrustedIssuerRegistry` — deferred D3 work. |
 
 **Additive, non-breaking path (SCU):** (1) append `Optional SynchronizerScope` to
 the RI templates (`AuctionLaunchpad`, `BidRequest`); older contracts read `None`;
-(2) add a new parallel choice (e.g. `Clearing_ExecuteBatchCrossDomain`) beside the
+(2) add a new parallel choice (e.g. `Clearing_ExecuteBatchCrossSynchronizer`) beside the
 unchanged single-synchronizer clearing choice; (3) model reassignment as workflow —
 reassign winning allocations onto the settling synchronizer → `SettleBatch` there →
 reassign tokens/receipts back — keeping atomicity at the single-synchronizer batch
@@ -761,7 +761,7 @@ open questions are [Q13](#9-open-design-questions)–[Q16](#9-open-design-questi
 | Real TSv2 holding interface (replace `ToyHolding`) | `canton-token-template` `[EVIDENCE]` `[FUTURE]` | ⬜ |
 | Sealed-bid confidential auction logic | `credential-gateway` `[IMPLEMENTED]` (experimental) `[FUTURE]` | ⬜ |
 | Bid privacy via projection + credential gating | `credential-gateway` `[IMPLEMENTED]` (experimental) `[FUTURE]` | ⬜ |
-| Cross-synchronizer operation (D3 deferred) | [section 8](#8-cross-synchronizer-domain-extension-planned-future) `[FUTURE]` | ⬜ |
+| Cross-synchronizer operation (D3 deferred) | [section 8](#8-cross-synchronizer-extension-planned-future) `[FUTURE]` | ⬜ |
 | On-ledger multi-sig authority (D4 → M3) | `oz-access-control` `[FUTURE]` | ⬜ |
 
 ## 9. Open Design Questions
@@ -807,9 +807,9 @@ items. Referenced by ID (`Qk`) throughout this report.
    Continuous bonding curves / multi-round Dutch auctions would add an
    iterated-settlement path and must formalize how conservation holds across many
    fragmented iterations without race / double-spend exposure. ([§6.2](#62-external-dependencies-splice-token-standard-v2), [§7.1](#71-threat-model-and-invariants))
-9. **D3 identity schema finalization.** The future `CrossDomainIdentity` payload and
+9. **D3 identity schema finalization.** The future `CrossSynchronizerIdentity` payload and
    attribute mapping (ERC-3643 / ONCHAINID → Canton) depend on components not yet
-   present; SCU guarantees additive layering, but the industry schema is open. ([D3 identity](#d3-identity-and-the-scu-extension-rule), [§8](#8-cross-synchronizer-domain-extension-planned-future))
+   present; SCU guarantees additive layering, but the industry schema is open. ([D3 identity](#d3-identity-and-the-scu-extension-rule), [§8](#8-cross-synchronizer-extension-planned-future))
 10. **D1 attestation shape.** Whether the contract stays oblivious (off-ledger gate)
     or verifies a signed node attestation on-ledger is open; non-blocking via the
     optional hook + SCU path. ([D1 compliance](#d1-compliance-node-applied-attestation-shape-b), [§7.3](#73-d1d4-mapping))
@@ -822,7 +822,7 @@ items. Referenced by ID (`Qk`) throughout this report.
     minting stablecoin in the Lending RI ([`02`](./02-lending.md)). Both compose over
     the shared `SettlementFactory_SettleBatch` spine.
 
-**Cross-synchronizer** ([§8](#8-cross-synchronizer-domain-extension-planned-future)):
+**Cross-synchronizer** ([§8](#8-cross-synchronizer-extension-planned-future)):
 
 13. **Reassignment vs. settlement atomicity, and return-to-sender.** Failure model if
     an `Allocation` is assigned to the settling synchronizer but `SettleBatch` then
@@ -830,7 +830,7 @@ items. Referenced by ID (`Qk`) throughout this report.
     with **losing-bid return-to-sender**, the canonical edge in
     [the settlement-spine flow](#the-settlement-spine-flow).
 14. **Governing registry across synchronizers.** Which synchronizer's
-    `TrustedIssuerRegistry` / verifier set governs a cross-domain bidder.
+    `TrustedIssuerRegistry` / verifier set governs a cross-synchronizer bidder.
 15. **Cross-synchronizer D1 freshness.** Compliance always re-checked on the settling
     synchronizer, never reused across a reassignment.
 16. **Reassignment tooling maturity.** Assumed drop-in as the evolving Canton /

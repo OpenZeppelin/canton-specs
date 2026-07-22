@@ -56,7 +56,7 @@ here and elaborated in a report only where the application differs.
   [`BurnerCapability`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L98)-gated
   via
   [`Allocation_SweepD2InFlightSeizure`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L625),
-  transfer *failures* return to sender; D3 single-domain v1, cross-domain deferred
+  transfer *failures* return to sender; D3 single-synchronizer v1, cross-synchronizer deferred
   but SCU-forward-compatible; D4 single-admin capability (multi-sig → M3).
 - **SCU rule:** never mutate an existing choice's args to require a new field;
   extend via appended `Optional` fields, new serializable types, and new choices.
@@ -94,7 +94,7 @@ each report's Open Design Questions.
 
 ## Cross-synchronizer model (canonical)
 
-Every report carries a §8 "Cross-Synchronizer Domain Extension (Planned)
+Every report carries a §8 "Cross-Synchronizer Extension (Planned)
 `[FUTURE]`". The mechanism is identical across all four and is defined here; each
 report's §8 elaborates only its RI-specific topology.
 
@@ -118,13 +118,13 @@ report's §8 elaborates only its RI-specific topology.
 >   several synchronizers simultaneously, but any single transaction stays within one.
 >
 > **Cross-chain ≠ cross-synchronizer.** Cross-*chain* (different blockchains) is a
-> separate concern from cross-*synchronizer* (Canton synchronizer domains). Only the
+> separate concern from cross-*synchronizer* (Canton synchronizers). Only the
 > Stablecoin RI (`03`) has an in-scope cross-*chain* story (a mock); cross-synchronizer
 > is deferred in **all four**.
 
-Cross-synchronizer (cross-domain) operation is **out of scope for M1 and
+Cross-synchronizer operation is **out of scope for M1 and
 deferred** — single synchronizer today, no multi-synchronizer machinery in the
-CIP-0112 scaffold, D3 cross-domain identity deferred. On Canton each contract is
+CIP-0112 scaffold, D3 cross-synchronizer identity deferred. On Canton each contract is
 assigned to exactly one synchronizer; a transaction uses only same-synchronizer
 contracts; contracts move between synchronizers via the **unassign/assign
 reassignment protocol**, not mutation. The additive, SCU-compliant path is the
@@ -132,24 +132,24 @@ same everywhere:
 
 1. Append an `Optional SynchronizerScope` to the RI templates (older contracts
    read `None` and behave exactly as today).
-2. Add a **new, parallel** cross-domain choice beside the unchanged
+2. Add a **new, parallel** cross-synchronizer choice beside the unchanged
    single-synchronizer choice.
 3. Model reassignment as workflow, not mutation: reassign the required legs onto
    one synchronizer → `SettleBatch` there → reassign results back.
-4. Keep atomicity at the single-synchronizer batch boundary; cross-domain
+4. Keep atomicity at the single-synchronizer batch boundary; cross-synchronizer
    atomicity comes from reassigning all legs onto that synchronizer *before* the
    batch.
 
 | RI | What must become reassignable / synchronizer-aware |
 |---|---|
 | DEX (`01` §8) | `Allocation`s reassigned to the pool's synchronizer; per-synchronizer **attestor-pool** membership + threshold. |
-| Lending (`02` §8) | collateral/debt `Allocation`s; liquidation must price against the **oracle on the settling synchronizer** (no stale cross-domain price). |
+| Lending (`02` §8) | collateral/debt `Allocation`s; liquidation must price against the **oracle on the settling synchronizer** (no stale cross-synchronizer price). |
 | Stablecoin (`03` §8) | distinguishes *cross-chain* (in-scope mock) from *cross-synchronizer*; inbound `Allocation` + USDCx instrument + registry may be on different synchronizers. |
 | Auction (`04` §8) | bid `Allocation`s reassigned for clearing; **losing-bid return-to-sender must survive reassignment**; verifier/registry synchronizer scope. |
 
 **Shared open questions** (each report's §8): reassignment-vs-settlement
 atomicity (rollback vs re-home-able allocation on `SettleBatch` failure, mapping
-to return-to-sender); cross-domain D1 freshness (re-check on the settling
+to return-to-sender); cross-synchronizer D1 freshness (re-check on the settling
 synchronizer, never reuse an attestation across a reassignment); reassignment
 tooling maturity (evolving Canton / Digital Asset stack; assumed drop-in).
 
@@ -177,7 +177,7 @@ per-symbol anchors; each report's Code Map links the symbols it uses.
 
 - **Section order** (every report): Product Definition → Architecture Overview →
   How We Implement It → Interfaces & Usage Examples → Diagrams → Library
-  Dependencies → Security & Auditability → Cross-Synchronizer Domain Extension →
+  Dependencies → Security & Auditability → Cross-Synchronizer Extension →
   Implementation Status (Code Map) → Open Design Questions → References.
 - **Direct code references are checkable links.** Every reference to a real
   template / choice / type / helper is a Markdown link whose text is the exact

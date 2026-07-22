@@ -96,7 +96,7 @@ core; name everything else as an explicit extension point or out-of-scope.
 | Core flows (grant M2) | **Pool creation**, **liquidity provision/removal** (mint/burn LP tokens), **swap execution** (two-leg DvP), **fee collection** (`feeBps` accrues into reserves) — each modeled as settlement over the spine ([§3](#3-how-we-implement-it)). |
 | Asset representation | Fungible assets on the CIP-0112 TSv2 holding interfaces; LP tokens minted/burned via the spine. |
 | Settlement | Atomic DvP **only** through [`SettlementFactory_SettleBatch`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L249), value conservation enforced unconditionally on every settle path. |
-| Compliance & control | D1 node-side compliance (Shape B, fail-closed, per settlement); D2 lock-and-sweep seizure gated by single-admin [`BurnerCapability`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L98); D3 single-domain KYC, SCU-forward-compatible; D4 single-admin authority. |
+| Compliance & control | D1 node-side compliance (Shape B, fail-closed, per settlement); D2 lock-and-sweep seizure gated by single-admin [`BurnerCapability`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L98); D3 single-synchronizer KYC, SCU-forward-compatible; D4 single-admin authority. |
 | Consensus topology | A decentralized **attestor pool** (Parties) co-authorizes pool state transitions ([§2](#2-architecture-overview)). |
 | Reuse | `oz-access-control`, `oz-ownable`, `oz-pausable`, the spine, `canton-token-template` / `canton-stablecoin` evidence, and the in-repo [`credential-gateway`](../../experiments/credential-gateway/daml/OpenZeppelin/Experimental/Credential/Gateway.daml). |
 
@@ -106,7 +106,7 @@ core; name everything else as an explicit extension point or out-of-scope.
 | Leverage / margin / funding rates | No protocol-enshrined leverage. |
 | External pricing oracles | The AMM invariant dictates price; `PriceOracle` `[EVIDENCE]` is referenced only for future stable-pool deviation checks. |
 | CIP-56 / V1 allocation paths | V2 abstractions only. |
-| Cross-synchronizer operation | Deferred; forward-compatible ([§8](#8-cross-synchronizer-domain-extension-planned-future)). |
+| Cross-synchronizer operation | Deferred; forward-compatible ([§8](#8-cross-synchronizer-extension-planned-future)). |
 
 ### Positioning
 
@@ -129,7 +129,7 @@ role-management, pausing, and settlement primitives.
 
 | Component suite | Templates / libraries | Function |
 |---|---|---|
-| Access Control `[IMPLEMENTED]` | `oz-access-control`: [`RoleGrant`](../../access-control/daml/OpenZeppelin/AccessControl.daml), [`RoleAdmin`](../../access-control/daml/OpenZeppelin/AccessControl.daml), `DefaultAdminTransferOffer`, [`requireRole`](../../access-control/daml/OpenZeppelin/AccessControl.daml) | Role-based permissioning via the `roleId : MyRole -> Text` closed-sum wrapper (prevents cross-domain role collision). Governs operators, LP registrars, compliance officers. |
+| Access Control `[IMPLEMENTED]` | `oz-access-control`: [`RoleGrant`](../../access-control/daml/OpenZeppelin/AccessControl.daml), [`RoleAdmin`](../../access-control/daml/OpenZeppelin/AccessControl.daml), `DefaultAdminTransferOffer`, [`requireRole`](../../access-control/daml/OpenZeppelin/AccessControl.daml) | Role-based permissioning via the `roleId : MyRole -> Text` closed-sum wrapper (prevents role collision across administrative scopes). Governs operators, LP registrars, compliance officers. |
 | Ownership `[IMPLEMENTED]` | `oz-ownable`: [`Ownership`](../../ownable/daml/OpenZeppelin/Ownable.daml), [`OwnershipOffer`](../../ownable/daml/OpenZeppelin/Ownable.daml) | Two-step handover of the single-admin authority (D4). |
 | Venue constraints `[IMPLEMENTED]` | `oz-pausable`: [`PauseState`](../../pausable/daml/OpenZeppelin/Pausable.daml), [`whenNotPaused`](../../pausable/daml/OpenZeppelin/Pausable.daml) | Origination guard: blocks new swaps/liquidity adds; does not disturb in-flight settlements. |
 | Settlement spine `[IMPLEMENTED]` | `Cip112`: [`SettlementFactory`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L191), [`AllocationRequest`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L322), [`AllocationInstruction`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L379), [`Allocation`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L474), [`SettlementReceipt`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L695), [`ToyHolding`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L133), [`BurnerCapability`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L98) | Core engine for all asset movement; atomic, multi-lateral, interface-bound. `ToyHolding` is the toy unit of value (real assets implement the TSv2 holding interface). |
@@ -349,14 +349,14 @@ contrast, a transfer that *fails* returns to sender — assets are never maroone
 technical faults. (**Decided D2 semantics:** seizure → preset custodian; transfer
 failures → sender.)
 
-### D3 identity: single-domain v1, SCU-forward-compatible
+### D3 identity: single-synchronizer v1, SCU-forward-compatible
 
 Traders hold a `KycClaim` issued by a Party in the `TrustedIssuerRegistry` to
 interact with permissioned pools (identity gating is **optional per pool**). To stay
-compatible with cross-domain models (ONCHAINID / ERC-3643 / Chainlink CCID) without
+compatible with cross-synchronizer models (ONCHAINID / ERC-3643 / Chainlink CCID) without
 breaking state, identity requirements are declared via `Optional` fields; a
-cross-domain proof type is later appended within the existing `Optional` parameter,
-leaving single-domain logic intact — the additive path proven in the `canton-specs`
+cross-synchronizer proof type is later appended within the existing `Optional` parameter,
+leaving single-synchronizer logic intact — the additive path proven in the `canton-specs`
 identity-hook upgrade spike. Off-ledger resolution of external attributes is
 [Q7](#9-open-design-questions).
 
@@ -834,7 +834,7 @@ contention mitigations (pool sharding, operator-side batching) are [Q9](#9-open-
 
 ---
 
-## 8. Cross-Synchronizer Domain Extension (Planned) `[FUTURE]`
+## 8. Cross-Synchronizer Extension (Planned) `[FUTURE]`
 
 > **Shared model:** the cross-synchronizer mechanism (per-synchronizer assignment +
 > unassign/assign reassignment, and the SCU-compliant additive path) is identical
@@ -843,7 +843,7 @@ contention mitigations (pool sharding, operator-side batching) are [Q9](#9-open-
 > elaborates only the RI-specific topology.
 >
 > **Status: out of scope for M1; deferred.** The scaffold is single-synchronizer
-> only, and D3 cross-domain identity is deferred. This plans the extension so it can
+> only, and D3 cross-synchronizer identity is deferred. This plans the extension so it can
 > be added later **without re-architecting the settlement core**.
 
 On Canton every contract is assigned to exactly one synchronizer; a transaction uses
@@ -853,17 +853,17 @@ per-synchronizer contracts plus a disciplined reassignment workflow that preserv
 atomicity and privacy — the topology-layer analogue of the per-Party projection
 mindset in [§1](#1-product-definition).
 
-| Element | Single-domain v1 | Cross-synchronizer extension (planned) |
+| Element | Single-synchronizer v1 | Cross-synchronizer extension (planned) |
 |---|---|---|
-| `Pool` state | One `Pool` on one synchronizer; attestors reachable there. | `Pool` stays on a *home* synchronizer; cross-domain swaps reassign the trader's `Allocation` to it for `SettleBatch`, then reassign output/change back. |
+| `Pool` state | One `Pool` on one synchronizer; attestors reachable there. | `Pool` stays on a *home* synchronizer; cross-synchronizer swaps reassign the trader's `Allocation` to it for `SettleBatch`, then reassign output/change back. |
 | `Allocation` / `AllocationInstruction` | Created and settled on the pool's synchronizer. | Must become **reassignable**: created on the trader's home synchronizer, assigned to the pool's before `SettleBatch`. |
 | `attestorPool` | All hosted on the pool's synchronizer. | Per-synchronizer attestor membership and a reassignment-aware threshold. |
 | D1 compliance | Node-side check on the settlement synchronizer. | Re-evaluated on the synchronizer where the leg settles; no stale attestation carried across a reassignment. |
-| D3 identity | Single-domain `KycClaim`. | Cross-domain identity resolved into a synchronizer-aware `TrustedIssuerRegistry` (deferred D3 work). |
+| D3 identity | Single-synchronizer `KycClaim`. | Cross-synchronizer identity resolved into a synchronizer-aware `TrustedIssuerRegistry` (deferred D3 work). |
 
 **Additive, non-breaking path (SCU):** (1) append `Optional SynchronizerScope` to
 `Pool` and the allocation wrappers (older contracts read `None`); (2) add a new,
-parallel `PoolRules_SwapCrossDomain` beside the unchanged `PoolRules_Swap`; (3) model
+parallel `PoolRules_SwapCrossSynchronizer` beside the unchanged `PoolRules_Swap`; (3) model
 reassignment as workflow (reassign `Allocation` → `SettleBatch` → reassign back);
 (4) keep atomicity at the single-synchronizer batch boundary by reassigning all legs
 onto that synchronizer *before* the batch. Cross-synchronizer open questions are
@@ -902,7 +902,7 @@ onto that synchronizer *before* the batch. Cross-synchronizer open questions are
 | DEX swap exemplar (attestor co-consent, exact-out, reserves==holdings delta, pause guard) | [`dexSwapExemplar`](../../experiments/dex-amm/daml/OpenZeppelin/Experimental/Dex/Amm.daml) (run by `scripts/run-tests.sh`) | ✅ |
 | Liquidity provision / removal + LP-token mint/burn | `[FUTURE]` — RI business logic ([§3](#3-how-we-implement-it)) | ⬜ |
 | Fee accrual (`feeBps` into reserves) | `[FUTURE]` — RI business logic ([§3](#3-how-we-implement-it)) | ⬜ |
-| Cross-synchronizer operation (D3 deferred) | `[FUTURE]` — [§8](#8-cross-synchronizer-domain-extension-planned-future) | ⬜ |
+| Cross-synchronizer operation (D3 deferred) | `[FUTURE]` — [§8](#8-cross-synchronizer-extension-planned-future) | ⬜ |
 
 ## 9. Open Design Questions
 
@@ -936,9 +936,9 @@ Referenced by ID (`Qk`) throughout this report.
    (commit-reveal / fair-ordering), trader-signed slippage bounds ([§3](#3-how-we-implement-it)), and
    batching rules minimizing operator discretion; none enforced on-ledger today.
    ([§7.3](#73-threat-model-and-failure-modes), [§7.4](#74-throughput-and-contention))
-7. **Cross-domain identity resolution.** Off-ledger mechanics for syncing external
+7. **Cross-synchronizer identity resolution.** Off-ledger mechanics for syncing external
    ONCHAINID / ERC-3643 / Chainlink CCID attributes into the Canton
-   `TrustedIssuerRegistry` remain to be standardized. ([§3](#3-how-we-implement-it), [§8](#8-cross-synchronizer-domain-extension-planned-future))
+   `TrustedIssuerRegistry` remain to be standardized. ([§3](#3-how-we-implement-it), [§8](#8-cross-synchronizer-extension-planned-future))
 8. **D1 attestation shape.** Whether the contract stays oblivious (off-ledger gate) or
    verifies a signed node attestation on-ledger at exercise time is open; non-blocking
    via the optional hook + SCU path. ([§3](#3-how-we-implement-it))
@@ -961,14 +961,14 @@ Referenced by ID (`Qk`) throughout this report.
     ([`04`](./04-confidential-auction.md)) — both over the same `SettleBatch` spine,
     no parallel settlement path.
 
-**Cross-synchronizer** ([§8](#8-cross-synchronizer-domain-extension-planned-future)):
+**Cross-synchronizer** ([§8](#8-cross-synchronizer-extension-planned-future)):
 
 14. **Reassignment vs. settlement atomicity.** Failure model if an `Allocation` is
     assigned to the pool synchronizer but `SettleBatch` then fails — rolled back, or
     trader retains a re-home-able allocation? (Maps to transfer-failure return-to-sender.)
 15. **Attestor pool across synchronizers.** How are membership and threshold defined
     when settlement can occur on more than one synchronizer? Per-synchronizer sub-pool?
-16. **Cross-domain D1 freshness.** Confirm compliance is always re-checked on the
+16. **Cross-synchronizer D1 freshness.** Confirm compliance is always re-checked on the
     settling synchronizer, never reused across a reassignment.
 17. **Reassignment tooling maturity.** Cross-synchronizer reassignment tooling is part
     of the evolving Canton / Digital Asset stack; assumed drop-in as it matures.

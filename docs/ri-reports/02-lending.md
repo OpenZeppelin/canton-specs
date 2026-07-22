@@ -83,7 +83,7 @@ provide.)*
 Scope favors simplicity, modular extensibility, and a demonstrably correct core
 over feature complexity.
 
-| Capability Domain | In-Scope (Reference design) | Out-of-Scope (Excluded) |
+| Capability Area | In-Scope (Reference design) | Out-of-Scope (Excluded) |
 |---|---|---|
 | Interest Model | Fixed, immutable `stabilityFeeRate` in `VaultParams`; open-term positions (no maturity). Accrual **compounds discretely** across operations ([§3](#3-how-we-implement-it)). | Dynamic / variable / algorithmic rates, utilization rate curves, floating-rate oracles, fixed maturity/term dates. |
 | Collateralization | Overcollateralized borrowing against on-ledger assets; collateral **transferred into vault custody** (not minted/burned), so **institution-supplied / third-party-issued collateral** is supported ([§3](#3-how-we-implement-it)). | Undercollateralized loans, flash loans, recursive leverage, rehypothecation. |
@@ -91,7 +91,7 @@ over feature complexity.
 | Settlement | Atomic DvP **only** via `SettlementFactory_SettleBatch`. | Direct un-batched `Allocation_Settle` for co-settlement. |
 | Pricing | `PriceOracle` mapping a single collateral asset to a named `stablecoinInstrumentId`, with staleness + deviation guards and a **committee-attested** update path ([§3](#3-how-we-implement-it), [§4.2](#42-configuration-and-pricing-evidence-canton-stablecoin-shapes)). | Multi-asset dynamic oracles, external off-chain TWAP aggregators. |
 | Fees | Stability fee + liquidation bonus **routed to a protocol treasury / insurance fund** (not burned); only the backing principal is burned on repay ([§3](#3-how-we-implement-it)). | Per-position LP reward streams; algorithmic fee markets. |
-| Identity & Compliance | D1 Shape B (signed node attestation) using `KycClaim` + `TrustedIssuerRegistry`; credential gating via `credential-gateway`, **re-checked on every value-moving operation** ([§3](#3-how-we-implement-it)), not only at open. | Cross-domain identity aggregation (ERC-3643, ONCHAINID, Chainlink CCID) — deferred, SCU-forward-compatible only ([Q8](#9-open-design-questions)). |
+| Identity & Compliance | D1 Shape B (signed node attestation) using `KycClaim` + `TrustedIssuerRegistry`; credential gating via `credential-gateway`, **re-checked on every value-moving operation** ([§3](#3-how-we-implement-it)), not only at open. | Cross-synchronizer identity aggregation (ERC-3643, ONCHAINID, Chainlink CCID) — deferred, SCU-forward-compatible only ([Q8](#9-open-design-questions)). |
 | Authority & Access | Capability-based (`oz-access-control`) for mint/burn/seizure/handoff; **oracle updates committee-attested** so no single admin can move the price. On-ledger multi-sig is a **named M3 extension**. | On-ledger multi-sig / DAO execution. |
 
 **Target users.** Institutional asset managers, tokenized-fund issuers, and
@@ -353,7 +353,7 @@ the **canonical home** for oracle hardening:
   (`LockedSimpleHolding_ForcedBurn` `[FUTURE]` — the evidence template ships only
   `_Unlock`). Seized assets are **never** burned and **never** returned to sender;
   ordinary transfer *failures* do return to sender.
-- **D3 — identity.** Single-domain v1 with issuer-held KYC. Cross-domain (ERC-3643 /
+- **D3 — identity.** Single-synchronizer v1 with issuer-held KYC. Cross-synchronizer (ERC-3643 /
   ONCHAINID / Chainlink CCID) deferred but forward-compatible via additive SCU
   ([Q8](#9-open-design-questions)).
 - **D4 — authority.** Single-admin capability via [`oz-access-control`](../../access-control/daml/OpenZeppelin/AccessControl.daml)
@@ -366,7 +366,7 @@ The SCU rule: never mutate an existing choice's arguments. Extend via appended
 `Optional` fields, new serializable types, and new choices; new interfaces come from
 new templates/choices, not retroactive re-instancing of the deployed `Vault` — Daml
 3.x removed **retroactive interface instances** `[UPSTREAM]` because they broke clean
-upgrades. Example: a cross-chain identity hash adds `crossDomainIdentity : Optional
+upgrades. Example: a cross-chain identity hash adds `crossSynchronizerIdentity : Optional
 Text` (read `None` by older contracts) plus a **new** `Vault_UpdateIdentity` choice,
 leaving `Vault_MintStablecoin` / `Vault_BurnStablecoin` signatures untouched — the
 additive path proven in the `canton-specs` identity-hook upgrade spike.
@@ -910,7 +910,7 @@ the Daml Script suites run by `scripts/run-tests.sh` and `scripts/check-scaffold
 
 ---
 
-## 8. Cross-Synchronizer Domain Extension (Planned) `[FUTURE]`
+## 8. Cross-Synchronizer Extension (Planned) `[FUTURE]`
 
 > **Shared model:** the cross-synchronizer mechanism (per-synchronizer assignment +
 > unassign/assign reassignment, and the SCU-compliant additive path) is identical
@@ -919,7 +919,7 @@ the Daml Script suites run by `scripts/run-tests.sh` and `scripts/check-scaffold
 > elaborates only the RI-specific topology.
 >
 > **Status: out of scope for M1; deferred.** The protocol and the CIP-0112 scaffold
-> are **single-synchronizer**, and D3 cross-domain identity is deferred. This plans
+> are **single-synchronizer**, and D3 cross-synchronizer identity is deferred. This plans
 > the extension so it can be added later **without re-architecting the settlement
 > core**.
 
@@ -930,17 +930,17 @@ per-synchronizer `Vault`, `PriceOracle`, and `VaultParams` contracts plus a disc
 reassignment workflow preserving atomicity and privacy — the topology-layer analogue of
 the per-Party projection mindset in [§1](#1-product-definition).
 
-| Element | Single-domain v1 (today) | Cross-synchronizer extension (planned) |
+| Element | Single-synchronizer v1 (today) | Cross-synchronizer extension (planned) |
 |---|---|---|
-| `Vault` | One vault on the home synchronizer. | Vault stays on its home synchronizer; cross-domain collateral is reassigned in for the settling transaction, then results reassigned back. |
+| `Vault` | One vault on the home synchronizer. | Vault stays on its home synchronizer; cross-synchronizer collateral is reassigned in for the settling transaction, then results reassigned back. |
 | Collateral / debt `Allocation` | Created and settled on the vault's synchronizer. | Must be **reassignable**: collateral on the borrower's home synchronizer is unassigned, assigned to the vault's synchronizer before `SettleBatch`. |
-| `PriceOracle` | One oracle per synchronizer. | Liquidation must price against the oracle on the **settling** synchronizer; no stale cross-domain price reuse. |
+| `PriceOracle` | One oracle per synchronizer. | Liquidation must price against the oracle on the **settling** synchronizer; no stale cross-synchronizer price reuse. |
 | D1 compliance | Node-side check on the settling synchronizer. | Re-evaluated on whichever synchronizer the leg settles; no attestation carried across a reassignment (fail-closed holds). |
-| D3 identity | Single-domain `KycClaim`. | Cross-domain identity (ONCHAINID / ERC-3643 / CCID) resolved into a synchronizer-aware `TrustedIssuerRegistry` — the deferred D3 work. |
+| D3 identity | Single-synchronizer `KycClaim`. | Cross-synchronizer identity (ONCHAINID / ERC-3643 / CCID) resolved into a synchronizer-aware `TrustedIssuerRegistry` — the deferred D3 work. |
 
 **Additive, non-breaking path (SCU):** (1) append `Optional SynchronizerScope` to
 `Vault` / RI allocation wrappers (older contracts read `None`); (2) add a new parallel
-choice (e.g. `Vault_LiquidateCrossDomain`) alongside the unchanged single-domain
+choice (e.g. `Vault_LiquidateCrossSynchronizer`) alongside the unchanged single-synchronizer
 choice; (3) model reassignment as workflow — reassign collateral/debt onto the vault's
 synchronizer → `SettleBatch` there → reassign results back; (4) keep atomicity at the
 single-synchronizer batch boundary by reassigning all legs onto that synchronizer
@@ -985,7 +985,7 @@ single-synchronizer batch boundary by reassigning all legs onto that synchronize
 | Margin call + payment-proportional liquidation (`Vault_FlagForLiquidation`, `Vault_Liquidate_ViaSpine`) | `canton-stablecoin` `[EVIDENCE]` `[FUTURE]` (RI correction of `Vault_Liquidate`; not built in M1) | ⬜ |
 | Fee routing / insurance fund (fees → treasury, not burned — [section 3](#3-how-we-implement-it)) | — `[FUTURE]` (RI logic not built in M1) | ⬜ |
 | Price oracle (`PriceOracle`, committee-attested `PriceOracle_UpdatePrice`, `stablecoinInstrumentId`) | `canton-stablecoin` `[EVIDENCE]` (`stablecoin/daml/Stablecoin/Oracle.daml`) `[FUTURE]` | ⬜ |
-| Cross-synchronizer operation (D3 deferred) | — `[FUTURE]` (see [section 8](#8-cross-synchronizer-domain-extension-planned-future)) | ⬜ |
+| Cross-synchronizer operation (D3 deferred) | — `[FUTURE]` (see [section 8](#8-cross-synchronizer-extension-planned-future)) | ⬜ |
 | On-ledger multi-sig authority (D4→M3) | — `[FUTURE]` | ⬜ |
 
 ## 9. Open Design Questions
@@ -1027,7 +1027,7 @@ Referenced by ID (`Qk`) throughout this report.
 7. **D1 attestation shape.** Whether the contract stays oblivious (off-ledger gate) or
    verifies a signed node attestation on-ledger at exercise time is open; non-blocking
    via the optional hook + SCU path ([§3](#3-how-we-implement-it)).
-8. **Cross-domain identity resolution.** When ERC-3643 / ONCHAINID / Chainlink CCID
+8. **Cross-synchronizer identity resolution.** When ERC-3643 / ONCHAINID / Chainlink CCID
    are added via SCU, the on-chain mapping equating an external CCID with a Canton
    `KycClaim` needs formal specification ([§3](#3-how-we-implement-it)).
 9. **Iterated settlement for incremental fills.** M1 does not implement iterated
@@ -1047,7 +1047,7 @@ Referenced by ID (`Qk`) throughout this report.
     ([`03`](./03-cross-chain-stablecoin.md)) — all over the shared
     `SettlementFactory_SettleBatch` spine.
 
-**Cross-synchronizer** ([§8](#8-cross-synchronizer-domain-extension-planned-future)):
+**Cross-synchronizer** ([§8](#8-cross-synchronizer-extension-planned-future)):
 
 12. **Reassignment vs. settlement atomicity.** If collateral is assigned to the vault's
     synchronizer but `SettleBatch` then fails, is the reassignment rolled back, or does
@@ -1055,7 +1055,7 @@ Referenced by ID (`Qk`) throughout this report.
 13. **Oracle and liquidator set across synchronizers.** Which synchronizer's
     `PriceOracle` and liquidator set govern a vault whose collateral lives on another
     synchronizer?
-14. **Cross-domain D1 freshness.** Confirm compliance is re-checked on the settling
+14. **Cross-synchronizer D1 freshness.** Confirm compliance is re-checked on the settling
     synchronizer, never reused across a reassignment.
 15. **Reassignment tooling maturity.** Cross-synchronizer reassignment tooling is part
     of the evolving Canton / Digital Asset stack; assumed drop-in as it matures.

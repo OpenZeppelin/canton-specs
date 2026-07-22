@@ -93,7 +93,7 @@ extension point or excluded.
 | Atomic Settlement | Private on-Canton settlement of inbound stablecoin payments via [`SettlementFactory_SettleBatch`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L249) (atomic DvP). | Custom settlement primitives, fallback matching engines, fragmented parallel liquidity pools. |
 | Cross-Chain Bridge | An inbound/outbound bridge **interface** (the Standardized Messaging Gateway) as a **bounded, verifiable mock**. | Production bridge/relayer nodes, external oracle infra, validator networks, cryptographic light-client proofs. |
 | Compliance & Control | D1 fail-closed verification on every leg (`CredentialGatedActionRequest` + `TrustedIssuerRegistry`); D2 lock-and-sweep via [`BurnerCapability`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L98). | Off-ledger caching of compliance status, probabilistic risk scoring, heuristic filtering. |
-| Identity Framework | Single-domain v1, issuer-held KYC, deterministic claims. | Cross-domain identity resolution (ONCHAINID / ERC-3643 / Chainlink CCID) — deferred, SCU-forward-compatible only. |
+| Identity Framework | Single-synchronizer v1, issuer-held KYC, deterministic claims. | Cross-synchronizer identity resolution (ONCHAINID / ERC-3643 / Chainlink CCID) — deferred, SCU-forward-compatible only. |
 | Asset Issuance | The gateway-minted wrapped instrument (`wTOK`) and the integration **shape** for settling an existing native Canton stablecoin (e.g. USDCx) by interface. | The stablecoin issuance / peg / CDP mechanism itself. |
 
 Narrowing to the standardized interface boundary means a production gateway can be
@@ -321,7 +321,7 @@ source-chain lock after a permanently failed flow is a gateway concern
   holdings use a forced-sweep choice on `LockedSimpleHolding` (`LockedSimpleHolding_ForcedBurn`
   `[FUTURE]` — the evidence template ships only `_Unlock`). It never burns the asset and
   never returns it to the sender; ordinary transfer *failures* do return to sender.
-- **D3 — identity.** Single-domain v1, issuer-held KYC; cross-domain deferred but
+- **D3 — identity.** Single-synchronizer v1, issuer-held KYC; cross-synchronizer deferred but
   forward-compatible via additive SCU.
 - **D4 — authority.** Single-admin capability for M1 (multi-sig → M3).
 
@@ -331,9 +331,9 @@ Never mutate an existing choice's args to require a new field; extend via `Optio
 fields, new types, and new choices. New interfaces are added by new templates/choices
 implementing them, not by retroactive interface instances — a mechanism Daml 3.x
 removed `[UPSTREAM]` because it broke clean upgrade paths. Today the settlement
-validates a single-domain `KycClaim`; to add cross-domain identity (D3) later, a
-**new** choice (e.g. `…SettleBatchWithCrossDomainProof`) is appended accepting an
-`Optional CrossDomainProof`, and existing relayers on the legacy
+validates a single-synchronizer `KycClaim`; to add cross-synchronizer identity (D3) later, a
+**new** choice (e.g. `…SettleBatchWithCrossSynchronizerProof`) is appended accepting an
+`Optional CrossSynchronizerProof`, and existing relayers on the legacy
 `SettlementFactory_SettleBatch` keep working — the additive path proven in the
 `canton-specs` identity-hook upgrade spike.
 
@@ -675,7 +675,7 @@ linkage is a reference pattern, with no completeness or audit-readiness claim.
 
 ---
 
-## 8. Cross-Synchronizer Domain Extension (Planned) `[FUTURE]`
+## 8. Cross-Synchronizer Extension (Planned) `[FUTURE]`
 
 > **Shared model:** the cross-synchronizer mechanism (per-synchronizer assignment +
 > unassign/assign reassignment, and the SCU-compliant additive path) is identical
@@ -687,7 +687,7 @@ linkage is a reference pattern, with no completeness or audit-readiness claim.
 > **Status: out of scope for M1; deferred.** This RI is *cross-chain* (bridging from
 > external L1s/L2s via the gateway) but still **single-synchronizer on Canton** today.
 > Operating the Canton-side settlement across **multiple Canton synchronizers** is a
-> separate, deferred capability (D3 cross-domain identity likewise). This section plans
+> separate, deferred capability (D3 cross-synchronizer identity likewise). This section plans
 > it per Canton's reassignment model and the SCU rule.
 
 ### 8.1 Cross-chain vs cross-synchronizer
@@ -705,14 +705,14 @@ linkage is a reference pattern, with no completeness or audit-readiness claim.
 |---|---|---|
 | Inbound `Allocation` / `SettlementReceipt` | Created/settled on the recipient's synchronizer. | Reassignable: inbound allocation assigned to the synchronizer hosting the recipient's settled-instrument holding before `SettleBatch`. |
 | Settled-instrument admin (`wTOK` StablecoinAdmin, or native USDCx) | Same synchronizer as settlement. | If administered on another synchronizer, must be reachable there or reassigned in. |
-| D1 `TrustedIssuerRegistry` | One synchronizer. | Synchronizer-aware registry; compliance re-checked on the settling synchronizer (no stale cross-domain attestation reuse). |
-| D3 identity | Single-domain `KycClaim`. | Cross-domain proof (ONCHAINID / ERC-3643 / CCID) resolved into a synchronizer-aware registry — the deferred D3 work. |
+| D1 `TrustedIssuerRegistry` | One synchronizer. | Synchronizer-aware registry; compliance re-checked on the settling synchronizer (no stale cross-synchronizer attestation reuse). |
+| D3 identity | Single-synchronizer `KycClaim`. | Cross-synchronizer proof (ONCHAINID / ERC-3643 / CCID) resolved into a synchronizer-aware registry — the deferred D3 work. |
 
 ### 8.3 The additive, non-breaking path (SCU-compliant)
 
 1. Append `Optional SynchronizerScope` to the RI gateway/orchestrator templates;
    older contracts read `None`.
-2. Add a new parallel choice (e.g. `Execute_Inbound_Settlement_CrossDomain`) alongside
+2. Add a new parallel choice (e.g. `Execute_Inbound_Settlement_CrossSynchronizer`) alongside
    the unchanged single-synchronizer choice.
 3. Model reassignment as workflow: reassign the inbound allocation onto the settling
    synchronizer → `SettleBatch` there → reassign the receipt/holding back. Atomicity
@@ -757,7 +757,7 @@ Cross-synchronizer open questions are [Q10](#9-open-design-questions)–[Q13](#9
 | Outbound redemption (burn → attested release, [§3.6](#36-outbound-redemption-burn-on-canton--release-on-source-chain-future)) | — (planned) | ⬜ `[FUTURE]` |
 | Real TSv2 holding interface | — (pending import) | ⬜ `[FUTURE]` |
 | On-ledger multi-sig authority (D4 → M3) | — (planned) | ⬜ `[FUTURE]` |
-| Cross-synchronizer / cross-domain operation (D3 deferred; single-domain v1, no multi-synchronizer machinery in the scaffold — see [§8](#8-cross-synchronizer-domain-extension-planned-future)) | — (planned) | ⬜ `[FUTURE]` |
+| Cross-synchronizer operation (D3 deferred; single-synchronizer v1, no multi-synchronizer machinery in the scaffold — see [§8](#8-cross-synchronizer-extension-planned-future)) | — (planned) | ⬜ `[FUTURE]` |
 | Cross-chain orchestration / bridge / identity-claim business logic (gateway mock + orchestrator) | — (planned) | ⬜ `[FUTURE]` |
 
 ## 9. Open Design Questions
@@ -811,13 +811,13 @@ Referenced by ID (`Qk`) throughout this report.
    ([`02`](./02-lending.md)) vault — all over the same `SettlementFactory_SettleBatch`
    spine, no parallel settlement path.
 
-**Cross-synchronizer** ([§8](#8-cross-synchronizer-domain-extension-planned-future)):
+**Cross-synchronizer** ([§8](#8-cross-synchronizer-extension-planned-future)):
 
 10. **Reassignment vs. settlement atomicity.** Rollback vs re-home-able allocation on
     `SettleBatch` failure — maps to the return-to-sender rule.
 11. **Governing synchronizer.** Which synchronizer's `TrustedIssuerRegistry` and
-    verifier set govern a cross-domain inflow.
-12. **Cross-domain D1 freshness.** Confirm compliance is re-checked on the settling
+    verifier set govern a cross-synchronizer inflow.
+12. **Cross-synchronizer D1 freshness.** Confirm compliance is re-checked on the settling
     synchronizer, never reused across a reassignment.
 13. **Reassignment tooling maturity.** Cross-synchronizer reassignment tooling is part
     of the evolving Canton / Digital Asset stack; assumed drop-in as it matures.
