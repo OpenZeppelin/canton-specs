@@ -44,8 +44,7 @@ expect. Those expectations — not a bridge feature list — drive every choice 
 | **Auditor** | 1:1 backing provable on-ledger; explicit seizure authority and upgrade story. | Reserve invariant `mintedSupply ≤ Σ lockedAmount(unredeemed)` ([§3.5](#35-reserve--lock-attestation-model-future)); single-admin D2 to a preset custodian; Smart Contract Upgrade (SCU) non-mutation rule ([§3](#3-how-we-implement-it)). |
 
 Target users are regulated financial institutions, multinational treasuries, and
-compliance-first DeFi platforms accepting inbound liquidity from public networks
-without exposing internal flows to competitors or on-chain analytics.
+compliance-first DeFi platforms accepting inbound liquidity from public networks.
 
 > **Privacy scope (explicit non-goal).** The privacy guarantee covers the
 > **Canton side only**. The source-chain lock is a public transaction that encodes
@@ -72,7 +71,9 @@ Three Canton facts shape the whole design; stated once here, referenced througho
   cannot be bound unilaterally ([§3](#3-how-we-implement-it) step 3).
 
 *(For readers from EVM: a public bridge mints into a globally traceable ledger; a
-Canton contract is instead a commitment among a specific set of Parties.)*
+Canton contract is instead an instance of a Daml template — state and choices
+(business logic) authorized by its signatory Parties and visible only to its
+stakeholders.)*
 
 ### The load-bearing edge: messaging-gateway trust
 
@@ -155,8 +156,8 @@ DvP concludes.
 
 ## 3. How We Implement It
 
-A deterministic sequence of keyless Daml-LF 2.1 state transitions on the CIP-0112
-spine.
+A deterministic sequence of keyless Daml state transitions on the CIP-0112 spine
+(archive-and-recreate, no in-place mutation), settled atomically by Canton consensus.
 
 1. **Inbound message.** The external chain finalizes a locked deposit. The attester(s)
    sign an `InboundMessage` carrying the typed `LockAttestation`
@@ -171,8 +172,10 @@ spine.
    node attestation) over Shape A (off-ledger gate), which would add async caching
    vulnerabilities and break atomic composability within one Daml transaction. The
    on-ledger [`D1ComplianceHook`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L41) requires a valid `MockVerificationResult` /
-   `CredentialGatedActionRequest` signed by a party in the `TrustedIssuerRegistry`;
+   `CredentialGatedActionRequest` signed by a Party in the `TrustedIssuerRegistry`;
    without a valid, unexpired `KycClaim` it fails closed, node-applied.
+   `MockVerificationResult` is a stand-in for a live compliance-verification result — a
+   signed node attestation or a zero-knowledge proof — so nothing here *requires* ZK.
 3. **Recipient co-authorization via `TransferPreapproval`.** A new signatory must
    co-authorize (keyless model, [§1](#1-product-definition)), so a recipient cannot
    be bound unilaterally. For an offline treasury that cannot sign interactively,
@@ -271,7 +274,8 @@ Redemption is the mirror of the inbound flow:
    `[FUTURE]` `RedemptionBurnCapability` of the same witness shape, held by the
    redemption operator and exercised in a choice co-authorized by the holder
    ([Q3](#9-open-design-questions)).
-2. **Attest.** A registry-trusted attester signs it via the `TrustedAttesterRegistry`
+2. **Attest.** A registry-trusted attester signs it via the
+   [`TrustedAttesterRegistry`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L775)
    path (single signature today; N-of-M is the target —
    [§3.5](#35-reserve--lock-attestation-model-future) caveat, [Q1](#9-open-design-questions)).
 3. **Release on the source chain.** The signed attestation is submitted to the escrow,
@@ -327,15 +331,28 @@ source-chain lock after a permanently failed flow is a gateway concern
 
 ### The SCU Extension Story
 
-Never mutate an existing choice's args to require a new field; extend via `Optional`
-fields, new types, and new choices. New interfaces are added by new templates/choices
-implementing them, not by retroactive interface instances — a mechanism Daml 3.x
-removed `[UPSTREAM]` because it broke clean upgrade paths. Today the settlement
-validates a single-synchronizer `KycClaim`; to add cross-synchronizer identity (D3) later, a
-**new** choice (e.g. `…SettleBatchWithCrossSynchronizerProof`) is appended accepting an
+**Smart Contract Upgrade (SCU)** governs **template** evolution: never mutate an
+existing choice's args to require a new field; extend via appended `Optional` fields,
+new serializable types, and new parallel choices. Interfaces follow different rules and
+must not be conflated with templates — an interface *definition* is **immutable**, but a
+template *may add* a new interface, and an interface *instance*'s **implementation**
+*can* change ([Canton SCU docs](https://docs.canton.network/appdev/deep-dives/smart-contract-upgrade#upgrading-interfaces)).
+Daml 3.x additionally removed **retroactive interface instances** `[UPSTREAM]` (they
+broke clean upgrades), so a new facet is added by a new choice and/or a new template
+implementing a new interface, never by mutating an existing choice's args or
+re-instancing an existing template. Today the settlement validates a single-synchronizer
+`KycClaim`; to add cross-synchronizer identity (D3) later, a **new** choice (e.g.
+`…SettleBatchWithCrossSynchronizerProof`) is appended accepting an
 `Optional CrossSynchronizerProof`, and existing relayers on the legacy
 `SettlementFactory_SettleBatch` keep working — the additive path proven in the
 `canton-specs` identity-hook upgrade spike.
+
+**An upgrade takes effect by vetting, not deployment alone:** a new package version is
+live only once its DAR is **vetted** on the participant nodes hosting the affected
+Parties, and a transaction commits only if all its signatories' and observers' hosting
+participants have the same version vetted. Un-vetting is therefore the lever to retire
+an old choice — and it blocks the affected Parties from *any* transaction using that
+DAR, a liveness dependency behind every inbound flow ([§3.6](#36-outbound-redemption-burn-on-canton--release-on-source-chain-future)).
 
 ---
 
@@ -647,7 +664,7 @@ rather than bespoke cryptography.
 | Malicious relayer | Routes valid inbound funds to an unauthorized/sanctioned account. | D1 hook requires a node-applied `KycClaim` whose `subjectParty` matches the exact recipient; the relayer cannot spoof the destination (fail-closed). |
 | Malicious sender | Triggers spam/toxic settlement to an unwilling recipient. | Without a configured `TransferPreapproval` or explicit accept, the allocation is not settled and funds return to sender (transfer-failure semantics). |
 | Compromised admin | Attempts arbitrary expropriation. | D4 single-admin is a structural boundary; even a compromised admin's D2 sweep is hardcoded to the preset `custodianDestination` (no arbitrary burn, no return-to-sender). |
-| **Relayer centralization** (primary risk) | A single relayer is both a **liveness** chokepoint (can censor/stall mints and redemptions) and, if also the sole attestor, a **trust** chokepoint (could authorize a mint with no real source-chain lock). | Separate transport/liveness from attestation/trust; require a **threshold N-of-M attestor set** via [`TrustedAttesterRegistry`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L775) (no mint/redeem without quorum, fail-closed, [§3.5](#35-reserve--lock-attestation-model-future)); make **relay permissionless**; add an inbound timeout + forced-refund so locked funds are never stranded. Production trust/decentralization model is [Q1](#9-open-design-questions). |
+| **Relayer centralization** (primary risk) | A single relayer is both a **liveness** chokepoint (can censor/stall mints and redemptions) and, if also the sole attester, a **trust** chokepoint (could authorize a mint with no real source-chain lock). | Separate transport/liveness from attestation/trust; require a **threshold N-of-M attester set** via [`TrustedAttesterRegistry`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L775) (no mint/redeem without quorum, fail-closed, [§3.5](#35-reserve--lock-attestation-model-future)); make **relay permissionless**; add an inbound timeout + forced-refund so locked funds are never stranded. Production trust/decentralization model is [Q1](#9-open-design-questions). |
 | UTXO fragmentation | Many small transfers accumulate holding dust. | Settlement returns a sender's surplus as a single new *change* holding per instrument; iterated settlement can further merge inputs across rounds. |
 
 ### 7.3 Validation Ladder `[FUTURE]`
@@ -765,12 +782,12 @@ Cross-synchronizer open questions are [Q10](#9-open-design-questions)–[Q13](#9
 Decisions to settle with the internal team before implementation; not M1 build items.
 Referenced by ID (`Qk`) throughout this report.
 
-1. **Production attestor / relayer trust model (decentralization).** The canonical
+1. **Production attester / relayer trust model (decentralization).** The canonical
    gateway-trust edge ([§3.5](#35-reserve--lock-attestation-model-future),
    [§7.2](#72-threat-model)) fixes the *shape* — threshold N-of-M via
    [`TrustedAttesterRegistry`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L775),
-   permissionless relay, fail-closed mint. The *parameters* are open: M and N, attestor
-   selection / rotation / slashing, and how the attestor set is governed. Largest trust
+   permissionless relay, fail-closed mint. The *parameters* are open: M and N, attester
+   selection / rotation / slashing, and how the attester set is governed. Largest trust
    surface.
 2. **Outbound-redemption cross-chain atomicity** ([§3.6](#36-outbound-redemption-burn-on-canton--release-on-source-chain-future)).
    Burn-first / attested-release avoids double-spend and unbacked supply, but the foreign

@@ -28,15 +28,7 @@ front-end, and threat model are named but out of scope here.
 
 This Reference Implementation (RI) is a fixed-rate, **open-term**,
 overcollateralized, permissioned lending protocol for the Canton Network, built
-around the **Vault** — an isolated collateralized debt position (CDP) grounded in
-the real `canton-stablecoin` `Vault` `[EVIDENCE]`. *Fixed-rate* means the
-`stabilityFeeRate` is immutable for the life of a position (no utilization curve);
-it does **not** mean a fixed term — a position stays open until the owner repays and
-withdraws (`Vault_Close`) or is liquidated (there is no maturity field in `Vault`).
-It wires onto the **CIP-0112 / Token Standard V2 settlement spine** `[IMPLEMENTED]`
-(`OpenZeppelin.Experimental.Settlement.Cip112`), with credential gating via the in-repo
-[`credential-gateway`](../../experiments/credential-gateway/daml/OpenZeppelin/Experimental/Credential/Gateway.daml) `[IMPLEMENTED]` (experimental) and capability access control via
-[`oz-access-control`](../../access-control/daml/OpenZeppelin/AccessControl.daml) `[IMPLEMENTED]`.
+around the **Vault** — an isolated collateralized debt position (CDP).
 
 ### Who this is for, and what they expect
 
@@ -60,8 +52,9 @@ referenced throughout:
 
 - **Party is the actor.** The admin/issuer, borrower, liquidator, oracle-committee
   members, and treasury holder are all **Parties**, each hosted on one or more
-  participant nodes. "Who may do X" is always a Party question, and backend
-  endpoints are scoped to Party access.
+  participant nodes. "Who may do X" is always a Party question, backend endpoints are
+  scoped to Party access, and a contract is an instance of a Daml template authorized
+  by its signatory Parties, not by nodes.
 - **Per-Party projection is the privacy model.** A `Vault` is visible only to its
   stakeholder Parties — the borrower, the issuer, and designated regulatory
   Parties. There is no globally visible pooled-vault contract broadcasting every
@@ -75,13 +68,27 @@ referenced throughout:
 *(For readers coming from EVM: the ERC-4626 share-accounting vault — one globally
 visible contract tracking a pooled underlying-to-share rate, updated by an
 `UpdateSharePrice`-style choice — is deliberately **not** used; it would broadcast
-pooled positions and assumes contract-key lookups the keyless LF-2.1 spine does not
+pooled positions and assumes contract-key lookups the keyless Daml spine does not
 provide.)*
+
+### The primitive: the Vault (CDP)
+
+The load-bearing primitive is the **Vault**, grounded in the real
+`canton-stablecoin` `Vault` `[EVIDENCE]`. *Fixed-rate* means the `stabilityFeeRate`
+is immutable for the life of a position (no utilization curve); it does **not** mean
+a fixed term — a position stays open until the owner repays and withdraws
+(`Vault_Close`) or is liquidated (there is no maturity field in `Vault`). The Vault
+wires onto the **CIP-0112 / Token Standard V2 settlement spine** `[IMPLEMENTED]`
+(`OpenZeppelin.Experimental.Settlement.Cip112`), with credential gating via the
+in-repo [`credential-gateway`](../../experiments/credential-gateway/daml/OpenZeppelin/Experimental/Credential/Gateway.daml) `[IMPLEMENTED]` (experimental) and capability access
+control via [`oz-access-control`](../../access-control/daml/OpenZeppelin/AccessControl.daml) `[IMPLEMENTED]`.
 
 ### Scope
 
-Scope favors simplicity, modular extensibility, and a demonstrably correct core
-over feature complexity.
+The scope is a deliberate engineering posture, not minimalism: keep the shipped core
+small and demonstrably correct so it can be audited and reused across the suite, and
+name everything deferred as an explicit extension point — so a reviewer sees the
+boundary precisely instead of guessing it.
 
 | Capability Area | In-Scope (Reference design) | Out-of-Scope (Excluded) |
 |---|---|---|
@@ -174,9 +181,9 @@ the trust anchor without an on-ledger multi-sig bottleneck) is a named M3 extens
 
 ## 3. How We Implement It
 
-The CDP model is expressed as a sequence of atomic Canton transactions under
-Daml-LF 2.1 keyless semantics: every state change archives the prior contract and
-recreates an updated instance with a new Contract ID.
+The CDP model is a sequence of Canton transactions, each committing atomically under
+Canton consensus; because Daml is keyless, every state change archives the prior
+contract and recreates an updated instance with a new Contract ID.
 
 ### The Settlement-Spine Flow
 
@@ -314,11 +321,13 @@ the **canonical home** for oracle hardening:
   applied to the wrong debt token.
 - **Committee-attested updates (no single-writer price).** `PriceOracle_UpdatePrice`
   is `controller admin :: oracleCommittee` — mirroring the DEX `attestorPool`, the
-  **full committee (all-of-M)** co-signs each price. This is the primary defence
-  against the "compromised admin sets `price → ε` and liquidates everyone" attack: a
-  lone admin can no longer move the price. Members are `RoleGrant`-authorized
-  (`OracleProvider`); an N-of-M *threshold* (so one offline attestor cannot stall
-  updates) is [Q4](#9-open-design-questions).
+  committee co-signs each price. This is the primary defence against the "compromised
+  admin sets `price → ε` and liquidates everyone" attack: a lone admin can no longer
+  move the price. Members are `RoleGrant`-authorized (`OracleProvider`). The intended
+  model is a configurable **N-of-M threshold**; all-of-M is just the `N = M` special
+  case the exemplar code shows for simplicity, and is unlikely to be acceptable in
+  production because one offline attestor would stall every update — threshold sizing
+  is [Q4](#9-open-design-questions).
 - **Max-staleness guard.** `PriceOracle` carries an `updatedAt : Time`; every
   price-dependent choice (`Vault_Mint*`, `Vault_Withdraw*`, `Vault_FlagForLiquidation`,
   `Vault_Liquidate_ViaSpine`) rejects when `now - updatedAt > maxStaleness` (a
@@ -336,15 +345,18 @@ the **canonical home** for oracle hardening:
 ### D1–D4 Attachment Strategy
 
 - **D1 — compliance (node-applied).** A per-settlement, fail-closed check, engaged on
-  the M1 spine by the optional `D1ComplianceHook` / typed attestation path (not
-  mandated by base `SettleBatch`). The RI selects **Shape B** (signed node
-  attestation) over Shape A (off-ledger gate): a `KycClaim` from a
-  `TrustedIssuerRegistry` is submitted as a native contract payload, enforced
-  deterministically at the participant node with no external calls, and a
-  `CredentialRevocationStatus` of revoked triggers fail-closed rejection via the
-  optional [`D1ComplianceHook`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L41). (Whether the contract stays oblivious or verifies the
-  attestation on-ledger at exercise time is [Q7](#9-open-design-questions); the node-applied signed attestation
-  is `[FUTURE]`, the hook today a reference field only.)
+  the M1 spine by the optional [`D1ComplianceHook`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L41) and the additive typed-attestation
+  choice [`SettlementFactory_SettleBatchWithAttestation`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L274) against a
+  [`TrustedAttesterRegistry`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L778) (not mandated by base `SettleBatch`). The RI selects
+  **Shape B** (signed node attestation) over Shape A (off-ledger gate): a `KycClaim`
+  from a `TrustedIssuerRegistry` is submitted as a native contract payload, enforced
+  deterministically at the participant node with no external calls, and a revoked
+  `CredentialRevocationStatus` triggers fail-closed rejection. The presented
+  `MockVerificationResult` is a stand-in for a live compliance-verification result — a
+  signed node attestation or a zero-knowledge proof — nothing here *requires* ZK.
+  (Whether the contract stays oblivious or verifies the attestation on-ledger at
+  exercise time is [Q7](#9-open-design-questions); the node-applied signed attestation is `[FUTURE]`, the hook
+  today a reference field only.)
 - **D2 — seizure (lock-and-sweep).** Under legal mandate the admin sweeps collateral
   to an admin-**preset** `custodianDestination` (carried in the spine's
   [`D2SeizureHook`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L46) config record), gated by the single-admin [`BurnerCapability`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L98).
@@ -362,14 +374,26 @@ the **canonical home** for oracle hardening:
 
 ### The SCU Extension Story
 
-The SCU rule: never mutate an existing choice's arguments. Extend via appended
-`Optional` fields, new serializable types, and new choices; new interfaces come from
-new templates/choices, not retroactive re-instancing of the deployed `Vault` — Daml
-3.x removed **retroactive interface instances** `[UPSTREAM]` because they broke clean
-upgrades. Example: a cross-chain identity hash adds `crossSynchronizerIdentity : Optional
+SCU governs **template** upgrades: never mutate an existing choice's argument types;
+extend via appended `Optional` fields, new serializable types, and new choices.
+Interfaces are governed differently and must not be conflated with templates — an
+interface *definition* is **immutable**, but a template *may add* a new interface and
+an interface *instance*'s implementation *can* change ([Canton SCU docs](https://docs.canton.network/appdev/deep-dives/smart-contract-upgrade#upgrading-interfaces));
+Daml 3.x additionally removed **retroactive interface instances** `[UPSTREAM]` because
+they broke clean upgrades. So a new facet comes from a new choice and/or a new template
+implementing a new interface, never from retroactive re-instancing of the deployed
+`Vault`. Example: a cross-chain identity hash adds `crossSynchronizerIdentity : Optional
 Text` (read `None` by older contracts) plus a **new** `Vault_UpdateIdentity` choice,
 leaving `Vault_MintStablecoin` / `Vault_BurnStablecoin` signatures untouched — the
 additive path proven in the `canton-specs` identity-hook upgrade spike.
+
+**An upgrade takes effect by vetting, not deployment alone.** A new package version is
+live only once its DAR is uploaded **and vetted** on the participant nodes hosting the
+affected Parties, and a transaction commits only if the hosting participants of **all**
+its signatories and observers have the **same** version vetted (necessary, not
+sufficient); un-vetting blocks those Parties from *any* transaction using it, including
+a D2 seizure. Coordinating vetting is therefore an operational prerequisite for every
+upgrade.
 
 ---
 
@@ -432,14 +456,14 @@ data VaultParams = VaultParams
 --     RI also names the quote instrument, so `price` is unambiguously "units of
 --     this stablecoin per unit of this collateral" and consumers assert both.
 --   * `oracleCommittee` + committee-controlled update — the real update path is
---     `controller admin` alone; the RI co-controls it with the full committee (like the DEX
+--     `controller admin` alone; the RI co-controls it with the committee (like the DEX
 --     attestorPool) so no single compromised admin can move the price (section 3).
 -- The update path is *consuming* (archive-and-recreate to publish), so the cid is
 -- passed to consumers at exercise time (liquidation's `oracleCid`), never stored.
 template PriceOracle
   with
     admin : Party
-    oracleCommittee : [Party]      -- [FUTURE] attestor set co-signing updates (all-of-M)
+    oracleCommittee : [Party]      -- [FUTURE] co-signs updates (N-of-M intended; all-of-M shown)
     collateralInstrumentId : InstrumentId
     stablecoinInstrumentId : InstrumentId  -- [FUTURE] the unit `price` is quoted in
     price : Decimal                -- units of stablecoinInstrumentId per collateral unit
@@ -461,7 +485,7 @@ template PriceOracle
     choice PriceOracle_UpdatePrice : ContractId PriceOracle
       with
         newPrice : Decimal
-      controller admin :: oracleCommittee   -- full committee co-signs; no single writer
+      controller admin :: oracleCommittee   -- committee co-signs; no single writer (N-of-M intended)
       do
         assertMsg "price must be positive" (newPrice > 0.0)
         -- Per-update circuit breaker against `this.maxDeviation`. A breach aborts
@@ -539,12 +563,9 @@ seizure bound on-ledger to the stablecoin the liquidator actually signed for.
 --                                         --   the DEX pool's poolAccount; the absolute
 --                                         --   collateralAmount == Σ holdings also needs funded
 --                                         --   deposits, like the DEX seeding caveat)
--- The real `Vault_Liquidate` seizes the whole vault in one shot and, in its
--- under-water branch, hands over all collateral regardless of how much the
--- liquidator pays (booking the gap as badDebt) — a critical vulnerability. The RI
--- replaces that with (1) a margin-call flag + grace period, and (2) a
--- payment-proportional liquidation whose seizure is bound on-ledger to the
--- stablecoin the liquidator actually signed for.
+-- The two-phase correction of the real `Vault_Liquidate` (margin-call flag + grace
+-- period, then payment-proportional seizure bound on-ledger to the signed payment)
+-- is described in the prose above.
 
     -- Phase 1 — margin call. Permissionless: anyone may flag an unhealthy vault,
     -- which starts the owner's cure clock. It does not move value.
@@ -847,7 +868,7 @@ Import remains gated; no public-API, conformance, or release-readiness claim.
 
 ## 7. Security & Auditability
 
-Security relies on Daml ledger immutability, the absence of global state, and
+Security relies on ledger immutability, the absence of global state, and
 node-applied execution; per-Party projections create natural containment boundaries.
 
 ### 7.1 Security Invariants
@@ -902,7 +923,7 @@ the Daml Script suites run by `scripts/run-tests.sh` and `scripts/check-scaffold
 | Oracle staleness | `PriceOracle` stalled → liquidations/borrows against a dead price. | Price-dependent choices reject when `now - updatedAt > maxStaleness`. TWAP + multiple feeds are a named follow-on ([Q4](#9-open-design-questions)). |
 | Under-paying liquidator ("pay 1, take all") | Liquidator supplies a tiny amount and seizes the whole vault. | Seizure is **bound on-ledger to the signed payment**: `collateralToSeize = min(collateralAmount, debtRepaid·(1+bonus)/price)`, `debtRepaid` read from the liquidator's allocation and pinned by `SettleBatch`'s both-sided check ([§4.4](#44-margin-call--payment-proportional-liquidation-future-correcting-vault_liquidate-evidence)). |
 | Liquidation front-running the borrower | A liquidation lands before the owner can top up. | Two-phase margin call: `Vault_FlagForLiquidation` opens a `gracePeriod` the owner owns; `Vault_Liquidate_ViaSpine` asserts flagged + elapsed, so it cannot pre-empt the cure window ([§3](#3-how-we-implement-it)). |
-| Settlement-leg failure | Liquidator under-funds the batch → broken liquidation. | Daml atomicity: the `SettleBatch` reverts entirely; collateral stays locked, no debt cleared. Partial/proportional liquidation means a well-formed under-funded batch simply liquidates less. |
+| Settlement-leg failure | Liquidator under-funds the batch → broken liquidation. | Canton atomicity (all-or-nothing commit): the `SettleBatch` reverts entirely; collateral stays locked, no debt cleared. Partial/proportional liquidation means a well-formed under-funded batch simply liquidates less. |
 | Bad debt / under-water position | Collateral worth less than debt → protocol shortfall. | Quantified in `VaultLiquidationResult.badDebt`; the **insurance fund** (from routed fees) is its first absorber, with socialized-loss / admin-write-off the residual open decision ([Q2](#9-open-design-questions)). |
 | Unbacked issuance | Admin mints stablecoin not matched by collateral. | Mintable only inside `Vault_MintStablecoin`, atomically coupled to a solvency-checked debt increment — no standalone admin mint ([Mint is coupled to debt](#mint-is-coupled-to-debt-no-unbacked-issuance)). |
 | Compliance evasion (D1), incl. post-open drift | Borrower bypasses KYC, or becomes non-compliant after opening. | Shape B `KycClaim` validated against `TrustedIssuerRegistry` at open **and re-checked per settlement leg** (fail-closed, no caching); a revoked credential blocks new borrows/top-ups/withdrawals, while repay/close/liquidation stay open so a position is never trapped ([§3](#3-how-we-implement-it)). |

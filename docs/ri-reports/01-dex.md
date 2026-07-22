@@ -47,8 +47,8 @@ throughout:
 
 - **Party is the actor.** Signatories, observers, controllers, and executors are
   **Parties** (each hosted on one or more participant nodes). Backend endpoints are
-  scoped to Party access, and a contract is authorized by its signatory Parties, not
-  by nodes. "Who may do X" is always a Party question.
+  scoped to Party access, and "who may do X" is always a Party question —
+  authorization is a Party matter, never a node one.
 - **Per-Party projection is the privacy model**, enforced by the Canton protocol: a
   contract is visible only to its stakeholder Parties. There is no globally readable
   pool state an anonymous participant can mutate, and no public mempool.
@@ -269,9 +269,9 @@ without a resolution path and that the exchange is atomic.
    [`SettlementReceipt`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L695), credits Token B, and creates a new `Pool`.
 
 Reaching step 6 takes a **multi-step handshake** (lock input, then request, then
-batch-settle) forced by the keyless model ([§1](#1-product-definition)): a new signatory must actively
-co-authorize, so the trader cannot both lock funds and have the pool consume them in
-one unilateral call. The trade-off is deliberate — more round-trips to *originate* a
+batch-settle) forced by the keyless model ([§1](#1-product-definition)): adding a signatory requires
+that Party's own authorization, so the trader cannot both lock funds and have the pool
+consume them in one unilateral call. The trade-off is deliberate — more round-trips to *originate* a
 swap, in exchange for the operator never holding custody and the exchange being
 atomic and private once it fires. Operator-side batching ([§7.4](#74-throughput-and-contention)) amortizes the
 final consensus round across many traders.

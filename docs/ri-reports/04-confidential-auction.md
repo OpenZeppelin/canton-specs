@@ -82,26 +82,22 @@ deliver:
   not *unfair allocation* at a sound clearing price.
 
 This is acceptable where the issuer *is* the auctioneer and bidders trust its
-clearing, and is a real improvement over a public mempool. Removing this trust via
-verifiable clearing is [Q1](#9-open-design-questions).
-
-> **Decision (July 2026, internal review).** M1 keeps clearing **off-ledger by the
-> trusted auctioneer**, matching the
-> [Canton dev-fund proposal](https://github.com/canton-foundation/canton-dev-fund/blob/main/proposals/2026-04-OpenZeppelin-canton-ecosystem-stack.md)
-> scope (the initial implementation is explicitly off-chain there). Migrating
-> clearing on-ledger (verifiable clearing) is a **future exploration** within the
-> agreement, not an M1 item.
+clearing, and is a real improvement over a public mempool. Keeping M1 clearing
+off-ledger is a recorded decision; removing this trust via verifiable clearing is a
+future exploration ([Q1](#9-open-design-questions)).
 
 ### Scope
 
-Scope favors a single sealed-bid core over expansive market mechanics.
+Scope is a deliberate posture, not minimalism: a single sealed-bid core kept small
+and obviously correct so it can be audited and reused across the suite, with
+everything deferred named as an explicit extension point.
 
 | In scope | Detail |
 |---|---|
 | Auction mechanism | Single-round **sealed-bid** at a **uniform clearing price**; the rule selecting that price (e.g. lowest accepted, highest rejected bid) is an off-ledger parameter of the auctioneer's engine. |
 | Confidentiality | Bid isolation via per-Party projection — bidder, issuer/auctioneer, verifier only; no bidder projects competitor bids. |
 | Escrow | Locked escrow via `LockedSimpleHolding` / `Allocation`; funds bound to the settlement outcome by the ledger's authorization rules. |
-| Atomic settlement | Token-for-payment exchange **only** via [`SettlementFactory_SettleBatch`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L249) (atomic DvP, single transaction). |
+| Atomic settlement | Token-for-payment exchange **only** via [`SettlementFactory_SettleBatch`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L249) (atomic delivery-versus-payment (DvP), single transaction). |
 | Access gating | Credential-gated participation via `credential-gateway` (`CredentialGatedActionRequest`, `MockVerificationResult`). |
 | Authority | Single-admin capability via `oz-access-control` (mint/burn/seizure). |
 | Compliance | D1 node-applied checks (Shape B), fail-closed — intended posture, engaged by the optional `D1ComplianceHook` / typed attestation path ([D1 compliance](#d1-compliance-node-applied-attestation-shape-b)). |
@@ -159,14 +155,13 @@ mechanics can be upgraded or substituted.
 ### Trust and topology
 
 Every contract declares which Parties validate it; validation is restricted to the
-participant nodes hosting those Parties. The `BidRequest`'s `signatory bidder,
-observer auctioneer` therefore projects the bid only to those two Parties — the
-sealed-bid model in [the design model](#the-canton-design-model-these-expectations-assume).
-Keyless archive-and-recreate means the Auctioneer cannot push a minted token into a
-Bidder's wallet: the Issuer creates a `MintProposal` (`[FUTURE]`,
-[core components](#core-components-and-library-mapping)) and the Bidder accepts.
-Sequencer nodes order transactions by confirmation-tree shape while blinded to bid
-plaintext, so there is no sequencer front-running / MEV.
+participant nodes hosting those Parties. So the `BidRequest`'s `signatory bidder,
+observer auctioneer` projects the bid to exactly those two Parties — the sealed-bid
+model ([design model](#the-canton-design-model-these-expectations-assume)) — with the
+sequencer blinded to the plaintext. Keyless archive-and-recreate likewise forces the
+mint handshake: the Auctioneer cannot push a minted token into a Bidder's wallet;
+the Issuer creates a `MintProposal` (`[FUTURE]`,
+[core components](#core-components-and-library-mapping)) that the Bidder accepts.
 
 ---
 
@@ -207,8 +202,9 @@ off-ledger clearing → atomic on-ledger settlement.
    [`SettlementFactory_SettleBatch`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L249) over `winnerAllocations ++ [issuerAllocation]`
    ([§4.4](#44-atomic-settlement-via-the-spine-future)). Settlement enforces conservation per instrument (locked funds
    must cover SenderSide obligations; surplus returns as change) and runs the D1
-   hooks; on success it commits atomically, delivering tokens to bidders, payment to
-   the Issuer, and [`SettlementReceipt`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L695)s.
+   hooks; on success it commits atomically — under Canton's all-or-nothing
+   transaction semantics there is no state where one leg moved and another did not —
+   delivering tokens to bidders, payment to the Issuer, and [`SettlementReceipt`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L695)s.
 6. **Return to sender (losing bids).** The Auctioneer archives losing `BidRequest`s
    and cancels the payment `Allocation` ([`Allocation_Cancel`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L570) /
    [`Allocation_Withdraw`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L583)), releasing the lock to the bidder. This is the decided
@@ -221,12 +217,15 @@ The **intended** posture is compliance checked per settlement, **fail-closed**,
 **node-applied**, no on-ledger caching — a design commitment, not a property of the
 base path: base `SettleBatch` can settle with **no** attestation, and the
 requirement is engaged by the optional [`D1ComplianceHook`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L41) (when
-`requiresPerSettlementReference` is set) and the typed attestation path. The RI uses
+`requiresPerSettlementReference` is set) and the typed attestation path — the real
+spine choice [`SettlementFactory_SettleBatchWithAttestation`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L274)
+against a [`TrustedAttesterRegistry`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L778). The RI uses
 **Shape B** (signed node attestation) over Shape A (an off-ledger gate, adding a
-centralized failure point and latency): with the hook engaged, settlement requires
-fresh, signed attestations from the relevant attesting Parties, and any missing /
-expired / invalid one fails the whole batch. Whether the contract stays oblivious or
-verifies the attestation on-ledger is [Q10](#9-open-design-questions).
+centralized failure point and latency): with the hook engaged, settlement requires a
+threshold (**N-of-M**) of fresh, signed attestations from the registered attesting
+Parties, and a below-threshold batch — any required attestation missing, expired, or
+invalid — fails closed ([Q11](#9-open-design-questions)). Whether the contract stays
+oblivious or verifies the attestation on-ledger is [Q10](#9-open-design-questions).
 
 ### D2 seizure: admin-preset custodian lock-and-sweep
 
@@ -243,8 +242,13 @@ flagged sender (ordinary transfer *failures* do return to sender).
 
 ### D3 identity and the SCU extension rule
 
-The Smart Contract Upgrade (SCU) rule: never mutate an existing choice's args to require a new field; extend
-via appended `Optional` fields, new types, and new choices. D3 today is
+The Smart Contract Upgrade (SCU) rule: never mutate an existing choice's args to
+require a new field; extend via appended `Optional` fields, new types, and new
+choices. An upgrade takes effect only by **vetting**, not deployment: a new DAR must
+be vetted on the participant nodes hosting the affected Parties, and a transaction
+commits only if all its signatories' and observers' hosting participants have the
+same version vetted — un-vetting blocks those Parties from any transaction using the
+package (a liveness dependency). D3 today is
 single-synchronizer v1 (`TrustedIssuerRegistry` + `KycClaim`). To add cross-synchronizer
 identity (ONCHAINID / ERC-3643 / CCID) later: define a new `CrossSynchronizerIdentity`
 type, append `crossSynchronizerRef : Optional CrossSynchronizerIdentity` to `BidRequest`, and add
@@ -538,7 +542,7 @@ graph TD
         PA[oz-pausable] -->|halt/resume| AL
     end
     subgraph Compliance["credential-gateway / canton-specs identity-hook"]
-        ZK[CredentialGatedActionRequest] -->|valid KycClaim| BR[BidRequest]
+        CG[CredentialGatedActionRequest] -->|valid KycClaim| BR[BidRequest]
     end
     subgraph Core["Auction logic"]
         AL -->|configures| BR
@@ -771,8 +775,10 @@ Decisions to settle with the internal team before implementation; not M1 build
 items. Referenced by ID (`Qk`) throughout this report.
 
 1. **Auctioneer trust — decided (July 2026 internal review).** M1 accepts the
-   trusted off-ledger auctioneer, matching the dev-fund proposal scope; verifiable
-   on-ledger clearing is a recorded **future exploration**. Open for that phase: the
+   trusted off-ledger auctioneer, matching the
+   [Canton dev-fund proposal](https://github.com/canton-foundation/canton-dev-fund/blob/main/proposals/2026-04-OpenZeppelin-canton-ecosystem-stack.md)
+   scope (its initial implementation is explicitly off-chain); verifiable on-ledger
+   clearing is a recorded **future exploration**. Open for that phase: the
    non-revelation policy (forfeit escrow vs. ignore the bid) and the reveal-round
    disclosure model. ([the central trust limitation](#the-central-trust-limitation-the-auctioneer), [§7.4](#74-trust-model-and-fairness-limits-and-the-commit-reveal-option))
 2. **Issuer visibility minimized to settlement — deferred improvement.** Today every
@@ -814,9 +820,11 @@ items. Referenced by ID (`Qk`) throughout this report.
 10. **D1 attestation shape.** Whether the contract stays oblivious (off-ledger gate)
     or verifies a signed node attestation on-ledger is open; non-blocking via the
     optional hook + SCU path. ([D1 compliance](#d1-compliance-node-applied-attestation-shape-b), [§7.3](#73-d1d4-mapping))
-11. **Validator-node thresholds for D1 Shape B.** The Confirming-Participant-Node
-    threshold for compliance attestations must be issuer-specified, balancing
-    availability against security. ([§7.3](#73-d1d4-mapping))
+11. **Attestation threshold for D1 Shape B (N-of-M).** The intended model is a
+    configurable **N-of-M** threshold over the registered attesting Parties,
+    issuer-specified, balancing availability against security. All-of-M (the `N = M`
+    special case) is unacceptable as a target — one offline attester stalls every
+    settlement. ([D1 compliance](#d1-compliance-node-applied-attestation-shape-b), [§7.3](#73-d1d4-mapping))
 12. **Composability with the other RIs** (the
     [suite overview](./README.md#how-the-reports-compose)): post-auction secondary
     trading is the DEX RI ([`01`](./01-dex.md)); bids can be collateralized by
