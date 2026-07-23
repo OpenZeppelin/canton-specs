@@ -99,11 +99,9 @@ design, and front-running / MEV extraction via the public mempool is a
 structural reality.
 
 Canton operates on a privacy-preserving, **per-party projection** model enforced
-by the Daml-LF 2.1 execution environment. A Canton contract is a cryptographic
-commitment agreed by a specific, explicitly configured set of nodes. A DEX on
-Canton cannot rely on a globally readable pool contract that any anonymous
+by the Canton consensus protocol. A Canton contract is an instance of a template, signed and authorized by a set of parties (signatories). A DEX on Canton cannot rely on a globally readable pool contract that any anonymous
 participant can unilaterally mutate. Daml-LF 2.1 is also **keyless**: state
-changes by archive-and-recreate, not in-place mutation, and any new signatory
+changes by archive-and-recreate, not in-place mutation, and any signatory
 must actively co-authorize a state transition — so **two-step handshakes are a
 necessity, not a style choice**.
 
@@ -122,26 +120,6 @@ node-backed parties configured as required signatories on the `Pool` contract.
 They collectively attest to the mathematical correctness of a transition before
 authorizing settlement — mapping the decentralized-execution paradigm directly
 onto Canton's per-contract signatory topology.
-
-### Positioning vs. Live Canton DEXs
-
-This reference design is not trying to out-feature existing live Canton venues
-on market mechanics. Its differentiation is the institutional posture baked into
-the settlement layer: (1) **compliance is on the settlement path** — the intended
-posture is D1 node-applied checks that fail-closed per settlement, engaged by the
-allocation's optional compliance hook / typed attestation gate rather than bolted
-on at a front-end (the base `SettleBatch` does not itself mandate an attestation —
-see "D1 Compliance" below); (2) **bids and positions are private by
-construction** — per-party
-projection keeps a trader's flow off every node that is not a participant, with
-no public mempool to front-run; and (3) **value moves only on the standardized
-CIP-0112 / Token Standard V2 spine** via atomic DvP, so the venue never operates
-a custom, siloed balance sheet and any V2-compliant asset can be listed without
-bespoke integration. The intent is a readable, forkable institutional baseline
-that composes with the rest of this suite over one settlement spine — not a
-claim to displace existing venues. A concrete feature-by-feature comparison
-against named live venues is deferred to the M2 implementation, when the
-mechanics are built and can be measured rather than asserted.
 
 ---
 
