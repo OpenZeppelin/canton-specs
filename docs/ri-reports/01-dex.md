@@ -32,7 +32,7 @@ claim of acceptance, conformance, audit readiness, or production readiness.
 ## 1. Product Definition
 
 This report specifies a privacy-preserving spot exchange for the Canton Network
-as a set of reusable settlement primitives rather than a single monolithic venue.
+as a set of reusable settlement primitives that cooperate in a decentralized manner rather than a single monolithic venue.
 Its organizing primitive is the **atomic delivery-versus-payment (DvP) swap**:
 two committed allocations — the taker's input leg and the counterparty's output
 leg — settled in one all-or-nothing `SettleBatch`, with each leg's amount pinned
