@@ -141,62 +141,39 @@ The architecture is assembled from reused OpenZeppelin Daml primitives (role man
 
 Duties are segregated and mapped to discrete Daml parties:
 
-- **Venue Operator (`CANTON_OPERATOR`)** — runs the venue backend: quotes swaps
+- **Venue Operator (`VENUE_OPERATOR`)** - runs the venue backend: quotes swaps
   off the public `Pool` reserves, creates `PoolRules`, and submits batch
-  settlements. An AMM has no order-matching engine — the constant-product curve,
-  not a matching book, sets the price. The operator has execution authority to
+  settlements. The venue operator has execution authority to
   call the settlement factory but never holds custody of, nor any unilateral
-  transfer right over, trader funds.
-- **LP Registrar (`CANTON_LP_REGISTRAR`)** — manages LP-token policy. Separating
-  the registrar from the operator allows future delegation of LP-token issuance
+  transfer right over trader funds.
+- **LP Registrar (`VENUE_LP_REGISTRAR`)** - manages LP-token policy. Separating
+  the registrar from the venue operator allows future delegation of LP-token issuance
   to a regulated third-party custodian.
-- **Asset Administrator (`CANTON_ADMIN`)** — issuer/registrar of the base and
-  quote instruments. Controls instrument configuration and holds the
-  `BurnerCapability` required for D2 seizure.
-- **Trader / Liquidity Provider** — the end-user authoring `Allocation`
+- **Asset Administrator (`VENUE_ASSET_ADMIN`)** - issuer/registrar of the base and
+  quote instruments. Controls instrument configuration and has the lock-and-sweep priviledge.
+- **Trader / Liquidity Provider** - the end-user authoring `Allocation`
   contracts from their wallet. The sole party able to lock
   their own holdings.
-- **Decentralized Attestor Pool** — a consortium of nodes modeled as
+- **Decentralized Attestor Pool** - a consortium of parties modeled as
   `attestorPool : [Party]`, acting as joint signatories on the core `Pool`
-  state.
+  state. These parties should ideally be hosted by different participants. 
 
 ### Trust Topology and Consensus Configuration
 
-Every Canton contract must declare which nodes participate in transaction
-validation. Unlike EVM (all nodes validate all transitions), Canton restricts
-validation to nodes hosting the signatories and observers of the involved
+Unlike EVM (all nodes validate all transitions), Canton restricts
+validation to participants hosting the signatories and observers of the involved
 contracts.
 
 To prevent the Venue Operator from unilaterally manipulating pool reserves,
 spoofing a price curve, or trading outside slippage bounds, the `Pool` contract
 includes `attestorPool` in its signatories **and makes them controllers of the
-swap choice**. The distinction matters (see [section 3](#3-how-we-implement-it)): signatory status alone would be
-delegated to the operator's transaction and would *not* stop a unilateral swap;
-requiring the attestors as controllers is what forces their per-swap
-authorization. When a swap occurs, the operator computes the proposed next
-reserves, but the transition must be co-signed by a programmatic threshold of
-the attestor pool. The attestor nodes run independent verification against the
+swap choice**. The attestor nodes run independent verification against the
 public `Pool` state, checking that the constant-product invariant holds
 (accounting for `feeBps`) before supplying their authorizations.
 
-This maps onto Canton's native node-side compliance model: node-backed parties
-acting as required signatories is an existing ecosystem pattern, so integrating
-an enterprise-grade node-consensus layer is intended to be a **drop-in**, not a
-structural rewrite. The exact membership-rotation and threshold mechanics are an
-open question.
+An all-of-M attestor set makes each attestor a denial-of-service vector: one unavailable attestor - offline, or hosted on a participant that has unvetted the settlement package or uploaded a mismatched version - blocks every swap. Attestation should therefore require an N-of-M quorum rather than unanimous co-authorization.
 
-**Who holds the attestor keys.** The attestor pool is a per-pool set of
-node-backed parties, configured at `Pool` creation and trusted by that pool's
-participants, not a single global consortium. Each attestor's signing key is held
-by the entity operating its node; LPs and traders trust that set as they trust the
-operator not to hold custody. Different pools may carry different attestor sets.
-
-The M1 reference models the attestors as all-of-M required controllers. Two
-consequences of that choice are open design questions: the
-liveness cost of all-of-M (one offline attestor stalls the pool, motivating an
-N-of-M threshold and a rotation protocol) and the privacy/decentralization tension
-(each attestor must see `reserves`, `Δin`, and `Δout` to verify the curve, so a
-larger set widens the circle that learns a trade).
+**Who holds the attestor keys.** Each attestor is a Daml party representing an independent entity, hosted on that entity's participant. The participant's operator holds the party's signing keys, so an attestor's co-authorization is only as independent as its infrastructure (attestor parties sharing one participant would serves as a centralized point of failure). The attestor pool is therefore a per-pool consortium: it is fixed at `Pool` creation time, chosen for and trusted by the pool's venue operator and lp registrar. Accepting a pool's attestor set is a genuine trust assumption, part of the same decision as accepting the venue itself.
 
 ---
 
