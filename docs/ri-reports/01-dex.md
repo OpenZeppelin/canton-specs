@@ -52,77 +52,39 @@ settlement, inside the [OpenZeppelin/canton-specs repository](https://github.com
 
 1. Privacy through per-party projection: a trader sees only the legs on which they are the sender or receiver. Other parties' trades are never visible to them.
 2. D1: Compliance through Node-Applied Attestation - compliance is checked per settlement, with no caching. Failure to adhere to compliance results in no trade.
-3. D2: Seizure through Admin-Preset Custodian Lock-and-Sweep - a priviledged address can sweep the funds in a locked allocation to a preset custodian address.
+3. D2: Seizure through Admin-Preset Custodian Lock-and-Sweep - a priviledged party can sweep the funds in a locked allocation to a preset custodian party.
+
+Note that the same atomic settlement primitive can be leveraged to enable other types of venues, where mechanisms such as price discovery may differ (i.e. Central Limit Order Book, Request For Quote, etc.).
 
 ### Operational Scope and Boundaries
 
-The RI is deliberately bounded. Scope favors **simplicity and modular
-extensibility over complexity**: ship the small, obviously-correct core and name
-everything else as an explicit extension point or out-of-scope.
+The reference implementation favors **simplicity and modular extensibility**. Through the tables below, we highlight what we consider in versus out-of-scope.
 
 | Feature Category | In-Scope Architectural Components |
 |---|---|
-| Market Structure | A **spot** exchange whose enabling primitive is the **atomic DvP swap**. The venue built out in full is a constant-product AMM with a single liquidity pool (`x · y = k`). The same primitive is designed to enable venues with other price-discovery mechanisms, which adopters build over the same settlement core but which this RI does not ship (see *The extensible primitive*). |
-| Core Flows | The four flows the grant M2 acceptance names, each modeled as settlement over the spine: **pool creation** (operator + LP registrar + attestor pool instantiate a `Pool`), **liquidity provision / removal** (deposit both instruments → mint LP tokens; burn LP tokens → withdraw proportional reserves), **swap execution** (two-leg DvP), and **fee collection** (`feeBps` accrues into reserves, raising LP-token redemption value). |
+| Market Structure | A **spot** exchange whose enabling primitive is the **atomic DvP swap**. The venue built out in full is a constant-product AMM with a single liquidity pool (`x · y = k`).|
+| Core Flows | The four flows mentioned in the M2 acceptance criteria, each modeled as settlement over the spine: **pool creation** (operator + LP registrar + attestor pool instantiate a `Pool`), **liquidity provision / removal** (depositing both instruments mints LP tokens; burning LP tokens returns proportional reserves), **swap execution** (two-leg atomic settlement), and **fee collection** (a percentage (`feeBps`) of each swap accrues into reserves, raising LP-token redemption value). |
 | Asset Representation | Fungible digital assets compliant with the CIP-0112 Token Standard V2 holding interfaces. LP tokens represent pool-share ownership and are minted/burned via the spine. |
-| Settlement Mechanics | Atomic delivery-versus-payment (DvP) executed **only** through [`SettlementFactory_SettleBatch`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L249), over committed allocations with value conservation enforced unconditionally on every settle path. (`nextIterationFunding` is inert forward-compatible metadata; incremental-fill settlement is a future extension, not M1.) |
-| Compliance & Control | D1 node-applied compliance checking (Shape B) — the intended per-settlement, fail-closed posture, engaged by the optional `D1ComplianceHook` / typed attestation path (base `SettleBatch` does not itself mandate an attestation; see "D1 Compliance"). D2 lock-and-sweep seizure gated by a single-admin [`BurnerCapability`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L98). D3 single-domain v1 issuer-held KYC, forward-compatible with cross-domain models via SCU conventions. |
+| Compliance & Control | D1: a settlement does not execute unless an attestor has signalled compliance. D2: a priviliedged party can block settlement and sweep allocation funds to a preset custodian party. D3: single-domain v1 issuer-held KYC, forward-compatible with cross-domain models via SCU conventions. |
 | Consensus Topology | Explicit multi-party signatory configuration: a decentralized attestor pool co-authorizes liquidity-pool state transitions, validating trading logic without centralizing execution authority. |
-| Component Integration | Direct reuse of `oz-access-control`, `oz-ownable`, `oz-pausable`, the CIP-0112 settlement spine, and evidence patterns from `canton-token-template`, `canton-stablecoin`, plus the in-repo [`credential-gateway`](../../experiments/credential-gateway/daml/OpenZeppelin/Experimental/Credential/Gateway.daml) experiment. |
+| Component Integration | Direct reuse of `oz-access-control`, `oz-ownable`, `oz-pausable`, the CIP-0112 settlement spine, as well as patterns from the [`canton-token-template`](https://github.com/OpenZeppelin/canton-token-template),  [`canton-stablecoin`](https://github.com/OpenZeppelin/canton-stablecoin) and [`credential-gateway`](../../experiments/credential-gateway/daml/OpenZeppelin/Experimental/Credential/Gateway.daml) codebases. |
 
 | Feature Category | Out-of-Scope Architectural Components |
 |---|---|
-| Derivative Instruments | Perpetuals, futures, traditional options, and any synthetic asset deriving value from an external non-spot reference. Spot trading only. |
+| Derivative Instruments | Perpetuals, futures, traditional options, and any synthetic asset deriving value from an external non-spot reference. |
 | Leverage Facilities | Margin trading, undercollateralized lending, dynamic funding rates, and any protocol-enshrined leverage. |
-| External Oracles | Dynamic pricing oracles dictating the pool's internal exchange rate. The AMM invariant dictates the price; `PriceOracle` `[EVIDENCE]` is referenced only for boundary analysis or future stable-pool deviation checks. |
-| Legacy Standards | Any reliance on the superseded CIP-56 token standard or legacy V1 allocation paths. The RI operates strictly on V2 abstractions. |
+| External Oracles | Dynamic pricing oracles dictating the pool's internal exchange rate. For our AMM, the constant-product invariant dictates the price. |
+| Legacy Standards | Any reliance on the superseded CIP-56 token standard or legacy V1 allocation paths. The RI integrates strictly with V2 abstractions. |
 | Cross-Synchronizer Operation | Multi-synchronizer / cross-domain settlement and identity are **deferred** (see [section 8](#8-cross-synchronizer-domain-extension-planned-future)). M1 is single-domain v1; the design is forward-compatible, not multi-domain today. |
-
-### The Extensible Primitive: Atomic Swaps
-
-The reference design treats the **atomic swap, not the AMM, as the load-bearing
-primitive.** A swap is the minimal unit of exchange: two committed `Allocation`s —
-the taker's input leg and the counterparty's output leg — settled in one
-`SettlementFactory_SettleBatch`, where the both-sided check pins each leg's exact
-amount to a signed allocation side. The primitive carries the security,
-compliance, and privacy guarantees independently of how the price was
-discovered.
-
-Price discovery is the only axis on which market structures differ. Each is a
-thin layer that produces a signed (amount-in, amount-out) pair and hands it to the
-same swap core; the AMM built out here derives that pair from a constant-product
-curve and re-asserts it on-ledger in `Pool_Swap` before the swap settles ([section 3](#3-how-we-implement-it), [section 4](#4-interfaces--usage-examples)).
-Other venues follow the same shape: a central limit order book (CLOB) produces the
-pair from a matched resting order, a request-for-quote (RFQ) venue from a signed
-dealer quote. Each is a separate application that emits swap legs into the same
-`SettleBatch` — not a re-parameterization of the pool — and inherits the
-primitive's guarantees without re-deriving them.
-
-The scope choice follows from this. The RI designs and documents the swap
-primitive, and the AMM demonstrates the conventions for instantiating it: binding
-the priced amounts on-ledger to the trader's signed allocation ([section 3](#3-how-we-implement-it)), attestor
-co-authorization of each transition, and the pause and compliance seams. A CLOB or
-RFQ venue is *enabled* by that primitive and modelled on the AMM's example — built
-by supplying its own price-discovery layer over the same settlement core — but is
-not shipped here, since adopters tailor such venues to their own market. The
-extensible deliverable is the primitive and its usage guidance, with the AMM as
-the reference instantiation.
 
 ### Target Ecosystem Participants
 
-- **Protocol Architects and Engineers** — fork the codebase to deploy
-  proprietary trading venues or advanced AMM curves, studying verifiable
-  workflow boundaries.
-- **Institutional DEX Operators** — regulated entities establishing compliant
-  trading facilities that require access controls, KYC identity gating, and
-  D2 asset-seizure capabilities.
-- **Wallet and Client Integrators** — validate user submission flows against a
-  working decentralized application implementing two-step handshakes and
-  per-party allocation requests.
-- **Security and Assurance Auditors** — evaluate explicit authority boundaries,
-  the Daml SCU upgrade narrative, and the **proposed** validation ladder
-  (`daml-lint → daml-props → daml-verify`, `[FUTURE]` — see [section 7.2](#72-the-validation-ladder-future)) when assessing
-  readiness; the real M1 gate today is `dpm build --all` + the script suites.
+- **Protocol Architects and Engineers** can fork the codebase to deploy
+  proprietary trading venues or advanced AMM curves.
+- **Institutional DEX Operators** can establish compliant trading facilities with the access controls, KYC identity gating, and D2 asset-seizure capabilities that regulated venues require.
+- **Wallet and Client Integrators** can validate user submission flows against a
+working decentralized application implementing two-step handshakes and per-party allocation requests.
+- **Security and Assurance Auditors** can evaluate explicit authority boundaries and the **proposed** validation workflow (`daml-lint → daml-props → daml-verify`).
 
 ### Educational Framing: How to Think About Building a DEX on Canton
 
