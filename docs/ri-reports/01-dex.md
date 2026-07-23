@@ -31,32 +31,28 @@ claim of acceptance, conformance, audit readiness, or production readiness.
 
 ## 1. Product Definition
 
-This report specifies a privacy-preserving spot exchange for the Canton Network
-as a set of reusable settlement primitives that cooperate in a decentralized manner rather than a single monolithic venue.
-Its organizing primitive is the **atomic delivery-versus-payment (DvP) swap**:
-two committed allocations — the taker's input leg and the counterparty's output
-leg — settled in one all-or-nothing `SettleBatch`, with each leg's amount pinned
-on-ledger to a signed allocation side, so a trade either completes at the agreed
-amounts or reverts entirely. A trading venue is then distinguished only by *how a
-price and quantity are agreed* before that swap settles. This report builds out
-one such venue in full — a constant-product **AMM**, which derives the output
-amount from an `x · y = k` curve — as the worked demonstration of the primitive.
-The AMM RI is not yet implemented; the demonstration is the design and its
-compiling exemplar ([section 4](#4-interfaces--usage-examples)), not a shipped venue.
+This report specifies a privacy-preserving decentralized exchange (DEX) for the Canton Network, built on reusable settlement primitives that cooperate in a decentralized manner rather than a single monolithic venue. The venue will function as a **constant-product automated market maker (AMM)**: a pool holds reserves of two assets, `x` and `y`, and prices every trade from the invariant `x · y = k`. A trader deposits some amount `Δx` of one asset and withdraws whatever `Δy` keeps the product unchanged, i.e.
+`(x + Δx) · (y − Δy) = k`. The price is thus implied by the ratio of the
+reserves rather than quoted by an order book: the pool can always fill a trade, at a price that moves further along the curve the larger the trade is.
 
-The primitive carries the load-bearing guarantees — non-custodial settlement, DvP
-atomicity, per-settlement D1 compliance, D2 seizability, and privacy —
-independently of the pricing rule, so a venue with a different price-discovery
-mechanism can reuse it without re-deriving those properties. Designing and
-documenting the swap primitive to that standard, rather than shipping a
-specialized venue that adopters would likely rewrite, is the deliberate scope
-choice of this RI (see *The extensible primitive*, below).
+For such trading venue to work, the two parties of a trade must be able to swap funds atomically: neither leg of the trade completes unless the other does (atomicity), and no intermediary holds the assets along the way (non-custodial). Ideally, all of this holds without either party having to trust the executor of the trade.
 
-The architecture builds on the **CIP-0112 / Token Standard V2 settlement spine**
-`[IMPLEMENTED]` (`OpenZeppelin.Experimental.Settlement.Cip112` in `canton-specs` /
-`canton-contracts`), so asset reservation, swaps, and liquidity mechanics execute
-through standardized allocation and settlement contracts with no custom, siloed
-off-ledger balance sheet.
+Therefore, the swapping architecture centers on
+[CIP-0112 — Canton Network Token Standard V2](https://github.com/canton-foundation/cips/blob/main/cip-0112/cip-0112.md),
+specifically its support for
+[atomic settlement](https://github.com/canton-foundation/cips/blob/main/cip-0112/cip-0112.md#416-committed-allocations-for-prefunded-trading-and-iterated-settlement).
+The core building block is the **atomic delivery-versus-payment (DvP) swap**:
+two committed allocations - the taker's input leg and the counterparty's
+output leg - are settled in one all-or-nothing transaction. Each leg's amount is
+pinned on-ledger to a signed allocation side, so a trade either completes at
+the agreed amounts or reverts entirely.
+
+OpenZeppelin currently has an experimental implementation of atomic
+settlement, inside the [OpenZeppelin/canton-specs repository](https://github.com/OpenZeppelin/canton-specs/blob/main/experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml). The implementation has built-in capabilities for:
+
+1. Privacy through per-party projection: a trader sees only the legs on which they are the sender or receiver. Other parties' trades are never visible to them.
+2. D1: Compliance through Node-Applied Attestation - compliance is checked per settlement, with no caching. Failure to adhere to compliance results in no trade.
+3. D2: Seizure through Admin-Preset Custodian Lock-and-Sweep - a priviledged address can sweep the funds in a locked allocation to a preset custodian address.
 
 ### Operational Scope and Boundaries
 
