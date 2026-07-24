@@ -180,9 +180,7 @@ An all-of-M attestor set makes each attestor a denial-of-service vector: one una
 ## 3. How We Implement It
 
 The operational lifecycle orchestrates state transitions that culminate in
-atomic, multi-lateral ledger updates via the CIP-0112 settlement spine. The
-design prioritizes Security, Simplicity, Readability, and Auditability, in that
-order.
+atomic, multi-lateral ledger updates via the CIP-0112 settlement spine.
 
 ### The Settlement-Spine Flow: Step by Step
 
@@ -196,9 +194,7 @@ are never locked without a resolution path and that execution is atomic.
    [`SettlementFactory_CreateAllocationInstruction`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L228) to create an
    [`AllocationInstruction`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L379), then [`AllocationInstruction_Accept`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L392) locks their
    Token A holding and creates a committed [`Allocation`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L474) designating
-   `CANTON_OPERATOR` as the authorized executor. (`nextIterationFunding` is inert
-   forward-compatible metadata in M1; incremental-fill settlement is a future
-   venue extension, not part of the single-iteration AMM swap.)
+   `VENUE_OPERATOR` as the authorized executor.
 3. **Request Formulation.** The trader formulates an [`AllocationRequest`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L322) (via
    [`SettlementFactory_CreateAllocationRequest`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L205)) naming the desired output asset
    (Token B) and its **exact** requested amount (the spine is exact-in /
@@ -217,7 +213,7 @@ are never locked without a resolution path and that execution is atomic.
 
 **How fast is a swap? (vs. EVM's single transaction.)** In an EVM AMM a swap is
 one atomic transaction. Here the *asset exchange* is still a single atomic Daml
-transaction (step 6), but reaching it takes a **multi-step handshake**: the
+transaction, but reaching it takes a **multi-step handshake**: the
 trader first creates and accepts an `AllocationInstruction` to lock the input
 (steps 2), then formulates an `AllocationRequest` (step 3), and only then does
 the operator batch-settle (steps 4–6). This is not incidental latency — it is
@@ -229,42 +225,30 @@ swap, in exchange for the operator never holding custody and the settlement
 being atomic and privacy-preserving once it fires. (Operator-side batching, [section 7.4](#74-throughput-and-contention),
 amortizes the final consensus round across many traders' allocations.)
 
-> **Non-negotiable enforcement:** atomic DvP is achieved **only** through
-> [`SettlementFactory_SettleBatch`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L249) (one Daml transaction over many allocations).
-> The direct [`Allocation_Settle`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L493) path proves authorization exists (via fetched
-> peer allocations/receipts) but is **not** atomic multi-lateral co-settlement,
-> so it is intentionally not used for the asset exchange.
-
 ### The AMM Math and Pool-to-Settlement Co-Atomicity
 
-This is the core of the DEX, so it is specified concretely rather than left to
-implementation. Two properties must hold together: the swap arithmetic is the
-standard constant-product rule, and the `Pool` reserve update commits in the
-**same** Daml transaction as the asset legs.
+Two properties must hold together: the swap arithmetic is the standard constant-product rule, and the `Pool` reserve update commits in the **same** Daml transaction as the asset legs.
 
-**How traders view the current price.** There is no separate price oracle: the
-spot price is derived directly from the **public `Pool` reserves**
-(`quoteReserves / baseReserves`, adjusted for `feeBps`). Any party the `Pool` is
-disclosed to — every LP and the operator are signatories, and an indexer
-projection can be exposed to traders — reads the live reserves and computes the
-same price the curve will charge. A trader typically obtains it by requesting a
-quote from the operator backend (flow step 1), which simply reads the current
-`Pool`; the trader can independently verify that quote against the on-ledger
-reserves, since the price is a deterministic function of public state, not an
-operator-asserted number.
+**How traders view the current price.** The price is derived directly from the **`Pool` reserves**
+(`quoteReserves`, `baseReserves`, adjusted for `feeBps`).
+
+The reserve ratio (`quoteReserves / baseReserves`) denotes the **marginal spot price** - the
+limiting price of an infinitesimally small trade. In a constant-product AMM, a trade does not execute at the marginal spot price. Rather, effective price depends on trade size - it depends on a concrete `Δin` (or target `Δout`) via
+the swap arithmetic, and is always worse than the reserve ratio - the
+trade itself moves the price along the curve (price impact), on top of
+`feeBps`. A trader therefore requests a quote *for their specific amount* from
+the venue operator backend, which reads the current `Pool` and evaluates the
+curve.
 
 **Swap arithmetic (constant-product, fee-inclusive).** Let the trader send `Δin`
 of the input instrument into a pool with reserves `(reserveIn, reserveOut)` and
 fee `feeBps` (basis points). The fee is taken on the input, so the amount that
-actually drives the curve is
+actually drives the curve is:
 
 ```text
 amountInWithFee = Δin · (10000 − feeBps) / 10000
 Δout            = (reserveOut · amountInWithFee) / (reserveIn + amountInWithFee)
 ```
-
-(This is the integer-basis-points form of `Δin · (1 − feeBps/10000)` — identical
-value, written to keep the `10000` bps denominator explicit and division-safe.)
 
 The post-swap reserves are `reserveIn' = reserveIn + Δin` (the full input,
 including the retained fee) and `reserveOut' = reserveOut − Δout`. Because the
