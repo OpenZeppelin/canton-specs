@@ -257,42 +257,10 @@ fee stays in the pool, the invariant is **non-decreasing**:
 (reserveIn + amountInWithFee) · (reserveOut − Δout)  ≥  reserveIn · reserveOut
 ```
 
-**How the slippage bound is actually enforced (spine reality).** The CIP-0112
-spine is **exact-in / exact-out**: an `AllocationRequest` does **not** carry a
-`minOutputAmount` field — it carries `allocations : [RequestedAllocation]`, each
-naming an *exact* transfer-leg amount, and `SettleBatch` enforces that every
-authorizer's signed leg sides are delivered exactly (`allAuthorizerLegSidesPresent`
-+ both-sidedness). So the trader's protection is **the exact output amount they
-themselves signed**: the venue operator cannot settle a batch that delivers less than
-the trader's signed `ReceiverSide` amount without failing authorization, and
-cannot deliver more without another party funding it. There are two RI-level
-ways to express a *personal slippage bound* on top of this exact-amount spine,
-and the non-negotiable rule for both is that **the bound is part of the trader's
-own signed authorization, never a venue operator-supplied choice argument**:
-
-1. **Sign the quoted `Δout` (single-shot).** The trader signs a request for the
-   exact `Δout` quoted at submission; if the curve has moved by settlement time
-   the amounts no longer match and the batch fails, forcing a re-quote. Simplest
-   and fully spine-native.
-2. **RI-level `minOutputAmount` on the trader's request wrapper.** If accept-≥-min
-   semantics are wanted, the `minOutputAmount` must live on an RI-level wrapper
-   that the **trader** signs (e.g. a `SwapIntent` the trader authorizes), and
-   `PoolRules_Swap` reads it from *that trader-signed contract* — not from a
-   `minOutputAmount` choice argument the venue operator fills in. A venue operator-supplied
-   bound lets the venue operator, not the trader, choose the floor, which breaks the
-   non-custodial invariant.
-
-The attestor pool re-derives `Δout` from the public reserves and checks the
-invariant before co-signing. The decisive step, though, is that the on-ledger
-reserve-update choice does not merely re-assert the curve; it **binds the curve
-inputs to the trader's own signed allocation**. `Pool_Swap` reads
-`traderAllocationId` and asserts the trader's signed sender side equals
-(`amountIn`, input instrument), its signed receiver side equals (`Δout`, output
-instrument), and that the settled `transferLegs` are exactly the two legs those
-signed sides describe. So the tie from the curve to the trader's signature is
-enforced *on-ledger* by the choice itself — not left to attestor diligence or to
-`SettleBatch` leg-pinning alone — and neither the venue operator nor a stale quote can
-move reserves off a value the trader did not sign.
+The implementation will bind the curve
+inputs to the trader's own signed allocation - the trader's signed sender side should equal
+(`amountIn`, input instrument), its signed receiver side should equal (`Δout`, output
+instrument), and that these two transfer legs are the only legs in the settlement. Hence, neither the venue operator nor a stale quote can move reserves off a value the trader did not sign.
 
 **Co-atomicity.** The `Pool` reserve transition and the asset movement are
 **one** Daml transaction. A single exercise of `PoolRules_Swap` → `Pool_Swap`
@@ -302,8 +270,7 @@ move reserves off a value the trader did not sign.
    the pool-account holdings) - debiting `Δin` from the trader and crediting `Δout` to them, and
 2. archives the current `Pool`, recreating it with reserves updated by `+Δin / −Δout`.
 
-all under Daml-LF 2.1's all-or-nothing transaction semantics. There is no
-intermediate state in which reserves have moved but the legs have not settled,
+There is no intermediate state in which reserves have moved but the legs have not settled,
 or vice versa: either the whole tuple (reserve update + every settlement leg)
 commits, or the transaction rolls back and nothing changes. This is what keeps
 the published pool price and the assets actually delivered mutually consistent.
@@ -325,9 +292,8 @@ remain atomic via `SettlementFactory_SettleBatch`.
   of the proportional share of *both* reserves back to the LP, and a new `Pool`
   with reduced reserves is created.
 - **Fee accrual / collection.** `feeBps` is retained in the pool on each swap,
-  so reserves grow relative to LP-token supply — fees accrue to LPs implicitly
-  via redemption value rather than a separate claim. A dynamic-fee hook is an
-  explicit SCU extension point, not M1 scope.
+  so reserves grow relative to LP-token supply - fees accrue to LPs implicitly
+  via redemption value rather than a separate claim.
 
 All four flows are guarded by `whenNotPaused` at origination and inherit the
 same D1 compliance check per settlement leg.
@@ -336,26 +302,17 @@ same D1 compliance check per settlement leg.
 `Pool`'s `baseReserves` / `quoteReserves` are `Decimal` *accounting* figures;
 they are **not** the assets themselves. The real value lives in TSv2 holdings
 owned by a dedicated **pool account** (an `Account` whose parties are the pool's
-signatories), and every flow above moves holdings into or out of that account
-via `SettleBatch` in the same transaction that updates the reserve numbers:
+signatories), and every flow above moves holdings into or out of that account, in the same transaction that updates the reserve numbers:
 
 - **On provision**, the LP's two committed `Allocation`s settle *into* the pool
   account (new holdings owned by the pool), and `baseReserves`/`quoteReserves`
   are incremented to match.
 - **On removal**, the withdrawal legs are funded *from* the pool account's own
-  holdings (the pool is the sender), and reserves are decremented to match — so
-  "where do the holdings come from" is: the pool account has held them since
-  provision.
-- **The binding invariant** the RI must maintain is
-  **`reserves == Σ(pool-account holdings)` per instrument** (an extension of the
-  [section 7.1](#71-security-invariants) AMM-Conservation invariant to the holding layer). Because reserve updates
-  and holding movements commit co-atomically, the two cannot drift within a
-  transaction; the risk is *fragmentation* — many small holdings accumulating in
-  the pool account over time. A periodic **consolidation** step (the pool merges
-  its holdings for an instrument into one, a pure holding-layer operation that
-  leaves reserves unchanged) keeps settlement cheap. Both the reserves==holdings
-  invariant and consolidation cadence are called out as open questions;
-  they are the holding-layer complement to the on-ledger reserve math.
+  holdings (the pool account is the sender), and reserves are decremented to match.
+- **The invariant** that must hold is **`reserves == Σ(pool-account holdings)` per instrument**. Because reserve updates and holding movements commit co-atomically, the two cannot drift within a
+transaction; the caveat is *fragmentation* - many small holdings accumulating in
+the pool account over time. A periodic **consolidation** step (the pool merges
+its holdings for an instrument into one, leaving reserves unchaged) keeps settlement cheap.
 
 ### D1 Compliance: Node-Applied Attestation (Shape B)
 
