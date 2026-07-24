@@ -136,6 +136,8 @@ The architecture is assembled from reused OpenZeppelin Daml primitives (role man
 | Settlement Spine `[IMPLEMENTED]` | `OpenZeppelin.Experimental.Settlement.Cip112`: [`SettlementFactory`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L191), [`AllocationRequest`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L322), [`AllocationInstruction`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L379), [`Allocation`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L474), [`SettlementReceipt`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L695), [`ToyHolding`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L133), [`BurnerCapability`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L98) | Core engine for all asset movement. `ToyHolding` is the toy unit of value, and can be replaced by real assets implementing the TSv2 holding interface. |
 | Identity Verification `[IMPLEMENTED]` (experimental) | [`credential-gateway`](../../experiments/credential-gateway/daml/OpenZeppelin/Experimental/Credential/Gateway.daml): `CredentialGatedActionRequest`, `MockVerificationResult`, `MockVerifierAuthorization`; | Provider support for D3: A trader must hold a `KycClaim` issued by a trusted party, in order to interact with a permissioned pool. |
 
+As external dependencies, the reference implementation will integrate with the Splice Token Standard V2 interfaces to ensure maximum interoperability.
+
 ### Party and Role Model Topology
 
 Duties are segregated and mapped to discrete Daml parties:
@@ -753,113 +755,46 @@ sequenceDiagram
 
 ---
 
-## 6. Library Dependencies
-
-### 6.1 Internal Dependencies
-
-| Internal Package | Consumed Templates / Types | Application Context | Tag |
-|---|---|---|---|
-| `oz-access-control` | [`RoleGrant`](../../access-control/daml/OpenZeppelin/AccessControl.daml), [`RoleAdmin`](../../access-control/daml/OpenZeppelin/AccessControl.daml), `DefaultAdminTransferOffer`, [`requireRole`](../../access-control/daml/OpenZeppelin/AccessControl.daml) | D4 single-admin authority and role administration. | `[IMPLEMENTED]` |
-| `oz-ownable` | [`Ownership`](../../ownable/daml/OpenZeppelin/Ownable.daml), [`OwnershipOffer`](../../ownable/daml/OpenZeppelin/Ownable.daml) | Lifecycle management and two-step transfer of protocol ownership. | `[IMPLEMENTED]` |
-| `oz-pausable` | [`PauseState`](../../pausable/daml/OpenZeppelin/Pausable.daml), [`whenNotPaused`](../../pausable/daml/OpenZeppelin/Pausable.daml) | Emergency circuit breaker in `PoolRules`. | `[IMPLEMENTED]` |
-| `OpenZeppelin.Experimental.Settlement.Cip112` | [`SettlementFactory`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L191), [`AllocationRequest`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L322), [`AllocationInstruction`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L379), [`Allocation`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L474), [`SettlementReceipt`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L695), [`ToyHolding`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L133), [`BurnerCapability`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L98), [`D1ComplianceHook`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L41), [`D2SeizureHook`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L46) | The shared settlement engine. | `[IMPLEMENTED]` (experimental) |
-| `canton-token-template` | `SimpleHolding`, `LockedSimpleHolding`, `SimpleTokenRules`, `TransferPreapproval` | Underlying token logic; the D2 forced-sweep choice (`*_ForcedBurn`) is a `[FUTURE]` extension — the evidence template ships only `_Unlock`. | `[EVIDENCE]` (+ `[FUTURE]` extension) |
-| `canton-stablecoin` | `VaultFactory`, `PriceOracle` | Baseline for future stable-pool extensions and slippage circuit-breaker price feeds. | `[EVIDENCE]` |
-| [`credential-gateway`](../../experiments/credential-gateway/daml/OpenZeppelin/Experimental/Credential/Gateway.daml) | [`CredentialGatedActionRequest`](../../experiments/credential-gateway/daml/OpenZeppelin/Experimental/Credential/Gateway.daml), [`MockVerificationResult`](../../experiments/credential-gateway/daml/OpenZeppelin/Experimental/Credential/Gateway.daml), [`MockVerifierAuthorization`](../../experiments/credential-gateway/daml/OpenZeppelin/Experimental/Credential/Gateway.daml) | D1/D3 credential gating and verification (extracted in-repo from the former external gateway). | `[IMPLEMENTED]` (experimental) |
-| `canton-specs` identity-hook experiment | `KycClaim`, `TrustedIssuerRegistry` | Typed D3 Shape-B identity, layered via SCU. | `[IMPLEMENTED]` (experimental) |
-
-### 6.2 External Dependencies
-
-The architecture operates against the **Splice Token Standard V2** interfaces
-for interoperability `[UPSTREAM]`.
-
-- **Present implementation:** local stand-ins designed to **maximally match the
-  Splice Token Standard V2 interfaces**, against which the RI interfaces directly
-  via the `OpenZeppelin.Experimental.Settlement.Cip112` spine. The design targets
-  the V2 *interfaces*, not DAR/package-ID pins.
-- **Planned migration:** once the published Token Standard V2 DARs ship and the
-  import gate is cleared, the local stand-ins are swapped for the published DARs;
-  interface-based design is intended to make this a thin substitution. Import
-  remains gated; this report makes no public-API stability, conformance, or
-  release-readiness claim.
-
----
-
-## 7. Security & Auditability
+## 6. Security & Auditability
 
 The RI prioritizes verifiable security. Simplicity over complexity minimizes the
 surface for logic exploits, and Canton's per-party projections create natural
 containment boundaries.
 
-### 7.1 Security Invariants
+### 6.1 Security Invariants
 
-- **Non-custodial venue (no unilateral execution).** The venue operator never
-  holds custody of, nor any unilateral right to move, trader funds. The trader is
-  the sole party able to lock their own holding (via
-  [`AllocationInstruction_Accept`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L392)), and the operator can only drive
-  [`SettlementFactory_SettleBatch`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L249) over the *exact* committed [`Allocation`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L474) and the
-  trader's own [`AllocationRequest`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L322) (whose signed exact-output amount is the
-  bound — the spine is exact-in/exact-out; see [section 3](#3-how-we-implement-it)) — it cannot deviate from the
-  authorized leg or fabricate a transfer the trader did not commit. Reclaim is
-  precisely bounded:
-  settlement is **not** unilateral to the trader (`Allocation_Settle` /
-  `Allocation_SettleInBatch` require `admin :: executors` authority, so a trader
-  cannot self-settle a swap); and reclaim via
-  [`Allocation_Withdraw`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L583)
-  (controller = the authorizer's own account parties) is gated by
-  [`requireWithdrawAllowed`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L1409):
-  for a **committed** allocation (which a swap input is) withdraw is **blocked
-  until after `settlementDeadline`**, and if the allocation carries **no**
-  deadline it is blocked outright. So a swap allocation **must** carry a
-  `settlementDeadline` — with one, the trader is guaranteed reclaim after it
-  lapses (funds are not permanently stranded by venue operator inaction); without one,
-  a committed allocation whose venue operator never settles or cancels *would* strand
-  the trader, so a deadline is a required configuration, not optional. This is
-  Daml's **non-transitive authorization** model: a choice
-  authorizes only its declared consequences. It is the property that keeps the
-  reference venue a settlement layer rather than a custodial intermediary, and it
-  is what the spine's per-allocation leg-side authorization and the `attestorPool`
-  co-signature jointly enforce.
-- **AMM Conservation (`x · y = k`).** After a swap (minus applied fees), the
-  product of base and quote reserves must be `>=` the product before the swap:
-  `(baseReserves + Δin · (10000 − feeBps)/10000) · (quoteReserves − Δout) ≥
-  baseReserves · quoteReserves`. Enforced in `Pool_Swap` and verified off-ledger
-  by the attestor pool before signature.
-- **First-deposit inflation resistance.** Like every constant-product pool, the
-  RI is exposed to the classic *first-depositor / share-inflation* attack: the
+- **Non-custodial venue (no unilateral execution)**:
+  - The venue operator never holds custody of, nor any unilateral right to move, trader funds. 
+  - The trader is the sole party able to lock their own holding into an allocation.
+  - The trader will not be allowed to withdraw from an allocation, until after a `settlementDeadline` timestamp. =
+  - The venue operator can only drive a settlement over those exact committed allocations. The venue operator cannot deviate from the authorized leg or fabricate a transfer the trader did not commit to. 
+- **AMM Conservation (`x · y = k`)**:
+  - After a swap (minus applied fees), the product of base and quote reserves must be `>=` the product before the swap: `(baseReserves + Δin · (10000 − feeBps)/10000) · (quoteReserves − Δout) ≥
+  baseReserves · quoteReserves`.
+  - The settlement of the swap legs and the update of the pool reserves must happen atomically. 
+- **First-deposit inflation resistance**:
+  - Constant-product pool are exposed to the [*first-depositor / share-inflation* attack](https://www.openzeppelin.com/news/a-novel-defense-against-erc4626-inflation-attacks): the
   first LP mints a tiny LP-token supply, then donates assets directly into the
-  pool account to inflate share price and round later depositors' minted shares
+  pool to inflate share price and round later depositors' minted shares
   down to zero. The LP-token mint path (`VENUE_LP_REGISTRAR`) must therefore
   either **burn a minimum initial liquidity** (lock the first `MINIMUM_LIQUIDITY`
   shares to a null party, the Uniswap-v2 approach) or **seed the pool from a
-  trusted first provision** so the share price cannot be cheaply manipulated. This is a standard liquidity-pool hazard the RI must
-  address before minting logic is built.
-- **Funding Conservation.** On every settle path the engine enforces that an
-  authorizer's archived locked inputs cover its SenderSide obligations per
-  instrument — surplus returns as unlocked change, an under-funded sender fails
-  closed — so a swap can never move out more than the funds that back it,
-  preventing liquidity-drain attacks. Conservation is enforced unconditionally;
-  there is no carve-out. Prefunded-order iteration via `nextIterationFunding` is a
-  future venue extension: the field is inert forward-compatible Token Standard V2
-  metadata in M1 (neither validated nor acted on), and the direct path authorizes
-  only the allocation's own signed sides.
+  trusted first provision** so the share price cannot be cheaply manipulated. This is a standard liquidity-pool hazard the reference implementation must address.
+- **Funding Conservation**:
+  - On every settle path the engine enforces that an authorizer's archived locked inputs cover its SenderSide obligations per instrument.
+  - Per instrument, the reserves accounted for in the pool state should equal the holdings in the pool account.
+- **Privacy**:
+  - Any trader participating in the liquidity pool should have visibility only over their holdings, as well as the transfer legs they are a sender and receiver in.
 
-### 7.2 The Validation Ladder `[FUTURE]`
+### 6.2 Automated Validation Engine
 
-The three-tier ladder below is **proposed**, not built in M1. The `daml-lint` /
-`daml-props` / `daml-verify` tools (and any latency figures) do not exist in this
-repo or any named evidence repo. The **real** M1 gate is `dpm build --all` plus
-the Daml Script suites run by `scripts/run-tests.sh` and
-`scripts/check-scaffold.sh` (wired in CI, `.github/workflows/ci.yml`), with
-living-doc anchors validated by `scripts/refresh-ri-anchors.sh`.
+We propose a three-tier validation approach, based on verification tools built by OpenZeppelin:
 
-| Tier | Proposed tooling `[FUTURE]` | Purpose and Scope |
-|---|---|---|
-| Level 1: Static analysis | `daml-lint` `[FUTURE]` | AST checks: decimal bounds, unguarded division, positivity, archive-before-execute, anti-patterns, naming conventions. |
-| Level 2: Generative testing | `daml-props` `[FUTURE]` | Property-based testing with shrinking: thousands of fuzzed state transitions to ensure conservation/supply/balance invariants hold under extreme inputs. |
-| Level 3: Formal verification | `daml-verify` `[FUTURE]` | Z3-backed proofs (conservation C1–C3, division-safety D1–D3, temporal T1–T3): would prove unauthorized transitions (e.g. swapping while paused, or bypassing a D1 hook) are logically impossible within the contract graph. |
+1. [`daml-lint`](https://github.com/OpenZeppelin/daml-lint/commits/main/): Static analysis through abstract-syntax tree checks: decimal bounds, unguarded division, positivity, archive-before-execute, anti-patterns, naming conventions.
+2. [`daml-props`](https://github.com/OpenZeppelin/daml-props): Property based testing by fuzzing state transitions to ensure conservation/supply/balance invariants hold under extreme inputs.
+3. [`daml-verify`](https://github.com/OpenZeppelin/daml-verify): Formal verification through Z3-backed proofs, asserting logical impossibility of undesired states.
 
-### 7.3 Threat Model and Failure Modes
+### 6.3 Threat Model and Failure Modes
 
 | Vector | Attack | Mitigation |
 |---|---|---|
@@ -870,7 +805,7 @@ living-doc anchors validated by `scripts/refresh-ri-anchors.sh`.
 | First-depositor share inflation | The first LP mints a negligible LP-token supply, then donates assets straight into the pool account to inflate the share price so later depositors' minted shares round to zero (they deposit, get ~0 shares, LP redeems the inflated pool). | Burn a `MINIMUM_LIQUIDITY` tranche on the first mint (locked to a null party) and/or seed from a trusted first provision, so share price cannot be cheaply skewed. Not yet built — flagged for the LP-mint logic. |
 | Venue Operator swap re-ordering / private MEV | The venue operator sees traders' allocations before batching and can order or delay `SettleBatch` submissions to its own benefit (e.g. sandwiching a large swap). MEV does **not** disappear on Canton — it moves from a public mempool into the venue operator's private view. | Attestors block *off-curve* execution, but **not** ordering. Mitigations are operational/design, not yet enforced on-ledger: commit-reveal or fair-ordering for allocation intake, per-swap slippage bounds carried on the trader's own signed request ([section 3](#3-how-we-implement-it)), and minimizing venue operator discretion via batching rules. See [section 7.4](#74-throughput-and-contention). |
 
-### 7.4 Throughput and Contention
+### 6.4 Throughput and Contention
 
 Because Daml-LF 2.1 is keyless and every swap archives and recreates the single
 `Pool` contract ([section 3](#3-how-we-implement-it)), swaps against the *same* pool serialize: two concurrent
@@ -907,7 +842,7 @@ venue operator-side swap batching), are open design questions.
 > settlement core**, following
 > Canton's real cross-synchronizer model and the SCU forward-compatibility rule.
 
-### 8.1 What "cross-synchronizer" means on Canton
+### 7.1 What "cross-synchronizer" means on Canton
 
 On Canton, every contract is **assigned to exactly one synchronizer domain** at a
 time; a transaction can only use contracts on the same synchronizer. Moving a
@@ -922,7 +857,7 @@ This is the topology-layer analogue of the per-party projection mindset shift in
 reach is a function of which synchronizer each contract is assigned to and how it
 is reassigned.
 
-### 8.2 Where the DEX touches the synchronizer boundary
+### 7.2 Where the DEX touches the synchronizer boundary
 
 | Element | Single-domain v1 (today) | Cross-synchronizer extension (planned) |
 |---|---|---|
@@ -932,7 +867,7 @@ is reassigned.
 | D1 compliance | Node-side check on the settlement synchronizer. | Compliance must be re-evaluated on the synchronizer where the leg actually settles; a leg cannot "carry" a stale attestation across a reassignment (fail-closed still holds). |
 | D3 identity | Single-domain `KycClaim` from a trusted issuer on one synchronizer. | Cross-domain identity (ONCHAINID / ERC-3643 / Chainlink CCID) resolved into a synchronizer-aware `TrustedIssuerRegistry`; this is the deferred D3 work. |
 
-### 8.3 The additive, non-breaking path (SCU-compliant)
+### 7.3 The additive, non-breaking path (SCU-compliant)
 
 Following the non-negotiable SCU rule (never mutate an existing choice's args;
 extend via `Optional` appends, new serializable types, and new choices):
@@ -954,7 +889,7 @@ extend via `Optional` appends, new serializable types, and new choices):
    atomicity is achieved by reassigning all required legs onto that synchronizer
    *before* the batch, never by splitting one DvP across two synchronizers.
 
-### 8.4 Open questions specific to cross-synchronizer operation
+### 7.4 Open questions specific to cross-synchronizer operation
 
 - **Reassignment atomicity vs. settlement atomicity.** What is the failure model
   if an `Allocation` is assigned to the pool synchronizer but `SettleBatch` then
@@ -1006,7 +941,7 @@ extend via `Optional` appends, new serializable types, and new choices):
 | Fee accrual (`feeBps` into reserves) | `[FUTURE]` — RI business logic ([section 3](#3-how-we-implement-it)) | ⬜ |
 | Cross-synchronizer operation (D3 deferred) | `[FUTURE]` — [section 8](#8-cross-synchronizer-domain-extension-planned-future), deferred | ⬜ |
 
-## 9. Open Design Questions
+## 8. Open Design Questions
 
 Decisions to settle with the internal team before implementation, not M1 build
 items.
@@ -1078,40 +1013,3 @@ items.
   **secondary market** for tokens distributed by the Auction RI
   ([`04`](./04-confidential-auction.md)) — both over the same
   `SettlementFactory_SettleBatch` spine, with no parallel settlement path.
-
----
-
-## References
-
-All interface, template, choice, and field names in this report are grounded in
-real source in this workspace. Authoritative sources:
-
-- **Settlement spine** `[IMPLEMENTED]` —
-  `canton-specs/experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml`.
-- **Access-control / ownership / pause primitives** `[IMPLEMENTED]` —
-  `canton-specs` `access-control/`, `ownable/`, `pausable/`
-  (`OpenZeppelin.AccessControl`, `OpenZeppelin.Ownable`, `OpenZeppelin.Pausable`).
-- **Holdings / rules / preapproval** `[EVIDENCE]` —
-  `canton-token-template/simple-token/daml/SimpleToken/{Holding,Rules,Preapproval}.daml`
-  (the D2 forced-sweep choice `LockedSimpleHolding_ForcedBurn` is `[FUTURE]` —
-  the evidence template ships only `_Unlock`).
-- **Vault / oracle** `[EVIDENCE]` —
-  `canton-stablecoin/stablecoin/daml/Stablecoin/{Vault,Oracle}.daml`.
-- **Credential gating / verification** `[IMPLEMENTED]` (experimental) —
-  `canton-specs/experiments/credential-gateway/daml/OpenZeppelin/Experimental/Credential/Gateway.daml`.
-- **AMM `Pool` / `PoolRules` + swap exemplar** `[IMPLEMENTED]` (experimental) —
-  `canton-specs/experiments/dex-amm/daml/OpenZeppelin/Experimental/Dex/Amm.daml`
-  (sections [4.1](#41-component-pool-state-and-configuration-implemented-experimental)–[4.2](#42-component-swap-execution-rules-implemented-experimental); the `dexSwapExemplar` script runs under `scripts/run-tests.sh`).
-- **Typed D3 identity (KycClaim, TrustedIssuerRegistry)** `[IMPLEMENTED]` —
-  `canton-specs/experiments/identity-hook-shape-b/` and `identity-hook-upgrade-*/`.
-- **Settlement architecture spec** —
-  [`cip0112-m1-ri-spec.md`](../architecture/cip0112-m1-ri-spec.md).
-- **Diagram tooling** `[FUTURE]` — a proposed `canton-settlement-explorer`
-  (presets: Privacy DEX, Batch DvP, Multi-leg Settlement). Not built; exists
-  nowhere in this repo or a named evidence repo.
-- **Validation ladder** `[FUTURE]` — proposed `daml-lint`, `daml-props`,
-  `daml-verify` tooling ([section 7.2](#72-the-validation-ladder-future)). Not built. The real M1 gate is `dpm build --all`
-  + `scripts/run-tests.sh` + `scripts/check-scaffold.sh`, wired in
-  [`.github/workflows/ci.yml`](../../.github/workflows/ci.yml).
-- **Token Standard V2 upstream** `[UPSTREAM]` — `hyperledger-labs/splice`
-  `token-standard-v2-upcoming` (import gated).
