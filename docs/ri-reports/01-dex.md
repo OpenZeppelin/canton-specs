@@ -51,8 +51,8 @@ OpenZeppelin currently has an experimental implementation of atomic
 settlement, inside the [OpenZeppelin/canton-specs repository](https://github.com/OpenZeppelin/canton-specs/blob/main/experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml). The implementation has built-in capabilities for:
 
 1. Privacy through per-party projection: a trader sees only the legs on which they are the sender or receiver. Other parties' trades are never visible to them.
-2. D1: Compliance through Node-Applied Attestation - compliance is checked per settlement, with no caching. Failure to adhere to compliance results in no trade.
-3. D2: Seizure through Preset Custodian Lock-and-Sweep - a priviledged party can sweep the funds in a locked allocation to a preset custodian party.
+2. D1: Compliance through Party-Applied Attestation - compliance is checked per settlement, with no caching. Failure to adhere to compliance results in no trade.
+3. D2: Seizure through Preset Custodian Lock-and-Sweep - a priviledged party can sweep the funds in a locked allocation to a preset custodian account.
 
 Note that the same atomic settlement primitive can be leveraged to enable other types of venues, where mechanisms such as price discovery may differ (i.e. Central Limit Order Book, Request For Quote, etc.).
 
@@ -65,7 +65,7 @@ The reference implementation favors **simplicity and modular extensibility**. Th
 | Market Structure | A **spot** exchange whose enabling primitive is the **atomic DvP swap**. The venue built out in full is a constant-product AMM with a single liquidity pool (`x · y = k`).|
 | Core Flows | The four flows mentioned in the M2 acceptance criteria, each modeled as settlement over the spine: **pool creation** (venue operator + LP registrar + attestor pool instantiate a `Pool`), **liquidity provision / removal** (depositing both instruments mints LP tokens; burning LP tokens returns proportional reserves), **swap execution** (two-leg atomic settlement), and **fee collection** (a percentage (`feeBps`) of each swap accrues into reserves, raising LP-token redemption value). |
 | Asset Representation | Fungible digital assets compliant with the CIP-0112 Token Standard V2 holding interfaces. LP tokens represent pool-share ownership and are minted/burned via the spine. |
-| Compliance & Control | D1: a settlement does not execute unless an attestor has signalled compliance. D2: a priviliedged party can block settlement and sweep allocation funds to a preset custodian party. D3: single-domain v1 issuer-held KYC, forward-compatible with cross-domain models via SCU conventions. |
+| Compliance & Control | D1: a settlement does not execute unless an attestor has signalled compliance. D2: a priviliedged party can block settlement and sweep allocation funds to a preset custodian account. D3: single-domain v1 issuer-held KYC, forward-compatible with cross-domain models via SCU conventions. |
 | Consensus Topology | Explicit multi-party signatory configuration: a decentralized attestor pool co-authorizes liquidity-pool state transitions, validating trading logic without centralizing execution authority. |
 | Component Integration | Direct reuse of `oz-access-control`, `oz-ownable`, `oz-pausable`, the CIP-0112 settlement spine, as well as patterns from the [`canton-token-template`](https://github.com/OpenZeppelin/canton-token-template),  [`canton-stablecoin`](https://github.com/OpenZeppelin/canton-stablecoin) and [`credential-gateway`](../../experiments/credential-gateway/daml/OpenZeppelin/Experimental/Credential/Gateway.daml) codebases. |
 
@@ -314,120 +314,48 @@ transaction; the caveat is *fragmentation* - many small holdings accumulating in
 the pool account over time. A periodic **consolidation** step (the pool merges
 its holdings for an instrument into one, leaving reserves unchaged) keeps settlement cheap.
 
-### D1 Compliance: Node-Applied Attestation (Shape B)
+### D1: Compliance through Party-Applied Attestation
 
-The **intended** D1 posture is that compliance is checked per settlement with
-**no caching**, on a **fail-closed** basis. This is a design commitment, not an
-already-closed gate: the base [`SettlementFactory_SettleBatch`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L249) path can settle a
-batch with **no** attestation; the requirement is engaged by the allocation's
-optional [`D1ComplianceHook`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L41) (when `requiresPerSettlementReference` is set) and by
-the additive typed-attestation path (`SettlementFactory_SettleBatchWithAttestation`
-+ `TrustedAttesterRegistry`). The RI selects **Shape B** (signed node attestation)
-for the D1 seam.
+Institutional DeFi requires that sanctioned or unverified parties cannot trade. The RI aims to check compliance per settlement and fail closed: no valid attestation, no trade. Our atomic-swap codebase currently showcases an experimental example via [`SettlementFactory_SettleBatchWithAttestation`](https://github.com/OpenZeppelin/canton-specs/blob/c814abb5198d310e502105936afae04102c2cc2c/experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L261), which requires an attestation covering this specific settlement, from an attester listed in the
+[`TrustedAttesterRegistry`](https://github.com/OpenZeppelin/canton-specs/blob/c814abb5198d310e502105936afae04102c2cc2c/experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L268). The registry must share the factory's admin, so callers cannot substitute a registry of their own choosing. Attestations are single-use, so none can be cached or reused across settlements.
 
-Shape A (an off-ledger API gate) would introduce a centralized failure point,
-add latency to the settlement path, and conflict with the decentralized
-attestor topology. With Shape B, compliance is pushed to participating nodes:
-the on-ledger seam is the optional [`D1ComplianceHook`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L41) config record
-(`hookRef`, `requiresPerSettlementReference`) carried on the `Pool`. At
-`SettleBatch` time, the node-side check requires a `CredentialGatedActionRequest`
-accompanied by a `MockVerificationResult` (a stand-in for a live zero-knowledge
-verification result in production) proving the trader has not been flagged
-within the current ledger-time bounds.
+### D2: Seizure Through Preset Custodian Lock-and-Sweep
 
-> Whether the contract stays oblivious to the result or verifies a signed node
-> attestation on-ledger at exercise time is an open design question. The RI
-> builds behind the optional hook and can add typed on-ledger attestation later
-> via the SCU path.
+Institutional DeFi requires the ability to seize assets under judicial mandate. The RI aims to implement D2 via a strict **lock-and-sweep** pattern that locks the funds and sweeps them to a preset, custodian account. Our atomic-swap codebase currently showcases an experimental example via [`Allocation_MarkD2InFlightSeizure`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L595) for locking, as well as [`Allocation_SweepD2InFlightSeizure`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L625) for sweeping the locked holdings to a preset, custodian account (i.e. a regulated cold-storage vault).
 
-### D2 Seizure: Preset Custodian Lock-and-Sweep
+### D3: Single-Domain Identity to Cross-Domain via SCU
 
-Institutional DeFi requires the ability to seize assets under judicial mandate.
-The RI implements D2 via a strict **lock-and-sweep** pattern that **forbids**
-arbitrary burning and **forbids** returning seized funds to the sender.
-
-Seizure uses the real spine choices on [`Allocation`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L474):
-[`Allocation_MarkD2InFlightSeizure`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L595) blocks settlement of a targeted allocation,
-then [`Allocation_SweepD2InFlightSeizure`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L625) sweeps the locked holding to the
-`custodianDestination : Account` carried in the [`D2SeizureHook`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L46) config record.
-The destination is **preset** (e.g. a regulated cold-storage vault). By
-contrast, a standard transfer that *fails* due to transient faults or invalid
-parameters returns to sender — assets are never marooned by technical faults.
-This matches the decided D2 semantics: *seizure routes to the preset custodian;
-transfer failures return to sender.*
-
-### D3 Identity: Single-Domain V1 to Cross-Domain via SCU
-
-The system uses a single-domain v1 identity architecture. Traders must hold a
-`KycClaim` issued by a party present in the `TrustedIssuerRegistry` to interact
-with permissioned pools (compliance/identity gating is **optional per pool** —
-permissioned vs permissionless).
+Institutional DeFi requires participants to be identified. The RI aims to implement D3 via a single-domain v1 identity architecture. Traders must hold a `KycClaim` issued by a party present in the `TrustedIssuerRegistry` to interact with permissioned pools. D1 (compliance) and D3 (identity) can be made **optional per pool** (permissioned vs permissionless).
 
 To stay forward-compatible with cross-domain models (ONCHAINID / ERC-3643 /
-Chainlink CCID) without breaking existing state, the system relies on SCU
-conventions: base interfaces declare identity requirements via `Optional`
+Chainlink CCID) without breaking existing state, the system relies on the Smart Contract Upgrade Feature
+conventions: base templates declare identity requirements via `Optional`
 fields. When cross-domain identity is introduced later, a new serializable type
 representing the cross-domain proof is appended within the existing `Optional`
-parameter, leaving the single-domain `KycClaim` logic fully functional. This is
-the same additive path proven in the `canton-specs` identity-hook upgrade spike.
+parameter, leaving the single-domain `KycClaim` logic fully functional.
 
-### D4 Authority: Single-Admin Capability
+### D4: Authority Through Single-Admin Capability
 
-M1 critical actions — LP-token minting, asset burning, seizure execution, and
-protocol-ownership handoff — are controlled via a **single-admin capability
-authority**. `VENUE_OPERATOR` or `VENUE_ASSET_ADMIN` use `oz-access-control` primitives. The transition
-to on-ledger multi-sig or a multi-hosted party is explicitly deferred to M3,
-keeping the M1 core small, readable, and secure. (The access-control library
-itself — role delegation and the timelocked owner handoff — is in M1
-scope; only the multi-sig *signing* model is deferred.)
+Institutional DeFi requires administrative power to be explicit and accountable: every privileged action traces to a named authority. The critical actions of this reference implementation (LP-token minting and burning, executing a swap, locking and sweeping, app-ownership handoff, etc.) will be controlled via a **single-admin capability
+authority**. `VENUE_OPERATOR` or `VENUE_ASSET_ADMIN` will use `oz-access-control` primitives, with ownership handoff capabilities.
 
-> **`[FUTURE]` institutional internal authorization (maker-checker).** An
-> institutional trading desk submitting liquidity typically requires a
-> two-tier internal control — a junior trader (maker) proposes, a risk officer
-> (checker) approves — *before* an order reaches the venue. This is an internal
-> control, not a venue mechanism: it is expressed with the **propose-accept
-> (two-step handshake)** pattern already native to Canton, gated by distinct
-> `oz-access-control` role grants for the maker and checker parties, and it
-> leaves the venue's external `PoolRules` interface unchanged (the venue still
-> sees a single committed `Allocation`). It is an explicit SCU extension point,
-> not M1 scope, and is not a separate settlement or authority path.
+### Implementing Smart Contract Upgrades
 
-### The SCU Extension Story
-
-The **non-negotiable SCU rule**: an existing choice's arguments must never be
+For a smart contract upgrade, an existing choice's arguments must never be
 mutated to require a new field. Extensions are managed via appended `Optional`
-fields, new serializable types, and **new, parallel choices**.
-
-This also dictates *how* the RI gains new interfaces. Daml 3.x removed
-**retroactive interface instances** `[UPSTREAM]` (the mechanism that
-retroactively bolted an interface onto an already-deployed template), because
-they broke clean upgrade paths. The RI therefore commits to forward-compatible
-interface hierarchies from day one: a new compliance or reporting facet is added
-by a new template implementing the interface plus a new choice, never by
-retroactively re-instancing an existing `Pool` / `PoolRules`.
+fields, new serializable types, and **new choices**.
 
 Consider `PoolRules_Swap`. Initially, identity gating is handled by inclusion in
 the `TrustedIssuerRegistry`. To later add granular jurisdictional compliance
 (e.g. US users may not trade a given security token), `PoolRules` is **not**
 mutated. Instead a new choice `PoolRules_SwapWithJurisdiction` is introduced,
 using a newly appended `Optional JurisdictionalComplianceHook` field on the
-`Pool` to enforce the advanced logic — layering compliance without disrupting
-in-flight `AllocationRequest` contracts, honoring the keyless, non-mutating
-nature of Daml-LF 2.1.
+`Pool` to enforce the advanced logic.
 
-**Closing the weaker path is a body change, not frontend routing.** SCU
-extensions are *not* security retrofits: adding a stricter parallel choice does
-**not** close the looser one. If `PoolRules_Swap` were simply left live and the
+SCU extensions are not security retrofits: adding a stricter choice does
+not close the looser one. If `PoolRules_Swap` were simply left live and the
 frontend routed around it, anyone could bypass the frontend and call the weaker
-path directly — the jurisdiction check would be optional in practice. The SCU
-rule forbids mutating a choice's *arguments*, but it **permits updating a
-choice's body**. So the correct deprecation is to change `PoolRules_Swap`'s body
-to fail unconditionally (`assertMsg "deprecated: use PoolRules_SwapWithJurisdiction" False`)
-in the upgraded package, which indefinitely reverts the weaker path while
-leaving its signature — and therefore in-flight `AllocationRequest`
-compatibility — intact. "Soft deprecation by frontend routing" is a UX
-convenience layered on top, never the security boundary.
-
+path directly, making the jurisdiction check optional in practice. Hence, the upgrade will also aim to make the `PoolRules_Swap` choice fail unconditionally, and be marked as `deprecated`.
 ---
 
 ## 4. Interfaces & Usage Examples
@@ -1070,7 +998,7 @@ extend via `Optional` appends, new serializable types, and new choices):
 | Ownership library (two-step handover) | [`Ownership`](../../ownable/daml/OpenZeppelin/Ownable.daml), [`OwnershipOffer`](../../ownable/daml/OpenZeppelin/Ownable.daml) | ✅ |
 | Pausable library (origination guard) | [`PauseState`](../../pausable/daml/OpenZeppelin/Pausable.daml), [`whenNotPaused`](../../pausable/daml/OpenZeppelin/Pausable.daml) | ✅ |
 | Real TSv2 holding interface (replaces `ToyHolding`) | `[FUTURE]` — not built in M1 | ⬜ |
-| Node-applied signed D1 attestation (on-ledger verify) | `[FUTURE]` — beyond the `D1ComplianceHook` reference field | ⬜ |
+| Party-applied signed D1 attestation (on-ledger verify) | `[FUTURE]` — beyond the `D1ComplianceHook` reference field | ⬜ |
 | AMM `Pool` state (constant-product reserves) | [`Pool`](../../experiments/dex-amm/daml/OpenZeppelin/Experimental/Dex/Amm.daml) ([section 4.1](#41-component-pool-state-and-configuration-implemented-experimental)) | 🟡 |
 | `PoolRules` swap / request-swap; `Pool_Swap` reserve update (consuming, attestor-co-controlled, full-authority archive-and-recreate) | [`PoolRules` / `Pool_Swap`](../../experiments/dex-amm/daml/OpenZeppelin/Experimental/Dex/Amm.daml) (sections [4.1](#41-component-pool-state-and-configuration-implemented-experimental)–[4.2](#42-component-swap-execution-rules-implemented-experimental)) | 🟡 |
 | DEX swap exemplar (proves attestor co-consent, exact-out, reserves==holdings, pause guard at runtime) | [`dexSwapExemplar`](../../experiments/dex-amm/daml/OpenZeppelin/Experimental/Dex/Amm.daml) (run by `scripts/run-tests.sh`) | ✅ |
