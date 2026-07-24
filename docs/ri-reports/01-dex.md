@@ -1,33 +1,6 @@
 # Architectural Overview Report: Canton Reference Decentralized Exchange (DEX)
 
-Status: **reference-design report.** It describes a *reference design* grounded
-in the real OpenZeppelin Canton components in this workspace; it is **not** a
-claim of acceptance, conformance, audit readiness, or production readiness.
-
-> **Source-grounding tags** (used throughout):
-> `[IMPLEMENTED]` real code in the M1 library base ([`canton-specs`](https://github.com/OpenZeppelin/canton-specs) /
-> [`canton-contracts`](https://github.com/OpenZeppelin/canton-contracts)) · `[EVIDENCE]` real code in an evidence repo
-> ([`canton-token-template`](https://github.com/OpenZeppelin/canton-token-template), [`canton-stablecoin`](https://github.com/OpenZeppelin/canton-stablecoin)), not
-> the M1 surface · `[UPSTREAM]` Splice / CIP reference, not vendored here ·
-> `[FUTURE]` proposed RI-level design, not built in M1 scope.
-
-> **Design priority order** governs every interface and snippet, in this exact
-> order: **1) Security → 2) Simplicity → 3) Readability → 4) Auditability.**
-
-> **What this document is.** The architecture documentation for a
-> privacy-preserving spot-exchange reference design on the CIP-0112 / Token
-> Standard V2 settlement spine. Its subject is a set of modular, extensible
-> **atomic delivery-versus-payment (DvP) swap primitives** — a swap is two
-> committed allocations settled in one all-or-nothing `SettleBatch` — together
-> with a constant-product **AMM** built out end-to-end as the worked demonstration
-> of composing a trading venue from those primitives. The deliverable is the
-> primitive design and the guidance for instantiating it; the same primitives are
-> shaped to enable richer market structures, which this document does not ship ([section 1](#1-product-definition)).
-> Companion deliverables (working reference code, demo front-end, threat model)
-> are named here but out of scope for this document. The design builds only on
-> Token Standard V2 abstractions.
-
----
+This document describes a *reference design* for a constant-product automated market maker dex on Canton, grounded in the OpenZeppelin Canton components from this workspace, as well as the Canton Network Token Standard V2.
 
 ## 1. Product Definition
 
@@ -367,20 +340,7 @@ Auditability. Code below is idiomatic Daml that composes with the real
 components above. Templates introduced by the RI (not present in the spine
 today) are tagged `[FUTURE]`.
 
-### 4.1 Component: Pool State and Configuration `[IMPLEMENTED]` (experimental)
-
-> **Realized as compiling code.** `Pool` and `PoolRules` are lifted into
-> [`experiments/dex-amm`](../../experiments/dex-amm/daml/OpenZeppelin/Experimental/Dex/Amm.daml)
-> (`oz-experimental-dex-amm`), which builds under `dpm build --all` and is
-> exercised end-to-end by the `dexSwapExemplar` Daml Script. That script proves
-> at runtime the four properties the prose argues: (1) the venue operator alone
-> **cannot** drive a swap — the attestors are required controllers
-> (`submitMustFail`); (2) the pool delivers exactly the curve's `dOut`; (3) the
-> pool funds its own output leg from its bound `poolAccount`, so the reserve
-> *delta* matches real holding movement (the absolute reserves==Σholdings needs
-> funded seeding); (4) no stored
-> `Pool`/`PauseState` cids and the pause guard sits on the reserve-updating
-> choice. The snippet below is the shape; the module is the source of truth.
+### 4.1 Component: Pool State and Configuration
 
 The `Pool` holds the constant-product AMM state and uses the spine's
 `D1ComplianceHook` data record as an `Optional` SCU extension point. The
@@ -544,7 +504,7 @@ template Pool
         pure (traderReceipt, newPool)
 ```
 
-### 4.2 Component: Swap Execution Rules `[IMPLEMENTED]` (experimental)
+### 4.2 Component: Swap Execution Rules
 
 `PoolRules` decouples static execution permissions from dynamic `Pool` state.
 Two deliberate choices:
@@ -615,12 +575,6 @@ template PoolRules
           baseToQuote; amountIn; outputAmount
           settlementFactoryId; settlement; transferLegs; d1ComplianceRef
 ```
-
-> **SCU note (see [section 3](#3-how-we-implement-it)):** because a stricter path added later (e.g.
-> `PoolRules_SwapWithJurisdiction`) does **not** close this one, the way to
-> deprecate `PoolRules_Swap` is to update *its own body* to `assertMsg`/`error`
-> unconditionally (an SCU-permitted body change), not to leave it live and route
-> around it in the frontend.
 
 ### 4.3 Component: D2 Seizure and D4 Authority
 
