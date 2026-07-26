@@ -36,10 +36,10 @@ The reference implementation favors **simplicity and modular extensibility**. Th
 | Feature Category | In-Scope Architectural Components |
 |---|---|
 | Market Structure | A **spot** exchange whose enabling primitive is the **atomic DvP swap**. The venue built out in full is a constant-product AMM with a single liquidity pool (`x · y = k`).|
-| Core Flows | The four flows mentioned in the M2 acceptance criteria, each modeled as settlement over the spine: **pool creation** (venue operator + LP registrar + attestor pool instantiate a `Pool`), **liquidity provision / removal** (depositing both instruments mints LP tokens; burning LP tokens returns proportional reserves), **swap execution** (two-leg atomic settlement), and **fee collection** (a percentage (`feeBps`) of each swap accrues into reserves, raising LP-token redemption value). |
+| Core Flows | The four flows mentioned in the M2 acceptance criteria, each modeled as settlement over the spine: **pool creation** (venue operator + LP token issuer instantiate a `Pool`), **liquidity provision / removal** (depositing both instruments mints LP tokens; burning LP tokens returns proportional reserves), **swap execution** (two-leg atomic settlement), and **fee collection** (a percentage (`feeBps`) of each swap accrues into reserves, raising LP-token redemption value). |
 | Asset Representation | Fungible digital assets compliant with the CIP-0112 Token Standard V2 holding interfaces. LP tokens represent pool-share ownership and are minted/burned via the spine. |
 | Compliance & Control | D1: a settlement does not execute unless an attestor has signalled compliance. D2: a priviliedged party can block settlement and sweep allocation funds to a preset custodian account. D3: single-domain identity to cross-domain via Smart Contract Upgrade. |
-| Consensus Topology | Explicit multi-party signatory configuration: a decentralized attestor pool co-authorizes liquidity-pool state transitions, validating trading logic without centralizing execution authority. |
+| Trust Topology | Operator-authorized venue: the `Pool` is signed by the venue operator and LP token issuer, and swap correctness is enforced on-ledger by the swap choice rather than by operator discretion. |
 | Component Integration | Direct reuse of `oz-access-control`, `oz-ownable`, `oz-pausable`, the CIP-0112 settlement spine, as well as patterns from the [`canton-token-template`](https://github.com/OpenZeppelin/canton-token-template),  [`canton-stablecoin`](https://github.com/OpenZeppelin/canton-stablecoin) and [`ShapeB`](../../experiments/identity-hook-shape-b/daml/OpenZeppelin/Experimental/Identity/ShapeB.daml) codebases. |
 
 | Feature Category | Out-of-Scope Architectural Components |
@@ -48,7 +48,7 @@ The reference implementation favors **simplicity and modular extensibility**. Th
 | Leverage Facilities | Margin trading, undercollateralized lending, dynamic funding rates, and any protocol-enshrined leverage. |
 | External Oracles | Dynamic pricing oracles dictating the pool's internal exchange rate. For our AMM, the constant-product invariant dictates the price. |
 | Legacy Standards | Any reliance on the superseded CIP-56 token standard or legacy V1 allocation paths. The RI integrates strictly with V2 abstractions. |
-| Cross-Synchronizer Operation | Multi-synchronizer / cross-domain settlement and identity are **deferred** (see [section 8](#8-cross-synchronizer-domain-extension-planned-future)). M1 is single-domain v1; the design is forward-compatible, not multi-domain today. |
+| Cross-Synchronizer Operation | Multi-synchronizer / cross-domain settlement and identity are **deferred** (see [section 7](#7-cross-synchronizer-domain-extension-planned-future)). M1 is single-domain v1; the design is forward-compatible, not multi-domain today. |
 
 ### Target Ecosystem Participants
 
@@ -87,11 +87,11 @@ actual asset movement rides on per-party `AllocationRequest` and `Allocation`
 contracts on the CIP-0112 spine. Counterparties observe only their own legs —
 visibility is restricted to a strict need-to-know basis.
 
-To validate the AMM invariant without centralizing trust in a single participant, the architecture introduces a **decentralized attestor pool**: a set of
-node-backed parties configured as required signatories on the `Pool` contract.
-They collectively attest to the mathematical correctness of a transition before
-authorizing settlement — mapping the decentralized-execution paradigm directly
-onto Canton's per-contract signatory topology.
+To keep the AMM invariant sound without trusting the venue operator to compute
+it honestly, the architecture puts the invariant check **on the smart
+contract**. The swap choice re-derives the constant-product output, asserts the
+`x · y = k` invariant, and binds the swap to the exact amounts the trader signed
+in their own allocation.
 
 ---
 
@@ -103,8 +103,8 @@ The architecture is assembled from reused OpenZeppelin Daml primitives (role man
 
 | Component Suite | Applied Templates and Libraries | Architectural Function |
 |---|---|---|
-| Access Control `[IMPLEMENTED]` | `oz-access-control`: [`RoleGrant`](../../access-control/daml/OpenZeppelin/AccessControl.daml), [`RoleAdmin`](../../access-control/daml/OpenZeppelin/AccessControl.daml), `DefaultAdminTransferOffer`, [`requireRole`](../../access-control/daml/OpenZeppelin/AccessControl.daml) | Role-based permissioning. Governs venue operators, LP registrars, and compliance officers. |
-| Ownership Lifecycle `[IMPLEMENTED]` | `oz-ownable`: [`Ownership`](../../ownable/daml/OpenZeppelin/Ownable.daml), [`OwnershipOffer`](../../ownable/daml/OpenZeppelin/Ownable.daml) | Provides support for D4: Secure two-step handover of protocol administration. |
+| Access Control `[IMPLEMENTED]` | `oz-access-control`: [`RoleGrant`](../../access-control/daml/OpenZeppelin/AccessControl.daml), [`RoleAdmin`](../../access-control/daml/OpenZeppelin/AccessControl.daml), `DefaultAdminTransferOffer`, [`requireRole`](../../access-control/daml/OpenZeppelin/AccessControl.daml) | Role-based permissioning. Governs the venue operator and LP token issuer. |
+| Ownership Lifecycle `[IMPLEMENTED]` | `oz-ownable`: [`Ownership`](../../ownable/daml/OpenZeppelin/Ownable.daml), [`OwnershipOffer`](../../ownable/daml/OpenZeppelin/Ownable.daml) | Provides support for D4: Secure two-step handover of venue administration. |
 | Venue Constraints `[IMPLEMENTED]` | `oz-pausable`: [`PauseState`](../../pausable/daml/OpenZeppelin/Pausable.daml), [`whenNotPaused`](../../pausable/daml/OpenZeppelin/Pausable.daml) | Emergency circuit breaker. `whenNotPaused` will block new swaps as well as in-flight settlements. |
 | Settlement Spine `[IMPLEMENTED]` | `OpenZeppelin.Experimental.Settlement.Cip112`: [`SettlementFactory`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L191), [`AllocationRequest`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L322), [`AllocationInstruction`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L379), [`Allocation`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L474), [`SettlementReceipt`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L695), [`ToyHolding`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L133), [`BurnerCapability`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L98) | Core engine for all asset movement. `ToyHolding` is the toy unit of value, and can be replaced by real assets implementing the TSv2 holding interface. |
 | Identity Verification `[IMPLEMENTED]` | `ShapeB`: [`KycClaim`](../../experiments/identity-hook-shape-b/daml/OpenZeppelin/Experimental/Identity/ShapeB.daml#50),[`TrustedIssuerRegistry`](../../experiments/identity-hook-shape-b/daml/OpenZeppelin/Experimental/Identity/ShapeB.daml#84) | Provides support for D3: A trader must hold a `KycClaim` issued by a trusted party, in order to interact with a permissioned pool. |
@@ -116,38 +116,24 @@ As external dependencies, the reference implementation will integrate with the S
 Duties are segregated and mapped to discrete Daml parties:
 
 - **Venue Operator (`VENUE_OPERATOR`)** - runs the venue backend: quotes swaps
-  off the public `Pool` reserves, creates `PoolRules`, and submits batch
-  settlements. The venue operator has execution authority to
-  call the settlement factory but never holds custody of, nor any unilateral
-  transfer right over trader funds.
-- **LP Registrar (`VENUE_LP_REGISTRAR`)** - manages LP-token policy. Separating
-  the registrar from the venue operator allows future delegation of LP-token issuance
+  off the public `Pool` reserves, creates `PoolRules`, submits batch
+  settlements, and controls the venue pause switch (`PauseState`). The venue
+  operator has execution authority to call the settlement factory but never
+  holds custody of, nor any unilateral transfer right over trader funds.
+- **LP Token Issuer (`LP_TOKEN_ISSUER`)** - manages LP-token policy. Separating
+  the issuer from the venue operator allows future delegation of LP-token issuance
   to a regulated third-party custodian.
-- **Asset Administrator (`VENUE_ASSET_ADMIN`)** - issuer/registrar of the base and
-  quote instruments. Controls instrument configuration and has the lock-and-sweep priviledge.
+- **Liquidity Token Issuer (`LIQUIDITY_TOKEN_ISSUER`)** - issuer/registrar of the
+  base and quote instruments when they do not already exist. Lock-and-sweep follows
+  the issuer: the `LIQUIDITY_TOKEN_ISSUER` holds it for instruments it issued, and
+  when an instrument is issued by another party, that issuer holds lock-and-sweep
+  instead.
 - **Trader / Liquidity Provider** - the end-user authoring `Allocation`
   contracts from their wallet. The sole party able to lock
   their own holdings.
-- **Decentralized Attestor Pool** - a consortium of parties modeled as
-  `attestorPool : [Party]`, acting as joint signatories on the core `Pool`
-  state. These parties should ideally be hosted by different participants. 
-
-### Trust Topology and Consensus Configuration
-
-Unlike EVM (all nodes validate all transitions), Canton restricts
-validation to participants hosting the signatories and observers of the involved
-contracts.
-
-To prevent the venue operator from unilaterally manipulating pool reserves,
-spoofing a price curve, or trading outside slippage bounds, the `Pool` contract
-includes `attestorPool` in its signatories **and makes them controllers of the
-swap choice**. The attestor nodes run independent verification against the
-public `Pool` state, checking that the constant-product invariant holds
-(accounting for `feeBps`) before supplying their authorizations.
-
-An all-of-M attestor set makes each attestor a denial-of-service vector: one unavailable attestor - offline, or hosted on a participant that has unvetted the settlement package or uploaded a mismatched version - blocks every swap. Attestation should therefore require an N-of-M quorum rather than unanimous co-authorization.
-
-**Who holds the attestor keys.** Each attestor is a Daml party representing an independent entity, hosted on that entity's participant. The participant holds the party's signing keys, so an attestor's co-authorization is only as independent as its infrastructure (attestor parties sharing one participant would serves as a centralized point of failure). The attestor pool is therefore a per-pool consortium: it is fixed at `Pool` creation time, chosen for and trusted by the pool's venue operator and lp registrar. Accepting a pool's attestor set is a genuine trust assumption, part of the same decision as accepting the venue itself.
+- **Custodian** - owns the preset account that receives funds swept by a D2
+  seizure.
+- **Pool Account** - owns the holdings that back the pool's reserves.
 
 ---
 
@@ -164,44 +150,62 @@ are never locked without a resolution path and that execution is atomic.
 1. **Intent and Quotation.** A trader requests a quote (swap Token A → Token B).
    The venue operator backend reads current `Pool` state and returns an expected
    output amount plus an `AllocationSpecification`.
-2. **Allocation Generation.** The trader signs
-   [`SettlementFactory_CreateAllocationInstruction`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L228) to create an
-   [`AllocationInstruction`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L379), then [`AllocationInstruction_Accept`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L392) locks their
-   Token A holding and creates a committed [`Allocation`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L474) designating
-   `VENUE_OPERATOR` as the authorized executor.
-3. **Request Formulation.** The trader formulates an [`AllocationRequest`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L322) (via
-   [`SettlementFactory_CreateAllocationRequest`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L205)) naming the desired output asset
-   (Token B) and its **exact** requested amount (the spine is exact-in /
-   exact-out — see the slippage-bound note below; `AllocationRequest` has no
-   `minOutputAmount` field, so the trader's signed exact amount *is* the floor).
-4. **Batch Formulation.** `VENUE_OPERATOR` aggregates the trader's [`Allocation`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L474)
-   and [`AllocationRequest`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L322) with the pool's active state and constructs a
-   [`SettlementFactory_SettleBatch`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L249) instruction.
-5. **Attestor Verification.** The `attestorPool` nodes observe the proposed
-   batch, verify the AMM invariants against the proposed state, and append their
-   required signatures.
-6. **Atomic Settlement.** [`SettlementFactory_SettleBatch`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L249) executes as a single
-   Daml transaction: it consumes the input [`Allocation`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L474), archives the current
-   `Pool` state, emits a [`SettlementReceipt`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L695) for the trader, credits the Token B
-   holding to the trader, and creates a new `Pool` reflecting updated reserves.
+2. **Request Formulation.** The venue operator, as settlement executor, formulates
+   the [`AllocationRequest`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L322)
+   via [`SettlementFactory_CreateAllocationRequest`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L205),
+   naming the swap's legs and their **exact** amounts.
+3. **Trader Allocation.** The trader signs
+   [`SettlementFactory_CreateAllocationInstruction`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L228),
+   then [`AllocationInstruction_Accept`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L392)
+   locks their Token A and creates a committed [`Allocation`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L474)
+   (send `Δin` Token A, receive `Δout` Token B) designating `VENUE_OPERATOR` as the
+   authorized executor.
+4. **Pool Allocation.** The pool account likewise creates and accepts an
+   [`AllocationInstruction`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L379),
+   locking `Δout` of Token B from the pool-account holdings and producing the pool's
+   own committed [`Allocation`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L474)
+   (send `Δout` Token B, receive `Δin` Token A).
+5. **Atomic Batch Settlement.** `VENUE_OPERATOR` exercises `PoolRules_Swap` →
+   `Pool_Swap`, which settles both committed `Allocation`s in one
+   [`SettlementFactory_SettleBatch`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L249),
+   archives the current `Pool`, credits `Δout` Token B to the trader and `Δin`
+   Token A to the pool account, emits a [`SettlementReceipt`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L695),
+   and creates a new `Pool` with updated reserves. This all commits in one Daml
+   transaction: the reserve update and every settlement leg land together or not at
+   all, so the published price and the assets delivered never diverge.
 
 **How fast is a swap? (vs. EVM's single transaction.)** In an EVM AMM a swap is
-one atomic transaction. Here the *asset exchange* is still a single atomic Daml
-transaction, but reaching it takes a **multi-step handshake**: the
-trader first creates and accepts an `AllocationInstruction` to lock the input
-(steps 2), then formulates an `AllocationRequest` (step 3), and only then does
-the venue operator batch-settle (steps 4–6). This is not incidental latency — it is
-forced by Daml-LF 2.1's keyless, two-step-handshake model ([section 1](#1-product-definition)): a new signatory
-must actively co-authorize a state transition, so the trader cannot both lock
-funds and have the pool consume them in one unilateral call the way an EVM
-`swap()` does. The trade-off is deliberate: more round-trips to *originate* a
-swap, in exchange for the venue operator never holding custody and the settlement
-being atomic and privacy-preserving once it fires. (Venue Operator-side batching, [section 7.4](#74-throughput-and-contention),
-amortizes the final consensus round across many traders' allocations.)
+one atomic transaction. Here the asset exchange is still one atomic Daml
+transaction, but reaching it takes the multi-step handshake above: the operator
+cannot move the trader's funds unilaterally, so the trader must lock them into a
+committed `Allocation` first. The trade-off is deliberate: more round-trips to
+originate a swap, in exchange for the operator never taking custody.
 
-### The AMM Math and Pool-to-Settlement Co-Atomicity
+**Provision flow (LP mint).** Liquidity provision reuses the same allocation
+lifecycle, with the LP-token mint as a sibling consequence of the settlement:
 
-Two properties must hold together: the swap arithmetic is the standard constant-product rule, and the `Pool` reserve update commits in the **same** Daml transaction as the asset legs.
+1. **Deposit Allocation.** The LP commits its two deposits (`Δbase`, `Δquote`) as
+   committed `Allocation`s into the pool account, through the same
+   instruction-and-accept lifecycle the trader uses above.
+2. **Provision and Mint.** `VENUE_OPERATOR` exercises the provision choice on the
+   `Pool`. In one transaction it settles both deposit `Allocation`s over the spine
+   and, as a sibling `create` rather than a transfer leg (so funding conservation
+   is untouched), issues the LP a fresh LP-token holding. The mint's `admin`
+   signatory is covered by the `LP_TOKEN_ISSUER` authority inherited from the
+   `Pool`'s signatory, and the LP is the controller, covering its account. The
+   share amount is computed inside the choice from the deposit just settled
+   (`sqrt(Δbase · Δquote)` on the first provision, less a `MINIMUM_LIQUIDITY`
+   tranche; `min(Δbase / baseReserves, Δquote / quoteReserves) · totalSupply`
+   thereafter), and the new `Pool` records the increased reserves and supply.
+
+**Removal flow (LP burn).** Removal is the inverse. The LP presents its LP-token
+holding, and `VENUE_OPERATOR` exercises the removal choice: in one transaction it
+archives (burns) that holding as a sibling consequence and settles the withdrawal
+of the proportional `(shares / totalSupply)` of each reserve from the pool account
+back to the LP as transfer legs, recreating the `Pool` with reduced reserves and
+supply.
+
+### The AMM Math
 
 **How traders view the current price.** The price is derived directly from the **`Pool` reserves**
 (`quoteReserves`, `baseReserves`, adjusted for `feeBps`).
@@ -237,31 +241,16 @@ inputs to the trader's own signed allocation - the trader's signed sender side s
 (`amountIn`, input instrument), its signed receiver side should equal (`Δout`, output
 instrument), and that these two transfer legs are the only legs in the settlement. Hence, neither the venue operator nor a stale quote can move reserves off a value the trader did not sign.
 
-**Co-atomicity.** The `Pool` reserve transition and the asset movement are
-**one** Daml transaction. A single exercise of `PoolRules_Swap` → `Pool_Swap`
-(driven by `venueOperator`, co-controlled by `attestorPool`):
-
-1. settles **two** committed allocations - the trader's (input `Δin`) and the pool's own (output `Δout`, funded from
-   the pool-account holdings) - debiting `Δin` from the trader and crediting `Δout` to them, and
-2. archives the current `Pool`, recreating it with reserves updated by `+Δin / −Δout`.
-
-There is no intermediate state in which reserves have moved but the legs have not settled,
-or vice versa: either the whole tuple (reserve update + every settlement leg)
-commits, or the transaction rolls back and nothing changes. This is what keeps
-the published pool price and the assets actually delivered mutually consistent.
-
 ### Liquidity Provision, Removal, and Fee Accrual
 
 The same spine carries the non-swap flows the grant M2 acceptance requires; all
 remain atomic via `SettlementFactory_SettleBatch`.
 
-- **Pool creation.** `VENUE`, `VENUE_LP_REGISTRAR`, and the
-  `attestorPool` jointly create the `Pool` (their joint signature is the
-  configured consensus topology). Initial reserves are seeded by the first
-  liquidity provision.
+- **Pool creation.** `VENUE_OPERATOR` and `LP_TOKEN_ISSUER` jointly create the
+  `Pool`. Initial reserves are seeded by the first liquidity provision.
 - **Liquidity provision.** The LP allocates *both* instruments (two committed
   `Allocation`s) and the venue operator batch-settles them into the pool reserves; in
-  the same transaction the `VENUE_LP_REGISTRAR` mints LP tokens proportional to
+  the same transaction the `LP_TOKEN_ISSUER` mints LP tokens proportional to
   the contributed share. The new `Pool` reflects increased reserves.
 - **Liquidity removal.** The LP burns LP tokens; the batch settles a withdrawal
   of the proportional share of *both* reserves back to the LP, and a new `Pool`
@@ -309,10 +298,9 @@ fields. When cross-domain identity is introduced later, a new serializable type
 representing the cross-domain proof is appended within the existing `Optional`
 parameter, leaving the single-domain `KycClaim` logic fully functional.
 
-### D4: Authority Through Single-Admin Capability
+### D4: Authority and Privilege Transfer
 
-Institutional DeFi requires administrative power to be explicit and accountable: every privileged action traces to a named authority. The critical actions of this reference implementation (LP-token minting and burning, executing a swap, locking and sweeping, app-ownership handoff, etc.) will be controlled via a **single-admin capability
-authority**. `VENUE_OPERATOR` or `VENUE_ASSET_ADMIN` will use `oz-access-control` primitives, with ownership handoff capabilities.
+Institutional DeFi requires administrative power to be explicit and accountable: every privileged action traces to a named authority. There is no single admin holding every privilege. Each action sits with the role responsible for it: LP-token minting and burning with the `LP_TOKEN_ISSUER`, swap execution with the `VENUE_OPERATOR`, and lock-and-sweep with the instrument issuer. These privileges are granted, transferred, and revoked through `oz-access-control` role administration and the `oz-ownable` two-step ownership handover, so authority can move between parties without redeploying. A permission is bound by direct controllership when its holder is fixed for the life of the contract, and through `oz-access-control` (`RoleGrant` / `requireRole`) when it must be swappable or revocable without recreating the contract.
 
 ### Implementing Smart Contract Upgrades
 
@@ -331,278 +319,176 @@ SCU extensions are not security retrofits: adding a stricter choice does
 not close the looser one. If `PoolRules_Swap` were simply left live and the
 frontend routed around it, anyone could bypass the frontend and call the weaker
 path directly, making the jurisdiction check optional in practice. Hence, the upgrade will also aim to make the `PoolRules_Swap` choice fail unconditionally, and be marked as `deprecated`.
+
 ---
 
-## 4. Interfaces & Usage Examples
+## 4. Implementation and Component Structure
 
-Interfaces are prioritized by Security, Simplicity, Readability, and
-Auditability. Code below is idiomatic Daml that composes with the real
-components above. Templates introduced by the RI (not present in the spine
-today) are tagged `[FUTURE]`.
+The code below is idiomatic Daml that composes with the libraries above. These snippets are illustrative rather than production code: they exemplify the flows and highlight the key parts, so they omit non-essential detail such as basic checks, the `ensure` block, and most comments.
 
 ### 4.1 Component: Pool State and Configuration
 
-The `Pool` holds the constant-product AMM state and uses the spine's
-`D1ComplianceHook` data record as an `Optional` SCU extension point. The
-reserve-update logic lives **here**, as a *consuming* choice on `Pool` (not on
-`PoolRules`), and rests on the signatory-vs-controller distinction developed in
-[section 3](#3-how-we-implement-it). Recreating the successor `Pool` runs on the signatories' *inherited* authority
-— `venue operator + lpRegistrar + attestorPool` — so the choice archives-and-recreates
-and returns the new `ContractId` with no dangling pointer, and `lpRegistrar`'s
-recreate authority is present without `lpRegistrar` acting per-swap. Forcing the
-attestors to validate *this* swap is separate: they are made **controllers**
-(`controller operator :: attestorPool`), because inherited authority alone would
-let the venue operator drive a swap the attestors never see. All-of-M controllers here
-for the reference; an N-of-M threshold is an open question.
+The `Pool` holds the constant-product AMM state. The reserve-update logic lives
+**here**, as a *consuming* choice (`Pool_Swap`) controlled by `venueOperator`,
+which archives this `Pool` and recreates the successor with updated reserves.
+`d1ComplianceHook` is the spine's config record, carried as an `Optional` SCU
+extension point.
 
 ```daml
--- Pool AND PoolRules live in one module in the realized package.
+-- Pool and PoolRules live in one module; the module is the source of truth.
 module OpenZeppelin.Experimental.Dex.Amm where
 
-import OpenZeppelin.Experimental.Settlement.Cip112  -- spine: D1ComplianceHook, etc.
+import OpenZeppelin.Experimental.Settlement.Cip112
 import OpenZeppelin.Experimental.TokenStandard.V2.Holding (InstrumentId)
 import OpenZeppelin.Experimental.TokenStandard.V2.Allocation (SettlementInfo, TransferLeg)
 import OpenZeppelin.Pausable (PauseState, whenNotPaused)
--- `allDistinct` is a local helper (see the module) — keeps the Prelude the only
--- stdlib dependency.
 
--- | The core state of the constant-product AMM.
+-- | Constant-product AMM state. Reserves are `Decimal` accounting figures; the
+-- assets themselves live in `poolAccount`.
 template Pool
   with
     venueOperator : Party
-    lpRegistrar : Party
-    attestorPool : [Party]            -- explicitly configured consensus topology
-    -- Typed instrument identity, not bare Text: an InstrumentId binds the id to
-    -- its issuing admin, so a Pool can only name instruments that admin issued.
+    lpTokenIssuer : Party
     baseInstrumentId : InstrumentId
     quoteInstrumentId : InstrumentId
-    -- The canonical account whose holdings are the reserves. Bound into every
-    -- swap (below) so the counterparty the trader signed cannot be a different
-    -- account — the last axis of reserves-vs-holdings drift.
     poolAccount : Account
     baseReserves : Decimal
     quoteReserves : Decimal
     feeBps : Decimal
-    -- SCU extension point: forward compatibility for D1/D3 overlays.
-    -- The spine's D1ComplianceHook is a config record (hookRef,
-    -- requiresPerSettlementReference), not a contract id.
-    d1ComplianceHook : Optional D1ComplianceHook
+    d1ComplianceHook : Optional D1ComplianceHook   -- SCU extension point
   where
-    signatory venueOperator, lpRegistrar
-    signatory attestorPool            -- joint attestor signatories
-    -- No `observer venueOperator`: venueOperator is already a signatory, hence a
-    -- stakeholder with full visibility — an observer clause would be redundant.
+    signatory venueOperator, lpTokenIssuer
 
-    -- Security guards: mathematical sanity and structural well-formedness.
-    -- (A starting point, not exhaustive.)
-    ensure
-      baseReserves >= 0.0 &&
-      quoteReserves >= 0.0 &&
-      feeBps >= 0.0 && feeBps <= 10000.0 &&
-      baseInstrumentId /= quoteInstrumentId &&        -- the two legs must differ
-      allDistinct (venueOperator :: lpRegistrar :: attestorPool) &&  -- all parties distinct
-      not (null attestorPool)                          -- consensus set non-empty
-
-    -- Reserve update as a consuming choice on Pool, co-controlled by the
-    -- attestors so each swap requires their authorization (not just their
-    -- one-time signature on the Pool). It archives this Pool and creates the
-    -- successor (recreate authority is inherited from the signatories), and
-    -- returns the new cid.
+    -- Consuming: archives this Pool and recreates it with updated reserves.
+    -- Controlled by venueOperator; correctness is enforced in the body.
     choice Pool_Swap : (ContractId SettlementReceipt, ContractId Pool)
       with
-        traderAllocationId : ContractId Allocation  -- trader's committed input (Δin); its
-                                                    -- signed ReceiverSide is the exact-out bound
-        poolAllocationId : ContractId Allocation     -- pool's own leg, funded from pool-account holdings
+        traderAllocationId : ContractId Allocation   -- trader's committed input
+        poolAllocationId : ContractId Allocation      -- pool's own output leg
         pauseStateId : ContractId PauseState
         baseToQuote : Bool
-        amountIn : Decimal                  -- Δin; must equal the trader's signed input leg
-        outputAmount : Decimal              -- the trader's signed exact output
-        settlementFactoryId : ContractId SettlementFactory
-        settlement : SettlementInfo
-        transferLegs : [TransferLeg]        -- exactly: trader→pool Δin, pool→trader Δout
-        d1ComplianceRef : Optional Text
-      controller venueOperator :: attestorPool   -- venueOperator drives; attestors co-sign each swap
-      do
-        -- Positivity first: the reserve arithmetic runs off `amountIn` directly,
-        -- so a non-positive input must be rejected before it touches the curve.
-        assertMsg "positive input required" (amountIn > 0.0)
-        -- Pause guard here (Pool_Swap is directly exercisable, so guarding only
-        -- in PoolRules would leave a bypass).
-        pause <- fetch pauseStateId
-        whenNotPaused pause
-        -- Constant-product math (integer-bps fee form; division-safe). Derive the
-        -- typed instruments for the direction alongside the reserves.
-        let (reserveIn, reserveOut) =
-              if baseToQuote then (baseReserves, quoteReserves)
-                             else (quoteReserves, baseReserves)
-            (inInstrument, outInstrument) =
-              if baseToQuote then (baseInstrumentId, quoteInstrumentId)
-                             else (quoteInstrumentId, baseInstrumentId)
-            amountInWithFee = amountIn * (10000.0 - feeBps) / 10000.0
-            dOut = (reserveOut * amountInWithFee) / (reserveIn + amountInWithFee)
-        -- k-invariant re-asserted on-ledger; each attestor re-derives it off its
-        -- own view before co-signing (they are controllers, so their sign-off is
-        -- required for this transition — not merely delegated once at creation).
-        assertMsg "constant-product invariant violated"
-          ((reserveIn + amountInWithFee) * (reserveOut - dOut) >= reserveIn * reserveOut)
-        assertMsg "quote drift: signed output != curve output" (outputAmount == dOut)
-        -- On-ledger binding. `amountIn`, `dOut`, `baseToQuote`, and `transferLegs`
-        -- are all submitter-supplied; nothing above ties them to what the trader
-        -- signed. So read the trader's committed allocation and bind them: its
-        -- signed sender side must be exactly (amountIn, input instrument), its
-        -- signed receiver side exactly (dOut, output instrument), and the settled
-        -- `transferLegs` must be exactly the two legs those signed sides describe
-        -- (the `otherside` is the pool account). This upgrades reserves==holdings
-        -- and exact-out from attestor diligence to on-ledger enforcement: the
-        -- reserve math cannot run off numbers different from what actually settles.
-        traderAlloc <- fetch traderAllocationId
-        let traderAccount = traderAlloc.allocation.authorizer
-            signedSides = traderAlloc.allocation.transferLegSides
-        inSide <- case filter (\s -> s.side == SenderSide) signedSides of
-          [s] -> pure s
-          _ -> abort "trader allocation must sign exactly one sender (input) side"
-        outSide <- case filter (\s -> s.side == ReceiverSide) signedSides of
-          [s] -> pure s
-          _ -> abort "trader allocation must sign exactly one receiver (output) side"
-        assertMsg "signed input side != (amountIn, input instrument)"
-          (inSide.amount == amountIn && inSide.instrumentId == inInstrument.id)
-        assertMsg "signed output side != (dOut, output instrument)"
-          (outSide.amount == dOut && outSide.instrumentId == outInstrument.id)
-        -- Bind the counterparty identity: both signed sides must face this pool's
-        -- canonical account, so the reserve delta tracks the pool's holdings, not
-        -- whatever account the trader happened to be quoted.
-        assertMsg "input counterparty is not the pool account" (inSide.otherside == poolAccount)
-        assertMsg "output counterparty is not the pool account" (outSide.otherside == poolAccount)
-        let expectedInLeg = TransferLeg with
-              transferLegId = inSide.transferLegId
-              sender = traderAccount; receiver = poolAccount
-              amount = amountIn; instrumentId = inInstrument.id; meta = inSide.meta
-            expectedOutLeg = TransferLeg with
-              transferLegId = outSide.transferLegId
-              sender = poolAccount; receiver = traderAccount
-              amount = dOut; instrumentId = outInstrument.id; meta = outSide.meta
-        assertMsg "settled legs != the two legs the trader signed"
-          (transferLegs == [expectedInLeg, expectedOutLeg])
-        -- Atomic DvP: both the trader's input allocation and the pool's own
-        -- output allocation (funded from the pool account) settle in one batch.
-        -- SettleBatch's both-sided check pins each leg's exact amount to a signed
-        -- allocation side (`containsSide` compares amounts), so the venueOperator can
-        -- neither short the trader nor mint the pool's output from nothing.
-        receipts <- exercise settlementFactoryId SettlementFactory_SettleBatch with
-          settlement
-          transferLegs
-          allocationCids = [traderAllocationId, poolAllocationId]
-          actors = [venueOperator]
-          d1ComplianceRef
-        let (newBase, newQuote) =
-              if baseToQuote then (baseReserves + amountIn, quoteReserves - dOut)
-                             else (baseReserves - dOut, quoteReserves + amountIn)
-        newPool <- create this with baseReserves = newBase; quoteReserves = newQuote
-        traderReceipt <- case receipts of
-          r :: _ -> pure r                  -- receipts align with allocationCids order
-          [] -> abort "SettleBatch returned no receipt"
-        pure (traderReceipt, newPool)
-```
-
-### 4.2 Component: Swap Execution Rules
-
-`PoolRules` decouples static execution permissions from dynamic `Pool` state.
-Two deliberate choices:
-
-- **It stores no `poolId` or `pauseStateId` field.** `PauseState_Set` and every
-  reserve update are *consuming* (archive-and-recreate), so any stored
-  `ContractId` would be bricked after the first pause toggle or swap. The current
-  `Pool` and `PauseState` are therefore **passed as choice arguments** (disclosed
-  by the venue operator/pauser at exercise time), never persisted on `PoolRules`.
-- **The reserve update is delegated to `Pool_Swap`** (the consuming choice on
-  `Pool`, [section 4.1](#41-component-pool-state-and-configuration-implemented-experimental)). `PoolRules_Swap` is **co-controlled by the attestors**
-  (`venueOperator :: attestorPool`), not `controller venueOperator`. This is the same
-  per-swap-consent requirement as in [section 3](#3-how-we-implement-it): `PoolRules` is itself signed by
-  `attestorPool`, so an venue operator-only entry choice would leak the attestors'
-  authority to the choice's consequences and recreate `Pool` without any attestor
-  authorizing the specific swap.
-
-```daml
--- (same module OpenZeppelin.Experimental.Dex.Amm as section 4.1 — Pool_Swap is in scope)
-
-template PoolRules
-  with
-    venueOperator : Party
-    attestorPool : [Party]
-  where
-    signatory venueOperator
-    signatory attestorPool
-
-    -- Origination gate. `SettlementFactory_CreateAllocationRequest` is controlled
-    -- by the settlement executors, not the trader, so a trader-controlled choice
-    -- cannot create the request. `PoolRules_RequestSwap` is therefore a pause-gated *intent signal*;
-    -- the committed input `Allocation` / `AllocationRequest` are built through the
-    -- standard spine lifecycle (executor creates the request; the trader accepts
-    -- the instruction, locking funds and signing their exact amounts).
-    nonconsuming choice PoolRules_RequestSwap : ()
-      with
-        trader : Party
-        pauseStateId : ContractId PauseState        -- current PauseState, passed in (not stored)
-      controller trader
-      do
-        pause <- fetch pauseStateId
-        whenNotPaused pause                          -- block intent if venue halted
-        pure ()
-
-    -- Atomic DvP. Co-controlled by the attestors so the venue operator cannot drive a
-    -- swap alone (see the note above), then delegates the reserve update to
-    -- Pool_Swap, which archives-and-recreates and returns the successor cid — no
-    -- dangling pointer, and the pool math is attestor-validated, not venue operator-set.
-    nonconsuming choice PoolRules_Swap : (ContractId SettlementReceipt, ContractId Pool)
-      with
-        poolId : ContractId Pool                     -- current pool, passed in (not stored)
-        pauseStateId : ContractId PauseState          -- current PauseState, passed in (not stored)
-        traderAllocationId : ContractId Allocation
-        poolAllocationId : ContractId Allocation       -- pool's own output leg
-        baseToQuote : Bool
         amountIn : Decimal
-        outputAmount : Decimal                         -- trader's signed exact output
         settlementFactoryId : ContractId SettlementFactory
         settlement : SettlementInfo
         transferLegs : [TransferLeg]
         d1ComplianceRef : Optional Text
-      controller venueOperator :: attestorPool             -- attestors co-sign each swap
+      controller venueOperator
       do
-        pause <- fetch pauseStateId
-        whenNotPaused pause                          -- defence-in-depth; Pool_Swap re-checks
+        fetch pauseStateId >>= whenNotPaused
+        let (reserveIn, reserveOut, inInstrument, outInstrument) =
+              if baseToQuote then (baseReserves, quoteReserves, baseInstrumentId, quoteInstrumentId)
+                             else (quoteReserves, baseReserves, quoteInstrumentId, baseInstrumentId)
+            amountInWithFee = amountIn * (10000.0 - feeBps) / 10000.0
+            dOut = (reserveOut * amountInWithFee) / (reserveIn + amountInWithFee)
+        assertMsg "constant-product invariant violated"
+          ((reserveIn + amountInWithFee) * (reserveOut - dOut) >= reserveIn * reserveOut)
+
+        -- KEY: bind the curve to what the trader signed, so the reserve math
+        -- cannot run off amounts that never settle. Require the trader's signed
+        -- input side == (amountIn, input, poolAccount), output side == (dOut,
+        -- output, poolAccount), and `transferLegs` to be exactly those two legs.
+        traderAlloc <- fetch traderAllocationId
+        let sides = traderAlloc.allocation.transferLegSides
+        inSide  <- case filter (\s -> s.side == SenderSide)   sides of [s] -> pure s; _ -> abort "one input side"
+        outSide <- case filter (\s -> s.side == ReceiverSide) sides of [s] -> pure s; _ -> abort "one output side"
+        assertMsg "input side mismatch"
+          (inSide.amount == amountIn && inSide.instrumentId == inInstrument.id && inSide.otherside == poolAccount)
+        assertMsg "output side mismatch"
+          (outSide.amount == dOut && outSide.instrumentId == outInstrument.id && outSide.otherside == poolAccount)
+
+        -- Atomic DvP: settle the trader's input and the pool's output in one batch.
+        receipts <- exercise settlementFactoryId SettlementFactory_SettleBatch with
+          settlement; transferLegs
+          allocationCids = [traderAllocationId, poolAllocationId]
+          actors = [venueOperator]; d1ComplianceRef
+        let (newBase, newQuote) =
+              if baseToQuote then (baseReserves + amountIn, quoteReserves - dOut)
+                             else (baseReserves - dOut, quoteReserves + amountIn)
+        newPool <- create this with baseReserves = newBase; quoteReserves = newQuote
+        pure (head receipts, newPool)
+```
+
+### 4.2 Component: Swap Execution Rules
+
+`PoolRules` decouples execution permissions from the dynamic `Pool` state. It
+stores no `Pool` or `PauseState` cid (both are archive-and-recreate, so a stored
+cid would brick); the current ones are passed as choice arguments.
+`PoolRules_Swap` is controlled by `venueOperator` and delegates the reserve update
+to `Pool_Swap`, whose on-ledger checks enforce correctness.
+
+```daml
+-- (same module as 4.1; Pool_Swap is in scope)
+
+template PoolRules
+  with
+    venueOperator : Party
+  where
+    signatory venueOperator
+
+    -- Pause-gated intent signal; the committed Allocation / AllocationRequest are
+    -- built through the standard spine lifecycle.
+    nonconsuming choice PoolRules_RequestSwap : ()
+      with
+        trader : Party
+        pauseStateId : ContractId PauseState
+      controller trader
+      do
+        fetch pauseStateId >>= whenNotPaused
+        pure ()
+
+    -- Delegates the reserve update to Pool_Swap.
+    nonconsuming choice PoolRules_Swap : (ContractId SettlementReceipt, ContractId Pool)
+      with
+        poolId : ContractId Pool
+        pauseStateId : ContractId PauseState
+        traderAllocationId : ContractId Allocation
+        poolAllocationId : ContractId Allocation
+        baseToQuote : Bool
+        amountIn : Decimal
+        settlementFactoryId : ContractId SettlementFactory
+        settlement : SettlementInfo
+        transferLegs : [TransferLeg]
+        d1ComplianceRef : Optional Text
+      controller venueOperator
+      do
         exercise poolId Pool_Swap with
           traderAllocationId; poolAllocationId; pauseStateId
-          baseToQuote; amountIn; outputAmount
+          baseToQuote; amountIn
           settlementFactoryId; settlement; transferLegs; d1ComplianceRef
 ```
 
-### 4.3 Component: D2 Seizure and D4 Authority
+### 4.3 Component: D1 Node Attestation
 
-D2 seizure uses the **real spine choices**, gated by the single-admin
-`BurnerCapability` `[IMPLEMENTED]`. There is no separate `ExecuteSeizure`
-template — the `D2SeizureHook` is a config record carrying the preset
-`custodianDestination`, and the action runs on the `Allocation` itself.
+D1 compliance is enforced at settle time and fails closed. A `SettlementFactory`
+set with `requiresNodeAttestation` closes the plain path, forcing every settlement
+through `SettlementFactory_SettleBatchWithAttestation`, which is given a signed
+`NodeComplianceAttestation` and a `TrustedAttesterRegistry`.
+
+The factory verifies and **consumes** the attestation before settling (single-use,
+no replay). Because it passes its own admin into the check, the attester must be
+trusted by the factory's own registry, not one the caller supplies; the attestation
+must also cover this settlement, bind to the batch's exact transfer-leg set, and be
+within its validity window.
 
 ```daml
--- [IMPLEMENTED] spine config record (OpenZeppelin.Experimental.Settlement.Cip112):
---   data D2SeizureHook = D2SeizureHook with
---     seizureCaseRef : Text
---     custodianDestination : Account   -- preset; never burn, never return-to-sender
---     inFlightHandlingStatus : Text
---
--- [IMPLEMENTED] capability (single-admin authority, D4):
---   template BurnerCapability with
---     admin : Party; assignee : Party
---     instrumentScope : Optional InstrumentId; featureFlag : Text
+-- Executors settle by presenting the attestation and the registry.
+exercise factoryCid SettlementFactory_SettleBatchWithAttestation with
+  settlement; transferLegs; allocationCids; actors
+  attestationCid; registryCid
 
--- Seizure of an in-flight allocation (two real choices on `Allocation`):
---   1. Block settlement of the targeted allocation:
---        exercise allocationId Allocation_MarkD2InFlightSeizure with seizureHook = ...
---   2. Lock-and-sweep to the preset custodian (BurnerCapability-gated):
---        exercise allocationId Allocation_SweepD2InFlightSeizure with
---          burnerCap = burnerCapId          -- proves D4 single-admin authority
---          -- destination is the hook's custodianDestination; the choice fails
---          -- closed if parameters are tampered with.
+-- The factory calls the attestation's consuming verify, passing its own admin:
+choice NodeComplianceAttestation_Verify : Text
+  with
+    settlement : SettlementInfo; transferLegs : [TransferLeg]
+    registryCid : ContractId TrustedAttesterRegistry; factoryAdmin : Party
+  controller settlement.executors
+  do
+    registry <- fetch registryCid
+    assertMsg "registry not the factory's" (registry.admin == factoryAdmin)      -- right admin root
+    assertMsg "attester not trusted"        (attester `elem` registry.attesters)
+    assertMsg "wrong settlement"            (settlementRef == settlement.settlementRef.id)
+    -- also: bound to this batch's exact leg set; now within [issuedAt, expiresAt]
+    pure claimKind
 ```
 
 ---
@@ -619,8 +505,7 @@ The following Mermaid diagrams are structurally compatible with the **proposed**
 classDiagram
     class Pool {
         +Party venueOperator
-        +Party lpRegistrar
-        +List~Party~ attestorPool
+        +Party lpTokenIssuer
         +InstrumentId baseInstrumentId
         +InstrumentId quoteInstrumentId
         +Account poolAccount
@@ -632,7 +517,6 @@ classDiagram
     }
     class PoolRules {
         +Party venueOperator
-        +List~Party~ attestorPool
         +PoolRules_RequestSwap()
         +PoolRules_Swap()
     }
@@ -674,7 +558,7 @@ classDiagram
 
 Demonstrates per-authorizer allocation requests and atomic co-settlement via
 `SettlementFactory_SettleBatch`. The privacy boundary: the trader sees their
-allocation and receipt, not the backend pool routing or attestor verification.
+allocation and receipt, not the backend pool routing.
 
 ```mermaid
 sequenceDiagram
@@ -683,28 +567,28 @@ sequenceDiagram
     participant Wallet
     participant SettleFactory as SettlementFactory
     participant VenueOperator
-    participant Attestors as Decentralized Attestors
+    participant PoolAccount
     participant PoolContract as Pool State
 
     Trader->>Wallet: Initiate swap (Token A for Token B)
-    Wallet->>SettleFactory: SettlementFactory_CreateAllocationInstruction (Token A)
-    Wallet->>SettleFactory: AllocationInstruction_Accept (locks A, creates Allocation)
-    SettleFactory-->>Wallet: ContractId Allocation (committed)
-    Wallet->>VenueOperator: Submit AllocationRequest intent + Allocation CID
+    Wallet->>VenueOperator: Request swap (intent + quote)
+    VenueOperator->>SettleFactory: CreateAllocationRequest (names the legs)
+    Wallet->>SettleFactory: CreateAllocationInstruction + Accept (locks A)
+    SettleFactory-->>Wallet: committed Allocation (trader: send A, receive B)
+    PoolAccount->>SettleFactory: CreateAllocationInstruction + Accept (locks B)
+    SettleFactory-->>PoolAccount: committed Allocation (pool: send B, receive A)
 
     rect rgb(240, 248, 255)
-    Note over VenueOperator, PoolContract: Private venueOperator execution context
-    VenueOperator->>PoolContract: Read current state (x, y reserves)
-    VenueOperator->>Attestors: Request validation (proposed SettleBatch)
-    Attestors-->>VenueOperator: Attestation (Shape B + invariant x·y=k passed)
-    VenueOperator->>SettleFactory: SettlementFactory_SettleBatch
-    SettleFactory->>SettleFactory: Consume Allocation (Token A)
-    SettleFactory->>PoolContract: Archive old Pool, create new Pool (+A, -B)
-    SettleFactory->>Wallet: Credit output holding (Token B)
+    Note over VenueOperator, PoolContract: Private venueOperator execution
+    VenueOperator->>PoolContract: PoolRules_Swap → Pool_Swap
+    PoolContract->>SettleFactory: SettleBatch (both allocations)
+    SettleFactory->>Wallet: Credit Token B to trader
+    SettleFactory->>PoolAccount: Credit Token A to pool account
+    PoolContract->>PoolContract: Archive old Pool, create new (+A, -B)
     end
 
-    SettleFactory-->>Wallet: ContractId SettlementReceipt
-    Wallet-->>Trader: Swap confirmed (Token B balance updated)
+    SettleFactory-->>Wallet: SettlementReceipt
+    Wallet-->>Trader: Swap confirmed
 ```
 
 ---
@@ -730,7 +614,7 @@ containment boundaries.
   - Constant-product pool are exposed to the [*first-depositor / share-inflation* attack](https://www.openzeppelin.com/news/a-novel-defense-against-erc4626-inflation-attacks): the
   first LP mints a tiny LP-token supply, then donates assets directly into the
   pool to inflate share price and round later depositors' minted shares
-  down to zero. The LP-token mint path (`VENUE_LP_REGISTRAR`) must therefore
+  down to zero. The LP-token mint path (`LP_TOKEN_ISSUER`) must therefore
   either **burn a minimum initial liquidity** (lock the first `MINIMUM_LIQUIDITY`
   shares to a null party, the Uniswap-v2 approach) or **seed the pool from a
   trusted first provision** so the share price cannot be cheaply manipulated. This is a standard liquidity-pool hazard the reference implementation must address.
@@ -752,12 +636,11 @@ We propose a three-tier validation approach, based on verification tools built b
 
 | Vector | Attack | Mitigation |
 |---|---|---|
-| Malicious venue operator state manipulation | Venue operator submits a `SettleBatch` favoring their own holdings, bypassing the price curve or extracting excessive slippage. | `attestorPool` are **controllers** of the swap choice (not merely `Pool` signatories — see [section 3](#3-how-we-implement-it), "how the co-signature attaches"), so the venue operator cannot exercise it alone: each attestor must authorize the specific transition after re-deriving the curve. Without their co-authorization the transaction is not authorized and fails at the synchronizer. |
-| Compliance evasion (D1) | A sanctioned user routes through a secondary contract to obscure origin and bypass the [`D1ComplianceHook`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L41). | Shape-B compliance evaluates the true fund origin at the `SettleBatch` layer; fail-closed. Without a fresh, valid `MockVerificationResult` signed by a compliance node, the batch is invalid. |
-| Rogue seizure / asset burning (D2) | A compromised venue asset admin key attempts to maliciously burn user assets or return seized funds to unverified actors. | [`Allocation_SweepD2InFlightSeizure`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L625) hardcodes the destination to the preset `custodianDestination`; arbitrary burn is forbidden. A compromised venue asset admin can only sweep to the pre-approved, monitored custodian. |
+| Malicious venue operator state manipulation | Venue operator submits a `SettleBatch` favoring their own holdings, bypassing the price curve or extracting excessive slippage. | `Pool_Swap` enforces the curve on-ledger: it re-derives the output, asserts the `x·y=k` invariant, and binds the settled legs to the amounts the trader signed. A `SettleBatch` that favors the operator or departs from the curve fails these checks, so the operator cannot manipulate reserves even though it drives the swap. |
+| Compliance evasion (D1) | A sanctioned party tries to settle without a valid attestation, or with a stale, forged, or untrusted one. | A factory with `requiresNodeAttestation` forces settlement through `SettlementFactory_SettleBatchWithAttestation`, which verifies and consumes a `NodeComplianceAttestation` signed by a party in the factory admin's `TrustedAttesterRegistry`, bound to this settlement and within its validity window. No valid attestation, no settlement. |
+| Rogue seizure / asset burning (D2) | A compromised liquidity token issuer key attempts to maliciously burn user assets or return seized funds to unverified actors. | [`Allocation_SweepD2InFlightSeizure`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L625) hardcodes the destination to the preset `custodianDestination`; arbitrary burn is forbidden. A compromised liquidity token issuer can only sweep to the pre-approved, monitored custodian. |
 | Forced upgrades breaking in-flight allocations (SCU) | A poorly executed upgrade mutates fields, rendering existing `Allocation` contracts un-settleable. | Programmatic adherence to the SCU rule (Optional appends + new choices only). Existing `PoolRules` stay operable; in-flight transactions conclude before users transition. |
-| First-depositor share inflation | The first LP mints a negligible LP-token supply, then donates assets straight into the pool account to inflate the share price so later depositors' minted shares round to zero (they deposit, get ~0 shares, LP redeems the inflated pool). | Burn a `MINIMUM_LIQUIDITY` tranche on the first mint (locked to a null party) and/or seed from a trusted first provision, so share price cannot be cheaply skewed. Not yet built — flagged for the LP-mint logic. |
-| Venue Operator swap re-ordering / private MEV | The venue operator sees traders' allocations before batching and can order or delay `SettleBatch` submissions to its own benefit (e.g. sandwiching a large swap). MEV does **not** disappear on Canton — it moves from a public mempool into the venue operator's private view. | Attestors block *off-curve* execution, but **not** ordering. Mitigations are operational/design, not yet enforced on-ledger: commit-reveal or fair-ordering for allocation intake, per-swap slippage bounds carried on the trader's own signed request ([section 3](#3-how-we-implement-it)), and minimizing venue operator discretion via batching rules. See [section 7.4](#74-throughput-and-contention). |
+| Venue Operator swap re-ordering / private MEV | The venue operator sees traders' allocations before batching and can order or delay `SettleBatch` submissions to its own benefit (e.g. sandwiching a large swap). MEV does **not** disappear on Canton — it moves from a public mempool into the venue operator's private view. | The on-ledger invariant blocks *off-curve* execution, but **not** ordering. Mitigations are operational/design, not yet enforced on-ledger: commit-reveal or fair-ordering for allocation intake, per-swap slippage bounds carried on the trader's own signed request ([section 3](#3-how-we-implement-it)), and minimizing venue operator discretion via batching rules. See [section 6.4](#64-throughput-and-contention). |
 
 ### 6.4 Throughput and Contention
 
@@ -772,15 +655,11 @@ Against an EVM AMM the design also has structural throughput advantages: with no
 public mempool and no global state tree, (a) independent pools settle in parallel,
 (b) there is no public-mempool MEV/front-running tax on the critical path, and (c)
 several allocations can ride one `SettlementFactory_SettleBatch`, amortizing a
-consensus round over many legs. Removing the public mempool does not remove MEV,
-however — it relocates the ordering advantage to the venue operator, who alone sees
-allocations before batching; the attestor pool constrains *what* settles, not the
-*order*. That residual, and the hot-pool contention mitigations (pool sharding and
-venue operator-side swap batching), are open design questions.
+consensus round over many legs.
 
 ---
 
-## 8. Cross-Synchronizer Domain Extension (Planned) `[FUTURE]`
+## 7. Cross-Synchronizer Domain Extension (Planned) `[FUTURE]`
 
 > **Shared model:** the cross-synchronizer mechanism (per-synchronizer
 > assignment + unassign/assign reassignment, and the SCU-compliant additive
@@ -815,9 +694,8 @@ is reassigned.
 
 | Element | Single-domain v1 (today) | Cross-synchronizer extension (planned) |
 |---|---|---|
-| `Pool` state | One `Pool` on one synchronizer; `attestorPool` nodes all reachable there. | The `Pool` stays on a *home* synchronizer; cross-domain swaps reassign the trader's `Allocation` to the home synchronizer for the duration of `SettleBatch`, then reassign change/output back. |
+| `Pool` state | One `Pool` on one synchronizer. | The `Pool` stays on a *home* synchronizer; cross-domain swaps reassign the trader's `Allocation` to the home synchronizer for the duration of `SettleBatch`, then reassign change/output back. |
 | `Allocation` / `AllocationInstruction` | Created and settled on the same synchronizer as the `Pool`. | Must become **reassignable**: created on the trader's home synchronizer, unassigned, and assigned to the pool's synchronizer before `SettleBatch`. |
-| `attestorPool` consensus | All attestor parties hosted on the pool's synchronizer. | Attestor set must be reachable on the synchronizer where settlement occurs; cross-domain pools imply per-synchronizer attestor membership and a reassignment-aware threshold. |
 | D1 compliance | Node-side check on the settlement synchronizer. | Compliance must be re-evaluated on the synchronizer where the leg actually settles; a leg cannot "carry" a stale attestation across a reassignment (fail-closed still holds). |
 | D3 identity | Single-domain `KycClaim` from a trusted issuer on one synchronizer. | Cross-domain identity (ONCHAINID / ERC-3643 / Chainlink CCID) resolved into a synchronizer-aware `TrustedIssuerRegistry`; this is the deferred D3 work. |
 
@@ -849,15 +727,12 @@ extend via `Optional` appends, new serializable types, and new choices):
   if an `Allocation` is assigned to the pool synchronizer but `SettleBatch` then
   fails — is the reassignment rolled back, or does the trader retain a
   re-home-able allocation? (Maps to the transfer-failure return-to-sender rule.)
-- **Attestor pool across synchronizers.** How is attestor membership and the
-  signing threshold defined when settlement can occur on more than one
-  synchronizer? Does each synchronizer carry its own attestor sub-pool?
 - **Cross-domain D1 freshness.** Confirm that compliance is always re-checked on
   the settling synchronizer and that no attestation is reused across a
   reassignment boundary.
 - **Tooling maturity.** Cross-synchronizer reassignment tooling is part of the
   evolving Canton/Digital Asset stack; this section assumes drop-in integration
-  as that tooling matures (consistent with the [section 2](#2-architecture-overview) attestor-pool assumption).
+  as that tooling matures.
 
 ---
 
@@ -880,7 +755,7 @@ extend via `Optional` appends, new serializable types, and new choices):
 | D1 compliance hook (config record seam) | [`D1ComplianceHook`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L41) | 🟡 |
 | D2 seizure: mark in-flight (lock) | [`Allocation_MarkD2InFlightSeizure`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L595) | 🟡 |
 | D2 seizure: sweep to preset custodian | [`Allocation_SweepD2InFlightSeizure`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L625), [`D2SeizureHook`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L46) | 🟡 |
-| D4 single-admin authority (burner capability) | [`BurnerCapability`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L98) | 🟡 |
+| D4 authority (burner capability) | [`BurnerCapability`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L98) | 🟡 |
 | Spine test suite | [`Cip112Settlement.daml`](../../test/daml/OpenZeppelin/Test/Cip112Settlement.daml) | ✅ |
 | Toy holding (unit of value, stand-in) | [`ToyHolding`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L133) | 🟡 |
 | Access control library | [`requireRole`](../../access-control/daml/OpenZeppelin/AccessControl.daml), [`RoleGrant`](../../access-control/daml/OpenZeppelin/AccessControl.daml), [`RoleAdmin`](../../access-control/daml/OpenZeppelin/AccessControl.daml) | ✅ |
@@ -888,33 +763,18 @@ extend via `Optional` appends, new serializable types, and new choices):
 | Pausable library (origination guard) | [`PauseState`](../../pausable/daml/OpenZeppelin/Pausable.daml), [`whenNotPaused`](../../pausable/daml/OpenZeppelin/Pausable.daml) | ✅ |
 | Real TSv2 holding interface (replaces `ToyHolding`) | `[FUTURE]` — not built in M1 | ⬜ |
 | Party-applied signed D1 attestation (on-ledger verify) | `[FUTURE]` — beyond the `D1ComplianceHook` reference field | ⬜ |
-| AMM `Pool` state (constant-product reserves) | [`Pool`](../../experiments/dex-amm/daml/OpenZeppelin/Experimental/Dex/Amm.daml) ([section 4.1](#41-component-pool-state-and-configuration-implemented-experimental)) | 🟡 |
-| `PoolRules` swap / request-swap; `Pool_Swap` reserve update (consuming, attestor-co-controlled, full-authority archive-and-recreate) | [`PoolRules` / `Pool_Swap`](../../experiments/dex-amm/daml/OpenZeppelin/Experimental/Dex/Amm.daml) (sections [4.1](#41-component-pool-state-and-configuration-implemented-experimental)–[4.2](#42-component-swap-execution-rules-implemented-experimental)) | 🟡 |
-| DEX swap exemplar (proves attestor co-consent, exact-out, reserves==holdings, pause guard at runtime) | [`dexSwapExemplar`](../../experiments/dex-amm/daml/OpenZeppelin/Experimental/Dex/Amm.daml) (run by `scripts/run-tests.sh`) | ✅ |
+| AMM `Pool` state (constant-product reserves) | [`Pool`](../../experiments/dex-amm/daml/OpenZeppelin/Experimental/Dex/Amm.daml) ([section 4.1](#41-component-pool-state-and-configuration)) | 🟡 |
+| `PoolRules` swap / request-swap; `Pool_Swap` reserve update (consuming, venueOperator-controlled, full-authority archive-and-recreate) | [`PoolRules` / `Pool_Swap`](../../experiments/dex-amm/daml/OpenZeppelin/Experimental/Dex/Amm.daml) (sections [4.1](#41-component-pool-state-and-configuration)–[4.2](#42-component-swap-execution-rules)) | 🟡 |
+| DEX swap exemplar (proves exact-out, reserves==holdings, pause guard at runtime) | [`dexSwapExemplar`](../../experiments/dex-amm/daml/OpenZeppelin/Experimental/Dex/Amm.daml) (run by `scripts/run-tests.sh`) | ✅ |
 | Liquidity provision / removal + LP-token mint/burn | `[FUTURE]` — RI business logic ([section 3](#3-how-we-implement-it)) | ⬜ |
 | Fee accrual (`feeBps` into reserves) | `[FUTURE]` — RI business logic ([section 3](#3-how-we-implement-it)) | ⬜ |
-| Cross-synchronizer operation (D3 deferred) | `[FUTURE]` — [section 8](#8-cross-synchronizer-domain-extension-planned-future), deferred | ⬜ |
+| Cross-synchronizer operation (D3 deferred) | `[FUTURE]` — [section 7](#7-cross-synchronizer-domain-extension-planned-future), deferred | ⬜ |
 
 ## 8. Open Design Questions
 
 Decisions to settle with the internal team before implementation, not M1 build
 items.
 
-- **Attestor threshold, liveness, and rotation.** `attestorPool : [Party]` is
-  currently a static array treated as all-of-M signatories, which means one
-  offline/unreachable attestor stalls every swap on that pool (liveness/DoS). An
-  **N-of-M threshold** is the intended mitigation (tolerate M−N outages), and it
-  makes rotation harder to DoS. **Rotation authorization** should require the
-  joint consent of all current *and* all incoming attestors, so no subset can
-  unilaterally swap the trust set. Dynamic add/remove, slashing for malicious
-  attestations, and the threshold mechanics all need definition, dependent on
-  forthcoming governance tooling.
-- **Attestor privacy minimization.** Because each attestor must currently see a
-  swap's reserves and `Δin`/`Δout` to verify the curve, a more decentralized
-  attestor set means less private swaps ([section 2](#2-architecture-overview)). A future direction is to let
-  attestors verify the invariant against a **zero-knowledge proof of correct
-  `Δout`** rather than the raw amounts, decoupling decentralization from
-  information leakage.
 - **Reserves == holdings invariant and consolidation.** The `Pool`'s reserve
   figures mirror value physically held in a pool account ([section 3](#3-how-we-implement-it)). The RI must
   maintain `reserves == Σ(pool-account holdings)` per instrument and define a
@@ -922,33 +782,29 @@ items.
   the pool account over time, so settlement stays cheap. Co-atomicity keeps the
   two from drifting within a transaction; the open question is the operational
   consolidation policy and who triggers it.
-- **First-deposit inflation mitigation.** The LP-token mint path must resist the
-  first-depositor share-inflation attack ([section 7.1](#71-security-invariants), [section 7.3](#73-threat-model-and-failure-modes)) — burn a `MINIMUM_LIQUIDITY`
-  tranche on first mint and/or seed from a trusted first provision. The exact
-  approach is deferred to when the mint/burn logic is built.
 - **Iterated settlement for incremental fills.** M1 enforces value conservation
   unconditionally and does not implement iterated settlement; `nextIterationFunding`
-  is inert forward-compatible Token Standard V2 metadata ([section 7.1](#71-security-invariants)). A future venue
+  is inert forward-compatible Token Standard V2 metadata ([section 6.1](#61-security-invariants)). A future venue
   that fills incrementally would add an iterated-settlement path that accounts
   cumulative net outflow across iterations against a committed budget, so a
   partial-fill sequence cannot exceed its funding.
 - **Venue operator ordering / private MEV.** Removing the public mempool relocates MEV
-  to the venue operator, which orders and times `SettleBatch` submissions ([section 7.4](#74-throughput-and-contention)). Fair
+  to the venue operator, which orders and times `SettleBatch` submissions ([section 6.4](#64-throughput-and-contention)). Fair
   intake (commit-reveal / fair-ordering), trader-signed slippage bounds, and
   batching rules that minimize venue operator discretion are candidate mitigations;
   none are enforced on-ledger today.
 - **Cross-domain identity resolution.** The architecture supports single-domain
   v1 identity with forward compatibility (D3). The off-ledger resolution
   mechanics for syncing external ONCHAINID / ERC-3643 attributes into the Canton
-  `TrustedIssuerRegistry` remain to be standardized (see [section 8](#8-cross-synchronizer-domain-extension-planned-future)).
+  `TrustedIssuerRegistry` remain to be standardized (see [section 7](#7-cross-synchronizer-domain-extension-planned-future)).
 - **D1 attestation shape.** Whether the contract stays oblivious (off-ledger
   gate) or verifies a signed node attestation on-ledger at exercise time is open;
   non-blocking via the optional hook + SCU path.
-- **Hot-pool throughput / contention ([section 7.4](#74-throughput-and-contention)).** Per-pool serialization is inherent
+- **Hot-pool throughput / contention ([section 6.4](#64-throughput-and-contention)).** Per-pool serialization is inherent
   to keyless archive-and-recreate. Pool sharding (parallel `Pool` contracts per
   pair) and venue operator-side swap batching (one `SettleBatch` applying a net reserve
-  delta) are the candidate mitigations; both need fairness modeling and an
-  attestor-verification story for batched transitions before adoption.
+  delta) are the candidate mitigations; both need fairness modeling before
+  adoption.
 - **Positioning vs. live venues.** A concrete, measured feature/throughput
   comparison against named live Canton DEXs is deferred to M2, when the mechanics
   exist and can be benchmarked rather than asserted.
@@ -960,7 +816,7 @@ items.
   factory routing, but passive LP tokens held idly do not trigger an upgrade
   cycle. The threshold criteria and off-ledger events for an issuer to invoke a
   force-upgrade on passive assets remain an operational policy decision for the
-  `VENUE_LP_REGISTRAR`.
+  `LP_TOKEN_ISSUER`.
 - **Composability with the other RIs** (forward-compatibility): DEX pools can be
   seeded with base/quote liquidity from **cross-chain stablecoin inflows** settled via the
   Stablecoin RI ([`03`](./03-cross-chain-stablecoin.md)), and the DEX is the
