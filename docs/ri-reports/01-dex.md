@@ -25,7 +25,7 @@ settlement, inside the [OpenZeppelin/canton-specs repository](https://github.com
 
 1. Privacy through per-party projection: a trader sees only the legs on which they are the sender or receiver. Other parties' trades are never visible to them.
 2. D1: Compliance through Party-Applied Attestation - compliance is checked per settlement, with no caching. Failure to adhere to compliance results in no trade.
-3. D2: Seizure through Preset Custodian Lock-and-Sweep - a priviledged party can sweep the funds in a locked allocation to a preset custodian account.
+3. D2: Seizure through Preset Custodian Lock-and-Sweep - a privileged party can sweep the funds in a locked allocation to a preset custodian account.
 
 Note that the same atomic settlement primitive can be leveraged to enable other types of venues, where mechanisms such as price discovery may differ (i.e. Central Limit Order Book, Request For Quote, etc.).
 
@@ -38,7 +38,7 @@ The reference implementation favors **simplicity and modular extensibility**. Th
 | Market Structure | A **spot** exchange whose enabling primitive is the **atomic DvP swap**. The venue built out in full is a constant-product AMM with a single liquidity pool (`x · y = k`).|
 | Core Flows | The four flows mentioned in the M2 acceptance criteria, each modeled as settlement over the spine: **pool creation** (venue operator + LP token issuer instantiate a `Pool`), **liquidity provision / removal** (depositing both instruments mints LP tokens; burning LP tokens returns proportional reserves), **swap execution** (two-leg atomic settlement), and **fee collection** (a percentage (`feeBps`) of each swap accrues into reserves, raising LP-token redemption value). |
 | Asset Representation | Fungible digital assets compliant with the CIP-0112 Token Standard V2 holding interfaces. LP tokens represent pool-share ownership and are minted/burned via the spine. |
-| Compliance & Control | D1: a settlement does not execute unless an attestor has signalled compliance. D2: a priviliedged party can block settlement and sweep allocation funds to a preset custodian account. D3: single-domain identity to cross-domain via Smart Contract Upgrade. |
+| Compliance & Control | D1: a settlement does not execute unless an attester has signalled compliance. D2: a privileged party can block settlement and sweep allocation funds to a preset custodian account. D3: single-synchronizer identity to cross-chain identity via Smart Contract Upgrade. |
 | Trust Topology | Operator-authorized venue: the `Pool` is signed by the venue operator and LP token issuer, and swap correctness is enforced on-ledger by the swap choice rather than by operator discretion. |
 | Component Integration | Direct reuse of `oz-access-control`, `oz-ownable`, `oz-pausable`, the CIP-0112 settlement spine, as well as patterns from the [`canton-token-template`](https://github.com/OpenZeppelin/canton-token-template),  [`canton-stablecoin`](https://github.com/OpenZeppelin/canton-stablecoin) and [`ShapeB`](../../experiments/identity-hook-shape-b/daml/OpenZeppelin/Experimental/Identity/ShapeB.daml) codebases. |
 
@@ -48,7 +48,7 @@ The reference implementation favors **simplicity and modular extensibility**. Th
 | Leverage Facilities | Margin trading, undercollateralized lending, dynamic funding rates, and any protocol-enshrined leverage. |
 | External Oracles | Dynamic pricing oracles dictating the pool's internal exchange rate. For our AMM, the constant-product invariant dictates the price. |
 | Legacy Standards | Any reliance on the superseded CIP-56 token standard or legacy V1 allocation paths. The RI integrates strictly with V2 abstractions. |
-| Cross-Synchronizer Operation | Multi-synchronizer / cross-domain settlement and identity are **deferred** (see [section 7](#7-cross-synchronizer-domain-extension-planned-future)). M1 is single-domain v1; the design is forward-compatible, not multi-domain today. |
+| Cross-Synchronizer Operation | Cross-synchronizer settlement and identity are **deferred** (see [section 7](#7-cross-synchronizer-extension-planned-future)). M1 is single-synchronizer v1; the design is forward-compatible, not multi-synchronizer today. |
 
 ### Target Ecosystem Participants
 
@@ -62,7 +62,7 @@ working decentralized application implementing two-step handshakes and per-party
 ### Educational Framing: How to Think About Building a DEX on Canton
 
 Moving from an EVM ecosystem to Canton requires a paradigm shift in state
-management, privacy boundaries, and consensus topology.
+management, privacy boundaries, and trust topology.
 
 In traditional EVM AMMs, smart contracts are autonomous, globally visible state
 machines holding aggregate pool balances. A single trader transaction
@@ -72,11 +72,11 @@ design, and front-running / MEV extraction via the public mempool is a
 structural reality.
 
 Canton operates on a privacy-preserving, **per-party projection** model enforced
-by the Canton consensus protocol. A Canton contract is an instance of a template, signed and authorized by a set of parties (signatories). A DEX on Canton cannot rely on a globally readable pool contract that any anonymous
-participant can unilaterally mutate. Daml-LF 2.1 is also **keyless**: state
+by the Canton protocol. A Canton contract is an instance of a template, signed and authorized by a set of parties (signatories). A DEX on Canton cannot rely on a globally readable pool contract that any anonymous
+actor can unilaterally mutate. Daml-LF 2.1 is also **keyless**: state
 changes by archive-and-recreate, not in-place mutation, and any signatory
-must actively co-authorize a state transition — so **two-step handshakes are a
-necessity, not a style choice**.
+must actively co-authorize a state transition — so **two-step handshakes —
+Daml's propose-and-accept pattern — are a necessity, not a style choice**.
 
 To build a mathematically sound AMM in this privacy-first environment, the
 architecture reconciles the transparency needed for price discovery and
@@ -97,7 +97,7 @@ in their own allocation.
 
 ## 2. Architecture Overview
 
-The architecture is assembled from reused OpenZeppelin Daml primitives (role management, two-step ownership handover, pausing), as well as the CIP-0112 settlement spine as the engine for all asset movement. This section maps each component to its library, then defines the party/role topology and the trust and consensus configuration.
+The architecture is assembled from reused OpenZeppelin Daml primitives (role management, two-step ownership handover, pausing), as well as the CIP-0112 settlement spine as the engine for all asset movement. This section maps each component to its library, then defines the party/role topology and the trust configuration.
 
 ### Core Components and Library Mapping
 
@@ -140,7 +140,7 @@ Duties are segregated and mapped to discrete Daml parties:
 Canton decentralizes a party along three independent axes, and the design
 assigns each role a deliberate position on each:
 
-1. **governance** - whose signatures can change the party's identity and hosting (re-home the party to their own participant and act freely);
+1. **governance** - whose signatures can change the party's identity and hosting (re-home the party to their own validator and act freely);
 2. **validation** - how many independent validators must confirm the party's transactions (the `PartyToParticipant` confirmation threshold; a threshold above 1 defends against a malicious validator, at a latency and cost premium, and such a party can no longer submit Ledger API commands directly - it acts through externally signed submissions or through choices submitted by others);
 3. **authorization** - what the Daml signatory/controller topology requires regardless of hosting.
 
@@ -334,16 +334,9 @@ Institutional DeFi requires that sanctioned or unverified parties cannot trade. 
 
 Institutional DeFi requires the ability to seize assets under judicial mandate. The RI aims to implement D2 via a strict **lock-and-sweep** pattern that locks the funds and sweeps them to a preset, custodian account. Our atomic-swap codebase currently showcases an experimental example via [`Allocation_MarkD2InFlightSeizure`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L595) for locking, as well as [`Allocation_SweepD2InFlightSeizure`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L625) for sweeping the locked holdings to a preset, custodian account (i.e. a regulated cold-storage vault).
 
-### D3: Single-Domain Identity to Cross-Domain via SCU
+### D3: Single-Synchronizer Know-your-customer
 
-Institutional DeFi requires participants to be identified. The RI aims to implement D3 via a single-domain v1 identity architecture. Traders must hold a `KycClaim` issued by a party present in the `TrustedIssuerRegistry` to interact with permissioned pools. D1 (compliance) and D3 (identity) can be made **optional per pool** (permissioned vs permissionless).
-
-To stay forward-compatible with cross-domain models (ONCHAINID / ERC-3643 /
-Chainlink CCID) without breaking existing state, the system relies on the Smart Contract Upgrade Feature
-conventions: base templates declare identity requirements via `Optional`
-fields. When cross-domain identity is introduced later, a new serializable type
-representing the cross-domain proof is appended within the existing `Optional`
-parameter, leaving the single-domain `KycClaim` logic fully functional.
+Institutional DeFi requires participants to be identified. The RI aims to implement D3 via a single-synchronizer v1 identity architecture. Traders must hold a `KycClaim` issued by a party present in the `TrustedIssuerRegistry` to interact with permissioned pools. D1 (compliance) and D3 (identity) can be made **optional per pool** (permissioned vs permissionless).
 
 ### D4: Authority and Privilege Transfer
 
@@ -702,11 +695,11 @@ Against an EVM AMM the design also has structural throughput advantages: with no
 public mempool and no global state tree, (a) independent pools settle in parallel,
 (b) there is no public-mempool MEV/front-running tax on the critical path, and (c)
 several allocations can ride one `SettlementFactory_SettleBatch`, amortizing a
-consensus round over many legs.
+confirmation round-trip over many legs.
 
 ---
 
-## 7. Cross-Synchronizer Domain Extension (Planned) `[FUTURE]`
+## 7. Cross-Synchronizer Extension (Planned) `[FUTURE]`
 
 > **Shared model:** the cross-synchronizer mechanism (per-synchronizer
 > assignment + unassign/assign reassignment, and the SCU-compliant additive
@@ -716,35 +709,35 @@ consensus round over many legs.
 
 > **Status: out of scope for the initial M1 design; deferred and planned for
 > eventual development.** The CIP-0112 settlement scaffold in this workspace is
-> **single-synchronizer only** — there is no cross-domain / multi-synchronizer
-> machinery today, and D3 cross-domain identity is deferred. This section plans
+> **single-synchronizer only** — there is no cross-synchronizer
+> machinery today, and D3 cross-chain identity is deferred. This section plans
 > the extension so it can be added later **without re-architecting the
 > settlement core**, following
 > Canton's real cross-synchronizer model and the SCU forward-compatibility rule.
 
 ### 7.1 What "cross-synchronizer" means on Canton
 
-On Canton, every contract is **assigned to exactly one synchronizer domain** at a
+On Canton, every contract is **assigned to exactly one synchronizer** at a
 time; a transaction can only use contracts on the same synchronizer. Moving a
 contract between synchronizers is done by the **reassignment protocol**
 (unassign on the source synchronizer → assign on the target), not by mutation.
 A cross-synchronizer DEX therefore is not "one global pool seen everywhere"; it
 is a set of per-synchronizer contracts plus a disciplined reassignment workflow
-that preserves atomicity and privacy across domains.
+that preserves atomicity and privacy across synchronizers.
 
 This is the topology-layer analogue of the per-party projection mindset shift in
-[section 1](#1-product-definition): just as privacy is a function of who is a signatory/observer, cross-domain
+[section 1](#1-product-definition): just as privacy is a function of who is a signatory/observer, cross-synchronizer
 reach is a function of which synchronizer each contract is assigned to and how it
 is reassigned.
 
 ### 7.2 Where the DEX touches the synchronizer boundary
 
-| Element | Single-domain v1 (today) | Cross-synchronizer extension (planned) |
+| Element | Single-synchronizer v1 (today) | Cross-synchronizer extension (planned) |
 |---|---|---|
-| `Pool` state | One `Pool` on one synchronizer. | The `Pool` stays on a *home* synchronizer; cross-domain swaps reassign the trader's `Allocation` to the home synchronizer for the duration of `SettleBatch`, then reassign change/output back. |
+| `Pool` state | One `Pool` on one synchronizer. | The `Pool` stays on a *home* synchronizer; cross-synchronizer swaps reassign the trader's `Allocation` to the home synchronizer for the duration of `SettleBatch`, then reassign change/output back. |
 | `Allocation` / `AllocationInstruction` | Created and settled on the same synchronizer as the `Pool`. | Must become **reassignable**: created on the trader's home synchronizer, unassigned, and assigned to the pool's synchronizer before `SettleBatch`. |
-| D1 compliance | Node-side check on the settlement synchronizer. | Compliance must be re-evaluated on the synchronizer where the leg actually settles; a leg cannot "carry" a stale attestation across a reassignment (fail-closed still holds). |
-| D3 identity | Single-domain `KycClaim` from a trusted issuer on one synchronizer. | Cross-domain identity (ONCHAINID / ERC-3643 / Chainlink CCID) resolved into a synchronizer-aware `TrustedIssuerRegistry`; this is the deferred D3 work. |
+| D1 compliance | Party-applied check on the settlement synchronizer. | Compliance must be re-evaluated on the synchronizer where the leg actually settles; a leg cannot "carry" a stale attestation across a reassignment (fail-closed still holds). |
+| D3 identity | Single-synchronizer `KycClaim` from a trusted issuer on one synchronizer. | Cross-chain identity (ONCHAINID / ERC-3643 / Chainlink CCID) resolved into a synchronizer-aware `TrustedIssuerRegistry`; this is the deferred D3 work. |
 
 ### 7.3 The additive, non-breaking path (SCU-compliant)
 
@@ -753,18 +746,18 @@ extend via `Optional` appends, new serializable types, and new choices):
 
 1. **Append an `Optional` home-synchronizer descriptor.** Add
    `Optional SynchronizerScope` fields to `Pool` and the RI-level allocation
-   wrappers. Older single-domain contracts read `None` and behave exactly as
+   wrappers. Older single-synchronizer contracts read `None` and behave exactly as
    today.
-2. **Add a new, parallel cross-domain choice.** Introduce
-   `PoolRules_SwapCrossDomain` alongside the unchanged `PoolRules_Swap`. The new
+2. **Add a new, parallel cross-synchronizer choice.** Introduce
+   `PoolRules_SwapCrossSynchronizer` alongside the unchanged `PoolRules_Swap`. The new
    choice orchestrates the reassignment-aware flow; the original stays valid for
-   single-domain swaps and in-flight allocations.
-3. **Model reassignment explicitly as workflow, not mutation.** Cross-domain
+   single-synchronizer swaps and in-flight allocations.
+3. **Model reassignment explicitly as workflow, not mutation.** Cross-synchronizer
    settlement is: reassign trader `Allocation` to the pool synchronizer →
    `SettleBatch` there → reassign output/change holdings back. Each step is an
    archive-and-recreate-style assignment, consistent with Daml-LF 2.1.
 4. **Keep atomicity at the batch boundary.** True DvP remains
-   `SettlementFactory_SettleBatch` on a single synchronizer; cross-domain
+   `SettlementFactory_SettleBatch` on a single synchronizer; cross-synchronizer
    atomicity is achieved by reassigning all required legs onto that synchronizer
    *before* the batch, never by splitting one DvP across two synchronizers.
 
@@ -774,7 +767,7 @@ extend via `Optional` appends, new serializable types, and new choices):
   if an `Allocation` is assigned to the pool synchronizer but `SettleBatch` then
   fails — is the reassignment rolled back, or does the trader retain a
   re-home-able allocation? (Maps to the transfer-failure return-to-sender rule.)
-- **Cross-domain D1 freshness.** Confirm that compliance is always re-checked on
+- **Cross-synchronizer D1 freshness.** Confirm that compliance is always re-checked on
   the settling synchronizer and that no attestation is reused across a
   reassignment boundary.
 - **Tooling maturity.** Cross-synchronizer reassignment tooling is part of the
@@ -815,7 +808,7 @@ extend via `Optional` appends, new serializable types, and new choices):
 | DEX swap exemplar (proves exact-out, reserves==holdings, pause guard at runtime) | [`dexSwapExemplar`](../../experiments/dex-amm/daml/OpenZeppelin/Experimental/Dex/Amm.daml) (run by `scripts/run-tests.sh`) | ✅ |
 | Liquidity provision / removal + LP-token mint/burn | `[FUTURE]` — RI business logic ([section 3](#3-how-we-implement-it)) | ⬜ |
 | Fee accrual (`feeBps` into reserves) | `[FUTURE]` — RI business logic ([section 3](#3-how-we-implement-it)) | ⬜ |
-| Cross-synchronizer operation (D3 deferred) | `[FUTURE]` — [section 7](#7-cross-synchronizer-domain-extension-planned-future), deferred | ⬜ |
+| Cross-synchronizer operation (D3 deferred) | `[FUTURE]` — [section 7](#7-cross-synchronizer-extension-planned-future), deferred | ⬜ |
 
 ## 8. Open Design Questions
 
@@ -847,12 +840,12 @@ items.
   intake (commit-reveal / fair-ordering), trader-signed slippage bounds, and
   batching rules that minimize venue operator discretion are candidate mitigations;
   none are enforced on-ledger today.
-- **Cross-domain identity resolution.** The architecture supports single-domain
+- **Cross-chain identity resolution.** The architecture supports single-synchronizer
   v1 identity with forward compatibility (D3). The off-ledger resolution
   mechanics for syncing external ONCHAINID / ERC-3643 attributes into the Canton
-  `TrustedIssuerRegistry` remain to be standardized (see [section 7](#7-cross-synchronizer-domain-extension-planned-future)).
+  `TrustedIssuerRegistry` remain to be standardized (see [section 7](#7-cross-synchronizer-extension-planned-future)).
 - **D1 attestation shape.** Whether the contract stays oblivious (off-ledger
-  gate) or verifies a signed node attestation on-ledger at exercise time is open;
+  gate) or verifies a signed party attestation on-ledger at exercise time is open;
   non-blocking via the optional hook + SCU path.
 - **Hot-pool throughput / contention ([section 6.4](#64-throughput-and-contention)).** Per-pool serialization is inherent
   to keyless archive-and-recreate. Pool sharding (parallel `Pool` contracts per
