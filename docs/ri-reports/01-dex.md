@@ -398,6 +398,10 @@ template Pool
     baseReserves : Decimal
     quoteReserves : Decimal
     feeBps : Decimal
+    -- Home synchronizer, as an Optional SCU append. `None` is single-synchronizer
+    -- v1: the pool lives wherever it was created and makes no claim about it.
+    -- `Some sid` lets a caller pin its expectation (see the guard in Pool_Swap).
+    homeSynchronizerId : Optional Text
   where
     signatory venueOperator, lpTokenIssuer
 
@@ -415,8 +419,22 @@ template Pool
         transferLegs : [TransferLeg]
         attestationCid : ContractId NodeComplianceAttestation
         registryCid : ContractId TrustedAttesterRegistry
+        -- The caller's declared synchronizer. Optional, so omitting it keeps
+        -- today's single-synchronizer behaviour; declaring the wrong one fails
+        -- closed.
+        expectedSynchronizerId : Optional Text
       controller venueOperator
       do
+        -- Synchronizer expectation first: reject a pinned mismatch before any
+        -- state is read or math is run. Pinning against a pool that declares no
+        -- home is refused rather than silently accepted, so the guard cannot be
+        -- defeated by leaving `homeSynchronizerId` unset.
+        case (expectedSynchronizerId, homeSynchronizerId) of
+          (None, _) -> pure ()
+          (Some declared, Some home) ->
+            assertMsg "synchronizer mismatch" (declared == home)
+          (Some _, None) ->
+            abort "synchronizer pinned but this pool declares no home synchronizer"
         fetch pauseStateId >>= whenNotPaused
         let (reserveIn, reserveOut, inInstrument, outInstrument) =
               if baseToQuote then (baseReserves, quoteReserves, baseInstrumentId, quoteInstrumentId)
@@ -694,10 +712,17 @@ is reassigned.
 Following the non-negotiable SCU rule (never mutate an existing choice's args;
 extend via `Optional` appends, new serializable types, and new choices):
 
-1. **Append an `Optional` home-synchronizer descriptor.** Add
-   `Optional SynchronizerScope` fields to `Pool` and the RI-level allocation
-   wrappers. Older single-synchronizer contracts read `None` and behave exactly as
-   today.
+1. **Append an `Optional` home-synchronizer descriptor.** `Pool` carries
+   `homeSynchronizerId : Optional Text` and `Pool_Swap` carries
+   `expectedSynchronizerId : Optional Text` ([section 4.1](#41-component-pool-state-and-configuration)).
+   A Daml choice cannot *select* the synchronizer a transaction commits on, so
+   this is a declared-expectation guard, not routing: the caller states which
+   synchronizer it believes it is settling on and the pool rejects a mismatch.
+   Omitting it (`None`) keeps today's behaviour, supplying the pool's own home
+   works identically, and any other value fails closed. Pinning against a pool
+   that declares no home is refused rather than silently accepted, so the guard
+   cannot be defeated by leaving the pool's field unset. The same `Optional`
+   append extends to the RI-level allocation wrappers when those are built.
 2. **Add a new, parallel cross-synchronizer choice.** Introduce
    `Pool_SwapCrossSynchronizer` alongside the unchanged `Pool_Swap`. The new
    choice orchestrates the reassignment-aware flow; the original stays valid for
