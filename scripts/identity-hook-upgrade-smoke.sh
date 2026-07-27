@@ -146,7 +146,7 @@ trap cleanup EXIT
 
 oz_setup_dpm_env "$ROOT/.cache"
 oz_has_dpm || fail "dpm is not available; install DPM or expose ~/.dpm/bin/dpm"
-oz_has_java_21 || fail "Java 21 runtime is not available; install or expose a JDK before running dpm"
+oz_has_java_21_or_newer || fail "Java 21 or newer is not available; install or expose a JDK before running dpm"
 command -v lsof >/dev/null 2>&1 || fail "lsof is required for sandbox port ownership checks"
 
 require_port_free "$LEDGER_PORT" "Ledger API" "IDENTITY_HOOK_UPGRADE_LEDGER_PORT"
