@@ -133,7 +133,54 @@ Duties are segregated and mapped to discrete Daml parties:
   their own holdings.
 - **Custodian** - owns the preset account that receives funds swept by a D2
   seizure.
-- **Pool Account** - owns the holdings that back the pool's reserves.
+- **Pool Account** - owns the holdings that back the pool's reserves. Must authorize the tokens-out leg for swapping or burning liquidity tokens. 
+
+### Decentralization and Trust Topology
+
+Canton decentralizes a party along three independent axes, and the design
+assigns each role a deliberate position on each:
+
+1. **governance** - whose signatures can change the party's identity and hosting (re-home the party to their own participant and act freely);
+2. **validation** - how many independent validators must confirm the party's transactions (the `PartyToParticipant` confirmation threshold; a threshold above 1 defends against a malicious validator, at a latency and cost premium, and such a party can no longer submit Ledger API commands directly - it acts through externally signed submissions or through choices submitted by others);
+3. **authorization** - what the Daml signatory/controller topology requires regardless of hosting.
+
+For the roles that hold value-moving or supply-changing authority - the pool
+account, the LP token issuer, and the liquidity token issuer - the design
+envisions the EVM equivalent of an **N-of-M multisig**: no single key may
+exercise the role's authority. Canton offers two ways to implement this (which one is currently left as an open question)
+([section 8](#8-open-design-questions)):
+
+- **On-ledger approval workflow** - the multisig is written in Daml ([Multiple Party Agreement](https://docs.canton.network/appdev/modules/m3-design-patterns#multiple-party-agreement)): approvers
+  record approvals as contracts, and the final choice executes under the role
+  party's inherited authority only once a threshold of approvals exists.
+  Approvals are durable, named, and auditable on-ledger.
+- **External party with threshold signing keys** - the role party's
+  transactions require signatures from N of M keys (`PartyToKeyMapping`), held
+  by independent organizations. Invisible to the Daml code and a single ledger
+  transaction per action, but the signing ceremony must complete within the
+  prepared transaction's validity window, and the approval record stays
+  off-ledger. The implementation could leverage something like the [Bitsafe decentralization-manager](https://github.com/DLC-link/decentralization-manager).
+
+The powers of the **venue operator** are already bounded by trader signatures and on-ledger checks, so splitting its
+identity adds little. However, to increase the venue operator's availability, as well as protect against a malicious single validator, we envision it as a multi-hosted party on several validators, with a confirmation threshold >1.
+
+The **pause authority** is likewise multi-hosted so the brake is always
+reachable, but its confirmation threshold stays at 1: an emergency stop must
+be instant, and a quorum would slow it down. The price of that choice is a
+griefing window: a malicious pauser can freeze in-flight settlements until
+their deadlines lapse. This griefing is capped by the trader's right to reclaim the authorized funds after the expiration deadline.
+
+The **custodian** owns the preset account that receives D2 sweeps. It
+needs availability and protection against a malicious single validator, hence multi-hosting with confirmation threshold >1 suffices.
+
+The **D1 or D3 attesters** should be several independent parties in the
+`TrustedAttesterRegistry`, so no single attester can halt trading (no
+attestation, no trade). Compliance is then only as strict as the weakest listed attester, so
+membership is a policy decision.
+
+**Traders and liquidity providers** need no venue-side decentralization: the
+design is non-custodial, so they only ever trust their own keys and their own
+validator.
 
 ---
 
@@ -775,6 +822,13 @@ extend via `Optional` appends, new serializable types, and new choices):
 Decisions to settle with the internal team before implementation, not M1 build
 items.
 
+- **Multisig implementation for value-critical roles.** The pool account, LP
+  token issuer, and liquidity token issuer each require N-of-M authority
+  ([section 2](#decentralization-and-trust-topology)). Open: whether each role
+  uses the on-ledger approval workflow, an external party with threshold
+  signing keys, or a combination; the N and M per role; and the pre-delegation
+  mechanism that keeps the pool account's per-swap actions off the ceremony
+  path.
 - **Reserves == holdings invariant and consolidation.** The `Pool`'s reserve
   figures mirror value physically held in a pool account ([section 3](#3-how-we-implement-it)). The RI must
   maintain `reserves == Σ(pool-account holdings)` per instrument and define a
