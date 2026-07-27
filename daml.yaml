@@ -1,9 +1,9 @@
-sdk-version: 3.5.10
+sdk-version: 3.4.11
 name: oz-canton-specs
 source: daml
-version: 0.0.1
+version: 0.0.0
 dependencies:
   - daml-prim
   - daml-stdlib
 build-options:
-  - --target=2.3
+  - --target=2.1
