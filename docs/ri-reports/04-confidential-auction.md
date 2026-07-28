@@ -170,6 +170,89 @@ sequenceDiagram
     Auctioneer->>SettleFactory: Allocation_Cancel (losing bids, escrow released)
 ```
 
+### Data and State Flow
+
+The diagrams below decompose the design around the shared `Atomic settlement` hub:
+
+- **A** is the compliance and identity that gates it.
+- **B** is the escrow-and-bid flow that feeds it, with the confidentiality boundary marked.
+- **C** is the clearing settlement it performs, with `Compliance` plugging in from A.
+- **D** is the auctioneer-driven clearing that calls into it. Keyed contracts are marked with their key.
+
+**A. Compliance and identity (D1 + D3).** The registries list several independent attesters and verifiers (two shown); any listed attester can sign a per-settlement compliance attestation or a bidder's KYC claim, all checked at settlement.
+
+```mermaid
+flowchart TD
+    Attester([Attester])
+    Verifier([Verifier / KYC issuer])
+    AttReg[["TrustedAttesterRegistry<br/>key: admin"]]
+    IssReg[["TrustedIssuerRegistry<br/>key: admin"]]
+    Attn["PartyComplianceAttestation<br/>signed, single-use"]
+    Kyc["KycClaim<br/>signed"]
+    Gate["CredentialGatedActionRequest<br/>entry gate"]
+    Settle{{Atomic settlement}}
+
+    Attester -->|"listed in"| AttReg
+    Verifier -->|"listed in"| IssReg
+    Attester -->|"signs"| Attn
+    Verifier -->|"signs"| Kyc
+    Kyc -->|"green-lights participation"| Gate
+    Attn -->|"verify + consume"| Settle
+    AttReg -->|"fetchByKey admin; attester trusted?"| Settle
+    IssReg -->|"fetchByKey admin; issuer trusted?"| Settle
+```
+
+**B. Escrow and confidential bid.** The bidder locks payment capital into a committed allocation, then places the bid; the `BidRequest` is projected only to bidder and auctioneer, so no competitor ever sees it.
+
+```mermaid
+flowchart LR
+    Bidder([Bidder])
+    Auctioneer([Auctioneer])
+    Escrow["committed Allocation<br/>locked payment, deadline-bound"]
+    Bid["BidRequest<br/>signatory: bidder, observer: auctioneer"]
+    LP[["AuctionLaunchpad<br/>key: issuer + launched instrument"]]
+
+    Bidder -->|"CreateAllocationInstruction + Accept"| Escrow
+    Bidder -->|"AuctionLaunchpad_PlaceBid: floor, cap, escrow binding"| LP
+    LP -->|"creates"| Bid
+    Escrow -.->|"referenced by"| Bid
+    Bid -.->|"projected to"| Auctioneer
+```
+
+**C. Clearing settlement and holdings.** Each winner commits one two-sided allocation and the issuer commits one allocation carrying every issuer side; the atomic settlement exchanges them all in one all-or-nothing transaction, with compliance (from A) plugged in. Losing escrow is released, never swept.
+
+```mermaid
+flowchart LR
+    Winner([Winning bidder])
+    Loser([Losing bidder])
+    Issuer([Token Issuer])
+    Compliance(["Compliance (see A)"])
+    Settle{{Atomic settlement}}
+    Treasury[("Issuer treasury<br/>launched tokens + payment")]
+
+    Winner -->|"commit pay bidAmount + receive tokens"| Settle
+    Issuer -->|"commit all issuer sides"| Settle
+    Compliance -->|"gates"| Settle
+    Settle -->|"credit payment"| Treasury
+    Settle -->|"credit bidAmount / clearingPrice tokens"| Winner
+    Loser -.->|"Allocation_Cancel / post-deadline withdraw"| Loser
+```
+
+**D. Clearing execution and pausing.** The auctioneer drives the clearing against the keyed `AuctionLaunchpad`, which pause-gates by key, binds every leg to a signed bid, then calls into the atomic settlement.
+
+```mermaid
+flowchart TD
+    Auctioneer([Auctioneer / Pauser])
+    LP[["AuctionLaunchpad<br/>key: issuer + launched instrument"]]
+    Pause[["PauseState<br/>key: issuer + launched instrument"]]
+    Settle{{Atomic settlement}}
+
+    Auctioneer -->|"PauseState_Set"| Pause
+    Auctioneer ==>|"Clearing_ExecuteBatch: bind legs to signed bids"| LP
+    LP -->|"fetchByKey; abort if paused"| Pause
+    LP ==>|"SettleBatchWithAttestation"| Settle
+```
+
 ### Liveness Against a Stalling Auctioneer
 
 Escrow locks a bidder's funds in a committed `Allocation` the auctioneer is expected to settle or release. If the auctioneer stalls - never clears, never archives losing bids - a bidder's capital could be locked indefinitely. The design therefore wires a hard deadline into the auction lifecycle rather than relying on auctioneer good behavior:
