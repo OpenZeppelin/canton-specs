@@ -55,9 +55,9 @@ Moving from an EVM ecosystem to Canton requires a paradigm shift in state manage
 
 In the ERC-4626 lineage, a single globally visible contract manages pooled liquidity, debt shares, and dynamic interest accrual for all participants: a monolithic state that broadcasts every participant's collateral balance and liquidation threshold publicly.
 
-Canton operates on a privacy-preserving, **per-party projection** model enforced by the Canton protocol. A Canton contract is an instance of a template, signed and authorized by a set of parties (signatories). State changes by archive-and-recreate rather than in-place mutation, and any signatory must actively co-authorize a transition, so **two-step handshakes (Daml's propose-and-accept pattern) are a necessity, not a style choice**. The design uses **contract keys** (reintroduced in Canton 3.5.1) so the `Vault`, `PriceOracle`, `PauseState`, and the trusted-attester and trusted-issuer registries keep stable, unique identities across those archive-and-recreate cycles.
+Canton operates on a privacy-preserving, **per-party projection** model enforced by the Canton protocol. A Canton contract is an instance of a template, signed and authorized by a set of parties (signatories). State changes by archive-and-recreate rather than in-place mutation, and any signatory must actively co-authorize a transition, so **two-step handshakes (Daml's propose-and-accept pattern) are a necessity, not a style choice**. The design uses **contract keys** (reintroduced in Canton 3.5.1) so the `Vault`, `PriceOracle`, `PauseState`, and the trusted-attester and trusted-issuer registries keep stable, unique identities across those archive-and-recreate cycles. Keys are the design target: the `[IMPLEMENTED]` experiment code at this repo's pinned SDK baseline is keyless and resolves registries through a caller-supplied contract id checked against the factory admin.
 
-The **vault-as-contract** model follows directly: instead of one pooled share-accounting contract, the protocol deploys a discrete, isolated `Vault` contract per borrower-issuer relationship. A borrower's position is observable only to the borrower, the vault admin, and any regulatory observer parties explicitly placed in the contract's observer set.
+The **vault-as-contract** model follows directly: instead of one pooled share-accounting contract, the protocol deploys a discrete, isolated `Vault` contract per borrower-issuer relationship. A borrower's position is observable only to the borrower, the vault admin, the designated liquidators that police it, and any regulatory observer parties explicitly placed in the contract's observer set. Visibility is a precondition for action on Canton: a party can flag or liquidate a vault only if the vault is in its projection, which is why the liquidator set is declared as observers rather than left implicit.
 
 Replacing dynamic, algorithmic rate curves with a fixed, immutable `stabilityFeeRate` completes the picture: it radically simplifies auditability and yields a predictable primitive that is verifiable by formal methods, avoiding the exploit vectors of utilization-based rate curves.
 
@@ -88,14 +88,14 @@ As external dependencies, the reference implementation will integrate with the S
 Duties are segregated and mapped to discrete Daml parties:
 
 - **Vault Admin / Stablecoin Issuer (`VAULT_ADMIN`)** - underwrites the **stablecoin (debt) token**: configures `VaultParams` and the trusted registries, and holds the `BurnerCapability`. Its mint authority is scoped to the stablecoin only, never the collateral, and is reachable only through the solvency-coupled borrow path ([section 3](#3-how-we-implement-it)), so the admin cannot issue unbacked stablecoin.
-- **Borrower (`BORROWER`)** - the institutional entity locking collateral and drawing debt. The sole party able to lock their own holdings into an allocation. Must hold a valid `KycClaim`, re-checked on every value-moving operation. Visibility is limited to their own vaults and the public configuration contracts.
-- **Liquidator (`LIQUIDATOR`)** - a role granted via `openzeppelin-access-control`. Runs off-ledger monitoring of the `PriceOracle` and vault solvency; authorized to liquidate only after the margin-call grace period has elapsed on a flagged, still-unhealthy vault, and only proportionally to the stablecoin it actually repays.
+- **Borrower (`BORROWER`)** - the institutional entity locking collateral and drawing debt. The sole party able to lock their own holdings into an allocation. Must hold a valid `KycClaim`, verified at origination and fetched live by each value-moving vault choice; the per-settlement gate is the D1 attestation. Visibility is limited to their own vaults and the public configuration contracts.
+- **Liquidator (`LIQUIDATOR`)** - a role granted via `openzeppelin-access-control`. Each granted liquidator is placed in the observer set of the vaults it polices, so it can monitor the `PriceOracle` and vault solvency off-ledger from its own projection; authorized to liquidate only after the margin-call grace period has elapsed on a flagged, still-unhealthy vault, and only proportionally to the stablecoin it actually repays.
 - **Oracle Committee (`ORACLE_PROVIDER` members)** - a set of independent parties that co-attest every `PriceOracle` update. No single party, not even the vault admin, can move the published price.
 - **Treasury / Insurance Fund (`TREASURY`)** - the party that receives the routed stability-fee and liquidation-bonus portions; the accumulated fund is the first absorber of recognized bad debt.
 - **Custodian (`CUSTODIAN`)** - owns the preset account that receives funds swept by a D2 seizure.
-- **Vault Custody Account** - owns the holdings that back each vault's `collateralAmount`. Must authorize the collateral-out leg on withdrawal and liquidation.
+- **Vault Custody Account** - owns the holdings that back a vault's `collateralAmount`; there is **one custody account per vault**, so collateral is never commingled across positions. Must authorize the collateral-out leg on withdrawal and liquidation.
 
-The topology separates public market data from private positions: `PriceOracle` and `VaultParams` carry a broad observer set so participants can independently verify the governing parameters, while each `Vault` minimizes its observer set to the vault admin, the specific borrower, and designated regulatory observer parties.
+The topology separates public market data from private positions: `PriceOracle` and `VaultParams` carry a broad observer set so participants can independently verify the governing parameters, while each `Vault` restricts visibility to its signatories (vault admin and borrower) plus a minimal observer set: the designated liquidators and any regulatory observer parties.
 
 ### Decentralization and Trust Topology
 
@@ -110,13 +110,15 @@ For the roles that hold value-moving or supply-changing authority - the vault ad
 - **On-ledger approval workflow** - the multisig is written in Daml ([Multiple Party Agreement](https://docs.canton.network/appdev/modules/m3-design-patterns#multiple-party-agreement)): approvers record approvals as contracts, and the final choice executes under the role party's inherited authority only once a threshold of approvals exists. Approvals are durable, named, and auditable on-ledger.
 - **External party with threshold signing keys** - the role party's transactions require signatures from N of M keys (`PartyToKeyMapping`), held by independent organizations. Invisible to the Daml code and a single ledger transaction per action, but the signing ceremony must complete within the prepared transaction's validity window, and the approval record stays off-ledger. The implementation could leverage something like the [Bitsafe decentralization-manager](https://github.com/DLC-link/decentralization-manager).
 
+Where such a role must also submit routinely (the vault admin publishing oracle updates), it either keeps its confirmation threshold at 1 with its powers bounded on-ledger, or submits through externally signed transactions or a delegate that holds submission rights.
+
 The **oracle committee** requires N-of-M attestations per price update, collected through the same Multiple Party Agreement pattern. All-of-M is deliberately avoided: a single offline member, or one whose validator has unvetted the protocol DAR, would stall every price update until the staleness guard freezes the protocol.
 
 The **pause authority** is multi-hosted so the brake is always reachable, but its confirmation threshold stays at 1: an emergency stop must be instant, and a quorum would slow it down. The price of that choice is a griefing window: a malicious pauser can freeze in-flight settlements until their deadlines lapse. This griefing is capped by the authorizer's right to reclaim the allocated funds after the expiration deadline.
 
 The **custodian** owns the preset account that receives D2 sweeps. It needs availability and protection against a malicious single validator, hence multi-hosting with confirmation threshold >1 suffices.
 
-The **liquidator** set should contain several independently granted parties, so liquidation liveness never hinges on one keeper. Flagging an unhealthy vault is permissionless, which further removes the single-monitor dependency.
+The **liquidator** set should contain several independently granted parties, each declared as an observer of the vaults it polices, so liquidation liveness never hinges on one keeper. Any designated liquidator may flag an unhealthy vault, and sizing the set removes the single-monitor dependency.
 
 **Borrowers** need no protocol-side decentralization: outside the custodied collateral they only ever trust their own keys and their own validator, and the custody account's N-of-M topology is what protects the collateral itself.
 
@@ -147,7 +149,7 @@ The diagrams below decompose the design around the shared `Atomic settlement` hu
 - **B** and **C** are the holdings movements it performs (a borrow and a repayment), each with `Compliance` plugging in from A.
 - **D** is the margin-call and liquidation flow that calls into it. Keyed contracts are marked with their key.
 
-**A. Compliance and identity (D1 + D3).** The registries list several independent attesters (two shown); any listed attester can sign a per-settlement compliance attestation or a borrower's KYC claim, all checked at settlement.
+**A. Compliance and identity (D1 + D3).** The registries list several independent attesters (two shown); a listed attester signs the per-settlement compliance attestation (D1, verified and consumed at settlement), and a trusted issuer signs the borrower's KYC claim (D3, fetched live by each vault choice).
 
 ```mermaid
 flowchart TD
@@ -165,7 +167,7 @@ flowchart TD
     Attester2 -->|"signs"| Kyc
     Attn -->|"verify + consume"| Settle
     AttReg -->|"fetchByKey admin; attester trusted?"| Settle
-    Kyc -->|"borrower KYC checked"| Settle
+    Kyc -->|"fetched live by the vault choice"| Settle
     IssReg -->|"fetchByKey admin; issuer trusted?"| Settle
 ```
 
@@ -210,11 +212,11 @@ flowchart LR
     Settle -.->|"archive + recreate: debt -Δ"| Vault
 ```
 
-**D. Margin call, liquidation, and pausing.** A keeper flags the unhealthy vault, opening the borrower's cure window; after the grace period the liquidator drives the pause-gated liquidation, which prices against the keyed oracle, calls into the atomic settlement, then archives and recreates the `Vault` with reduced debt and collateral.
+**D. Margin call, liquidation, and pausing.** A designated liquidator, acting as keeper, flags the unhealthy vault, opening the borrower's cure window; after the grace period the liquidator drives the pause-gated liquidation, which prices against the keyed oracle, calls into the atomic settlement, then archives and recreates the `Vault` with reduced debt and collateral.
 
 ```mermaid
 flowchart TD
-    Keeper([Keeper / any party])
+    Keeper([Designated liquidator as keeper])
     Liquidator([Liquidator])
     Pauser([Pauser])
     Vault[["Vault<br/>key: admin + borrower + vaultId"]]
@@ -238,7 +240,7 @@ All value transfers to and from a vault route through [`SettlementFactory_Settle
 1. **Vault origination and collateral deposit.** The borrower locks collateral into a committed [`Allocation`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L474) (instruction-and-accept lifecycle) and presents their KYC credential to the vault factory. On successful verification the factory batch-settles the collateral **into the vault custody account (a transfer, not a burn)** and instantiates the `Vault` with the verified `collateralAmount`. Subsequent top-ups use `Vault_DepositCollateral`; reductions use `Vault_WithdrawCollateral`, both solvency-checked and both re-running the compliance check.
 2. **Borrow.** The borrower exercises `Vault_MintStablecoin`. The vault runs a deterministic solvency check: requested plus existing debt must keep `collateralRatio` at or above `minCollateralRatio`, priced by a fresh `PriceOracle` reading. On success, the stablecoin mint is delivered to the borrower via a settlement leg in the same transaction that increments `debtAmount`, and the `Vault` archives and recreates with the updated debt.
 3. **Repay.** The borrower allocates stablecoin and exercises `Vault_BurnStablecoin`; the batch burns only the backing principal via the [`BurnerCapability`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L98) and routes the accrued stability-fee portion to the treasury, reducing `debtAmount`. Collateral is released via `Vault_WithdrawCollateral` as health allows, and `Vault_Close` winds the position down.
-4. **Liquidation, after a margin call.** If the vault is below `liquidationRatio`, any party may flag it (`Vault_FlagForLiquidation`), opening a deterministic grace period in which the borrower may cure. Only once the grace period has elapsed and the vault is still unhealthy does an authorized liquidator exercise `Vault_Liquidate_ViaSpine`, providing a committed stablecoin allocation. The batch atomically burns the liquidator's principal portion, routes the fee and bonus to the treasury, and delivers the payment-proportional collateral from the custody account; the residual position is recreated in a new `Vault`.
+4. **Liquidation, after a margin call.** If the vault is below `liquidationRatio`, any designated liquidator may flag it (`Vault_FlagForLiquidation`), opening a deterministic grace period in which the borrower may cure. Only once the grace period has elapsed and the vault is still unhealthy does an authorized liquidator exercise `Vault_Liquidate_ViaSpine`, providing a committed stablecoin allocation. The batch atomically burns the liquidator's principal portion, routes the fee and bonus to the treasury, and delivers the payment-proportional collateral from the custody account; the residual position is recreated in a new `Vault`.
 
 A batch settles **all-or-nothing**: if any leg fails, because an allocation was already archived or a backing holding was concurrently consumed, the entire batch fails. The protocol therefore keeps batches minimal (only the legs of one vault operation), validates that every referenced allocation is still active before submission, and relies on the allocation expiry so a failed batch never strands locked funds.
 
@@ -285,7 +287,7 @@ Collateral moves through the settlement spine as **transfers**: a deposit settle
 
 This is a deliberate departure from the raw `canton-stablecoin` vault, where `Vault_DepositCollateral` archives (burns) incoming collateral and `Vault_WithdrawCollateral` mints fresh holdings, which forces the vault admin to also be the collateral issuer.
 
-**Collateral amounts vs. actual holdings.** The `Vault`'s `collateralAmount` is a `Decimal` accounting figure; the real value lives in TSv2 holdings owned by the vault custody account. Every flow moves holdings into or out of that account in the same transaction that updates the accounting figure, so **`collateralAmount == Σ(custody-account holdings)` per vault** cannot drift within a transaction. Deposit, withdrawal, and liquidation each bind their collateral leg to the custody account's identity, so the accounting can never move without the matching holdings moving.
+**Collateral amounts vs. actual holdings.** The `Vault`'s `collateralAmount` is a `Decimal` accounting figure; the real value lives in TSv2 holdings owned by that vault's own custody account (one account per vault, so the invariant is meaningful per position). Every flow moves holdings into or out of that account in the same transaction that updates the accounting figure, so **`collateralAmount == Σ(custody-account holdings)` per vault** cannot drift within a transaction. Deposit, withdrawal, and liquidation each bind their collateral leg to the custody account's identity, so the accounting can never move without the matching holdings moving. The caveat is *fragmentation*: repeated top-ups accumulate many small holdings in a custody account, so a periodic **consolidation** step (merging the account's holdings for the instrument into one, leaving `collateralAmount` unchanged) keeps settlement cheap.
 
 ### Mint is Coupled to Debt
 
@@ -299,12 +301,12 @@ The debt settled on repay, close, or liquidation is `principal + accrued stabili
 
 On a public chain, a collateral top-up racing a liquidation is decided by gas and ordering luck. Canton has no public mempool, so the design makes the borrower's cure window explicit and deterministic instead. Liquidation is two-phase:
 
-1. **Flag.** When `collateralRatio < liquidationRatio`, any party may exercise `Vault_FlagForLiquidation`, which records `liquidationFlaggedAt` and derives a grace deadline from the protocol-set `gracePeriod` in `VaultParams`. This is the margin call; it moves no value.
+1. **Flag.** When `collateralRatio < liquidationRatio`, any designated liquidator may exercise `Vault_FlagForLiquidation`, which records `liquidationFlaggedAt` and derives a grace deadline from the protocol-set `gracePeriod` in `VaultParams`. This is the margin call; it moves no value.
 2. **Cure or liquidate.** During the window the borrower may deposit collateral or repay to restore the ratio, which clears the flag. `Vault_Liquidate_ViaSpine` asserts the vault is flagged, the grace period has elapsed, and the vault is still unhealthy, so a liquidator can never pre-empt the cure window, and a borrower who does nothing is liquidated deterministically once it closes. A partial liquidation that leaves the vault unhealthy preserves the original flag time, so the position is immediately re-liquidatable rather than granted a fresh window per pass.
 
 ### Compliance is Re-checked on Every Operation
 
-The KYC gate at vault opening is necessary but not sufficient: a borrower can lose good standing after opening. Because every value-moving vault operation settles through `SettleBatchWithAttestation`, the D1 check is engaged per settlement, fail-closed, with no caching, and each leg checks the compliance of the party moving value on that leg. A revoked credential therefore blocks the borrower's new borrows, top-ups, and withdrawals immediately.
+The KYC gate at vault opening is necessary but not sufficient: a borrower can lose good standing after opening. Two distinct layers keep a position compliant. For D3 identity, each value-moving vault choice fetches the borrower's live credential state (`KycClaim` plus its `CredentialRevocationStatus`), so a revoked credential blocks new borrows, top-ups, and withdrawals immediately. For D1 compliance, every settlement routes through `SettleBatchWithAttestation`, which engages the attestation check per settlement, fail-closed, with no caching, for the party moving value on each leg.
 
 Deliberately, the borrower's continued compliance is **not** a precondition for winding the position down: on repay and close the borrower is reducing risk, and on the liquidation legs it is the liquidator's compliance that is checked. A now-non-compliant position can always be repaid or liquidated, never trapped.
 
@@ -313,7 +315,7 @@ Deliberately, the borrower's continued compliance is **not** a precondition for 
 A single trusted price feed plus a single liquidator would be the largest live attack surface, so the design hardens the price path:
 
 - **Named quote instrument.** `PriceOracle` carries a `stablecoinInstrumentId` alongside `collateralInstrumentId`, so `price` is unambiguously "units of this stablecoin per unit of this collateral". Consumers assert both ids match the vault's.
-- **Committee-attested updates.** `PriceOracle_UpdatePrice` executes only with N-of-M oracle-committee approvals ([section 2](#decentralization-and-trust-topology)), so a lone compromised admin cannot move the price and manufacture liquidations.
+- **Committee-attested updates.** A price publish consumes an N-of-M oracle-committee approval collected via the Multiple Party Agreement pattern ([section 2](#decentralization-and-trust-topology), [section 4.2](#42-component-committee-attested-price-oracle)), so a lone compromised admin cannot move the price and manufacture liquidations.
 - **Max-staleness guard.** Every price-dependent choice rejects when `now - updatedAt > maxStaleness` (a `VaultParams` bound), so a stalled feed cannot drive liquidations or fresh borrows against a dead price.
 - **Per-update deviation circuit breaker.** Updates are bounded against the oracle's own `maxDeviation` field; an out-of-band move aborts the update, so the last in-band price stands. Tripping the `openzeppelin-pausable` kill-switch on repeated breaches is a separate pauser action, since an aborting transaction persists nothing.
 - **TWAP (deferred).** A time-weighted average price is named as a follow-on hardening; its additive `Optional` carrier is an SCU extension point.
@@ -328,7 +330,7 @@ Institutional lending requires the ability to seize assets under judicial mandat
 
 ### D3: Know-your-customer
 
-Institutional lending requires participants to be identified. The RI implements D3 via a single-synchronizer identity architecture. Borrowers must hold a `KycClaim` issued by a party present in the `TrustedIssuerRegistry` to open and operate a vault, presented through the `credential-gateway` verification workflow at origination and re-checked per settlement thereafter.
+Institutional lending requires participants to be identified. The RI implements D3 via a single-synchronizer identity architecture. Borrowers must hold a `KycClaim` issued by a party present in the `TrustedIssuerRegistry` to open and operate a vault, presented through the `credential-gateway` verification workflow at origination; each subsequent value-moving vault choice fetches the credential's live state, while per-settlement compliance is D1's attestation gate.
 
 ### D4: Authority and Privilege Transfer
 
@@ -342,11 +344,21 @@ Consider cross-domain identity. To later record an external identity reference f
 
 SCU extensions are not security retrofits: adding a stricter choice does not close the looser one. If a hardened liquidation choice shipped while the original stayed live, anyone could call the weaker path directly. Hence such an upgrade must also make the superseded choice fail unconditionally and be marked as `deprecated`.
 
+### Extension Points
+
+The reference implementation is modular code meant to be extended, and these are its seams:
+
+- `openzeppelin-pausable`, `openzeppelin-ownable`, and `openzeppelin-access-control` are plug-and-play: any template adopts the pause gate, ownership handover, or role checks without redesign.
+- The atomic-settlement primitive is application-agnostic: the batch entrypoint that settles a vault operation serves any DvP flow, and is the same spine the DEX, Stablecoin, and Auction RIs build on.
+- The `credential-gateway` identity hook is a swappable verification workflow: a different KYC provider integrates by implementing the same request and result contracts.
+- The `PriceOracle` is a component boundary: a TWAP variant or a multi-feed aggregator replaces it behind the same contract key and the same consumer asserts.
+- New vault capabilities land as SCU-safe appended `Optional` fields and new choices, per the rules above.
+
 ---
 
 ## 4. Sample Component Structure
 
-The code below is idiomatic Daml that composes with the libraries above. These snippets are illustrative rather than production code: they exemplify the flows and highlight the key parts, so they omit non-essential detail such as basic checks, the `ensure` block, and most comments.
+The code below is idiomatic Daml that composes with the libraries above. These snippets are illustrative rather than production code: they exemplify the flows and highlight the key parts, so they omit non-essential detail such as basic checks, the `ensure` block, and most comments. Helpers such as `accrueDebt`, `collateralRatio`, and `signedSenderAmount` come from the `[EVIDENCE]` codebase and appear here as illustrative imports.
 
 ### 4.1 Component: Vault State, Margin Call, and Liquidation
 
@@ -378,16 +390,20 @@ template Vault
     liquidationFlaggedAt : Optional Time
   where
     signatory vaultAdmin, borrower
+    -- Designated liquidators observe the vault: visibility is what lets them
+    -- monitor solvency and exercise the flag choice.
+    observer params.liquidators
     key (vaultAdmin, borrower, vaultId) : (Party, Party, Text)
     maintainer key._1
 
-    -- Phase 1, the margin call. Permissionless: it starts the borrower's cure
-    -- clock and moves no value.
+    -- Phase 1, the margin call. Open to any designated liquidator: it starts
+    -- the borrower's cure clock and moves no value.
     choice Vault_FlagForLiquidation : ContractId Vault
       with
         flagger : Party
       controller flagger
       do
+        assertMsg "not a designated liquidator" (flagger `elem` params.liquidators)
         now <- getTime
         (_, oracle) <- fetchByKey @PriceOracle (vaultAdmin, collateralInstrumentId, stablecoinInstrumentId)
         assertMsg "oracle stale" (subTime now oracle.updatedAt <= params.maxStaleness)
@@ -439,7 +455,7 @@ template Vault
               min collateralAmount ((debtRepaid * (1.0 + params.liquidationBonus)) / oracle.price)
         collAlloc <- fetch vaultCollateralAllocationId
         assertMsg "collateral not sourced from this vault's custody account"
-          (collAlloc.allocation.authorizer == collateralAccount)
+          (collAlloc.allocation.authorizer `elem` collateralAccount.parties)
         assertMsg "seize leg mismatch"
           (signedSenderAmount collAlloc collateralInstrumentId == collateralToSeize)
 
@@ -468,13 +484,44 @@ template Vault
 
 ### 4.2 Component: Committee-Attested Price Oracle
 
-The `PriceOracle` is the one contract whose compromise would let an attacker manufacture liquidations, so its update path is never single-writer. It carries a contract key `(admin, collateralInstrumentId, stablecoinInstrumentId)`, so vaults resolve the current price by key across its archive-and-recreate publish cycle.
+The `PriceOracle` is the one contract whose compromise would let an attacker manufacture liquidations, so its update path is never single-writer: a publish consumes an N-of-M committee approval collected through the [Multiple Party Agreement](https://docs.canton.network/appdev/modules/m3-design-patterns#multiple-party-agreement) pattern, so no single party (not even the admin) can move the price, and no publish requires every member (one offline member cannot stall updates). The oracle carries a contract key `(admin, collateralInstrumentId, stablecoinInstrumentId)`, so vaults resolve the current price by key across its archive-and-recreate publish cycle.
 
 ```daml
+-- N-of-M approval carrier: committee members accumulate as signatories.
+template PriceUpdateProposal
+  with
+    admin : Party
+    oracleCommittee : [Party]
+    collateralInstrumentId : InstrumentId
+    stablecoinInstrumentId : InstrumentId
+    newPrice : Decimal
+    approvers : [Party]                    -- members who have signed so far
+  where
+    signatory admin, approvers
+    observer oracleCommittee
+
+    choice PriceUpdateProposal_Approve : ContractId PriceUpdateProposal
+      with approver : Party
+      controller approver
+      do
+        assertMsg "not a committee member" (approver `elem` oracleCommittee)
+        assertMsg "already approved" (approver `notElem` approvers)
+        create this with approvers = approver :: approvers
+
+    -- Consuming: carries the approvers' inherited authority, so publishing needs
+    -- N approvals, not all M signatures at once.
+    choice PriceUpdateProposal_Publish : ContractId PriceOracle
+      controller admin
+      do
+        (oracleCid, oracle) <- fetchByKey @PriceOracle
+          (admin, collateralInstrumentId, stablecoinInstrumentId)
+        exercise oracleCid PriceOracle_ApplyUpdate with newPrice; approvers
+
 template PriceOracle
   with
     admin : Party
     oracleCommittee : [Party]
+    committeeThreshold : Int               -- N of M, deliberately below all-of-M
     collateralInstrumentId : InstrumentId
     stablecoinInstrumentId : InstrumentId  -- the unit `price` is quoted in
     price : Decimal
@@ -482,22 +529,28 @@ template PriceOracle
     updatedAt : Time
     observers : [Party]
   where
-    signatory admin, oracleCommittee
-    observer observers
+    signatory admin
+    observer oracleCommittee, observers
     key (admin, collateralInstrumentId, stablecoinInstrumentId) : (Party, InstrumentId, InstrumentId)
     maintainer key._1
     ensure price > 0.0 && maxDeviation > 0.0 &&
+           committeeThreshold >= 1 && committeeThreshold <= length oracleCommittee &&
            collateralInstrumentId /= stablecoinInstrumentId
 
-    -- Consuming publish: archive-and-recreate with the new price. Executed under
-    -- the committee's authority once N-of-M approvals exist, collected via the
-    -- Multiple Party Agreement pattern (section 2). The deviation bound is read
-    -- from `this.maxDeviation` (trusted signed state), never caller-supplied.
-    choice PriceOracle_UpdatePrice : ContractId PriceOracle
+    -- The approvers are controllers, so the call is only authorizable with their
+    -- signatures present: in practice through PriceUpdateProposal_Publish, whose
+    -- consuming exercise carries them. The deviation bound is read from
+    -- `this.maxDeviation` (trusted signed state), never caller-supplied.
+    -- Committee membership and threshold rotate by archive-and-recreate under
+    -- the same key.
+    choice PriceOracle_ApplyUpdate : ContractId PriceOracle
       with
         newPrice : Decimal
-      controller admin :: oracleCommittee
+        approvers : [Party]
+      controller admin :: approvers
       do
+        assertMsg "committee threshold not met"
+          (length (filter (`elem` oracleCommittee) approvers) >= committeeThreshold)
         assertMsg "price must be positive" (newPrice > 0.0)
         assertMsg "price deviation out of band"
           (abs (newPrice - price) / price <= maxDeviation)
@@ -546,15 +599,16 @@ These tools are proposed for the RI, not wired into this repo's CI today; the cu
 
 | Vector | Attack | Mitigation |
 |---|---|---|
-| Oracle manipulation by a compromised admin | Admin sets the price near zero and self-liquidates every vault, stealing all collateral. | `PriceOracle_UpdatePrice` requires N-of-M committee approval, so a lone admin cannot move the price; a per-update deviation bound (read from the oracle's own `maxDeviation`) aborts out-of-band moves, with a separate pauser trip on repeated breaches. |
+| Oracle manipulation by a compromised admin | Admin sets the price near zero and self-liquidates every vault, stealing all collateral. | A price publish requires N-of-M committee approval carried by the consumed `PriceUpdateProposal`, whose approvers are controllers of the update, so a lone admin cannot move the price; a per-update deviation bound (read from the oracle's own `maxDeviation`) aborts out-of-band moves, with a separate pauser trip on repeated breaches. |
 | Oracle staleness | A stalled feed drives liquidations or borrows against a dead price. | Every price-dependent choice rejects when `now - updatedAt > maxStaleness`. A TWAP and multiple feeds are named follow-ons. |
 | Under-paying liquidator | The liquidator supplies a tiny stablecoin amount and seizes the whole vault. | Seizure is bound on-ledger to the liquidator's signed payment: `collateralToSeize = min(collateralAmount, debtRepaid · (1 + bonus) / price)` with `debtRepaid` read from the liquidator's own allocation and the legs pinned by the batch's both-sided check. A small payment seizes only a small, proportional slice. |
 | Liquidation front-running the borrower | A liquidation lands before the borrower can top up. | The two-phase margin call: flagging opens a `gracePeriod` the borrower owns for curing, and liquidation asserts the period has elapsed, so it cannot pre-empt the cure window. |
 | Settlement-leg failure | An under-funded or stale batch attempts a broken liquidation. | Daml atomicity: the batch reverts entirely, collateral stays locked, no debt is cleared. Liquidations are partial and proportional, so a well-formed smaller batch simply liquidates less. |
 | Bad debt on a deeply under-water position | Collateral is worth less than debt, creating a protocol-level shortfall. | The shortfall is recognized and quantified as `badDebt`; the insurance fund capitalized from routed fees is its first absorber, with the exhaustion path an open design question ([section 6](#6-open-design-questions)). |
-| Compliance evasion (D1), including post-open drift | A borrower bypasses KYC, or becomes non-compliant after opening. | The KYC credential is validated at open and the D1 attestation is re-checked per settlement, fail-closed, with no caching. A revoked credential blocks new borrows, top-ups, and withdrawals immediately, while repay, close, and liquidation stay open so a position is never trapped. |
+| Compliance evasion (D1), including post-open drift | A borrower bypasses KYC, or becomes non-compliant after opening. | The KYC credential is validated at open and fetched live by each vault choice, and the D1 attestation is re-checked per settlement, fail-closed, with no caching. A revoked credential blocks new borrows, top-ups, and withdrawals immediately, while repay, close, and liquidation stay open so a position is never trapped. |
 | Unauthorized admin action | An attacker tries to mint unbacked stablecoin or invoke a D2 seizure. | Minting is reachable only through the solvency-coupled vault choice; seizure requires the `BurnerCapability` and sweeps only to the preset custodian account. Both authorities are unforgeable contract instances under Daml's authorization model. |
 | Forced upgrades breaking in-flight allocations (SCU) | A poorly executed upgrade mutates fields, rendering existing `Allocation` contracts un-settleable. | Programmatic adherence to the SCU rule (Optional appends and new choices only). The `Vault` template's existing choices stay operable; in-flight settlements conclude before users transition. |
+| DAR unvetting on a stakeholder's validator | A party (malicious or misconfigured) unvets the protocol DAR on their validator, so transactions on contracts they are a stakeholder of can no longer be confirmed: a D2 sweep of their funds fails, and co-signed flows they participate in stall. | Signatories and observers alike must have the same DAR version vetted for a transaction to succeed, and the freeze cuts both ways: the unvetting party cannot move the asset either, so the contract stays frozen rather than extractable, and re-vetting restores operation. Liveness-critical sets (oracle committee, custody quorum, liquidators) are N-of-M and multi-member precisely so one unvetted participant cannot stall the protocol. |
 
 ### 5.4 Throughput and Contention
 
@@ -567,6 +621,7 @@ Every vault operation archives and recreates that borrower's `Vault` contract, s
 Decisions to settle with the internal team before implementation, not M1 build items.
 
 - **Multisig implementation for value-critical roles.** The vault admin, treasury, custody account, and oracle committee each require N-of-M authority ([section 2](#decentralization-and-trust-topology)). Open: whether each role uses the on-ledger approval workflow, an external party with threshold signing keys, or a combination; and the N and M per role, including the oracle committee quorum that balances liveness against collusion.
+- **Custody-account pre-delegation for liquidation legs.** Every liquidation needs the N-of-M custody account to commit an exactly sized collateral allocation while the price is moving; run naively, each pass would wait on an approval ceremony. Open: the pre-delegation mechanism that keeps per-liquidation collateral legs off the ceremony path (for instance a standing, scope-bounded delegation the custody quorum grants once), so liquidation liveness never hinges on the quorum's availability.
 - **Bad-debt disposition beyond the insurance fund.** The insurance fund is the first absorber of recognized `badDebt` ([section 3](#3-how-we-implement-it)). Still open: what happens when the fund is exhausted (a socialized-loss path across outstanding positions, an admin write-off, or a capital top-up obligation), and how the fund's fee slice is sized against expected loss.
 - **Interest-accrual method.** Accrual compounds discretely across operations today ([section 3](#3-how-we-implement-it)). Decide whether to keep that, switch to true simple interest off the tracked principal, or offer a continuously-compounding variant, each with explicit rounding bounds so accrual is reproducible and formally checkable.
 - **Partial-liquidation parameters and keeper sizing.** Open: the concrete `closeFactor` value, whether the `liquidationBonus` is enough to attract keepers for small slices, and whether a minimum liquidation size is needed to avoid dust liquidations.
