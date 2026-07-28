@@ -480,263 +480,62 @@ D2 reuses the spine's real seizure mechanism; there is no bespoke seizure templa
 
 ---
 
-## 7. Security & Auditability
+## 5. Security & Auditability
 
-Security rests on Daml's authorization model and deterministic state
-transitions rather than bespoke cryptography.
+The RI prioritizes verifiable security. Security rests on Daml's authorization model and deterministic state transitions rather than bespoke cryptography, and Canton's per-party projections create natural containment boundaries.
 
-### 7.1 Invariants
+### 5.1 Security Invariants
 
-- **Conservation of funds.** `[IMPLEMENTED]` Settlement cannot output more value
-  than its input `Allocation`s. On the standard path, `Allocation_Settle` /
-  `Allocation_SettleInBatch` (via `performSettle`) archive the locked input
-  holdings and assert, **per instrument**, that the locked funds cover the
-  authorizer's SenderSide leg amounts; any surplus returns to the sender as an
-  unlocked *change* holding (locked = sender obligations + returned change). An
-  under-funded sender fails closed — no value is minted from nothing. Value
-  conservation is enforced unconditionally on every settle path; there is no
-  carve-out. (`nextIterationFunding` is inert forward-compatible metadata
-  mirroring the Token Standard V2 allocation shape; M1 does not implement
-  iterated settlement, so no path defers conservation.)
-- **Privacy partitioning.** Amount, payer, and payload memo are projected only to
-  the relayer, recipient, and designated compliance verifier. If the
-  StablecoinAdmin could observe the memo without authorization, the invariant is
-  broken.
-- **1:1 reserve backing ([section 3.5](#35-reserve--lock-attestation-model-future)).** Canton-minted wrapped supply for an instrument
-  never exceeds the sum of valid, unredeemed `LockAttestation`s:
-  `mintedSupply ≤ Σ lockedAmount(unredeemed)`. A mint requires a registry-trusted,
-  unexpired, non-replayed attestation whose `lockedAmount` equals the minted
-  amount (an N-of-M quorum is the target; the scaffold verifies a single trusted
-  attester today — [section 3.5](#35-reserve--lock-attestation-model-future) caveat); redemption ([section 3.6](#36-outbound-redemption-burn-on-canton--release-on-source-chain-future)) burns first and decrements the
-  reserve. No mint without locked backing; no double-redeem of one lock.
+- **Conservation of funds**:
+  - Settlement cannot output more value than its input `Allocation`s. On every settle path the engine archives the locked input holdings and asserts, per instrument, that they cover the authorizer's SenderSide leg amounts; any surplus returns to the sender as a single unlocked *change* holding.
+  - An under-funded sender fails closed; no value is minted from nothing. (`nextIterationFunding` is inert forward-compatible Token Standard V2 metadata; M1 does not implement iterated settlement, so no path defers conservation.)
+- **1:1 reserve backing**:
+  - Canton-minted wrapped supply for an instrument never exceeds the sum of valid, unredeemed `LockAttestation`s: `mintedSupply ≤ Σ lockedAmount(unredeemed)`.
+  - A mint requires a registry-trusted, unexpired, non-replayed attestation whose `lockedAmount` equals the minted amount; redemption burns first and decrements the reserve. No mint without locked backing; no double-redeem of one lock.
+- **Replay protection**:
+  - One source-chain lock can credit Canton at most once: the attested carrier is consumed one-time, and the consumed-nonce registry fails closed on a duplicate `(sourceChainId, nonce)`.
+- **Privacy partitioning**:
+  - Amount, payer, and payload memo are projected only to the relayer, recipient, and designated compliance verifier. If the Stablecoin Admin could observe the memo without authorization, the invariant is broken.
+- **Non-custodial recipient binding**:
+  - No allocation binds a recipient without their signature, supplied live or through their standing `TransferPreapproval`.
+  - Stalled committed value is recoverable after the settlement deadline, and every committed inbound allocation must carry a finite `settlementDeadline`.
 
-### 7.2 Threat Model
+### 5.2 Automated Validation Engine
 
-| Vector | Description | Mitigation |
+We propose a three-tier validation approach, based on verification tools built by OpenZeppelin:
+
+1. [`daml-lint`](https://github.com/OpenZeppelin/daml-lint/commits/main/): Static analysis through abstract-syntax tree checks: decimal bounds, unguarded division, positivity, archive-before-execute, anti-patterns, naming conventions.
+2. [`daml-props`](https://github.com/OpenZeppelin/daml-props): Property based testing by fuzzing state transitions to ensure conservation/supply/balance invariants hold under extreme inputs.
+3. [`daml-verify`](https://github.com/OpenZeppelin/daml-verify): Formal verification through Z3-backed proofs, asserting logical impossibility of undesired states.
+
+### 5.3 Threat Model and Failure Modes
+
+| Vector | Attack | Mitigation |
 |---|---|---|
-| Malicious relayer | Routes valid inbound funds to an unauthorized/sanctioned account. | D1 hook requires a node-applied `KycClaim` whose `subjectParty` matches the exact recipient; the relayer cannot spoof the destination (fail-closed). |
-| Malicious sender | Triggers spam/toxic settlement to an unwilling recipient. | Without a configured `TransferPreapproval` or explicit accept, the allocation is not settled and funds return to sender (transfer-failure semantics). |
-| Compromised admin | Attempts arbitrary expropriation. | D4 single-admin is a structural boundary; even a compromised admin's D2 sweep is hardcoded to the preset `custodianDestination` (no arbitrary burn, no return-to-sender). |
-| **Relayer centralization** (primary risk) | A single relayer is both a **liveness** chokepoint (can censor or stall inbound mints and outbound redemptions) and, if it is also the sole attestor, a **trust** chokepoint (could authorize a mint with no real source-chain lock). | Separate the relayer's *transport/liveness* role from the *attestation/trust* role; require a **threshold N-of-M attestor set** via [`TrustedAttesterRegistry`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L775) (no mint/redeem without quorum — fail-closed, [section 3.5](#35-reserve--lock-attestation-model-future)); make **relay permissionless** (anyone may submit a valid quorum-signed attestation, so no single party gates liveness); add an inbound timeout + forced-refund so locked funds are never stranded by a stalled relayer. The production attestor/relayer trust model and its decentralization path is an open question. |
-| UTXO fragmentation | Many small transfers accumulate holding dust. | Settlement returns a sender's surplus as a single new *change* holding per instrument (rather than many fragments); iterated settlement can further merge inputs across rounds. |
+| Malicious relayer routing | Routes valid inbound funds to an unauthorized or sanctioned account. | The recipient is pinned by the attesters' signed `LockAttestation` (`cantonRecipient`), and D3 requires a `KycClaim` whose `subjectParty` matches the exact recipient. The relayer cannot spoof the destination; fail-closed. |
+| Unbacked mint (relayer or forged attestation) | A relayer, or anyone without attester authorization, tries to mint `wTOK` with no real source-chain lock. | The mint amount and instrument derive only from a registry-trusted, unexpired, single-use `LockAttestation`; there is no standalone admin mint. A lone relayer holds transport authority, not trust authority. Residual risk concentrates in the attester set, which is why its N-of-M decentralization is the largest open trust question ([section 6](#6-open-design-questions)). |
+| Replay of a used lock | A consumed inbound message (or a second carrier for the same lock) is submitted again to mint twice. | One-time carrier consumption plus the consumed-nonce registry: a duplicate `(sourceChainId, nonce)` fails closed even if the attesters misbehave. |
+| Toxic or spam inflow | A sender forces a settlement onto an unwilling recipient. | Without the recipient's accept (live, or via their standing `TransferPreapproval`), the allocation never commits; unsettled allocations expire and return to sender. |
+| Compromised admin key | A compromised Stablecoin Admin or Custodian key attempts arbitrary expropriation. | D2 sweeps are hardcoded to the preset `custodianDestination` (no arbitrary burn, no return-to-sender), and supply-changing authority is slated for N-of-M multisig ([section 2](#decentralization-and-trust-topology)). |
+| Forced upgrades breaking in-flight allocations (SCU) | A poorly executed upgrade mutates fields, rendering existing `Allocation` contracts un-settleable. | Programmatic adherence to the SCU rule (Optional appends + new choices only). Existing choices stay operable; in-flight settlements conclude before users transition. |
+| UTXO fragmentation | Many small transfers accumulate holding dust. | Settlement returns a sender's surplus as a single new *change* holding per instrument rather than many fragments. |
 
-### 7.3 Validation Ladder `[FUTURE]`
+### 5.4 Off-Ledger Reconciliation `[UPSTREAM]`
 
-The tiers below are a **proposed** validation ladder, not built in M1. The
-`daml-lint` / `daml-props` / `daml-verify` tools named here do not exist in this
-repo or any named evidence repo. The **real** M1 gate is `dpm build --all` plus
-the Daml Script suites run by `scripts/run-tests.sh` (spine suite + deep
-settlement exemplar) and `scripts/check-scaffold.sh`, wired in CI
-(`.github/workflows/ci.yml`); the living-doc code anchors are validated by
-`scripts/refresh-ri-anchors.sh`.
-
-| Tier | Proposed tooling `[FUTURE]` | Purpose |
-|---|---|---|
-| Static analysis | `daml-lint` `[FUTURE]` | Validate SCU rules (no illegal field mutation; only `Optional` extensions), decimal bounds, archive-before-execute, `roleId` wrapper, `whenNotPaused`. |
-| Generative testing | `daml-props` `[FUTURE]` | Property-based testing with shrinking over `SettleBatch`: fuzzed extra-transfer-leg scenarios would check funding conservation never breaks. |
-| Formal verification | `daml-verify` `[FUTURE]` | Z3 proofs over D1–D4 mappings — e.g. `Gateway_ProcessInbound` unreachable unless a valid `KycClaim` path exists, sealing the D1 gate on-ledger. |
-
-### 7.4 Off-ledger reconciliation `[UPSTREAM]`
-
-A treasury operating this flow reconciles its private Canton settlement against
-the inbound external-chain event without parsing raw transaction trees: the
-Token Standard V2 transfer-events API (`Splice.Api.Token.TransferEventsV2`,
-imported in the `canton-token-template` evidence) emits holdings-change events the
-recipient can correlate with the gateway's inbound message id, giving a 1:1
-audit linkage between the external lock/burn and the Canton credit. This is an
-**upstream** API surface, not vendored here, and the linkage is a reference
-pattern — the report makes no reconciliation-completeness, accounting-standard, or
-audit-readiness claim.
+A treasury operating this flow reconciles its private Canton settlement against the inbound external-chain event without parsing raw transaction trees: the Token Standard V2 transfer-events API (`Splice.Api.Token.TransferEventsV2`, imported in the `canton-token-template` evidence) emits holdings-change events the recipient can correlate with the gateway's inbound message id, giving a 1:1 audit linkage between the external lock/burn and the Canton credit. This is an upstream API surface, not vendored here, and the linkage is a reference pattern; the report makes no reconciliation-completeness, accounting-standard, or audit-readiness claim.
 
 ---
 
-## 8. Cross-Synchronizer Domain Extension (Planned) `[FUTURE]`
+## 6. Open Design Questions
 
-> **Shared model:** the cross-synchronizer mechanism (per-synchronizer
-> assignment + unassign/assign reassignment, and the SCU-compliant additive
-> path) is identical across all four RIs and is defined in
-> the [suite overview](./README.md#cross-synchronizer-model-canonical). This section elaborates only the
-> RI-specific topology (including the cross-chain vs cross-synchronizer
-> distinction below).
+Decisions to settle with the internal team before implementation, not M1 build items.
 
-> **Status: out of scope for the initial M1 design; deferred and planned.** Note
-> the distinction: this RI is *cross-chain* (bridging from external L1s/L2s via
-> the gateway) but still **single-synchronizer on Canton** today. Operating the
-> Canton-side settlement across **multiple Canton synchronizer domains** is a
-> separate, deferred capability (D3 cross-domain identity is also deferred). This
-> section plans it per Canton's per-synchronizer assignment + unassign/assign
-> reassignment model and the SCU rule.
-
-### 8.1 Cross-chain vs cross-synchronizer
-
-- **Cross-chain** (in scope as a mock): external chain → gateway attestation →
-  Canton settlement on one synchronizer.
-- **Cross-synchronizer** (planned): the Canton-side recipient, stablecoin
-  instrument, and compliance registry may live on **different Canton
-  synchronizers**; settlement then requires reassigning the relevant contracts
-  onto one synchronizer before `SettleBatch`.
-
-### 8.2 Where it touches the boundary
-
-| Element | Single-synchronizer (today) | Cross-synchronizer (planned) |
-|---|---|---|
-| Inbound `Allocation` / `SettlementReceipt` | Created/settled on the recipient's synchronizer. | Reassignable: inbound allocation assigned to the synchronizer hosting the recipient's settled-instrument holding before `SettleBatch`. |
-| Settled-instrument admin (`wTOK` StablecoinAdmin, or native USDCx) | Same synchronizer as settlement. | If the settled instrument is administered on another synchronizer, it must be reachable there or reassigned in. |
-| D1 `TrustedIssuerRegistry` | One synchronizer. | Synchronizer-aware registry; compliance re-checked on the settling synchronizer (no stale cross-domain attestation reuse). |
-| D3 identity | Single-domain `KycClaim`. | Cross-domain proof (ONCHAINID / ERC-3643 / CCID) resolved into a synchronizer-aware registry — the deferred D3 work. |
-
-### 8.3 The additive, non-breaking path (SCU-compliant)
-
-1. Append `Optional SynchronizerScope` to the RI gateway/orchestrator templates;
-   older contracts read `None`.
-2. Add a new parallel choice (e.g. `Execute_Inbound_Settlement_CrossDomain`)
-   alongside the unchanged single-synchronizer choice.
-3. Model reassignment as workflow: reassign the inbound allocation onto the
-   settling synchronizer → `SettleBatch` there → reassign the receipt/holding
-   back. Atomicity stays at the single-synchronizer batch boundary.
-
-### 8.4 Open questions specific to cross-synchronizer operation
-
-- Reassignment-vs-settlement atomicity (rollback vs re-home-able allocation on
-  `SettleBatch` failure) — maps to the return-to-sender rule.
-- Which synchronizer's `TrustedIssuerRegistry` and verifier set govern a
-  cross-domain inflow.
-- Cross-domain D1 freshness (re-check on the settling synchronizer; never reuse
-  across a reassignment).
-- Reassignment tooling maturity (evolving Canton/DA stack; assumes drop-in).
-
----
-
-## Implementation Status (Code Map)
-
-> **Living document.** Each row links to real source. Refresh the anchors with
-> `scripts/refresh-ri-anchors.sh` (see [`README.md`](./README.md)). Status:
-> ✅ implemented in the promoted library surface (or verified passing tests) ·
-> 🟡 implemented in the **experimental settlement scaffold** (real code, not
-> yet promoted; includes toy stand-ins) · ⬜ planned, not built in M1.
-
-| RI capability | Source anchor | Status |
-|---|---|---|
-| Settlement spine factory (reused for payment legs) | [`SettlementFactory`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L191) | 🟡 |
-| Atomic batch DvP entrypoint (inbound payment settle) | [`SettlementFactory_SettleBatch`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L249) | 🟡 |
-| Allocation request creation | [`SettlementFactory_CreateAllocationRequest`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L205) | 🟡 |
-| Allocation instruction creation | [`SettlementFactory_CreateAllocationInstruction`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L228) | 🟡 |
-| Allocation request lifecycle (accept / reject / withdraw) | [`AllocationRequest_Accept`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L336) · [`AllocationRequest_Reject`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L343) · [`AllocationRequest_Withdraw`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L350) | 🟡 |
-| Allocation instruction lifecycle (delegated accept / withdraw) | [`AllocationInstruction_Accept`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L392) · [`AllocationInstruction_Withdraw`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L410) | 🟡 |
-| Committed allocation + settle | [`Allocation`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L474) · [`Allocation_Settle`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L490) | 🟡 |
-| Allocation cancel / withdraw | [`Allocation_Cancel`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L567) · [`Allocation_Withdraw`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L580) | 🟡 |
-| Settlement receipt (private credit artifact) | [`SettlementReceipt`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L692) | 🟡 |
-| D1 compliance hook (reference field on the spine) | [`D1ComplianceHook`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L41) | 🟡 |
-| Node-applied signed D1 attestation | [`D1ComplianceHook`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L41) | ⬜ `[FUTURE]` |
-| D2 lock-and-sweep seizure (in-flight) | [`Allocation_MarkD2InFlightSeizure`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L592) · [`Allocation_SweepD2InFlightSeizure`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L622) | 🟡 |
-| D2 seizure data record + burner capability | [`D2SeizureHook`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L46) · [`BurnerCapability`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L98) | 🟡 |
-| Settlement helpers (lock / conserve / unlock holdings) | [`lockInputHoldings`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L950) · [`archiveAndTallyLockedHoldings`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L1025) · [`conserveSenderSides`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L1045) · [`unlockHoldings`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L1162) | 🟡 |
-| Transfer-leg model + experimental gating flag | [`TransferLeg`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L29) · [`experimentalFeatureFlag`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L72) | 🟡 |
-| Toy holding (stand-in for real TSv2 holding) | [`ToyHolding`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L133) | 🟡 |
-| Spine test suite | [`Cip112Settlement.daml`](../../test/daml/OpenZeppelin/Test/Cip112Settlement.daml) | ✅ |
-| Access control (relayer / seizer roles, D4 authority) | [`RoleGrant`](../../access-control/daml/OpenZeppelin/AccessControl.daml) · [`requireRole`](../../access-control/daml/OpenZeppelin/AccessControl.daml) · [`hasRole`](../../access-control/daml/OpenZeppelin/AccessControl.daml) · [`RoleAdmin`](../../access-control/daml/OpenZeppelin/AccessControl.daml) | ✅ |
-| Ownable (hook / factory ownership handoff) | [`Ownership`](../../ownable/daml/OpenZeppelin/Ownable.daml) · [`OwnershipOffer`](../../ownable/daml/OpenZeppelin/Ownable.daml) | ✅ |
-| Pausable (halt inbound requests) | [`PauseState`](../../pausable/daml/OpenZeppelin/Pausable.daml) · [`whenNotPaused`](../../pausable/daml/OpenZeppelin/Pausable.daml) | ✅ |
-| Typed node-attestation path (reserve / lock-attestation backbone) | [`SettlementFactory_SettleBatchWithAttestation`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L274) · [`TrustedAttesterRegistry`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L775) | 🟡 (real node-side integration ⬜) |
-| Reserve / lock-attestation model (`LockAttestation`, 1:1 backing — [section 3.5](#35-reserve--lock-attestation-model-future)) | — (planned) | ⬜ `[FUTURE]` |
-| Outbound redemption (burn → attested release, [section 3.6](#36-outbound-redemption-burn-on-canton--release-on-source-chain-future)) | — (planned) | ⬜ `[FUTURE]` |
-| Real TSv2 holding interface | — (pending import) | ⬜ `[FUTURE]` |
-| On-ledger multi-sig authority (D4 → M3) | — (planned) | ⬜ `[FUTURE]` |
-| Cross-synchronizer / cross-domain operation (D3 deferred; single-domain v1, no multi-synchronizer machinery in the scaffold — see [section 8](#8-cross-synchronizer-domain-extension-planned-future)) | — (planned) | ⬜ `[FUTURE]` |
-| Cross-chain orchestration / bridge / identity-claim business logic (gateway mock + orchestrator) | — (planned) | ⬜ `[FUTURE]` |
-
-## 9. Open Design Questions
-
-Decisions to settle with the internal team before implementation, not M1 build
-items.
-
-- **Production attestor / relayer trust model (decentralization).** [Section 3.5](#35-reserve--lock-attestation-model-future) fixes
-  the *shape* — a threshold N-of-M attestor set verified via
-  [`TrustedAttesterRegistry`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L775),
-  permissionless relay, fail-closed mint. The *parameters* are open: M and the
-  threshold N, attestor selection / rotation / slashing for a false attestation,
-  and how the attestor set is itself governed. This is the largest trust surface
-  and should be settled with the internal team before implementation.
-- **Outbound-redemption cross-chain atomicity ([section 3.6](#36-outbound-redemption-burn-on-canton--release-on-source-chain-future)).** Burn-first / attested-
-  release guarantees no double-spend and no unbacked supply, but the foreign
-  release is not atomic with the Canton burn. Open: the standing-claim
-  resubmission protocol and SLA for a stalled source-chain release, and whether a
-  bounded grace window before burn (escrow-then-burn) is ever preferable to
-  burn-first for specific source chains.
-- **Capability lifecycle (revocation / rotation) and the redemption-burn
-  capability.** `BurnerCapability` is a choice-less capability witness (D1–D4
-  attachment, D2): validated by the sweep choices, revocable only by the admin
-  archiving it. Open before any public authority surface: the SCU-additive
-  `BurnerCapability_Revoke`/`_Rotate` shape (single contract vs. registry of
-  capabilities), and the concrete holder/co-authorization model for the
-  `[FUTURE]` `RedemptionBurnCapability` that gates outbound redemption burns
-  ([section 3.6](#36-outbound-redemption-burn-on-canton--release-on-source-chain-future)) — kept strictly separate from the Custodian's seizure credential.
-- **Aligning gateway scope with native rails.** USDCx bridges natively via Circle
-  xReserve + CCTP ([section 1](#1-product-definition)), so this RI settles it rather than bridging it. Open: a
-  general rule for when an inbound asset already has a native Canton rail (settle
-  the native mint output) versus when the generic Standardized Messaging Gateway
-  is the right reference, so the architecture never re-bridges an already-bridged
-  asset.
-- **Standardized Messaging Gateway (planned, absent).** The gateway is a
-  Contracts-Library component **not yet present in this workspace**. When the
-  production gateway lands, how are inbound attestations sequenced if the origin
-  chain (Ethereum/Polygon) deep-reorgs? Does the gateway manage confirmation
-  delays internally, or must the relayer Daml contract use a time-locked
-  `AllocationInstruction` to mitigate cross-chain rollback risk?
-- **Settled-instrument forced upgrades.** Active holdings upgrade-on-use via factory routing,
-  but a forced upgrade for passive holders raises a question: how does the
-  relayer detect a recipient holding a deprecated `TransferPreapproval`, and what
-  is the fallback from delegated-accept to an interactive two-step offer?
-- **Expired / unsettled inbound-allocation lifecycle.** A committed inbound
-  `Allocation` locks bridging funds until settlement. The scaffold provides
-  the release primitives — post-deadline
-  [`Allocation_Cancel`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L570)
-  (executors) and
-  [`Allocation_Withdraw`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L583)
-  (authorizer), both returning locked holdings ([section 3.6](#36-outbound-redemption-burn-on-canton--release-on-source-chain-future)) — so the open questions are
-  narrower: who *operationally* runs the reclaim for a dead inbound flow (an
-  automated handler needs executor or authorizer authority), how the RI enforces
-  the mandatory finite `settlementDeadline` on committed inbound allocations
-  (a `None` deadline is unreleasable), and how this local lifecycle aligns with
-  the upstream Token Standard V2 Allocation lifecycle `[UPSTREAM]`, which
-  separates allocation expiry from the settlement deadline, once imported.
-  (Maps to the transfer-failure return-to-sender rule.)
-- **Cross-domain identity proof injection (D3).** When ONCHAINID / ERC-3643
-  equivalents are supported, does the `TrustedIssuerRegistry` ingest external
-  state proofs via an oracle, or rely on a CCID protocol synchronized across the
-  global synchronizer? The cross-domain proof-injection trust model must be
-  audited.
-- **Cross-synchronizer operation** (see [section 8](#8-cross-synchronizer-domain-extension-planned-future)) — deferred; tracked there.
-- **Composability with the other RIs** (forward-compatibility;
-  the [suite overview](./README.md#how-the-reports-compose)): recipients holding instruments settled
-  here (`wTOK`, or native USDCx) can provide liquidity to the DEX RI ([`01`](./01-dex.md)) pools or
-  collateralize a Lending RI ([`02`](./02-lending.md)) vault — all over the same
-  `SettlementFactory_SettleBatch` spine, with no parallel settlement path.
-
----
-
-## References
-
-All interface, template, choice, and field names are grounded in real source in
-this workspace, except components explicitly marked planned/external.
-
-- **Settlement spine** `[IMPLEMENTED]` —
-  [`Cip112.daml`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml)
-  (key choices: [`SettlementFactory_SettleBatch`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L249),
-  [`Allocation_Settle`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L490)).
-- **Holdings / rules / preapproval** `[EVIDENCE]` —
-  `canton-token-template/simple-token/daml/SimpleToken/{Holding,Rules,Preapproval}.daml`
-  (`TransferPreapproval` + `TransferPreapproval_Send`; the D2 forced-sweep choice
-  `LockedSimpleHolding_ForcedBurn` is `[FUTURE]`).
-- **Credential gating / verification** `[IMPLEMENTED]` (experimental) —
-  `canton-specs/experiments/credential-gateway/daml/OpenZeppelin/Experimental/Credential/Gateway.daml`.
-- **Typed D3 identity (KycClaim, TrustedIssuerRegistry)** `[IMPLEMENTED]` —
-  `canton-specs/experiments/identity-hook-shape-b/` and `identity-hook-upgrade-*/`.
-- **Access-control / ownership / pause primitives** `[IMPLEMENTED]` —
-  `canton-specs` `access-control/`, `ownable/`, `pausable/`.
-- **Token Standard V2 upstream** `[UPSTREAM]` — `hyperledger-labs/splice`
-  (Token Standard V2 interfaces; import gated).
-- **Planned / external (not in workspace):** the **Standardized Messaging
-  Gateway** (OpenZeppelin Contracts-Library component) and **USDCx** (external
-  Canton ecosystem stablecoin, bridged natively via Circle xReserve + CCTP). See
-  [section 6.2](#62-external--planned-dependencies) and [Open Design Questions](#9-open-design-questions).
+- **Production attester / relayer trust model (decentralization).** [Section 2](#decentralization-and-trust-topology) fixes the *shape*: a threshold N-of-M attester set verified via the [`TrustedAttesterRegistry`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L778), permissionless relay, fail-closed mint. The *parameters* are open: M and the threshold N, attester selection / rotation / slashing for a false attestation, how the attester set is itself governed, and the shape of the quorum-verifying choice (aggregated attestation vs M attestations). This is the largest trust surface in the design.
+- **Multisig implementation for value-critical roles.** The Stablecoin Admin and Custodian each require N-of-M authority ([section 2](#decentralization-and-trust-topology)). Open: whether each role uses the on-ledger approval workflow, an external party with threshold signing keys, or a combination, and the N and M per role.
+- **Outbound-redemption cross-chain atomicity.** Burn-first / attested-release guarantees no double-spend and no unbacked supply, but the foreign release is not atomic with the Canton burn. Open: the standing-claim resubmission protocol and SLA for a stalled source-chain release, and whether a bounded grace window before burn (escrow-then-burn) is ever preferable for specific source chains.
+- **Capability lifecycle (revocation / rotation).** `BurnerCapability` is a choice-less capability witness, revocable only by the admin archiving it. Open before any public authority surface: the SCU-additive `BurnerCapability_Revoke`/`_Rotate` shape (single contract vs a registry of capabilities), and the concrete holder and co-authorization model for the `[FUTURE]` `RedemptionBurnCapability` that gates outbound redemption burns, kept strictly separate from the Custodian's seizure credential.
+- **Aligning gateway scope with native rails.** USDCx bridges natively via Circle xReserve + CCTP ([section 1](#1-product-definition)), so this RI settles it rather than bridging it. Open: a general rule for when an inbound asset already has a native Canton rail (settle the native mint output) versus when the generic gateway is the right reference, so the architecture never re-bridges an already-bridged asset.
+- **Gateway behavior under source-chain reorgs.** When the production gateway lands, how are inbound attestations sequenced if the origin chain deep-reorgs? Does the gateway manage confirmation delays internally, or must the relayer contract use a time-locked `AllocationInstruction` to mitigate cross-chain rollback risk?
+- **Expired / unsettled inbound-allocation lifecycle.** The spine provides post-deadline release primitives ([`Allocation_Cancel`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L570), [`Allocation_Withdraw`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L583)). Open: who *operationally* runs the reclaim for a dead inbound flow (an automated handler needs executor or authorizer authority), how the RI enforces the mandatory finite `settlementDeadline`, and how this local lifecycle aligns with the upstream Token Standard V2 allocation lifecycle once imported.
+- **Cross-domain identity proof injection (D3, deferred).** When ONCHAINID / ERC-3643 equivalents are supported, does the `TrustedIssuerRegistry` ingest external state proofs via an oracle, or rely on a CCID protocol synchronized across the global synchronizer? The cross-domain proof-injection trust model must be audited.
+- **Composability with the other RIs** (forward-compatibility): recipients holding instruments settled here (`wTOK`, or native USDCx) can provide liquidity to the DEX RI ([`01`](./01-dex.md)) pools or collateralize a Lending RI ([`02`](./02-lending.md)) vault - all over the same `SettlementFactory_SettleBatchWithAttestation` spine, with no parallel settlement path.
