@@ -6,7 +6,7 @@ This document describes a *reference design* for a sealed-bid, uniform-price tok
 
 This report specifies a confidential auction launchpad for institutional, regulated token distribution on the Canton Network. The launchpad runs a **single-round sealed-bid auction that settles at a uniform clearing price**: bidders place escrow-backed bids that only they and the auctioneer can see, the auctioneer clears the round off-ledger, and every winning bid settles in one atomic token-for-payment exchange. The pricing rule that selects the uniform clearing price (e.g. lowest accepted bid, highest rejected bid) is an off-ledger parameter of the auctioneer's clearing engine.
 
-The sealed-bid property comes from Canton itself rather than from cryptographic obfuscation. Canton projects every contract only to the parties entitled to see it, so a bid is visible to its bidder and the auctioneer and to no one else: competing bidders learn nothing, and there is no public mempool to front-run.
+The sealed-bid property comes from Canton itself rather than from cryptographic obfuscation. Canton projects every contract only to the parties entitled to see it, so no bidder ever sees a competitor's bid, and there is no public mempool to front-run. A bid's visibility set is its bidder, the auctioneer, and the launchpad's signatories (operator and token issuer), who witness the bid gate; narrowing the issuer out of that set is an agreed improvement tracked in [section 6](#6-open-design-questions).
 
 For the distribution to be safe, the exchange of tokens for payment must be atomic (no winner pays without receiving their tokens, and vice versa) and non-custodial (no intermediary holds bidder funds along the way). Therefore, the settlement architecture centers on [CIP-0112 - Canton Network Token Standard V2](https://github.com/canton-foundation/cips/blob/main/cip-0112/cip-0112.md), specifically its support for [atomic settlement](https://github.com/canton-foundation/cips/blob/main/cip-0112/cip-0112.md#416-committed-allocations-for-prefunded-trading-and-iterated-settlement). The core building block is the **atomic delivery-versus-payment (DvP) batch**: each winner's payment leg and the issuer's token legs are settled in one all-or-nothing transaction, with each leg's amount pinned on-ledger to a signed allocation side.
 
@@ -38,8 +38,8 @@ The reference implementation favors **a single sealed-bid core over expansive ma
 | Feature Category | In-Scope Architectural Components |
 |---|---|
 | Auction Mechanism | A single-round **sealed-bid** auction settling at a **uniform clearing price**. The pricing rule selecting that price is an off-ledger parameter of the auctioneer's clearing engine. |
-| Confidentiality | Bid isolation via per-party projection: bidder, issuer/auctioneer, and the credential verifier only. No bidder ever projects a competitor's bid. |
-| Escrow | Bid capital locked in a committed [`Allocation`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L474); funds bound to the settlement outcome by the ledger's authorization rules, with a deadline-gated force-refund for liveness. |
+| Confidentiality | Bid isolation via per-party projection: bidder, auctioneer, and the launchpad signatories only. No bidder ever projects a competitor's bid. |
+| Escrow | Bid capital locked in a committed [`Allocation`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L474) under the bidder's own signature, with a deadline-gated force-refund for liveness. The winner-side settlement commits a separate post-clearing allocation; sequencing the two is an open question ([section 6](#6-open-design-questions)). |
 | Atomic Settlement | Token-for-payment exchange **only** via [`SettlementFactory_SettleBatchWithAttestation`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L274) (atomic DvP, single transaction). |
 | Compliance & Control | D1: a settlement does not execute unless an attester has signalled compliance. D2: a privileged party can sweep allocation funds to a preset custodian account. D3: single-synchronizer identity, gated at entry by `credential-gateway` and re-checked at settlement. |
 | Component Integration | Direct reuse of `openzeppelin-access-control`, `openzeppelin-ownable`, `openzeppelin-pausable`, the CIP-0112 settlement spine, the [`credential-gateway`](../../experiments/credential-gateway/daml/OpenZeppelin/Experimental/Credential/Gateway.daml) and [`ShapeB`](../../experiments/identity-hook-shape-b/daml/OpenZeppelin/Experimental/Identity/ShapeB.daml) experiments, as well as asset patterns from [`canton-token-template`](https://github.com/OpenZeppelin/canton-token-template). |
@@ -66,9 +66,9 @@ The reference implementation favors **a single sealed-bid core over expansive ma
 
 On public ledgers, sealed-bid auctions need a commit-reveal pattern: publish a hash of the bid to a globally visible mempool, then reveal the plaintext later. This adds UX friction, non-revelation risk, and exposure to metadata and timing analysis.
 
-Canton operates on a privacy-preserving, **per-party projection** model enforced by the Canton protocol. A Canton contract is an instance of a template, signed and authorized by a set of parties (signatories), and visible only to its signatories and observers. A `BidRequest` with `signatory bidder, observer auctioneer` is projected only to those two parties, so the sealed-bid property is achieved without commit-reveal, and front-running is structurally prevented: the synchronizer orders transactions without seeing bid plaintext.
+Canton operates on a privacy-preserving, **per-party projection** model enforced by the Canton protocol. A Canton contract is an instance of a template, signed and authorized by a set of parties (signatories), and visible only to its signatories, observers, and the witnesses of the transaction that created it. A `BidRequest` with `signatory bidder, observer auctioneer`, created through the issuer-signed bid gate, is projected to the bidder, the auctioneer, and the launchpad signatories - and to no other bidder. The sealed-bid property is thus achieved without commit-reveal, and front-running is structurally prevented: the synchronizer orders transactions without seeing bid plaintext.
 
-The same model shapes the rest of the design. State changes by archive-and-recreate rather than in-place mutation, and any signatory must actively co-authorize a transition, so **two-step handshakes (Daml's propose-and-accept pattern) are a necessity, not a style choice**: the auctioneer cannot push a minted token into a bidder's wallet; the issuer proposes and the bidder accepts. The design uses **contract keys** (reintroduced in Canton 3.5.1) so the `AuctionLaunchpad`, `PauseState`, and the trusted-attester and trusted-issuer registries keep stable, unique identities across those archive-and-recreate cycles.
+The same model shapes the rest of the design. State changes by archive-and-recreate rather than in-place mutation, and any signatory must actively co-authorize a transition, so **two-step handshakes (Daml's propose-and-accept pattern) are a necessity, not a style choice**: the auctioneer cannot push a minted token into a bidder's wallet; the issuer proposes and the bidder accepts. The design uses **contract keys** (reintroduced in Canton 3.5.1) so the `AuctionLaunchpad`, `PauseState`, and the trusted-attester and trusted-issuer registries keep stable, unique identities across those archive-and-recreate cycles. Keys are the design target: the `[IMPLEMENTED]` experiment code at the repository's pinned SDK baseline is keyless and passes explicit contract ids with admin-equality checks instead.
 
 To distribute a token fairly in this privacy-first environment, the architecture reconciles the confidentiality needed for sealed bids with the verifiability needed for settlement. The RI does this by **fracturing the auction into per-authorizer allocations**: a bid's intent lives in a two-party `BidRequest`, but the actual asset movement rides on per-party `Allocation` contracts on the CIP-0112 spine, and the clearing choice binds every settled leg to the amounts each bidder signed. Counterparties observe only their own legs.
 
@@ -116,7 +116,7 @@ For the role that holds value-moving and supply-changing authority - the **token
 - **On-ledger approval workflow** - the multisig is written in Daml ([Multiple Party Agreement](https://docs.canton.network/appdev/modules/m3-design-patterns#multiple-party-agreement)): approvers record approvals as contracts, and the final choice executes under the role party's inherited authority only once a threshold of approvals exists. Approvals are durable, named, and auditable on-ledger.
 - **External party with threshold signing keys** - the role party's transactions require signatures from N of M keys (`PartyToKeyMapping`), held by independent organizations. Invisible to the Daml code and a single ledger transaction per action, but the signing ceremony must complete within the prepared transaction's validity window, and the approval record stays off-ledger. The implementation could leverage something like the [Bitsafe decentralization-manager](https://github.com/DLC-link/decentralization-manager).
 
-The powers of the **auctioneer** are already bounded by bidder signatures and on-ledger checks: the clearing choice binds every settled leg to a signed bid, so a rogue auctioneer cannot steal. To increase its availability and protect against a malicious single validator, we envision it as a multi-hosted party on several validators, with a confirmation threshold >1. Multi-hosting does **not** address the clearing-honesty trust described in [section 1](#the-central-trust-limitation-the-auctioneer): that residual trust is inherent to off-ledger clearing.
+The powers of the **auctioneer** are already bounded by bidder signatures and on-ledger checks: the clearing choice binds every settled leg to a signed bid, so a rogue auctioneer cannot steal. To increase its availability we envision it as a multi-hosted party on several validators with a confirmation threshold of 1: the auctioneer submits the clearing itself, and a threshold above 1 would push every clearing submission through an external-signing ceremony (a threshold >1 party cannot submit Ledger API commands directly). Integrity does not ride on the threshold, and multi-hosting does **not** address the clearing-honesty trust described in [section 1](#the-central-trust-limitation-the-auctioneer): that residual trust is inherent to off-ledger clearing.
 
 The **pause authority** is likewise multi-hosted so the brake is always reachable, but its confirmation threshold stays at 1: an emergency stop must be instant, and a quorum would slow it down. The price of that choice is a griefing window: a malicious pauser can freeze the launch until deadlines lapse. This griefing is capped by the bidder's right to reclaim escrow after the settlement deadline.
 
@@ -136,9 +136,9 @@ An invariant-bound lifecycle: configuration and gating, then confidential biddin
 
 1. **Configuration and access gating.** The token issuer and launchpad operator instantiate the `AuctionLaunchpad` (payment and launched instrument ids, price floor, per-bid cap, deadlines, and the `SettlementFactory` reference) and delegate the auctioneer role via `RoleGrant`. The governing `TrustedIssuerRegistry` is **not stored on the launchpad**: it archive-and-recreates on membership change, so it is resolved **by key** (its admin) at exercise time and a stale reference can never brick the launch.
 2. **Credential verification.** The bidder obtains a `KycClaim` and submits a `CredentialGatedActionRequest`; the verifier issues a `MockVerificationResult` on-ledger, unlocking participation. This is the entry gate, not a check-once: the D1 path is re-evaluated at settlement, fail-closed, with no caching, so a credential revoked after this step still blocks settlement.
-3. **Escrow and confidential bid.** The bidder commits payment capital by creating an `AllocationInstruction` (via [`SettlementFactory_CreateAllocationInstruction`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L228)) and accepting it ([`AllocationInstruction_Accept`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L392)), producing a committed [`Allocation`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L474) that locks the funds under the bidder's authority. Simultaneously the bidder creates a `BidRequest` (`signatory bidder, observer auctioneer`) carrying the `Allocation` reference, bid amount, and price - projected only to bidder and auctioneer.
-4. **Closure and clearing.** The auctioneer halts new submissions via the keyed `PauseState`, reads the active `BidRequest`s from its ledger view, and runs the off-ledger clearing engine to determine the clearing price, winners, and exact asset routing.
-5. **Atomic co-settlement.** Once the clearing price is published, each winner commits a **single two-sided allocation** - pay `bidAmount` out, receive `bidAmount / clearingPrice` tokens in (both of a winner's sides must live in one allocation, per the spine's per-allocation leg-side check) - and the issuer commits **one** allocation carrying every leg's issuer side. The auctioneer binds the legs to the signed bids and submits a single [`SettlementFactory_SettleBatchWithAttestation`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L274) over `winnerAllocations ++ [issuerAllocation]`, presenting a compliance attestation from a trusted attester (see D1). Settlement enforces conservation per instrument (each authorizer's locked funds must cover its SenderSide obligations; surplus returns as change) and commits atomically, delivering tokens to winners, payment to the issuer, and [`SettlementReceipt`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L695)s. The batch is **all-or-nothing**: if any single leg fails (an allocation archived concurrently, a holding consumed, a failed compliance check), the entire batch fails. The clearing engine must therefore validate every allocation immediately before submission to minimize abort-and-retry cycles.
+3. **Escrow and confidential bid.** The bidder commits payment capital by creating an `AllocationInstruction` (via [`SettlementFactory_CreateAllocationInstruction`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L228)) and accepting it ([`AllocationInstruction_Accept`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L392)), producing a committed [`Allocation`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L474) that locks the funds under the bidder's authority. Simultaneously the bidder creates a `BidRequest` (`signatory bidder, observer auctioneer`) through the bid gate, carrying the `Allocation` reference, bid amount, and price - hidden from every other bidder ([section 1](#1-product-definition) states the exact visibility set).
+4. **Closure and clearing.** Bid intake ends at `biddingDeadline`, enforced inside the bid gate; the auctioneer may additionally set the keyed `PauseState` as a belt-and-braces close on top of the deadline. It then reads the active `BidRequest`s from its ledger view and runs the off-ledger clearing engine to determine the clearing price, winners, and exact asset routing.
+5. **Atomic co-settlement.** Once the clearing price is published, each winner commits a **single two-sided allocation** - pay `bidAmount` out, receive `bidAmount / clearingPrice` tokens in (both of a winner's sides must live in one allocation, per the spine's per-allocation leg-side check) - and the issuer commits **one** allocation carrying every leg's issuer side. The auctioneer binds the legs to the signed bids and submits a single [`SettlementFactory_SettleBatchWithAttestation`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L274) over `winnerAllocations ++ [issuerAllocation]`, presenting a compliance attestation from a trusted attester (see D1). Settlement enforces conservation per instrument (each authorizer's locked funds must cover its SenderSide obligations; surplus returns as change) and commits atomically, delivering tokens to winners, payment to the issuer, and [`SettlementReceipt`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L695)s. The batch is **all-or-nothing**: if any single leg fails (an allocation archived concurrently, a holding consumed, a failed compliance check, a winner's validator having unvetted the DAR), the entire batch fails. The clearing engine must therefore validate every allocation immediately before submission to minimize abort-and-retry cycles.
 6. **Return to sender (losing bids).** The auctioneer archives losing `BidRequest`s and cancels the corresponding payment `Allocation` ([`Allocation_Cancel`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L570) / [`Allocation_Withdraw`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L583)), releasing the lock back to the bidder. Non-matching bids **return to sender** - never seized or burned by the launchpad.
 
 ```mermaid
@@ -202,7 +202,7 @@ flowchart TD
     IssReg -->|"fetchByKey admin; issuer trusted?"| Settle
 ```
 
-**B. Escrow and confidential bid.** The bidder locks payment capital into a committed allocation, then places the bid; the `BidRequest` is projected only to bidder and auctioneer, so no competitor ever sees it.
+**B. Escrow and confidential bid.** The bidder locks payment capital into a committed allocation, then places the bid; the `BidRequest` is hidden from every competing bidder (its visibility set is the bidder, the auctioneer, and the launchpad signatories who witness the bid gate).
 
 ```mermaid
 flowchart LR
@@ -287,6 +287,15 @@ Consider cross-domain identity. D3 today is single-synchronizer (`TrustedIssuerR
 
 SCU extensions are not security retrofits: adding a stricter choice does not close the looser one. If a stricter clearing path were introduced while the original stayed live, anyone could bypass the frontend and call the weaker path directly. Hence such an upgrade must also make the superseded choice fail unconditionally and be marked as `deprecated`.
 
+### Extension Points
+
+The reference implementation is designed as modular code with deliberate extension seams:
+
+- **Control primitives are plug-and-play**: `openzeppelin-pausable`, `openzeppelin-ownable`, and `openzeppelin-access-control` can be adopted by any template in the system (or outside it) without redesign.
+- **The atomic-settlement primitive is auction-agnostic**: the same spine that clears this launchpad powers the DEX RI's swaps and can host any mechanism that reduces to committed allocations settled in one batch.
+- **Identity is a swappable gate**: the `credential-gateway` entry gate and the `KycClaim`/`TrustedIssuerRegistry` pair can be replaced by a production credential scheme without touching the bid or settlement flows.
+- **The clearing policy is a policy, not a structure**: uniform-price today; alternative pricing or allocation rules (pro-rata partial fills, different tie-breaking) arrive as new choices under the SCU rule above.
+
 ---
 
 ## 4. Sample Component Structure
@@ -295,7 +304,9 @@ The code below is idiomatic Daml that composes with the libraries above. These s
 
 ### 4.1 Component: Launchpad Configuration and the Bid Gate
 
-The `AuctionLaunchpad` holds the auction parameters. It carries a contract key `(tokenIssuer, launchedInstrumentId)`, so bids and the clearing choice reference it by identity rather than by a cid. `AuctionLaunchpad_PlaceBid` is the **single bid entry point** and is **pause-gated**: it looks up the launch's `PauseState` (keyed by the same tuple) and fails while paused. Because `ensure` cannot `fetch`, the escrow validation lives here, on the issuer-signed launchpad, so the bound values come from trusted state rather than bidder-supplied fields.
+The `AuctionLaunchpad` holds the auction parameters. It carries a contract key `(tokenIssuer, launchedInstrumentId)`, so consumers reference it by identity rather than by a cid. `AuctionLaunchpad_PlaceBid` is the **single bid entry point** and is **pause-gated**: it looks up the launch's `PauseState` (keyed by the same tuple) and fails while paused. Because `ensure` cannot `fetch`, the escrow validation lives here, on the issuer-signed launchpad, so the bound values come from trusted state rather than bidder-supplied fields.
+
+Bidders are not stakeholders of the launchpad, so to exercise `PlaceBid` they submit with the launchpad passed as an **explicitly disclosed contract**: the launch parameters are shared off-ledger (they are public offering terms anyway) without putting every prospective bidder in the contract's observer set. Declaring a broad observer set is the alternative, at the cost of every observer witnessing each parameter update.
 
 ```daml
 module OpenZeppelin.Experimental.Auction.Launchpad where
@@ -308,6 +319,7 @@ template AuctionLaunchpad
   with
     operator : Party
     tokenIssuer : Party
+    auctioneer : Party             -- delegated via RoleGrant; controls clearing (4.3)
     paymentInstrumentId : InstrumentId
     launchedInstrumentId : InstrumentId
     settlementFactoryCid : ContractId SettlementFactory
@@ -348,10 +360,9 @@ template AuctionLaunchpad
           [s] | s.instrumentId == paymentInstrumentId.id && s.amount == bidAmount -> pure ()
           _ -> abort "escrow must sign exactly one payment side == (bidAmount, payment instrument)"
         create BidRequest with
-          bidder; auctioneer = operator
+          bidder; auctioneer
           paymentAllocationCid; bidAmount; bidPrice
           settlementDeadline   -- copied from trusted launchpad state
-          crossDomainRef = None
 ```
 
 ### 4.2 Component: The Confidential Bid
@@ -367,7 +378,6 @@ template BidRequest
     bidAmount : Decimal
     bidPrice : Decimal
     settlementDeadline : Time        -- bound to the launchpad's at PlaceBid time
-    crossDomainRef : Optional Text   -- SCU additive extension point (deferred D3)
   where
     signatory bidder
     observer auctioneer
@@ -386,20 +396,13 @@ template BidRequest
 
 ### 4.3 Component: Clearing and Atomic Settlement
 
-The clearing choice binds every settled leg to a signed bid, so the auctioneer-chosen `transferLegs` cannot deviate from what bidders authorized: each winner pays exactly their signed `bidAmount`, receives exactly `bidAmount / clearingPrice`, and must have bid at or above the clearing price (uniform-price eligibility). The winner's two sides (pay out, tokens in) live in one allocation, per the spine's per-allocation leg-side check.
+Clearing is a choice **on the `AuctionLaunchpad` itself**, mirroring RI1's `Pool_Swap`-on-`Pool` pattern: the auctioneer is the controller, and the launchpad signatories' inherited authority covers the pause lookup and the settlement exercise. The choice binds every settled leg to a signed bid, so the auctioneer-chosen `transferLegs` cannot deviate from what bidders authorized: each winner pays exactly their signed `bidAmount`, receives exactly `bidAmount / clearingPrice`, and must have bid at or above the clearing price (uniform-price eligibility). The winner's two sides (pay out, tokens in) live in one allocation, per the spine's per-allocation leg-side check.
 
 ```daml
-template AuctionClearing
-  with
-    auctioneer : Party
-    tokenIssuer : Party
-    launchedInstrumentId : InstrumentId
-  where
-    signatory auctioneer
-
-    choice Clearing_ExecuteBatch : [ContractId SettlementReceipt]
+    -- On AuctionLaunchpad (continued from 4.1). Nonconsuming: clearing does not
+    -- rewrite the launch parameters. Pause-gated like the bid gate.
+    nonconsuming choice Clearing_ExecuteBatch : [ContractId SettlementReceipt]
       with
-        settlementFactoryCid : ContractId SettlementFactory
         clearingPrice : Decimal
         winningBids : [ContractId BidRequest]
         winnerAllocations : [ContractId Allocation]   -- 1:1 with winningBids; each carries
@@ -411,12 +414,13 @@ template AuctionClearing
         attestationCid : ContractId PartyComplianceAttestation
       controller auctioneer
       do
+        (_, pause) <- fetchByKey @PauseState (tokenIssuer, launchedInstrumentId)
+        whenNotPaused pause
         now <- getTime
-        (_, lp) <- fetchByKey @AuctionLaunchpad (tokenIssuer, launchedInstrumentId)
-        assertMsg "bidding still open" (now > lp.biddingDeadline)
-        assertMsg "settlement window closed" (now <= lp.settlementDeadline)
-        assertMsg "clearing price below floor" (clearingPrice >= lp.minBidPrice)
-        assertMsg "treasury is not the issuer's" (issuerTreasury.owner == Some lp.tokenIssuer)
+        assertMsg "bidding still open" (now > biddingDeadline)
+        assertMsg "settlement window closed" (now <= settlementDeadline)
+        assertMsg "clearing price below floor" (clearingPrice >= minBidPrice)
+        assertMsg "treasury is not the issuer's" (issuerTreasury.owner == Some tokenIssuer)
 
         -- KEY: derive the expected legs from each signed bid and its winner
         -- allocation, instead of trusting the auctioneer-supplied list.
@@ -425,8 +429,8 @@ template AuctionClearing
           bid <- fetch bidCid
           assertMsg "winning bid is below the clearing price" (bid.bidPrice >= clearingPrice)
           winnerAlloc <- fetch winnerAllocCid
-          paySide <- requireSingleSide SenderSide lp.paymentInstrumentId winnerAlloc
-          tokSide <- requireSingleSide ReceiverSide lp.launchedInstrumentId winnerAlloc
+          paySide <- requireSingleSide SenderSide paymentInstrumentId winnerAlloc
+          tokSide <- requireSingleSide ReceiverSide launchedInstrumentId winnerAlloc
           let tokenAmount = bid.bidAmount / clearingPrice
           assertMsg "winner pay side != signed bidAmount" (paySide.amount == bid.bidAmount)
           assertMsg "winner token side != bidAmount/clearingPrice" (tokSide.amount == tokenAmount)
@@ -465,7 +469,7 @@ The RI prioritizes verifiable security. Simplicity over complexity minimizes the
   - Every settled leg is derived from a signed bid: pay exactly `bidAmount`, receive exactly `bidAmount / clearingPrice`, eligibility `bidPrice >= clearingPrice`, and routing pinned to the issuer treasury.
   - The clearing price's *honesty* and allocation *fairness* are **not** on-ledger properties ([section 1](#the-central-trust-limitation-the-auctioneer)).
 - **Confidentiality (through settlement)**:
-  - A bid is projected only to its bidder, the auctioneer, and the designated verifier.
+  - A bid is never projected to another bidder. Its visibility set today is the bidder, the auctioneer, and the launchpad signatories who witness the bid gate; narrowing the issuer out of it is tracked in [section 6](#6-open-design-questions).
   - At settlement, each allocation is exercised with only the legs its own authorizer is party to, so one winner never witnesses another winner's legs; the full leg list is visible only at the factory level.
 - **Liveness**:
   - Past `settlementDeadline`, every bidder can unilaterally reclaim escrow; losing bids always return to sender.
@@ -489,10 +493,11 @@ We propose a three-tier validation approach, based on verification tools built b
 | Compliance evasion (D1) | A sanctioned party tries to settle without a valid attestation, or with a stale, forged, or untrusted one. | A factory with `requiresPartyAttestation` forces settlement through `SettlementFactory_SettleBatchWithAttestation`, which verifies and consumes a `PartyComplianceAttestation` signed by a party in the factory admin's `TrustedAttesterRegistry`, bound to this settlement and within its validity window. |
 | Rogue seizure / asset burning (D2) | A compromised issuer key attempts to burn escrow or sweep it to an attacker account. | [`Allocation_SweepD2InFlightSeizure`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L625) hardcodes the destination to the preset custodian; arbitrary burn is forbidden. A compromised key can only sweep to the pre-approved, monitored custodian. |
 | Forced upgrades breaking in-flight escrow (SCU) | A poorly executed upgrade mutates fields, rendering existing `Allocation` or `BidRequest` contracts unusable. | Programmatic adherence to the SCU rule (Optional appends + new choices only). Existing choices stay operable; in-flight rounds conclude before users transition. |
+| DAR unvetting (liveness) | A malicious or misconfigured validator unvets the launchpad DAR. Every batch party (signatory or observer) must have the same DAR version vetted, so one affected winner blocks the entire all-or-nothing clearing batch; unvetting on the holder's participant likewise blocks a D2 sweep. | Unvetting cannot be prevented by the application. It is self-limiting: the unvetted party's own contracts freeze (readable, but no choices execute) until re-vetting, so it is no escape hatch. The clearing engine detects the failure, excludes the affected legs, and resubmits without them; the excluded escrow stays reclaimable through the post-deadline force-refund once the DAR is re-vetted. |
 
 ### 5.4 Throughput and Contention
 
-Bid intake does not contend: `AuctionLaunchpad_PlaceBid` is nonconsuming and each bid creates independent `BidRequest` and `Allocation` contracts, so bidders submit in parallel. The serialization point is the clearing batch: one `SettleBatchWithAttestation` settles every winning leg in a single all-or-nothing transaction, so a single failed leg (a concurrently archived allocation, a consumed holding, a failed attestation) aborts the whole batch. The clearing engine must validate all inputs immediately before submission, and an oversubscribed round may need a batching policy (several smaller batches trade atomicity of the *round* for isolation of failures - a design decision recorded in [section 6](#6-open-design-questions)).
+Bid intake does not contend: `AuctionLaunchpad_PlaceBid` is nonconsuming and each bid creates independent `BidRequest` and `Allocation` contracts, so bidders submit in parallel. The serialization point is the clearing batch: one `SettleBatchWithAttestation` settles every winning leg in a single all-or-nothing transaction, so a single failed leg (a concurrently archived allocation, a consumed holding, a failed attestation, an unvetted DAR on one winner's validator) aborts the whole batch. The clearing engine must validate all inputs immediately before submission, and an oversubscribed round may need a batching policy (several smaller batches trade atomicity of the *round* for isolation of failures - a design decision recorded in [section 6](#6-open-design-questions)).
 
 ---
 
@@ -503,7 +508,7 @@ Decisions to settle with the internal team before implementation, not M1 build i
 - **Multisig implementation for the token issuer.** The issuer treasury holds mint, seizure, and every token-leg authority ([section 2](#decentralization-and-trust-topology)). Open: whether the role uses the on-ledger approval workflow, an external party with threshold signing keys, or a combination; the N and M; and the pre-delegation mechanism that keeps the issuer's per-round settlement actions off the ceremony path.
 - **Tie-breaking at the clearing price.** When bids tie at the marginal price and supply is insufficient for all, the allocation rule (pro-rata, time-priority, random-with-seed, or issuer-chosen) is unspecified and is a primary fairness lever for a launchpad.
 - **Oversubscription and partial fills.** How an oversubscribed round allocates the scarce token across winning bids (full-fill-by-rank vs pro-rata partial fills, and how partials interact with the single committed escrow `Allocation`). Whatever rule is chosen, the per-winner filled amount and returned change must be bound on-ledger to the signed bid exactly as the full-fill clearing does: a partial fill is the same theft surface per slice.
-- **Post-clearing winner allocation (liveness).** Because the token amount a winner receives (`bidAmount / clearingPrice`) is unknown at bid time, the winner's two-sided allocation can only be committed post-clearing. Open: the exact mechanism (a standing `TransferPreapproval`-style credit vs an explicit per-winner commit) and the policy for a winner who never commits it (forfeit-and-refund vs auctioneer-driven default). Also open: whether an oversubscribed round settles as one batch or several ([section 5.4](#54-throughput-and-contention)).
+- **Post-clearing winner allocation (liveness and sequencing).** Because the token amount a winner receives (`bidAmount / clearingPrice`) is unknown at bid time, the winner's two-sided allocation can only be committed post-clearing. Open: the exact mechanism (a standing `TransferPreapproval`-style credit vs an explicit per-winner commit) and the policy for a winner who never commits it (forfeit-and-refund vs auctioneer-driven default). The sequencing against the original escrow is the sharp edge: until the escrow `Allocation` is cancelled the winner's capital is double-locked (and a winner without free funds cannot commit the second allocation at all), while cancelling the escrow before the settlement commits opens a window in which the escrow-backed guarantee is void and the winner can walk away. Also open: whether an oversubscribed round settles as one batch or several ([section 5.4](#54-throughput-and-contention)).
 - **Auction-parameter and deadline policy.** Who sets `biddingDeadline` / `settlementDeadline`, the minimum bidding window, and whether deadlines can be extended (and under what authority) before clearing.
 - **Issuer bid visibility.** Today every bid is witnessed by the launchpad's signatories (issuer + operator), because `AuctionLaunchpad_PlaceBid` is a choice on the issuer-signed launchpad. Agreed improvement to evaluate before implementation: move the issuer's first sight of any bid to the settlement point, where it learns only the winning legs. Candidate shapes: move the floor/cap/escrow validation into the clearing choice (bids created bidder-signed, auctioneer-observed only), or an auctioneer-signed bid gate carrying a role-authorized parameter copy. Only matters when issuer and auctioneer are different parties - the auctioneer must see all bids to clear regardless.
 - **Composability with the other RIs** (forward-compatibility): post-auction secondary trading is the DEX RI ([`01`](./01-dex.md)), and participants can collateralize bids by minting stablecoin in the Lending RI ([`02`](./02-lending.md)) - both over the same `SettlementFactory_SettleBatchWithAttestation` spine, with no parallel settlement path.
