@@ -43,9 +43,9 @@ here and elaborated in a report only where the application differs.
   [`Allocation_Settle`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L493)
   path proves authorization, not atomic co-settlement.
 - **Access-control primitives** `[IMPLEMENTED]` —
-  [`oz-access-control`](../../access-control/daml/OpenZeppelin/AccessControl.daml) /
-  [`oz-ownable`](../../ownable/daml/OpenZeppelin/Ownable.daml) /
-  [`oz-pausable`](../../pausable/daml/OpenZeppelin/Pausable.daml), via the
+  [`openzeppelin-access-control`](../../access-control/daml/OpenZeppelin/AccessControl.daml) /
+  [`openzeppelin-ownable`](../../ownable/daml/OpenZeppelin/Ownable.daml) /
+  [`openzeppelin-pausable`](../../pausable/daml/OpenZeppelin/Pausable.daml), via the
   `roleId : MyRole -> Text` closed-sum wrapper.
 - **Decided rails (D1–D4):** D1 compliance on every leg, no-cache, fail-closed,
   node-applied (optional
@@ -169,7 +169,7 @@ per-symbol anchors; each report's Code Map links the symbols it uses.
 - Mermaid lives in fenced ```mermaid``` blocks; render externally where a Markdown
   viewer does not.
 
-> The decoupled `oz-access-control` / `oz-ownable` / `oz-pausable` library is
+> The decoupled `openzeppelin-access-control` / `openzeppelin-ownable` / `openzeppelin-pausable` library is
 > intended to live in `OpenZeppelin/canton-contracts`; until it is merged there,
 > the reports link the in-repo copies under `access-control/`, `ownable/`,
 > `pausable/`.

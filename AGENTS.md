@@ -9,8 +9,8 @@ compliance/identity experiments), the architecture/decision docs, and the four
 RI architecture reports. Keep changes small, auditable, and tied to M1
 settlement/specs/RI deliverables.
 
-The decoupled, ergonomic general library (`oz-access-control` / `oz-ownable` /
-`oz-pausable`) is owned by `canton-contracts` — that repo is the **source of
+The decoupled, ergonomic general library (`openzeppelin-access-control` / `openzeppelin-ownable` /
+`openzeppelin-pausable`) is owned by `canton-contracts` — that repo is the **source of
 truth** for the reusable primitives and contains no RI/specs code. The RI here
 **consumes** the library and builds against a vendored snapshot of those
 primitives: evolve a primitive in `canton-contracts`, then refresh the snapshot
@@ -73,8 +73,8 @@ Do not add:
 - The four RIs' own business logic (DEX AMM, lending vaults, stablecoin
   orchestration, sealed-bid auction) — those are M2–M4 implementation, not M1;
   M1 builds the shared settlement primitive and documents the RI designs.
-- The decoupled library's design — evolve `oz-access-control` / `oz-ownable` /
-  `oz-pausable` in `canton-contracts` and refresh the snapshot here.
+- The decoupled library's design — evolve `openzeppelin-access-control` / `openzeppelin-ownable` /
+  `openzeppelin-pausable` in `canton-contracts` and refresh the snapshot here.
 - Production private integrations.
 - Full relayer infrastructure.
 - Year 2 components before scope review approval.
