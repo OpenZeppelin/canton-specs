@@ -203,7 +203,7 @@ Canton stakeholder/runbook request is:
    some other participant-authorization threshold model, and show the topology
    transaction evidence for the configured threshold.
 4. Provide package-vetting/upload steps for the experimental
-   `oz-experimental-cip112-settlement-0.1.0.dar` on every participant that must
+   `openzeppelin-experimental-cip112-settlement-0.1.0.dar` on every participant that must
    submit or validate the settlement leg.
 5. Provide a `dpm script --participant-config` shape, or an equivalent accepted
    Canton command sequence, that submits a CIP-112 settlement leg as the shared

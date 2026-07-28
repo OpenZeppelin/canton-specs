@@ -38,7 +38,7 @@ metadata-v1                      (no token deps)
 
 ## Package layout (thin facade, no mirroring)
 
-- New facade package, e.g. `settlement/` (`oz-cip112-settlement`), that
+- New facade package, e.g. `settlement/` (`openzeppelin-cip112-settlement`), that
   `data-depends` on the seven upstream DARs and holds **only** the OpenZeppelin
   D1/D2/D3/D4 extension points.
 - Upstream types are imported **directly** through their Splice module names — not
@@ -53,7 +53,7 @@ accepted-source DARs; it is intentionally a placeholder until precondition 1/2.
 
 ```yaml
 # settlement/daml.yaml  —  TEMPLATE, not applied
-name: oz-cip112-settlement
+name: openzeppelin-cip112-settlement
 version: 0.1.0
 sdk-version: 3.4.11           # matches upstream package manifests
 source: daml

@@ -1,11 +1,11 @@
 sdk-version: 3.4.11
-name: oz-canton-specs-hello-world-proof
+name: openzeppelin-canton-specs-hello-world-proof
 source: daml
 version: 0.0.0
 dependencies:
   - daml-prim
   - daml-stdlib
   - daml-script
-  - ../.daml/dist/oz-canton-specs-0.0.0.dar
+  - ../.daml/dist/openzeppelin-canton-specs-0.0.0.dar
 build-options:
   - --target=2.1

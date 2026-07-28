@@ -54,7 +54,7 @@ Scope favors a single sealed-bid core over expansive market mechanics.
 | Escrow | Locked escrow via `LockedSimpleHolding` / `Allocation`; funds bound to the settlement outcome by the ledger's authorization rules. |
 | Atomic settlement | Token-for-payment exchange **only** via [`SettlementFactory_SettleBatch`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L249) (atomic DvP, single transaction). |
 | Access gating | Credential-gated participation via `credential-gateway` (`CredentialGatedActionRequest`, `MockVerificationResult`). |
-| Authority | Single-admin capability via `oz-access-control` (mint/burn/seizure). |
+| Authority | Single-admin capability via `openzeppelin-access-control` (mint/burn/seizure). |
 | Compliance | D1 node-applied checks (Shape B), fail-closed — the intended posture, engaged by the optional `D1ComplianceHook` / typed attestation path (base `SettleBatch` does not itself mandate an attestation; see [section 3.2](#32-d1-compliance-shape-b-node-attestation)). |
 
 | Feature Category | Out-of-Scope (Excluded) |
@@ -112,10 +112,10 @@ auction mechanics can be upgraded or substituted.
 
 ### 2.1 Component Utilization
 
-- **Authority** — `oz-access-control` `[IMPLEMENTED]` ([`RoleGrant`](../../access-control/daml/OpenZeppelin/AccessControl.daml), `RoleAdmin`,
+- **Authority** — `openzeppelin-access-control` `[IMPLEMENTED]` ([`RoleGrant`](../../access-control/daml/OpenZeppelin/AccessControl.daml), `RoleAdmin`,
   `DefaultAdminTransferOffer`, [`requireRole`](../../access-control/daml/OpenZeppelin/AccessControl.daml); `roleId : MyRole -> Text`
-  closed-sum wrapper) for Issuer/Auctioneer roles; `oz-ownable` `[IMPLEMENTED]`
-  ([`Ownership`](../../ownable/daml/OpenZeppelin/Ownable.daml)/[`OwnershipOffer`](../../ownable/daml/OpenZeppelin/Ownable.daml)) for two-step handoff; `oz-pausable`
+  closed-sum wrapper) for Issuer/Auctioneer roles; `openzeppelin-ownable` `[IMPLEMENTED]`
+  ([`Ownership`](../../ownable/daml/OpenZeppelin/Ownable.daml)/[`OwnershipOffer`](../../ownable/daml/OpenZeppelin/Ownable.daml)) for two-step handoff; `openzeppelin-pausable`
   `[IMPLEMENTED]` ([`PauseState`](../../pausable/daml/OpenZeppelin/Pausable.daml)/[`whenNotPaused`](../../pausable/daml/OpenZeppelin/Pausable.daml)) for the emergency halt.
 - **Settlement spine** — `OpenZeppelin.Experimental.Settlement.Cip112`
   `[IMPLEMENTED]` ([`SettlementFactory`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L191), [`AllocationRequest`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L322),
@@ -197,7 +197,7 @@ off-ledger clearing → atomic on-ledger settlement.
    Bidder creates a `BidRequest` (`signatory bidder, observer auctioneer`)
    carrying the `Allocation` reference, bid amount, and price — projected only to
    bidder and auctioneer.
-4. **Closure + clearing.** The Auctioneer halts new submissions via `oz-pausable`
+4. **Closure + clearing.** The Auctioneer halts new submissions via `openzeppelin-pausable`
    ([`PauseState`](../../pausable/daml/OpenZeppelin/Pausable.daml)), queries its node for active `BidRequest`s, and runs the
    off-ledger clearing engine to determine the clearing price, winners, and exact
    asset routing.
@@ -345,7 +345,7 @@ template AuctionLaunchpad
     -- ContractId would brick after the first toggle. The current `PauseState` is
     -- instead passed as a choice argument to each whenNotPaused-guarded choice
     -- (disclosed by the pauser at exercise time). Halt/resume route through
-    -- oz-pausable PauseState_Set (controller = issuer, validated via requireRole
+    -- openzeppelin-pausable PauseState_Set (controller = issuer, validated via requireRole
     -- IssuerRole), not via a mutated local flag or a stale pointer.
 
     -- Bid gate: the only way to create a BidRequest. Because `ensure` cannot
@@ -569,10 +569,10 @@ Targets the proposed `canton-settlement-explorer` `[FUTURE]` (not built here).
 
 ```mermaid
 graph TD
-    subgraph Authority["oz-access-control / ownable / pausable"]
-        AC[oz-access-control] -->|grants Issuer/Auctioneer| AL[AuctionLaunchpad]
-        OW[oz-ownable] -->|admin handoff| AL
-        PA[oz-pausable] -->|halt/resume| AL
+    subgraph Authority["openzeppelin-access-control / ownable / pausable"]
+        AC[openzeppelin-access-control] -->|grants Issuer/Auctioneer| AL[AuctionLaunchpad]
+        OW[openzeppelin-ownable] -->|admin handoff| AL
+        PA[openzeppelin-pausable] -->|halt/resume| AL
     end
     subgraph Compliance["credential-gateway / canton-specs identity-hook"]
         ZK[CredentialGatedActionRequest] -->|valid KycClaim| BR[BidRequest]
@@ -628,9 +628,9 @@ sequenceDiagram
 
 | Package | Consumed Templates / Interfaces | Role | Tag |
 |---|---|---|---|
-| `oz-access-control` | [`RoleGrant`](../../access-control/daml/OpenZeppelin/AccessControl.daml), `RoleAdmin`, `DefaultAdminTransferOffer`, [`requireRole`](../../access-control/daml/OpenZeppelin/AccessControl.daml) | Authority model; closed-sum `roleId` checks. | `[IMPLEMENTED]` |
-| `oz-ownable` | [`Ownership`](../../ownable/daml/OpenZeppelin/Ownable.daml), [`OwnershipOffer`](../../ownable/daml/OpenZeppelin/Ownable.daml) | Secure admin handoff. | `[IMPLEMENTED]` |
-| `oz-pausable` | [`PauseState`](../../pausable/daml/OpenZeppelin/Pausable.daml), [`whenNotPaused`](../../pausable/daml/OpenZeppelin/Pausable.daml) | Circuit breaker (halt the sale). | `[IMPLEMENTED]` |
+| `openzeppelin-access-control` | [`RoleGrant`](../../access-control/daml/OpenZeppelin/AccessControl.daml), `RoleAdmin`, `DefaultAdminTransferOffer`, [`requireRole`](../../access-control/daml/OpenZeppelin/AccessControl.daml) | Authority model; closed-sum `roleId` checks. | `[IMPLEMENTED]` |
+| `openzeppelin-ownable` | [`Ownership`](../../ownable/daml/OpenZeppelin/Ownable.daml), [`OwnershipOffer`](../../ownable/daml/OpenZeppelin/Ownable.daml) | Secure admin handoff. | `[IMPLEMENTED]` |
+| `openzeppelin-pausable` | [`PauseState`](../../pausable/daml/OpenZeppelin/Pausable.daml), [`whenNotPaused`](../../pausable/daml/OpenZeppelin/Pausable.daml) | Circuit breaker (halt the sale). | `[IMPLEMENTED]` |
 | `canton-token-template` | `SimpleHolding`, `LockedSimpleHolding`, `SimpleTokenRules`, `TransferPreapproval` (real); `RoleCapability`, `MintProposal`, `Rules_Mint` are `[FUTURE]` extensions — not in the evidence repo today ([section 2.1](#21-component-utilization)). | Asset structure, 3-way dispatch, cold-recipient mint. | `[EVIDENCE]` (+ `[FUTURE]` extensions) |
 | `canton-stablecoin` | (none consumed; `Vault`/`VaultFactory`/`Vault_Liquidate`/`PriceOracle` **excluded** — CDP, not issuance) | Referenced for contrast only. | `[EVIDENCE]` |
 | [`credential-gateway`](../../experiments/credential-gateway/daml/OpenZeppelin/Experimental/Credential/Gateway.daml) | `CredentialGatedActionRequest`, `MockVerificationResult`, `CredentialRevocationStatus` | D1/D3 credential gating. | `[IMPLEMENTED]` (experimental) |
@@ -704,7 +704,7 @@ living-doc anchors validated by `scripts/refresh-ri-anchors.sh`.
 - **D3** — `credential-gateway` + Shape-B `KycClaim` gated at bid acceptance
   **and re-checked per settlement leg** (fail-closed, no caching); cross-domain
   deferred, SCU-forward-compatible.
-- **D4** — `oz-access-control` single-admin capability for M1; multi-sig → M3.
+- **D4** — `openzeppelin-access-control` single-admin capability for M1; multi-sig → M3.
 
 > **D1 attestation is design-intent today.** The Shape-B per-leg attestation
 > requirement is the *intended* compliance gate; the base
@@ -828,7 +828,7 @@ synchronizer before `SettleBatch`.
 | Sealed-bid confidential auction logic | `credential-gateway` `[IMPLEMENTED]` (experimental) `[FUTURE]` | ⬜ |
 | Bid privacy via projection + credential gating | `credential-gateway` `[IMPLEMENTED]` (experimental) `[FUTURE]` | ⬜ |
 | Cross-synchronizer operation (D3 deferred) | [section 8](#8-cross-synchronizer-domain-extension-planned-future) `[FUTURE]` | ⬜ |
-| On-ledger multi-sig authority (D4 → M3) | `oz-access-control` `[FUTURE]` | ⬜ |
+| On-ledger multi-sig authority (D4 → M3) | `openzeppelin-access-control` `[FUTURE]` | ⬜ |
 
 ## 9. Open Design Questions
 
