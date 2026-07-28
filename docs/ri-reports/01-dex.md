@@ -28,10 +28,7 @@ settlement, inside the [OpenZeppelin/canton-specs repository](https://github.com
 3. D2: Seizure through Preset Custodian Lock-and-Sweep - a privileged party can sweep the funds in a locked allocation to a preset custodian account.
 4. D3: Identity through Trusted-Issuer KYC - a trader must hold a `KycClaim` from an issuer in the `TrustedIssuerRegistry` to trade a permissioned pool. Identity gating is optional per pool.
 
-One further compliance capability comes from `openzeppelin-access-control`:
-**D4: Authority through Per-Role Privilege Transfer** - each privileged action
-sits with a named role rather than a single admin. Privileges can be
-transferred, granted or revoked.
+One further compliance capability comes from `openzeppelin-access-control`: **D4: Authority through Per-Role Privilege Transfer** - each privileged action sits with a named role rather than a single admin. Privileges can be transferred, granted or revoked.
 
 ### Operational Scope and Boundaries
 
