@@ -39,9 +39,6 @@ M1 target scope:
 
 Repository-local report surfaces:
 
-- [`docs/m1-delivery.md`](docs/m1-delivery.md) maps every M1 proposal
-  deliverable and acceptance criterion 1:1 to its artifact, location, and
-  validation command.
 - [`docs/architecture/`](docs/architecture/) holds the CIP-0112 / Token Standard
   V2 architecture, promotion-boundary, import-gate, DPM, license, and source-of-
   record notes. The adopted D1–D4 design decisions are recorded in
