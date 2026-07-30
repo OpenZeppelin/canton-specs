@@ -9,8 +9,8 @@ compliance/identity experiments), the architecture/decision docs, and the four
 RI architecture reports. Keep changes small, auditable, and tied to M1
 settlement/specs/RI deliverables.
 
-The decoupled, ergonomic general library (`oz-access-control` / `oz-ownable` /
-`oz-pausable`) is owned by `canton-contracts` — that repo is the **source of
+The decoupled, ergonomic general library (`openzeppelin-access-control` / `openzeppelin-ownable` /
+`openzeppelin-pausable`) is owned by `canton-contracts` — that repo is the **source of
 truth** for the reusable primitives and contains no RI/specs code. The RI here
 **consumes** the library and builds against a vendored snapshot of those
 primitives: evolve a primitive in `canton-contracts`, then refresh the snapshot
@@ -73,8 +73,8 @@ Do not add:
 - The four RIs' own business logic (DEX AMM, lending vaults, stablecoin
   orchestration, sealed-bid auction) — those are M2–M4 implementation, not M1;
   M1 builds the shared settlement primitive and documents the RI designs.
-- The decoupled library's design — evolve `oz-access-control` / `oz-ownable` /
-  `oz-pausable` in `canton-contracts` and refresh the snapshot here.
+- The decoupled library's design — evolve `openzeppelin-access-control` / `openzeppelin-ownable` /
+  `openzeppelin-pausable` in `canton-contracts` and refresh the snapshot here.
 - Production private integrations.
 - Full relayer infrastructure.
 - Year 2 components before scope review approval.
@@ -107,8 +107,8 @@ a superseding ADR or explicit temporary exception accepts them. Daml Assistant
 absence is expected for the M0 proof path and must not be treated as a reason
 to fall back from DPM.
 
-Local scripts bootstrap DPM from PATH or `~/.dpm/bin/dpm`, require Java 21 for
-the accepted DPM build/test/script path, and default DPM/DAML cache writes to
+Local scripts bootstrap DPM from PATH or `~/.dpm/bin/dpm`, require Java 21 or
+newer for the accepted DPM build/test/script path, and default DPM/DAML cache writes to
 the repo-local ignored `.cache/` directory. The repo-local
 `scripts/dpm-env.sh` is intentionally duplicated with the coordinating root
 helper so standalone checkouts remain buildable; update both copies together
@@ -139,7 +139,7 @@ scripts/manual-workflow-test.sh
 ```
 
 The accepted M0 proof baseline uses DPM with SDK 3.4.11. Because `daml.yaml`
-exists, missing DPM or Java 21 tooling is a validation failure, not a green
+exists, missing DPM or Java 21+ tooling is a validation failure, not a green
 skip. Use `OZ_DAML_TOOLCHAIN=dpm` for the M0 proof baseline; Daml Assistant
 requires a superseding ADR or explicit exception.
 

@@ -9,7 +9,7 @@ architecture reports, the audit-readiness package + threat model, scope locks,
 research, and review provenance.
 
 > **Repo split.** The decoupled, ergonomic general Daml contracts library
-> (`oz-access-control` / `oz-ownable` / `oz-pausable`) is owned by
+> (`openzeppelin-access-control` / `openzeppelin-ownable` / `openzeppelin-pausable`) is owned by
 > [`OpenZeppelin/canton-contracts`](https://github.com/OpenZeppelin/canton-contracts).
 > That repo is the **source of truth** for the reusable primitives and contains
 > no RI/specs code. This repo holds the RI implementation that **consumes** the
@@ -92,19 +92,19 @@ The production package is the repo root DPM package. It intentionally has no
 
 Current M0 production DAR:
 
-- Path: `.daml/dist/oz-canton-specs-0.0.0.dar`
+- Path: `.daml/dist/openzeppelin-canton-specs-0.0.0.dar`
 - SHA-256:
-  `ae5419a2b4a6748af3f4ec77736b46d3b9ca40c82f7df8aa1229dff5f71f48d8`
+  `61a6cd5e389b01340e3906f8dc36cc7f86a8cda18f465a148503e15f709a5b91`
 - Main package ID:
-  `c14e2d83f3454f4c70fe9ef4c78818afce121129e195573914d0fa2d32a93ea0`
+  `df2e8cfbb894e27177ffcca5bcc45235017b89f5b2398feb1cd1a3922f7e657a`
 
 Current M0 proof DAR:
 
-- Path: `proof/.daml/dist/oz-canton-specs-hello-world-proof-0.0.0.dar`
+- Path: `proof/.daml/dist/openzeppelin-canton-specs-hello-world-proof-0.0.0.dar`
 - SHA-256:
-  `b76122f152fcd8df4a87c4a5de3cf989af3a5402b406ee89cd8638558a7bcaf2`
+  `76e3dc32638fc97dce037080cf40aa47ac361f70ddba486a941858e886b001e3`
 - Main package ID:
-  `81ccf8122e709a188c0ec2d9759b8f0c9c8601d483967be8114fca9492c8cf84`
+  `920719761abb9972e1e956e7b3428ab4399dc6f2739be3eb16ab0d7eaac62ee4`
 
 The root and scaffold scripts use `OZ_DAML_TOOLCHAIN=auto` by default. Auto
 selection requires DPM and does not fall back to Daml Assistant. The scripts
@@ -118,7 +118,7 @@ Daml Assistant use requires a superseding ADR or explicit exception.
 The repo-local `scripts/dpm-env.sh` is intentionally kept byte-for-byte in sync
 with the coordinating root helper until an accepted vendoring step replaces the
 duplication. Root `./scripts/check-all.sh` fails if the two helper copies drift.
-Manual validation machines should install or expose DPM and Java 21 before
+Manual validation machines should install or expose DPM and Java 21 or newer before
 running `scripts/manual-workflow-test.sh` or `scripts/check-scaffold.sh`.
 
 From the workspace root, run:
@@ -191,7 +191,7 @@ package.
 
 The first reusable primitives land here as **three independent packages**, each
 its own DAR with no dependency on the others — so a consumer imports only what it
-needs (e.g. just `oz-pausable`). This is the Daml-idiomatic form of OpenZeppelin's
+needs (e.g. just `openzeppelin-pausable`). This is the Daml-idiomatic form of OpenZeppelin's
 decoupled-module promise: independence is at the **package** boundary, since Daml
 has no inheritance and the unit of reuse is the DAR. The full rationale, the
 options weighed, and the Daml-specific genericity trade are documented in the
@@ -199,9 +199,9 @@ canton-token-template `docs/ARCHITECTURE.md`.
 
 | Package | Module | Mirrors | Notes |
 |---|---|---|---|
-| `oz-access-control` | `OpenZeppelin.AccessControl` | `AccessControl.sol` | `RoleGrant` / `RoleAdmin` + pure `requireRole` / `hasRole`. Roles are `Text` ids (the `bytes32` analogue) because Daml templates are monomorphic; a consumer layers a closed role sum on top via a `roleId : MyRole -> Text` wrapper. |
-| `oz-ownable` | `OpenZeppelin.Ownable` | `Ownable2Step.sol` | `Ownership` + `OwnershipOffer`. Transfer is a two-step handshake **by necessity** — a new owner is a signatory and cannot be bound unilaterally. |
-| `oz-pausable` | `OpenZeppelin.Pausable` | `Pausable.sol` | `PauseState` + `whenNotPaused` guard. Pause is origination control on a keyless ledger. |
+| `openzeppelin-access-control` | `OpenZeppelin.AccessControl` | `AccessControl.sol` | `RoleGrant` / `RoleAdmin` + pure `requireRole` / `hasRole`. Roles are `Text` ids (the `bytes32` analogue) because Daml templates are monomorphic; a consumer layers a closed role sum on top via a `roleId : MyRole -> Text` wrapper. |
+| `openzeppelin-ownable` | `OpenZeppelin.Ownable` | `Ownable2Step.sol` | `Ownership` + `OwnershipOffer`. Transfer is a two-step handshake **by necessity** — a new owner is a signatory and cannot be bound unilaterally. |
+| `openzeppelin-pausable` | `OpenZeppelin.Pausable` | `Pausable.sol` | `PauseState` + `whenNotPaused` guard. Pause is origination control on a keyless ledger. |
 
 Each library package is `daml-script`-free. Tests and the example-consumer
 templates that demonstrate the usage pattern (`RoleCheck`, `PauseCheck`, the

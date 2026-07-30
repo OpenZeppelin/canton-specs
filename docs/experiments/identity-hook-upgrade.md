@@ -43,16 +43,16 @@ Local wiring:
 
 ```yaml
 sdk-version: 3.4.11
-name: oz-experimental-identity-hook-upgrade
+name: openzeppelin-experimental-identity-hook-upgrade
 version: 0.2.0
-upgrades: ../identity-hook-upgrade-v1/.daml/dist/oz-experimental-identity-hook-upgrade-0.1.0.dar
+upgrades: ../identity-hook-upgrade-v1/.daml/dist/openzeppelin-experimental-identity-hook-upgrade-0.1.0.dar
 ```
 
 Local command evidence:
 
 - `cd experiments/identity-hook-upgrade-v2 && dpm build` passed, which exercises
   the compiler-side `upgrades:` check.
-- `dpm upgrade-check --both experiments/identity-hook-upgrade-v1/.daml/dist/oz-experimental-identity-hook-upgrade-0.1.0.dar experiments/identity-hook-upgrade-v2/.daml/dist/oz-experimental-identity-hook-upgrade-0.2.0.dar`
+- `dpm upgrade-check --both experiments/identity-hook-upgrade-v1/.daml/dist/openzeppelin-experimental-identity-hook-upgrade-0.1.0.dar experiments/identity-hook-upgrade-v2/.daml/dist/openzeppelin-experimental-identity-hook-upgrade-0.2.0.dar`
   passed, including participant-style upgrade validation.
 - `dpm script --upload-dar true` against a sandbox uploaded and ran the v1
   fixture script, then uploaded and ran the v2 migration script against the
@@ -65,7 +65,7 @@ Local command evidence:
 ## Versioned Packages
 
 Package name for both versions:
-`oz-experimental-identity-hook-upgrade`.
+`openzeppelin-experimental-identity-hook-upgrade`.
 
 Version directories:
 

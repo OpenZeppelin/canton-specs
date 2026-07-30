@@ -1,5 +1,5 @@
 sdk-version: 3.4.11
-name: oz-canton-specs
+name: openzeppelin-canton-specs
 source: daml
 version: 0.0.0
 dependencies:

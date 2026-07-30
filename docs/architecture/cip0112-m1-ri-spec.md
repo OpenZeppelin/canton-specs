@@ -20,7 +20,7 @@ CIP-56-token deliverables, and are demonstrated by the interop exemplars in
 > in **this repo** (`canton-specs`,
 > [`experiments/cip112-settlement/…/Cip112.daml`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml))
 > plus the decoupled library packages it consumes from `canton-contracts`
-> (`oz-access-control` / `oz-ownable` / `oz-pausable`, mirrored here) ·
+> (`openzeppelin-access-control` / `openzeppelin-ownable` / `openzeppelin-pausable`, mirrored here) ·
 > `[EVIDENCE]` real code in `canton-token-template` (migration/evidence source,
 > *not* the M1 surface) · `[UPSTREAM]` Splice reference, not vendored here ·
 > `[FUTURE]` not built in M1 scope.
@@ -83,7 +83,8 @@ bounded by the promotion ADR, but the ADR is not a stability claim.
 | B4 | Bounded by acceptance note | **CIP-0086 / CIP-0103 / CIP-0104 M1 criteria.** These CIPs are accepted for M1 only as interoperability evidence against the CIP-112 settlement surface. They do not add production middleware, wallet-provider, Scan/SV reward, custody, KYC, sanctions, hosted-service, or standalone CIP-56-token scope. | Use the acceptance note for downstream docs and review packets. |
 | Q1 | Resolved | **D1 attestation shape.** Both shapes ship: the contract-oblivious reference hook (`D1ComplianceHook`) AND a typed signed node attestation verified at exercise time (`NodeComplianceAttestation` / `SettlementFactory_SettleBatchWithAttestation`). The typed path is registry-trusted (rooted in the factory admin), bound to the exact batch leg set, and single-use (verified via a consuming choice, so it cannot be replayed). Setting `requiresNodeAttestation` on the factory **closes the plain `SettlementFactory_SettleBatch` entrypoint**, so the normal executor-facing batch flow must present an attestation. The direct `Allocation_Settle` / `Allocation_SettleInBatch` choices require `admin :: executors` authority and are gated by that authority rather than by attestation. | Done. |
 | Q2 | Open after DAR gate | **EventLog adoption implementation.** The ADR treats Token Standard V2 `EventLog_HoldingsChange` as the promoted reporting route, but implementation still waits on the transfer-events DAR boundary. | OZ architecture after DAR/import evidence. |
-| Q3 | Resolved 2026-06-21 | **Legacy package naming.** Renamed the M0 root and proof packages `oz-daml-contracts` → `oz-canton-specs` and `oz-daml-contracts-hello-world-proof` → `oz-canton-specs-hello-world-proof` (matching the repo and the `oz-` sibling convention); `proof` dependency path, README DAR paths, and the recorded checksums/package IDs were regenerated. | Done. |
+| Q3 | Resolved 2026-06-21 | **Legacy package naming.** Renamed the M0 root and proof packages `openzeppelin-daml-contracts` → `openzeppelin-canton-specs` and `openzeppelin-daml-contracts-hello-world-proof` → `openzeppelin-canton-specs-hello-world-proof` (matching the repo and the `openzeppelin-` sibling convention); `proof` dependency path, README DAR paths, and the recorded checksums/package IDs were regenerated. | Done. |
+| Q4 | Resolved 2026-07-28 | **Brand naming convention.** All DPM package names use the full `openzeppelin-` prefix rather than the short `oz-` form, matching OpenZeppelin's convention across other ecosystems. `OZ` stays an internal/informal name only. Package names, dependency DAR paths, and the recorded checksums/package IDs were regenerated in this repo and in `canton-contracts`. | Done. |
 
 ---
 
@@ -223,7 +224,7 @@ the transfer-events DAR boundary (**Q2**).
 | Single-admin authority (D4) | [`BurnerCapability`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L98) | 🟡 |
 | Unit of value | [`ToyHolding`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L133) | 🟡 toy stand-in |
 | Spine test coverage | [`Cip112Settlement.daml`](../../test/daml/OpenZeppelin/Test/Cip112Settlement.daml) | ✅ |
-| Access control / ownership / pause | [`oz-access-control`](../../access-control/daml/OpenZeppelin/AccessControl.daml) · [`oz-ownable`](../../ownable/daml/OpenZeppelin/Ownable.daml) · [`oz-pausable`](../../pausable/daml/OpenZeppelin/Pausable.daml) | ✅ (library) |
+| Access control / ownership / pause | [`openzeppelin-access-control`](../../access-control/daml/OpenZeppelin/AccessControl.daml) · [`openzeppelin-ownable`](../../ownable/daml/OpenZeppelin/Ownable.daml) · [`openzeppelin-pausable`](../../pausable/daml/OpenZeppelin/Pausable.daml) | ✅ (library) |
 | Real TSv2 holding interface | replaces `ToyHolding`; Splice DAR import gate | ⬜ |
 | `EventLog_HoldingsChange` in M1 surface | carried as `[EVIDENCE]` only (Q2) | ⬜ |
 | Cross-synchronizer / cross-domain (D3) | not in scaffold; additive SCU path | ⬜ |

@@ -20,8 +20,8 @@ oz_has_dpm || {
 	printf 'run-tests: dpm is not available; install DPM or expose ~/.dpm/bin/dpm\n' >&2
 	exit 1
 }
-oz_has_java_21 || {
-	printf 'run-tests: Java 21 runtime is not available; install or expose a JDK\n' >&2
+oz_has_java_21_or_newer || {
+	printf 'run-tests: Java 21 or newer is not available; install or expose a JDK\n' >&2
 	exit 1
 }
 
