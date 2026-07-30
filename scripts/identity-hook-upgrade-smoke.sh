@@ -146,7 +146,7 @@ trap cleanup EXIT
 
 oz_setup_dpm_env "$ROOT/.cache"
 oz_has_dpm || fail "dpm is not available; install DPM or expose ~/.dpm/bin/dpm"
-oz_has_java_21 || fail "Java 21 runtime is not available; install or expose a JDK before running dpm"
+oz_has_java_21_or_newer || fail "Java 21 or newer is not available; install or expose a JDK before running dpm"
 command -v lsof >/dev/null 2>&1 || fail "lsof is required for sandbox port ownership checks"
 
 require_port_free "$LEDGER_PORT" "Ledger API" "IDENTITY_HOOK_UPGRADE_LEDGER_PORT"
@@ -184,7 +184,7 @@ printf 'identity-hook-upgrade-smoke: creating v1 fixture with run id %s\n' "$RUN
 	dpm script \
 		--ledger-host localhost \
 		--ledger-port "$LEDGER_PORT" \
-		--dar .daml/dist/oz-experimental-identity-hook-upgrade-v1-script-0.1.0.dar \
+		--dar .daml/dist/openzeppelin-experimental-identity-hook-upgrade-v1-script-0.1.0.dar \
 		--script-name OpenZeppelin.Experimental.Identity.UpgradeScript.V1:createV1HoldingFixtureForRun \
 		--input-file "$RUN_INPUT" \
 		--output-file "$FIXTURE_FILE" \
@@ -197,7 +197,7 @@ printf 'identity-hook-upgrade-smoke: exercising v1-created holding through v2\n'
 	dpm script \
 		--ledger-host localhost \
 		--ledger-port "$LEDGER_PORT" \
-		--dar .daml/dist/oz-experimental-identity-hook-upgrade-v2-script-0.2.0.dar \
+		--dar .daml/dist/openzeppelin-experimental-identity-hook-upgrade-v2-script-0.2.0.dar \
 		--script-name OpenZeppelin.Experimental.Identity.UpgradeScript.V2:migrateV1HoldingTransferUnderV2 \
 		--input-file "$FIXTURE_FILE" \
 		--upload-dar true

@@ -60,7 +60,7 @@ command -v node >/dev/null 2>&1 || { echo "ERROR: node not found (Node.js >= 20 
 command -v npx >/dev/null 2>&1 || { echo "ERROR: npx not found (Node.js >= 20 required)" >&2; exit 1; }
 
 PKG_DIR="$ROOT/experiments/cip-interop-exemplar"
-DAR="$PKG_DIR/.daml/dist/oz-experimental-cip-interop-exemplar-0.1.0.dar"
+DAR="$PKG_DIR/.daml/dist/openzeppelin-experimental-cip-interop-exemplar-0.1.0.dar"
 MODULE="OpenZeppelin.Experimental.Interop.WalletGateway"
 
 LEDGER_HOST="${OZ_LEDGER_HOST:-localhost}"
