@@ -55,7 +55,7 @@ source "$ROOT/scripts/dpm-env.sh"
 
 oz_setup_dpm_env "$ROOT/.cache"
 oz_has_dpm || { echo "ERROR: dpm not found (see README build instructions)" >&2; exit 1; }
-oz_has_java_21 || { echo "ERROR: Java 21 not found (see README build instructions)" >&2; exit 1; }
+oz_has_java_21_or_newer || { echo "ERROR: Java 21 not found (see README build instructions)" >&2; exit 1; }
 command -v node >/dev/null 2>&1 || { echo "ERROR: node not found (Node.js >= 20 required)" >&2; exit 1; }
 command -v npx >/dev/null 2>&1 || { echo "ERROR: npx not found (Node.js >= 20 required)" >&2; exit 1; }
 
