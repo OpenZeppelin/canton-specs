@@ -11,6 +11,11 @@
 # the clock past the settlement deadline
 # (test_cip0103_failClosedSurfacesToWallet, setTime i2) must run LAST — after
 # it, no script can set the clock back to i0 without a fresh sandbox.
+#
+# To target an already-running ledger instead of the script-managed sandbox,
+# set OZ_USE_EXTERNAL_LEDGER=1 together with OZ_LEDGER_HOST / OZ_LEDGER_PORT.
+# The external ledger must run in static-time mode with a FRESH clock at or
+# before i0 (2026-01-01T00:00Z), for the same forward-only-time reason.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -30,6 +35,7 @@ PKG_DIR="$ROOT/experiments/cip-interop-exemplar"
 DAR="$PKG_DIR/.daml/dist/oz-experimental-cip-interop-exemplar-0.1.0.dar"
 LEDGER_HOST="${OZ_LEDGER_HOST:-localhost}"
 LEDGER_PORT="${OZ_LEDGER_PORT:-6865}"
+USE_EXTERNAL_LEDGER="${OZ_USE_EXTERNAL_LEDGER:-0}"
 LOG_DIR="${OZ_LOCALNET_LOG_DIR:-$ROOT/.cache/localnet-cip-interop}"
 mkdir -p "$LOG_DIR"
 
@@ -59,24 +65,28 @@ cleanup() {
 }
 trap cleanup EXIT
 
-printf 'localnet-cip-interop: starting static-time Canton sandbox on %s:%s\n' "$LEDGER_HOST" "$LEDGER_PORT"
-(cd "$LOG_DIR" && dpm sandbox --static-time --ledger-api-port "$LEDGER_PORT" --dar "$DAR" \
-	> "$LOG_DIR/sandbox.log" 2>&1) &
-SANDBOX_PID=$!
+if [ "$USE_EXTERNAL_LEDGER" = 1 ]; then
+	printf 'localnet-cip-interop: using external ledger at %s:%s (no sandbox started; must be static-time with a fresh clock)\n' "$LEDGER_HOST" "$LEDGER_PORT"
+else
+	printf 'localnet-cip-interop: starting static-time Canton sandbox on %s:%s\n' "$LEDGER_HOST" "$LEDGER_PORT"
+	(cd "$LOG_DIR" && dpm sandbox --static-time --ledger-api-port "$LEDGER_PORT" --dar "$DAR" \
+		> "$LOG_DIR/sandbox.log" 2>&1) &
+	SANDBOX_PID=$!
 
-ready=0
-for _ in $(seq 1 120); do
-	if grep -q 'Canton sandbox is ready' "$LOG_DIR/sandbox.log" 2>/dev/null; then
-		ready=1
-		break
-	fi
-	kill -0 "$SANDBOX_PID" 2>/dev/null || break
-	sleep 1
-done
-[ "$ready" = 1 ] || {
-	printf 'localnet-cip-interop: sandbox did not become ready; see %s\n' "$LOG_DIR/sandbox.log" >&2
-	exit 1
-}
+	ready=0
+	for _ in $(seq 1 120); do
+		if grep -q 'Canton sandbox is ready' "$LOG_DIR/sandbox.log" 2>/dev/null; then
+			ready=1
+			break
+		fi
+		kill -0 "$SANDBOX_PID" 2>/dev/null || break
+		sleep 1
+	done
+	[ "$ready" = 1 ] || {
+		printf 'localnet-cip-interop: sandbox did not become ready; see %s\n' "$LOG_DIR/sandbox.log" >&2
+		exit 1
+	}
+fi
 
 # Order constraint: the clock-advancing fail-closed script runs last (see header).
 SCRIPTS=(

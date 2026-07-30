@@ -26,7 +26,7 @@ One command from the repo root (requires DPM and Java 21; see the README build i
 ./scripts/localnet-cip-interop-validation.sh
 ```
 
-The script builds the exemplar package, boots a **static-time** Canton sandbox (`dpm sandbox --static-time --dar …`), waits for readiness, runs all 11 scripts over gRPC with `dpm script --ledger-host … --ledger-port … --static-time`, and tears the sandbox down on exit. Logs land under `.cache/localnet-cip-interop/`. Host/port are overridable via `OZ_LEDGER_HOST` / `OZ_LEDGER_PORT` to target an already-running LocalNet instead of the script-managed sandbox (comment out the sandbox block or pre-bind the port).
+The script builds the exemplar package, boots a **static-time** Canton sandbox (`dpm sandbox --static-time --dar …`), waits for readiness, runs all 11 scripts over gRPC with `dpm script --ledger-host … --ledger-port … --static-time`, and tears the sandbox down on exit. Logs land under `.cache/localnet-cip-interop/`. To target an already-running LocalNet instead of the script-managed sandbox, set `OZ_USE_EXTERNAL_LEDGER=1` together with `OZ_LEDGER_HOST` / `OZ_LEDGER_PORT`; the external ledger must run in static-time mode with a fresh clock at or before `i0` (2026-01-01T00:00Z), for the same forward-only-time reason.
 
 Equivalent manual steps, for targeting an external LocalNet:
 
