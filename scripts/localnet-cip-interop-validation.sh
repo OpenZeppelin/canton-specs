@@ -26,7 +26,7 @@ oz_has_dpm || {
 	printf 'localnet-cip-interop: dpm is not available; install DPM or expose ~/.dpm/bin/dpm\n' >&2
 	exit 1
 }
-oz_has_java_21 || {
+oz_has_java_21_or_newer || {
 	printf 'localnet-cip-interop: Java 21 runtime is not available; install or expose a JDK\n' >&2
 	exit 1
 }
