@@ -22,7 +22,6 @@ packages:
   - experiments/identity-hook-upgrade-v1-script
   - experiments/identity-hook-upgrade-v2-script
   - experiments/credential-gateway
-  - experiments/dex-amm
   - experiments/token-standard-v2-mock
   - experiments/cip112-settlement
   - experiments/settlement-exemplar

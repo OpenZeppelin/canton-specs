@@ -40,9 +40,6 @@ printf 'run-tests: running the spine test suite (test/) with coverage\n'
 printf 'run-tests: running the deep settlement exemplar scripts (experiments/settlement-exemplar/)\n'
 (cd "$ROOT/experiments/settlement-exemplar" && dpm test --save-coverage "$ROOT/.coverage/settlement-exemplar.json")
 
-printf 'run-tests: running the DEX AMM exemplar scripts (experiments/dex-amm/)\n'
-(cd "$ROOT/experiments/dex-amm" && dpm test --save-coverage "$ROOT/.coverage/dex-amm.json")
-
 printf 'run-tests: running the CIP-0086/0103/0104 interop exemplar scripts (experiments/cip-interop-exemplar/)\n'
 (cd "$ROOT/experiments/cip-interop-exemplar" && dpm test --save-coverage "$ROOT/.coverage/cip-interop-exemplar.json")
 
@@ -50,7 +47,6 @@ printf 'run-tests: aggregating coverage into .coverage/all.json\n'
 (cd "$ROOT/test" && dpm test --load-coverage-only \
 	--load-coverage "$ROOT/.coverage/spine.json" \
 	--load-coverage "$ROOT/.coverage/settlement-exemplar.json" \
-	--load-coverage "$ROOT/.coverage/dex-amm.json" \
 	--load-coverage "$ROOT/.coverage/cip-interop-exemplar.json" \
 	--save-coverage "$ROOT/.coverage/all.json")
 
