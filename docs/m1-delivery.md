@@ -34,6 +34,7 @@ One consolidation applies throughout: the proposal targeted CIP-56, and the ecos
 | CIP-103 dApp Standard library components                     | Wallet/dApp interop exemplar (full lifecycle, V1-wallet direct path, privacy scoping, fail-closed error surfacing; 4 scripts) plus a third-party interop gate against the Canton Wallet Gateway | [experiments/cip-interop-exemplar/.../Cip0103Wallet.daml](../experiments/cip-interop-exemplar/daml/OpenZeppelin/Experimental/Interop/Cip0103Wallet.daml), [experiments/cip-interop-exemplar/.../WalletGateway.daml](../experiments/cip-interop-exemplar/daml/OpenZeppelin/Experimental/Interop/WalletGateway.daml), [interop/wallet-gateway/](../interop/wallet-gateway/)                                                                                  |
 | CIP-104 Traffic-Based App Rewards library support            | Rewards interop exemplar: app-provider participation attributable from settlement views alone, executor authority required to settle, no reward-marker templates (2 scripts) | [experiments/cip-interop-exemplar/.../Cip0104AppRewards.daml](../experiments/cip-interop-exemplar/daml/OpenZeppelin/Experimental/Interop/Cip0104AppRewards.daml)                                                                          |
 | All library code published to GitHub with >90% test coverage | 131 Daml Script tests across the workspace; merged coverage report over the shipped surface                                                                                  | Coverage artifacts in `.coverage/` (generated); gate: [scripts/run-tests.sh](../scripts/run-tests.sh); CI: [.github/workflows/ci.yml](../.github/workflows/ci.yml)                                                                        |
+| OpenZeppelin Documentation Canton section                    | Published Canton section in the OpenZeppelin docs                                                                                                                            | [docs.openzeppelin.com/canton](https://docs.openzeppelin.com/canton)                                                                                                                                                                      |
 
 
 
@@ -72,6 +73,5 @@ OZ_DAML_TOOLCHAIN=dpm dpm build --all         # compile every package
 
 ## Gaps to close before milestone acceptance
 
-1. **OpenZeppelin Documentation Canton section** — external deliverable; confirm and link its status.
-2. **DA review sign-off of the RI reports** — collect the review evidence from the engagement workspace into the acceptance packet.
+1. **DA review sign-off of the RI reports** — collect the review evidence from the engagement workspace into the acceptance packet.
 
