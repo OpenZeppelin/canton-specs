@@ -32,7 +32,7 @@ oz_has_java_21 || {
 }
 
 PKG_DIR="$ROOT/experiments/cip-interop-exemplar"
-DAR="$PKG_DIR/.daml/dist/oz-experimental-cip-interop-exemplar-0.1.0.dar"
+DAR="$PKG_DIR/.daml/dist/openzeppelin-experimental-cip-interop-exemplar-0.1.0.dar"
 LEDGER_HOST="${OZ_LEDGER_HOST:-localhost}"
 LEDGER_PORT="${OZ_LEDGER_PORT:-6865}"
 USE_EXTERNAL_LEDGER="${OZ_USE_EXTERNAL_LEDGER:-0}"

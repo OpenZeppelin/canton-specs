@@ -30,8 +30,8 @@ const WORK_DIR = process.env.OZ_INTEROP_WORK_DIR ?? '.cache/wallet-gateway-inter
 const LEDGER_USER = 'oz-cip0103-interop'
 const EXTERNAL = process.env.OZ_USE_EXTERNAL_LEDGER === '1'
 
-const PKG_INTEROP = '#oz-experimental-cip-interop-exemplar'
-const PKG_SETTLEMENT = '#oz-experimental-cip112-settlement'
+const PKG_INTEROP = '#openzeppelin-experimental-cip-interop-exemplar'
+const PKG_SETTLEMENT = '#openzeppelin-experimental-cip112-settlement'
 const MOD_GATEWAY = 'OpenZeppelin.Experimental.Interop.WalletGateway'
 const MOD_ENGINE = 'OpenZeppelin.Experimental.Settlement.Cip112'
 const T = {

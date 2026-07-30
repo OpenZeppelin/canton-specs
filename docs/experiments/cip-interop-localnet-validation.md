@@ -33,9 +33,9 @@ Equivalent manual steps, for targeting an external LocalNet:
 ```sh
 cd experiments/cip-interop-exemplar
 dpm build
-dpm sandbox --static-time --dar .daml/dist/oz-experimental-cip-interop-exemplar-0.1.0.dar &
+dpm sandbox --static-time --dar .daml/dist/openzeppelin-experimental-cip-interop-exemplar-0.1.0.dar &
 # wait for "Canton sandbox is ready", then per script:
-dpm script --dar .daml/dist/oz-experimental-cip-interop-exemplar-0.1.0.dar \
+dpm script --dar .daml/dist/openzeppelin-experimental-cip-interop-exemplar-0.1.0.dar \
   --script-name OpenZeppelin.Experimental.Interop.Cip0086Erc20:test_cip0086_transferMovesValueAndConservesSupply \
   --ledger-host localhost --ledger-port 6865 --static-time
 ```
@@ -48,6 +48,6 @@ dpm script --dar .daml/dist/oz-experimental-cip-interop-exemplar-0.1.0.dar \
 
 ## Evidence
 
-Latest run (2026-07-15, DPM 1.0.21 / SDK & Canton 3.4.11 / OpenJDK 21.0.11, macOS): `./scripts/localnet-cip-interop-validation.sh` — **11/11 scripts passed** against a static-time Canton 3.4.11 sandbox over the Ledger API at `localhost:6865`, DAR `oz-experimental-cip-interop-exemplar-0.1.0.dar` uploaded at sandbox start.
+Latest run (2026-07-15, DPM 1.0.21 / SDK & Canton 3.4.11 / OpenJDK 21.0.11, macOS): `./scripts/localnet-cip-interop-validation.sh` — **11/11 scripts passed** against a static-time Canton 3.4.11 sandbox over the Ledger API at `localhost:6865`, DAR `openzeppelin-experimental-cip-interop-exemplar-0.1.0.dar` uploaded at sandbox start.
 
 This is interoperability evidence only. It makes no CIP-0086 ERC-20 conformance, CIP-0103 wallet-provider, or CIP-0104 reward/SV/Scan production claim, and `ToyHolding` remains the toy asset stand-in until the Splice DAR/import gates land.
