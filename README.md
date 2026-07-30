@@ -151,6 +151,29 @@ performs the same DPM bootstrap as the build/test scripts, so the default
 up/proof/down sequence works in non-interactive validation shells when DPM is
 installed on `PATH` or at `~/.dpm/bin/dpm`.
 
+The CIP-0086 / CIP-0103 / CIP-0104 interop criteria are validated on a LocalNet
+with a single repo-local gate that boots a static-time sandbox, runs all interop
+exemplar scripts over the Ledger API gRPC endpoint, and tears the sandbox down:
+
+```sh
+./scripts/localnet-cip-interop-validation.sh
+```
+
+Procedure, per-script criteria mapping, and the latest evidence run are recorded
+in [`docs/experiments/cip-interop-localnet-validation.md`](docs/experiments/cip-interop-localnet-validation.md).
+
+CIP-0103 third-party interoperability is validated against the Canton Wallet
+Gateway (formerly Splice Wallet Kernel) running from its published npm package,
+with the wallet user held as an externally-signed party and every wallet-side
+action driven through the gateway's CIP-0103 dApp API (requires Node.js >= 20):
+
+```sh
+./scripts/wallet-gateway-cip0103-interop.sh
+```
+
+Procedure and evidence are recorded in
+[`docs/experiments/cip0103-wallet-gateway-interop.md`](docs/experiments/cip0103-wallet-gateway-interop.md).
+
 ## Hello-World Scaffold
 
 `daml/HelloWorld/HelloWorld.daml` is a minimal Daml source file for the M0
