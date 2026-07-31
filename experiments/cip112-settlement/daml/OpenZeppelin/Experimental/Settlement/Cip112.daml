@@ -178,10 +178,10 @@ template ToyHolding
 -- under-funded senders (locked funds must cover sender obligations — fail
 -- closed), and active D2 in-flight seizure state fail before settlement commits;
 -- the D2 state is resolved through `Allocation_SweepD2InFlightSeizure`.
--- Attestation policy: when `requiresNodeAttestation` is set, the plain
+-- Attestation policy: when `requiresComplianceAttestation` is set, the plain
 -- `SettlementFactory_SettleBatch` path is refused, so every settlement this
 -- factory mediates MUST go through `SettlementFactory_SettleBatchWithAttestation`
--- and present a verified node-compliance attestation. This makes the typed D1
+-- and present a verified compliance attestation. This makes the typed D1
 -- control a binding factory-level property rather than a per-transaction choice
 -- of the (semi-trusted) executor.
 -- Upgrade and migration assumptions: non-public experiment. Optional D1 and D2
@@ -197,7 +197,7 @@ template SettlementFactory
     -- `None`/`Some False` → attestation not required; `Some True` → the plain
     -- `SettlementFactory_SettleBatch` entrypoint is closed and the attested path
     -- (`SettlementFactory_SettleBatchWithAttestation`) is mandatory.
-    requiresNodeAttestation : Optional Bool
+    requiresComplianceAttestation : Optional Bool
   where
     signatory admin
     ensure featureFlag == experimentalFeatureFlag
@@ -256,9 +256,9 @@ template SettlementFactory
       controller actors
       do
         requireExperimentalFlag featureFlag
-        -- M1: if this factory mandates node attestation, the plain (attestation-less)
+        -- M1: if this factory mandates attestation, the plain (attestation-less)
         -- batch path is closed; the caller must use SettleBatchWithAttestation.
-        assertMsg eAttestationRequired (requiresNodeAttestation /= Some True)
+        assertMsg eAttestationRequired (requiresComplianceAttestation /= Some True)
         assertMsg eExecutorsMismatch (actors == settlement.executors)
         assertMsg eNoTransferLegs (not (null transferLegs))
         assertMsg eBadTransferLegAmount (allTransferLegAmountsPositive transferLegs)
@@ -268,16 +268,16 @@ template SettlementFactory
         settleAllocations (admin :: actors) settlement transferLegs d1ComplianceRef (zip allocationCids allocationValues)
 
     -- Typed, node-applied D1 path (additive; SCU-safe new choice — SettleBatch is
-    -- unchanged). Verifies a signed NodeComplianceAttestation from a trusted
+    -- unchanged). Verifies a signed ComplianceAttestation from a trusted
     -- attester covering this settlement, then settles. This is the Daml-visible
-    -- node-attestation shape (Q1), layered on top of the reference-field hook.
+    -- attestation shape (Q1), layered on top of the reference-field hook.
     nonconsuming choice SettlementFactory_SettleBatchWithAttestation : [ContractId SettlementReceipt]
       with
         settlement : SettlementInfo
         transferLegs : [TransferLeg]
         allocationCids : [ContractId Allocation]
         actors : [Party]
-        attestationCid : ContractId NodeComplianceAttestation
+        attestationCid : ContractId ComplianceAttestation
         registryCid : ContractId TrustedAttesterRegistry
       controller actors
       do
@@ -289,7 +289,7 @@ template SettlementFactory
         -- is single-use (no replay) and bound to THIS batch's legs, and rooted in
         -- the factory admin's registry (a caller-supplied foreign registry whose
         -- admin is not this factory's admin is rejected).
-        claimKind <- exercise attestationCid NodeComplianceAttestation_Verify with
+        claimKind <- exercise attestationCid ComplianceAttestation_Verify with
           settlement
           transferLegs
           registryCid
@@ -770,7 +770,7 @@ emitHoldingsChange admin account executors inputs outputs sides flag =
       meta = emptyMetadata
     featureFlag = flag
 
--- | Admin-owned registry of trusted node attesters. Mirrors the identity-hook
+-- | Admin-owned registry of trusted attesters. Mirrors the identity-hook
 -- Shape-B TrustedIssuerRegistry pattern, applied to D1 node-side compliance.
 --
 -- Signatories: `admin`. Observers: `attesters`. Choices: none. The registry is
@@ -785,16 +785,16 @@ template TrustedAttesterRegistry
     observer attesters
     ensure featureFlag == experimentalFeatureFlag
 
--- | A signed, typed node compliance attestation. Its existence proves the
+-- | A signed, typed compliance attestation. Its existence proves the
 -- `attester` signed it (the attester is the sole signatory). This is the
--- Daml-visible alternative to the contract-oblivious D1 reference hook: the node
--- emits this and settlement verifies it at exercise time.
+-- Daml-visible alternative to the contract-oblivious D1 reference hook: the
+-- attester emits this and settlement verifies it at exercise time.
 --
 -- Signatories: `attester`. Observers: `attestationObservers` (the registry admin
 -- / settlement executors, so the settlement transaction can fetch and verify it).
 -- Controllers: the settlement executors named in the presented settlement, via
--- the consuming `NodeComplianceAttestation_Verify` choice (pre-authorized by the
--- attester signatory). Choices: `NodeComplianceAttestation_Verify`.
+-- the consuming `ComplianceAttestation_Verify` choice (pre-authorized by the
+-- attester signatory). Choices: `ComplianceAttestation_Verify`.
 -- Privacy: held by the attester and disclosed to the settlement executor when
 -- settling.
 --
@@ -810,7 +810,7 @@ template TrustedAttesterRegistry
 -- `boundTransferLegIds` is an SCU-safe Optional appended field. Verification
 -- REJECTS an unbound (`None`) attestation, so binding is mandatory in practice
 -- while the field stays upgrade-compatible.
-template NodeComplianceAttestation
+template ComplianceAttestation
   with
     attester : Party
     attestationObservers : [Party]
@@ -833,7 +833,7 @@ template NodeComplianceAttestation
     -- (no replay). Controlled by the settlement executors (pre-authorized by the
     -- attester signatory); the enclosing factory choice supplies that authority
     -- because it asserts `actors == settlement.executors`.
-    choice NodeComplianceAttestation_Verify : Text
+    choice ComplianceAttestation_Verify : Text
       with
         settlement : SettlementInfo
         transferLegs : [TransferLeg]
@@ -1497,28 +1497,28 @@ eAllocationLegMismatch : Text
 eAllocationLegMismatch = "Cip112Settlement: allocation transfer-leg sides do not match settlement legs"
 
 eD1AttesterNotTrusted : Text
-eD1AttesterNotTrusted = "Cip112Settlement: node attestation signer is not in the trusted-attester registry"
+eD1AttesterNotTrusted = "Cip112Settlement: compliance attestation signer is not in the trusted-attester registry"
 
 eD1RegistryAdminMismatch : Text
 eD1RegistryAdminMismatch = "Cip112Settlement: attester registry admin must equal the settlement factory admin"
 
 eAttestationRequired : Text
-eAttestationRequired = "Cip112Settlement: this factory requires node attestation; use SettleBatchWithAttestation"
+eAttestationRequired = "Cip112Settlement: this factory requires a compliance attestation; use SettleBatchWithAttestation"
 
 eD1AttestationBatchMismatch : Text
-eD1AttestationBatchMismatch = "Cip112Settlement: node attestation is not bound to this batch's transfer legs"
+eD1AttestationBatchMismatch = "Cip112Settlement: compliance attestation is not bound to this batch's transfer legs"
 
 eD1AttestationUnbound : Text
-eD1AttestationUnbound = "Cip112Settlement: node attestation must be bound to a transfer-leg set"
+eD1AttestationUnbound = "Cip112Settlement: compliance attestation must be bound to a transfer-leg set"
 
 eD1AttestationSettlementMismatch : Text
-eD1AttestationSettlementMismatch = "Cip112Settlement: node attestation does not cover this settlement reference"
+eD1AttestationSettlementMismatch = "Cip112Settlement: compliance attestation does not cover this settlement reference"
 
 eD1AttestationNotYetValid : Text
-eD1AttestationNotYetValid = "Cip112Settlement: node attestation is not yet valid"
+eD1AttestationNotYetValid = "Cip112Settlement: compliance attestation is not yet valid"
 
 eD1AttestationExpired : Text
-eD1AttestationExpired = "Cip112Settlement: node attestation has expired"
+eD1AttestationExpired = "Cip112Settlement: compliance attestation has expired"
 
 eD2LawfulProcessMissing : Text
 eD2LawfulProcessMissing = "Cip112Settlement: lawful-process reference is required for this seizure"

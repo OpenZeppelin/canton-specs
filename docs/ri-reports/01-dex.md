@@ -244,7 +244,7 @@ flowchart TD
     Attester2([Attester])
     AttReg[["TrustedAttesterRegistry<br/>key: admin"]]
     IssReg[["TrustedIssuerRegistry<br/>key: admin"]]
-    Attn["PartyComplianceAttestation<br/>signed, single-use"]
+    Attn["ComplianceAttestation<br/>signed, single-use"]
     Kyc["KycClaim<br/>signed"]
     Settle{{Atomic settlement}}
 
@@ -535,7 +535,7 @@ template Pool
         settlementFactoryId : ContractId SettlementFactory
         settlement : SettlementInfo
         transferLegs : [TransferLeg]
-        attestationCid : ContractId PartyComplianceAttestation
+        attestationCid : ContractId ComplianceAttestation
       controller venueOperator
       do
         -- Pause is resolved by key, per pool (same key tuple as the Pool).
@@ -577,12 +577,12 @@ template Pool
         pure (head receipts, newPool)
 ```
 
-### 4.2 Component: D1 Party Attestation
+### 4.2 Component: D1 Compliance Attestation
 
 D1 compliance is enforced at settle time and fails closed. A `SettlementFactory`
-set with `requiresPartyAttestation` closes the plain path, forcing every settlement
+set with `requiresComplianceAttestation` closes the plain path, forcing every settlement
 through `SettlementFactory_SettleBatchWithAttestation`, which is given a signed
-`PartyComplianceAttestation`.
+`ComplianceAttestation`.
 
 The factory verifies and **consumes** the attestation before settling (single-use,
 no replay). It resolves its `TrustedAttesterRegistry` **by key** (keyed by the
@@ -597,7 +597,7 @@ exercise factoryCid SettlementFactory_SettleBatchWithAttestation with
   attestationCid
 
 -- The factory calls the attestation's consuming verify, passing its own admin:
-choice PartyComplianceAttestation_Verify : Text
+choice ComplianceAttestation_Verify : Text
   with
     settlement : SettlementInfo; transferLegs : [TransferLeg]
     factoryAdmin : Party
@@ -656,7 +656,7 @@ We propose a three-tier validation approach, based on verification tools built b
 | Vector | Attack | Mitigation |
 |---|---|---|
 | Malicious venue operator state manipulation | Venue operator submits a settlement batch favoring their own holdings, bypassing the price curve or extracting excessive slippage. | `Pool_Swap` enforces the curve on-ledger: it re-derives the output, asserts the `x·y=k` invariant, and binds the settled legs to the amounts the trader signed. A batch that favors the operator or departs from the curve fails these checks, so the operator cannot manipulate reserves even though it drives the swap. |
-| Compliance evasion (D1) | A sanctioned party tries to settle without a valid attestation, or with a stale, forged, or untrusted one. | A factory with `requiresPartyAttestation` forces settlement through `SettlementFactory_SettleBatchWithAttestation`, which verifies and consumes a `PartyComplianceAttestation` signed by a party in the factory admin's `TrustedAttesterRegistry`, bound to this settlement and within its validity window. No valid attestation, no settlement. |
+| Compliance evasion (D1) | A sanctioned party tries to settle without a valid attestation, or with a stale, forged, or untrusted one. | A factory with `requiresComplianceAttestation` forces settlement through `SettlementFactory_SettleBatchWithAttestation`, which verifies and consumes a `ComplianceAttestation` signed by a party in the factory admin's `TrustedAttesterRegistry`, bound to this settlement and within its validity window. No valid attestation, no settlement. |
 | Rogue seizure / asset burning (D2) | A compromised liquidity token issuer key attempts to maliciously burn user assets or return seized funds to unverified actors. | [`Allocation_SweepD2InFlightSeizure`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L625) hardcodes the destination to the preset `custodianDestination`; arbitrary burn is forbidden. A compromised liquidity token issuer can only sweep to the pre-approved, monitored custodian. |
 | Forced upgrades breaking in-flight allocations (SCU) | A poorly executed upgrade mutates fields, rendering existing `Allocation` contracts un-settleable. | Programmatic adherence to the SCU rule (Optional appends + new choices only). The `Pool` template's existing choices stay operable; in-flight transactions conclude before users transition. |
 | Venue Operator swap re-ordering / private MEV | The venue operator sees traders' allocations before batching and can order or delay batch-settlement submissions to its own benefit (e.g. sandwiching a large swap). MEV does **not** disappear on Canton - it moves from a public mempool into the venue operator's private view. | The on-ledger invariant blocks *off-curve* execution, but **not** ordering. Mitigations are operational/design, not yet enforced on-ledger: commit-reveal or fair-ordering for allocation intake, per-swap slippage bounds carried on the trader's own signed request ([section 3](#3-how-we-implement-it)), and minimizing venue operator discretion via batching rules. See [section 5.4](#54-throughput-and-contention). |

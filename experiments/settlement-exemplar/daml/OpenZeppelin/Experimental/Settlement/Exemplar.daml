@@ -58,7 +58,7 @@ template RegulatedSettlementApp
         settlement : SettlementInfo
         transferLegs : [TransferLeg]
         allocationCids : [ContractId Allocation]
-        attestationCid : ContractId NodeComplianceAttestation
+        attestationCid : ContractId ComplianceAttestation
         registryCid : ContractId TrustedAttesterRegistry
       controller executor
       do
@@ -161,7 +161,7 @@ regulatedSettlementExemplar = script do
   app <- allocateParty "exemplar-app-executor"
   alice <- allocateParty "exemplar-alice"
   bob <- allocateParty "exemplar-bob"
-  attester <- allocateParty "exemplar-node-attester"
+  attester <- allocateParty "exemplar-attester"
 
   -- AL-7 controls: a pause state (running) and a granted executor role.
   pauseState <- submit admin do createCmd PauseState with pauser = admin; paused = False
@@ -170,17 +170,17 @@ regulatedSettlementExemplar = script do
   appCid <- submit admin do createCmd RegulatedSettlementApp with admin
 
   factory <- submit admin do
-    createCmd SettlementFactory with admin; requiresNodeAttestation = None; featureFlag = experimentalFeatureFlag
+    createCmd SettlementFactory with admin; requiresComplianceAttestation = None; featureFlag = experimentalFeatureFlag
   Some factoryDisclosure <- queryDisclosure @SettlementFactory admin factory
 
   (settlement, leg, allocationCids) <-
     buildTwoSidedAllocations admin app alice bob factory factoryDisclosure
 
-  -- The node emits a typed compliance attestation covering this settlement.
+  -- The attester emits a typed compliance attestation covering this settlement.
   registry <- submit admin do
     createCmd TrustedAttesterRegistry with admin; attesters = [attester]; featureFlag = experimentalFeatureFlag
   attestation <- submit attester do
-    createCmd NodeComplianceAttestation with
+    createCmd ComplianceAttestation with
       attester
       attestationObservers = [admin]
       settlementRef = settlement.settlementRef.id
@@ -226,7 +226,7 @@ regulatedSeizureExemplar = script do
   bob <- allocateParty "exemplar-seize-bob"
 
   factory <- submit admin do
-    createCmd SettlementFactory with admin; requiresNodeAttestation = None; featureFlag = experimentalFeatureFlag
+    createCmd SettlementFactory with admin; requiresComplianceAttestation = None; featureFlag = experimentalFeatureFlag
   Some factoryDisclosure <- queryDisclosure @SettlementFactory admin factory
   (_settlement, _leg, allocationCids) <-
     buildTwoSidedAllocations admin app alice bob factory factoryDisclosure

@@ -273,7 +273,7 @@ dexSwapExemplar = script do
         amount = dOut; instrumentId = "QUOTE"; meta = emptyMetadata
 
   factory <- submit admin do
-    createCmd SettlementFactory with admin; requiresNodeAttestation = None; featureFlag = experimentalFeatureFlag
+    createCmd SettlementFactory with admin; requiresComplianceAttestation = None; featureFlag = experimentalFeatureFlag
   Some factoryDisclosure <- queryDisclosure @SettlementFactory admin factory
   pauseState <- submit operator do createCmd PauseState with pauser = operator; paused = False
 

@@ -109,18 +109,18 @@ The proposed M1 lifecycle should follow the CIP-0112 V2 settlement flow:
 
 Root `PLAN.md` records D1 as no-cache, fail-closed, node-side. It also leaves
 the implementation clarification open: whether the contract remains oblivious or
-checks a signed node attestation/reference at exercise time.
+checks a signed compliance attestation/reference at exercise time.
 
 The experimental package therefore exposes only an optional `D1ComplianceHook`
 and a per-settlement `d1ComplianceRef` reference. If the optional hook requires
 a reference, settlement fails when no reference is supplied. The package does
 not verify KYC, sanctions, validator service output, cryptographic signatures,
-or production node attestations.
+or production compliance attestations.
 
 Upgrade-safe rule:
 
 - Keep the baseline settlement choice stable.
-- If D1 later requires typed node-attestation fields, add them via optional
+- If D1 later requires typed attestation fields, add them via optional
   appended fields and/or new choices, following the SCU pattern from
   `identity-hook-upgrade.md`.
 - If D1 later confirms the contract must remain oblivious, remove or ignore the
@@ -211,7 +211,7 @@ Test coverage:
 - missing required D1 reference fails closed;
 - direct single-side settlement without peer allocation context fails;
 - direct settlement with a fetched peer allocation authorization proof succeeds;
-- a mandating factory (`requiresNodeAttestation`) refuses the plain path and
+- a mandating factory (`requiresComplianceAttestation`) refuses the plain path and
   settles only via the verified attestation path;
 - an attestation is single-use (cannot be replayed), batch-bound, and rejected
   when its registry admin is not the factory admin;

@@ -73,7 +73,7 @@ mkFactory admin = do
   factory <- submit admin do
     createCmd SettlementFactory with
       admin
-      requiresNodeAttestation = None
+      requiresComplianceAttestation = None
       featureFlag = experimentalFeatureFlag
   Some disc <- queryDisclosure @SettlementFactory admin factory
   pure (factory, disc)
