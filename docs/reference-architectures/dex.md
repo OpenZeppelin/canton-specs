@@ -148,20 +148,29 @@ Duties are segregated and mapped to discrete Daml parties:
   settlements, and controls the venue pause switch (`PauseState`). The venue
   operator has execution authority to call the settlement factory but never
   holds custody of, nor any unilateral transfer right over trader funds.
-- **LP Token Issuer (`LP_TOKEN_ISSUER`)** - manages LP-token policy. Separating
-  the issuer from the venue operator supports delegating LP-token issuance to a
-  regulated third-party custodian.
-- **Liquidity Token Issuer (`LIQUIDITY_TOKEN_ISSUER`)** - issuer/registrar of the
-  base and quote instruments when they do not already exist. Lock-and-sweep follows
-  the issuer: the `LIQUIDITY_TOKEN_ISSUER` holds it for instruments it issued, and
-  when an instrument is issued by another party, that issuer holds lock-and-sweep
-  instead.
+- **LP Token Issuer (`LP_TOKEN_ISSUER`)** - mints and burns the LP token, the
+  pool-share receipt a liquidity provider holds against the pool. It never
+  touches the traded assets. Example: an LP deposits 100 base + 100 quote,
+  and in that same settlement the LP token issuer mints them 100 LP tokens;
+  on removal it burns them. Separating the issuer from the venue operator
+  allows future delegation of LP-token issuance to a regulated third-party
+  custodian.
+- **Instrument Registrar (`INSTRUMENT_REGISTRAR`)** - the token-standard
+  registry of the traded base and quote instruments themselves, when they do
+  not already exist. Contrast: the LP token issuer issues the pool's own
+  receipt token; the instrument registrar administers the assets being traded
+  (EVM analogy: the pair contract minting UNI-V2 versus Circle issuing USDC).
+  Lock-and-sweep follows the registrar: the `INSTRUMENT_REGISTRAR` holds it
+  for instruments it issued, and when an instrument is issued by another
+  party (e.g. Canton Coin), that party holds lock-and-sweep instead. Example:
+  under a court order, the registrar of the base instrument marks a trader's
+  locked allocation and sweeps it to the custodian.
 - **Trader / Liquidity Provider** - the end-user authoring `Allocation`
   contracts from their wallet. The sole party able to lock
   their own holdings.
 - **Custodian** - owns the preset account that receives funds swept by a D2
   seizure.
-- **Pool Account** - owns the holdings that back the pool's reserves. Must authorize the tokens-out leg for swapping or burning liquidity tokens. 
+- **Pool Account** - owns the holdings that back the pool's reserves. Must authorize the tokens-out leg for swapping or burning LP tokens.
 
 ### Decentralization and Trust Topology
 
@@ -173,9 +182,10 @@ assigns each role a deliberate position on each:
 3. **authorization** - what the Daml signatory/controller topology requires regardless of hosting.
 
 For the roles that hold value-moving or supply-changing authority - the pool
-account, the LP token issuer, and the liquidity token issuer - the design
-envisions the EVM equivalent of an **N-of-M multisig**: no single key may exercise the role's authority. Canton offers two implementation options, and
-the selection remains an open question ([section 7](#7-open-design-questions)):
+account, the LP token issuer, and the instrument registrar - the design
+envisions the EVM equivalent of an **N-of-M multisig**: no single key may
+exercise the role's authority. Canton offers two ways to implement this (which one is currently left as an open question)
+([section 7](#7-open-design-questions)):
 
 - **On-ledger approval workflow** - the multisig is written in Daml ([Multiple Party Agreement](https://docs.canton.network/appdev/modules/m3-design-patterns#multiple-party-agreement)): approvers
   record approvals as contracts, and the final choice executes under the role
@@ -485,9 +495,11 @@ lifecycle, with the LP-token mint as a sibling consequence of the settlement:
 2. **Provision and Mint.** `VENUE_OPERATOR` exercises the provision choice on the
    `Pool`. In one transaction it settles both deposit `Allocation`s over the spine
    and, as a sibling `create` rather than a transfer leg (so funding conservation
-   is untouched), issues the LP a fresh LP-token holding. The mint's `admin`
-   signatory is covered by the `LP_TOKEN_ISSUER` authority inherited from the
-   `Pool`'s signatory, and the LP is the controller, covering its account. The
+   is untouched), issues the LP a fresh LP-token holding. Creating the holding requires the
+   authority of both of its signatories. The `LP_TOKEN_ISSUER` signs the `Pool`,
+   so the choice already carries its authority for the holding's `admin`. The LP
+   contributes the owner-side authority as a controller of the choice, which
+   also credits the holding to its account. The
    share amount is computed inside the choice from the deposit just settled
    (`sqrt(Δbase · Δquote)` on the first provision, less a `MINIMUM_LIQUIDITY`
    tranche; `min(Δbase / baseReserves, Δquote / quoteReserves) · totalSupply`
@@ -553,7 +565,7 @@ Institutional DeFi requires participants to be identified. The target design use
 
 ### D4: Authority and Privilege Transfer
 
-Institutional DeFi requires administrative power to be explicit and accountable: every privileged action traces to a named authority. There is no single admin holding every privilege. Each action sits with the role responsible for it: LP-token minting and burning with the `LP_TOKEN_ISSUER`, swap execution with the `VENUE_OPERATOR`, and lock-and-sweep with the `LIQUIDITY_TOKEN_ISSUER`. These privileges are granted, transferred, and revoked through `openzeppelin-access-control-v1` role administration and the `openzeppelin-ownable-v1` two-step ownership handover, so authority can move between parties without redeploying. A permission is bound by direct controllership when its holder is fixed for the life of the contract, and through `openzeppelin-access-control-v1` (`RoleGrant` / `requireRole`) when it must be swappable or revocable without recreating the contract.
+Institutional DeFi requires administrative power to be explicit and accountable: every privileged action traces to a named authority. There is no single admin holding every privilege. Each action sits with the role responsible for it: LP-token minting and burning with the `LP_TOKEN_ISSUER`, swap execution with the `VENUE_OPERATOR`, and lock-and-sweep with the `INSTRUMENT_REGISTRAR`. These privileges are granted, transferred, and revoked through `openzeppelin-access-control` role administration and the `openzeppelin-ownable` two-step ownership handover, so authority can move between parties without redeploying. A permission is bound by direct controllership when its holder is fixed for the life of the contract, and through `openzeppelin-access-control` (`RoleGrant` / `requireRole`) when it must be swappable or revocable without recreating the contract.
 
 ### Implementing Smart Contract Upgrades
 
@@ -749,7 +761,7 @@ or formal analysis when supported by the implementation toolchain.
 |---|---|---|
 | Malicious venue operator state manipulation | Venue operator submits a settlement batch favoring their own holdings, bypassing the price curve or extracting excessive slippage. | `Pool_Swap` enforces the curve on-ledger: it re-derives the output, asserts the `x·y=k` invariant, and binds the settled legs to the amounts the trader signed. A batch that favors the operator or departs from the curve fails these checks, so the operator cannot manipulate reserves even though it drives the swap. |
 | Compliance evasion (D1) | A sanctioned party tries to settle without a valid attestation, or with a stale, forged, or untrusted one. | A factory with `requiresPartyAttestation` forces settlement through `SettlementFactory_SettleBatchWithAttestation`, which verifies and consumes a `PartyComplianceAttestation` signed by a party in the factory admin's `TrustedAttesterRegistry`, bound to this settlement and within its validity window. No valid attestation, no settlement. |
-| Rogue seizure / asset burning (D2) | A compromised liquidity token issuer key attempts to maliciously burn user assets or return seized funds to unverified actors. | [`Allocation_SweepD2InFlightSeizure`](../../experiments/settlement/cip-0112/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml) hardcodes the destination to the preset `custodianDestination`; arbitrary burn is forbidden. A compromised liquidity token issuer can only sweep to the pre-approved, monitored custodian. |
+| Rogue seizure / asset burning (D2) | A compromised instrument registrar key attempts to maliciously burn user assets or return seized funds to unverified actors. | [`Allocation_SweepD2InFlightSeizure`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L625) hardcodes the destination to the preset `custodianDestination`; arbitrary burn is forbidden. A compromised instrument registrar can only sweep to the pre-approved, monitored custodian. |
 | Forced upgrades breaking in-flight allocations (SCU) | A poorly executed upgrade mutates fields, rendering existing `Allocation` contracts un-settleable. | Programmatic adherence to the SCU rule (Optional appends + new choices only). The `Pool` template's existing choices stay operable; in-flight transactions conclude before users transition. |
 | Venue Operator swap re-ordering / private MEV | The venue operator sees traders' allocations before batching and can order or delay batch-settlement submissions to its own benefit (e.g. sandwiching a large swap). MEV does **not** disappear on Canton - it moves from a public mempool into the venue operator's private view. | The on-ledger invariant blocks *off-curve* execution, but **not** ordering. Candidate mitigations are commit-reveal or fair-ordering for allocation intake, per-swap slippage bounds carried on the trader's signed request ([section 3](#3-target-design)), and batching rules that minimize venue-operator discretion. See [section 5.5](#55-throughput-and-contention). |
 
@@ -862,9 +874,8 @@ and its lifecycle has three stages:
    mints, burns, per [the fair-use policy](https://github.com/canton-foundation/cips/blob/main/cip-0047/cip-0047.md?plain=1#L85C1-L90C66)), so the intermediate steps
    (allocation requests, allocation locking) carry none. A marker carries reward weight worth about 1 USD,
    splittable across up to 20 beneficiaries with weights summing to 1.0
-   (venue, LP token issuer, token registries); CIP-0098 caps per-transaction
+   (venue, LP token issuer, instrument registrars); CIP-0098 caps per-transaction
    app rewards at 1.50 USD.
-   
    The fair-use policy explicitly covers composed
    settlements where the venue and the registries of the transferred assets
    each take a marker, which is exactly this design.
@@ -893,6 +904,8 @@ Rewards partially offset the traffic bill: a marked swap earns up to 1 to
 1.50 USD against a similar-order traffic cost, so venue fees, not rewards,
 carry the business model; rewards are a rebate.
 
+A precise calculation of the application rewards and traffic cost is deffered to M2, to be done once the implementation and testing/simulations against the DevNet are available. 
+
 ---
 
 ## 7. Open Design Questions
@@ -900,7 +913,7 @@ carry the business model; rewards are a rebate.
 The following application decisions remain open before implementation.
 
 - **Multisig implementation for value-critical roles.** The pool account, LP
-  token issuer, and liquidity token issuer each require N-of-M authority
+  token issuer, and instrument registrar each require N-of-M authority
   ([section 2](#decentralization-and-trust-topology)). Open: whether each role
   uses the on-ledger approval workflow, an external party with threshold
   signing keys, or a combination; the N and M per role; and the pre-delegation
