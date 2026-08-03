@@ -1,0 +1,21 @@
+# Pinned DAR inputs consumed by canton-specs experiments.
+# This provenance manifest does not install, upload, release, or vet packages.
+
+schema-version: 1
+artifacts:
+  - package: openzeppelin-access-control-v1
+    version: 0.1.0
+    file: dars/vendor/openzeppelin-access-control-v1-0.1.0.dar
+    main-package-id: 023c12b7906fd3b49393dee6bdda9a84900aaad03fc0d08df465d7653a60d56b
+    sha256: 611c35e1275822a8afca48562b77753759db2929b5dca548b4c171d38bdb510c
+    source-commit: 69a810a1c90f1d0b182858c536d80b56f3acc31d
+    source: https://github.com/OpenZeppelin/canton-contracts/tree/69a810a1c90f1d0b182858c536d80b56f3acc31d/packages/access/access-control-v1
+    license: MIT
+  - package: openzeppelin-pausable-v1
+    version: 0.1.0
+    file: dars/vendor/openzeppelin-pausable-v1-0.1.0.dar
+    main-package-id: 607dd38870be252206b6231fb91c1b01f0fb8ef872e1ba211bf717a671d33ca3
+    sha256: a8691af202856a18d43abea056cc28d0c5e538b865d0066de628b82686b8e566
+    source-commit: 69a810a1c90f1d0b182858c536d80b56f3acc31d
+    source: https://github.com/OpenZeppelin/canton-contracts/tree/69a810a1c90f1d0b182858c536d80b56f3acc31d/packages/security/pausable-v1
+    license: MIT

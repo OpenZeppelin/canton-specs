@@ -3,13 +3,13 @@
 # LocalNet validation gate for the CIP-0086 / CIP-0103 / CIP-0104 interop
 # exemplars: runs every exemplar script against a real local Canton ledger over
 # the Ledger API gRPC endpoint, instead of the in-memory IDE ledger that
-# `dpm test` uses (see scripts/run-tests.sh for that path).
+# `dpm test` uses.
 #
 # The sandbox MUST run in static-time mode: every exemplar script pins the
 # settlement timeline with `setTime` (Common.daml i0/i1/i2), which a wallclock
 # ledger rejects. Ledger time is forward-only, so the one script that advances
 # the clock past the settlement deadline
-# (test_cip0103_failClosedSurfacesToWallet, setTime i2) must run LAST — after
+# (test_cip0103_failClosedSurfacesToWallet, setTime i2) must run LAST - after
 # it, no script can set the clock back to i0 without a fresh sandbox.
 #
 # To target an already-running ledger instead of the script-managed sandbox,
@@ -19,19 +19,26 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-source "$ROOT/scripts/dpm-env.sh"
-
-oz_setup_dpm_env "$ROOT/.cache"
-oz_has_dpm || {
-	printf 'localnet-cip-interop: dpm is not available; install DPM or expose ~/.dpm/bin/dpm\n' >&2
+command -v dpm >/dev/null 2>&1 || {
+	printf 'localnet-cip-interop: dpm is not available\n' >&2
 	exit 1
 }
-oz_has_java_21_or_newer || {
-	printf 'localnet-cip-interop: Java 21 runtime is not available; install or expose a JDK\n' >&2
+command -v java >/dev/null 2>&1 || {
+	printf 'localnet-cip-interop: Java is not available\n' >&2
+	exit 1
+}
+command -v lsof >/dev/null 2>&1 || {
+	printf 'localnet-cip-interop: lsof is not available\n' >&2
 	exit 1
 }
 
-PKG_DIR="$ROOT/experiments/cip-interop-exemplar"
+java_version="$(java -version 2>&1 | sed -n '1s/.*version "\([0-9][0-9]*\).*/\1/p')"
+[ -n "$java_version" ] && [ "$java_version" -ge 21 ] || {
+	printf 'localnet-cip-interop: Java 21 or newer is required\n' >&2
+	exit 1
+}
+
+PKG_DIR="$ROOT/experiments/interoperability/cip-exemplar"
 DAR="$PKG_DIR/.daml/dist/openzeppelin-experimental-cip-interop-exemplar-0.1.0.dar"
 LEDGER_HOST="${OZ_LEDGER_HOST:-localhost}"
 LEDGER_PORT="${OZ_LEDGER_PORT:-6865}"
@@ -47,31 +54,63 @@ printf 'localnet-cip-interop: building the interop exemplar package\n'
 }
 
 SANDBOX_PID=""
-cleanup() {
-	if [ -n "$SANDBOX_PID" ] && kill -0 "$SANDBOX_PID" 2>/dev/null; then
-		printf 'localnet-cip-interop: stopping sandbox (pid %s)\n' "$SANDBOX_PID"
-		kill "$SANDBOX_PID" 2>/dev/null || true
-		wait "$SANDBOX_PID" 2>/dev/null || true
-	fi
-	# The dpm wrapper's java child can outlive it; kill whatever still holds
-	# the Ledger API port (only if this script started the sandbox).
-	if [ -n "$SANDBOX_PID" ]; then
-		leftover="$(lsof -ti "tcp:$LEDGER_PORT" -sTCP:LISTEN 2>/dev/null || true)"
-		if [ -n "$leftover" ]; then
-			printf 'localnet-cip-interop: stopping leftover sandbox process(es): %s\n' "$leftover"
-			printf '%s\n' "$leftover" | xargs kill 2>/dev/null || true
+SANDBOX_PGID=""
+
+process_group_alive() {
+	[ -n "$1" ] && kill -0 "-$1" >/dev/null 2>&1
+}
+
+wait_for_port_release() {
+	local port="$1"
+	local i=0
+	while [ "$i" -lt 20 ]; do
+		if ! lsof -nP -iTCP:"$port" -sTCP:LISTEN >/dev/null 2>&1; then
+			return 0
 		fi
+		i=$((i + 1))
+		sleep 1
+	done
+	printf 'localnet-cip-interop: Ledger API port %s remains in use after cleanup\n' "$port" >&2
+	return 1
+}
+
+cleanup() {
+	local status=$?
+	local cleanup_failed=0
+	trap - EXIT
+	set +m >/dev/null 2>&1 || true
+	if process_group_alive "$SANDBOX_PGID"; then
+		printf 'localnet-cip-interop: stopping sandbox (pid %s)\n' "$SANDBOX_PID"
+		kill -TERM -- "-$SANDBOX_PGID" 2>/dev/null || true
+		local i=0
+		while [ "$i" -lt 15 ] && process_group_alive "$SANDBOX_PGID"; do
+			i=$((i + 1))
+			sleep 1
+		done
+		if process_group_alive "$SANDBOX_PGID"; then
+			kill -KILL -- "-$SANDBOX_PGID" 2>/dev/null || true
+		fi
+		wait "$SANDBOX_PID" 2>/dev/null || true
+		wait_for_port_release "$LEDGER_PORT" || cleanup_failed=1
 	fi
+	[ "$cleanup_failed" -eq 0 ] || status=1
+	exit "$status"
 }
 trap cleanup EXIT
 
 if [ "$USE_EXTERNAL_LEDGER" = 1 ]; then
 	printf 'localnet-cip-interop: using external ledger at %s:%s (no sandbox started; must be static-time with a fresh clock)\n' "$LEDGER_HOST" "$LEDGER_PORT"
 else
+	if lsof -nP -iTCP:"$LEDGER_PORT" -sTCP:LISTEN >/dev/null 2>&1; then
+		printf 'localnet-cip-interop: Ledger API port %s is already in use\n' "$LEDGER_PORT" >&2
+		exit 1
+	fi
+	set -m
 	printf 'localnet-cip-interop: starting static-time Canton sandbox on %s:%s\n' "$LEDGER_HOST" "$LEDGER_PORT"
 	(cd "$LOG_DIR" && dpm sandbox --static-time --ledger-api-port "$LEDGER_PORT" --dar "$DAR" \
 		> "$LOG_DIR/sandbox.log" 2>&1) &
 	SANDBOX_PID=$!
+	SANDBOX_PGID=$SANDBOX_PID
 
 	ready=0
 	for _ in $(seq 1 120); do
@@ -121,4 +160,4 @@ done
 	printf 'localnet-cip-interop: FAILED\n' >&2
 	exit 1
 }
-printf 'localnet-cip-interop: OK — all %d interop exemplar scripts passed on LocalNet\n' "${#SCRIPTS[@]}"
+printf 'localnet-cip-interop: OK - all %d interop exemplar scripts passed on LocalNet\n' "${#SCRIPTS[@]}"

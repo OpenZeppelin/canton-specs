@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # CIP-0103 third-party interop gate: validates the OpenZeppelin CIP-0112
 # settlement surface against the Canton Wallet Gateway (the CIP-0103
-# implementation formerly known as Splice Wallet Kernel), running as a real
-# separate process from the published npm package.
+# implementation distributed through the published npm package), running as a
+# separate process from the experiment harness.
 #
 # Topology:
 #   dpm sandbox (wallclock)  <-- gRPC 6865 ---- dpm script (admin/app/receiver phases)
@@ -11,7 +11,7 @@
 #   Wallet Gateway (npx @canton-network/wallet-gateway-remote)
 #        ^ CIP-0103 dApp + user JSON-RPC on 3030
 #        |
-#   interop/wallet-gateway/harness.mjs (the dApp; wallet party is an
+#   experiments/interoperability/wallet-gateway/harness.mjs (the dApp; wallet party is an
 #   externally-signed party held by the gateway's wallet-kernel signer)
 #
 # Phases:
@@ -26,7 +26,7 @@
 # The sandbox runs on WALLCLOCK time (the gateway requires it); the module's
 # settlement carries no deadline, so nothing here needs `setTime`.
 #
-# Requirements: DPM + Java 21 (see scripts/dpm-env.sh), Node.js >= 20 with npx.
+# Requirements: DPM, Java 21+, and Node.js 20+ with npx.
 # Env overrides: OZ_LEDGER_PORT (6865), OZ_JSON_API_PORT (7575),
 # OZ_GATEWAY_PORT (3030), OZ_INTEROP_WORK_DIR, OZ_GATEWAY_PKG (pin/override the
 # gateway npm package spec).
@@ -35,7 +35,7 @@
 # connection variables below in an env file OUTSIDE the repo (e.g.
 # ~/.config/oz-canton/devnet.env, chmod 600) and source it before running.
 # Secrets must never enter the repo tree; point OZ_INTEROP_WORK_DIR outside it
-# too, since the generated gateway config and token file land there.
+# when external-ledger run evidence must also remain outside the checkout.
 #   OZ_LEDGER_HOST / OZ_LEDGER_PORT   gRPC Ledger API (TLS assumed)
 #   OZ_JSON_API_URL                   JSON Ledger API v2 base URL
 #   OZ_OIDC_TOKEN_URL / OZ_OIDC_ISSUER / OZ_OIDC_AUDIENCE
@@ -48,20 +48,31 @@
 # delta-based, so repeated runs against the same parties stay green.
 
 set -euo pipefail
+umask 077
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-# shellcheck source=scripts/dpm-env.sh
-source "$ROOT/scripts/dpm-env.sh"
-
-oz_setup_dpm_env "$ROOT/.cache"
-oz_has_dpm || { echo "ERROR: dpm not found (see README build instructions)" >&2; exit 1; }
-oz_has_java_21_or_newer || { echo "ERROR: Java 21 not found (see README build instructions)" >&2; exit 1; }
+command -v dpm >/dev/null 2>&1 || { echo "ERROR: dpm not found" >&2; exit 1; }
+command -v java >/dev/null 2>&1 || { echo "ERROR: Java not found" >&2; exit 1; }
 command -v node >/dev/null 2>&1 || { echo "ERROR: node not found (Node.js >= 20 required)" >&2; exit 1; }
 command -v npx >/dev/null 2>&1 || { echo "ERROR: npx not found (Node.js >= 20 required)" >&2; exit 1; }
+command -v lsof >/dev/null 2>&1 || { echo "ERROR: lsof not found" >&2; exit 1; }
+command -v curl >/dev/null 2>&1 || { echo "ERROR: curl not found" >&2; exit 1; }
 
-PKG_DIR="$ROOT/experiments/cip-interop-exemplar"
+java_version="$(java -version 2>&1 | sed -n '1s/.*version "\([0-9][0-9]*\).*/\1/p')"
+[ -n "$java_version" ] && [ "$java_version" -ge 21 ] || {
+  echo "ERROR: Java 21 or newer is required" >&2
+  exit 1
+}
+node_version="$(node -p 'process.versions.node.split(".")[0]')"
+[ "$node_version" -ge 20 ] || {
+  echo "ERROR: Node.js 20 or newer is required" >&2
+  exit 1
+}
+
+PKG_DIR="$ROOT/experiments/interoperability/cip-exemplar"
 DAR="$PKG_DIR/.daml/dist/openzeppelin-experimental-cip-interop-exemplar-0.1.0.dar"
 MODULE="OpenZeppelin.Experimental.Interop.WalletGateway"
+HARNESS="$ROOT/experiments/interoperability/wallet-gateway/harness.mjs"
 
 LEDGER_HOST="${OZ_LEDGER_HOST:-localhost}"
 LEDGER_PORT="${OZ_LEDGER_PORT:-6865}"
@@ -69,8 +80,11 @@ JSON_API_PORT="${OZ_JSON_API_PORT:-7575}"
 GATEWAY_PORT="${OZ_GATEWAY_PORT:-3030}"
 GATEWAY_PKG="${OZ_GATEWAY_PKG:-@canton-network/wallet-gateway-remote@1.6.0}"
 EXTERNAL="${OZ_USE_EXTERNAL_LEDGER:-0}"
-WORK_DIR="${OZ_INTEROP_WORK_DIR:-$ROOT/.cache/wallet-gateway-interop}"
+WORK_ROOT="${OZ_INTEROP_WORK_DIR:-$ROOT/.cache/wallet-gateway-interop}"
 NETWORK_ID="${OZ_GATEWAY_NETWORK_ID:-canton:local-sandbox}"
+
+mkdir -p "$WORK_ROOT"
+WORK_DIR="$(mktemp -d "$WORK_ROOT/run.XXXXXX")"
 
 export OZ_GATEWAY_URL="http://127.0.0.1:$GATEWAY_PORT"
 export OZ_GATEWAY_NETWORK_ID="$NETWORK_ID"
@@ -86,50 +100,108 @@ fi
 export OZ_GATEWAY_NETWORK_ID="$NETWORK_ID"
 
 SANDBOX_PID=""
+SANDBOX_PGID=""
 GATEWAY_PID=""
+GATEWAY_PGID=""
+UPLOAD_HEADER_FILE=""
+
+process_group_alive() {
+  [ -n "$1" ] && kill -0 "-$1" >/dev/null 2>&1
+}
+
+stop_process_group() {
+  local pid="$1"
+  local pgid="$2"
+  local label="$3"
+  [ -n "$pgid" ] || return 0
+
+  if process_group_alive "$pgid"; then
+    echo "== Stopping $label (pid $pid)"
+    kill -TERM -- "-$pgid" >/dev/null 2>&1 || true
+    local i=0
+    while [ "$i" -lt 15 ] && process_group_alive "$pgid"; do
+      i=$((i + 1))
+      sleep 1
+    done
+    if process_group_alive "$pgid"; then
+      kill -KILL -- "-$pgid" >/dev/null 2>&1 || true
+    fi
+  fi
+  [ -n "$pid" ] && wait "$pid" >/dev/null 2>&1 || true
+}
+
+wait_for_port_release() {
+  local port="$1"
+  local label="$2"
+  local i=0
+  while [ "$i" -lt 20 ]; do
+    if ! lsof -nP -iTCP:"$port" -sTCP:LISTEN >/dev/null 2>&1; then
+      return 0
+    fi
+    i=$((i + 1))
+    sleep 1
+  done
+  echo "ERROR: $label port $port remains in use after cleanup" >&2
+  return 1
+}
+
 cleanup() {
   local code=$?
-  [ -n "$GATEWAY_PID" ] && kill "$GATEWAY_PID" >/dev/null 2>&1 || true
-  [ -n "$SANDBOX_PID" ] && kill "$SANDBOX_PID" >/dev/null 2>&1 || true
-  # Reap detached children still holding the ports (the sandbox JVM outlives
-  # its wrapper; npx may leave the node server running).
-  reap_ports="$GATEWAY_PORT"
-  [ "$EXTERNAL" = 1 ] || reap_ports="$LEDGER_PORT $GATEWAY_PORT"
-  for port in $reap_ports; do
-    lsof -ti "tcp:$port" -sTCP:LISTEN 2>/dev/null | xargs kill >/dev/null 2>&1 || true
-  done
+  local cleanup_failed=0
+  trap - EXIT
+  set +m >/dev/null 2>&1 || true
+  stop_process_group "$GATEWAY_PID" "$GATEWAY_PGID" "Wallet Gateway"
+  stop_process_group "$SANDBOX_PID" "$SANDBOX_PGID" "sandbox"
+  if [ -n "$GATEWAY_PGID" ]; then
+    wait_for_port_release "$GATEWAY_PORT" "Wallet Gateway" || cleanup_failed=1
+  fi
+  if [ -n "$SANDBOX_PGID" ]; then
+    wait_for_port_release "$LEDGER_PORT" "Ledger API" || cleanup_failed=1
+    wait_for_port_release "$JSON_API_PORT" "JSON API" || cleanup_failed=1
+  fi
+  [ -n "$UPLOAD_HEADER_FILE" ] && rm -f "$UPLOAD_HEADER_FILE"
+  [ "$cleanup_failed" -eq 0 ] || code=1
   exit "$code"
 }
 trap cleanup EXIT
 
-rm -rf "$WORK_DIR"
-mkdir -p "$WORK_DIR"
+require_port_free() {
+  local port="$1"
+  local label="$2"
+  if lsof -nP -iTCP:"$port" -sTCP:LISTEN >/dev/null 2>&1; then
+    echo "ERROR: $label port $port is already in use" >&2
+    exit 1
+  fi
+}
+
+require_port_free "$GATEWAY_PORT" "Wallet Gateway"
+if [ "$EXTERNAL" != 1 ]; then
+  require_port_free "$LEDGER_PORT" "Ledger API"
+  require_port_free "$JSON_API_PORT" "JSON API"
+fi
+
+set -m
 
 echo "== Building $PKG_DIR"
 (cd "$PKG_DIR" && dpm build)
 [ -f "$DAR" ] || { echo "ERROR: DAR not found at $DAR" >&2; exit 1; }
 
-TOKEN_FILE=""
 if [ "$EXTERNAL" = 1 ]; then
   echo "== External ledger mode: $LEDGER_HOST:$LEDGER_PORT (gRPC/TLS), $OZ_JSON_API_URL (JSON API)"
 
-  echo "== Fetching OIDC access token (client_credentials)"
-  TOKEN_FILE="$WORK_DIR/ledger.token"
-  curl -sf -X POST "$OZ_OIDC_TOKEN_URL" \
-    -H 'content-type: application/json' \
-    -d "{\"grant_type\":\"client_credentials\",\"client_id\":\"$OZ_OIDC_CLIENT_ID\",\"client_secret\":\"$OZ_OIDC_CLIENT_SECRET\",\"audience\":\"$OZ_OIDC_AUDIENCE\"}" \
-    | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>process.stdout.write(JSON.parse(s).access_token))' \
-    >"$TOKEN_FILE"
-  chmod 600 "$TOKEN_FILE"
-  [ -s "$TOKEN_FILE" ] || { echo "ERROR: empty access token" >&2; exit 1; }
-
   if [ -n "${OZ_DAR_UPLOAD_URL:-}" ]; then
     echo "== Uploading DAR via $OZ_DAR_UPLOAD_URL/v1/dars"
+    UPLOAD_HEADER_FILE="$WORK_DIR/dar-upload.headers"
+    printf 'Authorization: Bearer %s\n' \
+      "${OZ_DAR_UPLOAD_API_KEY:?OZ_DAR_UPLOAD_API_KEY required with OZ_DAR_UPLOAD_URL}" \
+      >"$UPLOAD_HEADER_FILE"
     upload_status="$(curl -s -o "$WORK_DIR/dar-upload.log" -w '%{http_code}' \
       -X POST "$OZ_DAR_UPLOAD_URL/v1/dars" \
-      -H "Authorization: Bearer ${OZ_DAR_UPLOAD_API_KEY:?OZ_DAR_UPLOAD_API_KEY required with OZ_DAR_UPLOAD_URL}" \
+      -H "@$UPLOAD_HEADER_FILE" \
       -H 'content-type: application/octet-stream' \
       --data-binary "@$DAR")"
+    rm -f "$UPLOAD_HEADER_FILE"
+    UPLOAD_HEADER_FILE=""
     case "$upload_status" in
       2*) echo "   DAR uploaded (HTTP $upload_status)" ;;
       409) echo "   DAR already present (HTTP 409)" ;;
@@ -147,6 +219,7 @@ else
       >"$WORK_DIR/sandbox.log" 2>&1
   ) &
   SANDBOX_PID=$!
+  SANDBOX_PGID=$SANDBOX_PID
 
   for _ in $(seq 1 120); do
     grep -q 'Canton sandbox is ready' "$WORK_DIR/sandbox.log" 2>/dev/null && break
@@ -266,6 +339,7 @@ echo "== Booting Wallet Gateway ($GATEWAY_PKG on port $GATEWAY_PORT)"
     >"$WORK_DIR/gateway.log" 2>&1
 ) &
 GATEWAY_PID=$!
+GATEWAY_PGID=$GATEWAY_PID
 
 for _ in $(seq 1 120); do
   if curl -sf -X POST "http://127.0.0.1:$GATEWAY_PORT/api/v0/user" \
@@ -284,10 +358,10 @@ echo "   gateway ready"
 
 run_script() {
   local name="$1"; shift
-  local extra=()
-  if [ "$EXTERNAL" = 1 ]; then
-    extra=(--tls --access-token-file "$TOKEN_FILE")
-  fi
+  [ "$EXTERNAL" != 1 ] || {
+    echo "ERROR: dpm script phases are not used in external-ledger mode" >&2
+    exit 1
+  }
   echo "== dpm script $MODULE:$name"
   (
     cd "$PKG_DIR"
@@ -296,7 +370,6 @@ run_script() {
       --script-name "$MODULE:$name" \
       --ledger-host "$LEDGER_HOST" \
       --ledger-port "$LEDGER_PORT" \
-      ${extra[@]+"${extra[@]}"} \
       "$@"
   ) >"$WORK_DIR/script-$name.log" 2>&1 \
     || { echo "ERROR: $name failed; see $WORK_DIR/script-$name.log" >&2; exit 1; }
@@ -308,11 +381,11 @@ run_script() {
 # setup_gatewayInteropExternal, remain the path for gRPC-exposed ledgers.)
 
 echo "== Phase 1: create externally-signed wallet party via gateway"
-node "$ROOT/interop/wallet-gateway/harness.mjs" create-wallet
+node "$HARNESS" create-wallet
 
 echo "== Phase 2: on-ledger setup (factory, request, offers, receiver allocation)"
 if [ "$EXTERNAL" = 1 ]; then
-  node "$ROOT/interop/wallet-gateway/harness.mjs" setup-external
+  node "$HARNESS" setup-external
 else
   run_script setup_gatewayInterop \
     --input-file "$WORK_DIR/setup-input.json" \
@@ -320,24 +393,24 @@ else
 fi
 
 echo "== Phase 3: wallet drives the CIP-0103 flow through the gateway"
-node "$ROOT/interop/wallet-gateway/harness.mjs" dapp-flow
+node "$HARNESS" dapp-flow
 
 echo "== Phase 4: executor settles the batch"
 if [ "$EXTERNAL" = 1 ]; then
-  node "$ROOT/interop/wallet-gateway/harness.mjs" settle-external
+  node "$HARNESS" settle-external
 else
   run_script settle_gatewayInterop --input-file "$WORK_DIR/settle-input.json"
 fi
 
 echo "== Phase 5: wallet-side verification via gateway ledgerApi"
-node "$ROOT/interop/wallet-gateway/harness.mjs" verify-wallet-view
+node "$HARNESS" verify-wallet-view
 
 echo "== Phase 6: admin/executor/receiver verification"
 if [ "$EXTERNAL" = 1 ]; then
-  node "$ROOT/interop/wallet-gateway/harness.mjs" verify-external
+  node "$HARNESS" verify-external
 else
   run_script verify_gatewayInterop --input-file "$WORK_DIR/verify-input.json"
 fi
 
 echo
-echo "PASS: CIP-0103 interop against Wallet Gateway ($GATEWAY_PKG) — all phases green"
+echo "PASS: CIP-0103 interop against Wallet Gateway ($GATEWAY_PKG) - all phases green"

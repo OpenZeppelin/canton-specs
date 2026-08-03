@@ -1,0 +1,14 @@
+sdk-version: 3.4.11
+name: openzeppelin-experimental-identity-test
+source: daml
+version: 0.0.0
+dependencies:
+  - daml-prim
+  - daml-stdlib
+  - daml-script
+data-dependencies:
+  - ../credential-gateway/.daml/dist/openzeppelin-experimental-credential-gateway-0.1.0.dar
+  - ../hook-shape-a/.daml/dist/openzeppelin-experimental-identity-hook-shape-a-0.1.0.dar
+  - ../hook-shape-b/.daml/dist/openzeppelin-experimental-identity-hook-shape-b-0.1.0.dar
+build-options:
+  - --target=2.1
