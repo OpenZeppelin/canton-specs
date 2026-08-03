@@ -1,0 +1,338 @@
+-- | CIP-0103 third-party interop surface: the on-ledger half of the Wallet
+-- Gateway exemplar. The off-ledger half is `interop/wallet-gateway/harness.mjs`,
+-- which drives these contracts through the Canton Wallet Gateway (the CIP-0103
+-- implementation formerly known as Splice Wallet Kernel) over its dApp
+-- JSON-RPC API, with the wallet user held as an externally-signed party.
+--
+-- The gateway flow cannot use Daml Script multi-party submission or explicit
+-- script-side disclosures for the wallet party, so this module provides
+-- propose-accept wrappers whose accept choices are exercisable by the wallet
+-- party alone: the admin's signature rides on the offer contract, and the
+-- offer choices create the engine contracts the wallet needs without touching
+-- contracts outside the wallet's projection.
+--
+-- NON-PUBLIC, experiment-only; no public-API / conformance / audit /
+-- production claim. Wallclock-safe by design: `gatewaySettlement` carries no
+-- settlement deadline, so no script here calls `setTime` and the gate can run
+-- against a wallclock sandbox (which the gateway requires).
+module OpenZeppelin.Experimental.Interop.WalletGateway where
+
+import DA.Assert ((===))
+import Daml.Script
+
+import OpenZeppelin.Experimental.Settlement.Cip112
+import OpenZeppelin.Experimental.Interop.Common
+import OpenZeppelin.Experimental.TokenStandard.V2.Metadata
+import OpenZeppelin.Experimental.TokenStandard.V2.Holding
+import OpenZeppelin.Experimental.TokenStandard.V2.Allocation
+  ( AllocationSpecification(..)
+  , Reference(..)
+  , RequestedAllocation(..)
+  , SettlementInfo(..)
+  , TransferLeg
+  )
+
+-- | Deterministic settlement identifiers shared by the setup script, the
+-- gateway-side accept choice, and the settle script: all three must rebuild
+-- byte-identical `SettlementInfo` and `TransferLeg` values.
+gatewayRef : Text
+gatewayRef = "cip0103-wallet-gateway-interop"
+
+-- | Amount minted to the wallet party through the gateway.
+gatewayMintAmount : Decimal
+gatewayMintAmount = 40.0
+
+-- | Amount the wallet party transfers to the receiver; change returns to the
+-- wallet, so post-settlement balances are receiver 25.0 / wallet 15.0.
+gatewayTransferAmount : Decimal
+gatewayTransferAmount = 25.0
+
+-- | Settlement info without a deadline: the gateway flow runs on wallclock
+-- time, so the deadline-based fail-closed path stays with the LocalNet gate.
+gatewaySettlement : Party -> SettlementInfo
+gatewaySettlement app = SettlementInfo with
+  executors = [app]
+  settlementRef = Reference with id = gatewayRef; cidText = None
+  settlementDeadline = None
+  meta = emptyMetadata
+
+gatewayLeg : Party -> Party -> TransferLeg
+gatewayLeg wallet receiver =
+  mkUsdLeg gatewayRef (basicAccount wallet) (basicAccount receiver) gatewayTransferAmount
+
+-- | Offer minting a USD holding to `owner`, acceptable by `owner` alone.
+--
+-- Signatories: `admin`. Observers: `owner`.
+-- Controllers: `owner` accepts.
+-- Choices: `GatewayHoldingOffer_Accept`.
+-- Disclosed parties: admin and owner only.
+-- Privacy expectations: the offer and the resulting holding are visible to
+-- admin and owner; no other party learns of the mint.
+-- Authorization assumptions: accept combines the offer's admin signature with
+-- the owner controller, which together satisfy the `ToyHolding` signatories.
+-- This is the propose-accept bridge that lets an externally-signed wallet
+-- party receive a two-signatory holding through a single self-authorized
+-- exercise.
+-- Archival behavior: accept is consuming; the offer archives on accept.
+-- Failure modes: a non-owner submitter fails authorization.
+-- Upgrade and migration assumptions: experiment-only; not a public surface.
+template GatewayHoldingOffer
+  with
+    admin : Party
+    owner : Party
+    amount : Decimal
+  where
+    signatory admin
+    observer owner
+
+    choice GatewayHoldingOffer_Accept : ContractId ToyHolding
+      controller owner
+      do
+        create ToyHolding with
+          admin
+          account = basicAccount owner
+          instrumentId = usdId admin
+          amount
+          lock = None
+          meta = emptyMetadata
+          featureFlag = experimentalFeatureFlag
+
+-- | Offer of a ready-to-accept sender-side allocation, acceptable by the
+-- wallet `owner` alone with the funding holdings of its choice.
+--
+-- Signatories: `admin`. Observers: `owner`.
+-- Controllers: `owner` accepts.
+-- Choices: `GatewayAllocationOffer_Accept`.
+-- Disclosed parties: admin and owner; the settlement factory is NOT involved:
+-- Canton restricts interpretation-time contract lookups to contracts visible
+-- to the submitting party's readers, so an externally-signed wallet party
+-- cannot fetch the admin-private factory even under admin's authorization.
+-- The accept choice therefore creates the `AllocationInstruction` directly,
+-- replicating the `SettlementFactory_CreateAllocationInstruction` validations
+-- (admin match, actor match, `requireValidAllocationSpecification`); the
+-- factory path itself is exercised by the settle phase.
+-- Privacy expectations: the resulting instruction and allocation follow the
+-- engine's own visibility (admin, owner, executors).
+-- Authorization assumptions: `AllocationInstruction` needs admin plus the
+-- authorizer account parties as signatories; admin authority comes from the
+-- offer signature, owner authority from the controller.
+-- Archival behavior: accept is consuming; the engine archives the funding
+-- holdings and creates the locked holding plus the `Allocation`.
+-- Failure modes: wrong funding (owner/instrument/amount) fails inside the
+-- engine; an instruction that does not complete aborts.
+-- Upgrade and migration assumptions: experiment-only; not a public surface.
+template GatewayAllocationOffer
+  with
+    admin : Party
+    owner : Party
+    app : Party
+    receiver : Party
+  where
+    signatory admin
+    observer owner
+
+    choice GatewayAllocationOffer_Accept : ContractId Allocation
+      with
+        holdingCids : [ContractId ToyHolding]
+      controller owner
+      do
+        now <- getTime
+        let acct = basicAccount owner
+            leg = gatewayLeg owner receiver
+            spec = AllocationSpecification with
+              settlement = gatewaySettlement app
+              admin
+              authorizer = acct
+              transferLegSides = [senderSide leg]
+              nextIterationFunding = None
+              committed = False
+              meta = emptyMetadata
+        -- Mirror the factory's create-instruction validations.
+        assertMsg "wallet-gateway interop: actor mismatch" ([owner] == accountParties admin acct)
+        requireValidAllocationSpecification spec
+        instructionCid <- create AllocationInstruction with
+          originalInstructionCid = None
+          allocation = spec
+          requestedAt = now
+          inputHoldingCids = holdingCids
+          d1ComplianceHook = None
+          featureFlag = experimentalFeatureFlag
+        result <- exercise instructionCid AllocationInstruction_Accept with actors = [owner]
+        case result of
+          AllocationInstructionCompleted cid -> pure cid
+          _ -> abort "wallet-gateway interop: allocation instruction did not complete"
+
+-- | Everything the off-ledger harness needs to drive the gateway phase. The
+-- baseline fields snapshot pre-run state so the verify phase can assert
+-- deltas: on a shared external ledger (devnet/testnet) the parties accumulate
+-- holdings and receipts across runs.
+data GatewaySetupOutput = GatewaySetupOutput with
+    admin : Party
+    app : Party
+    receiver : Party
+    factoryCid : ContractId SettlementFactory
+    requestCid : ContractId AllocationRequest
+    holdingOfferCid : ContractId GatewayHoldingOffer
+    allocationOfferCid : ContractId GatewayAllocationOffer
+    receiverAllocationCid : ContractId Allocation
+    baselineWalletBalance : Decimal
+    baselineReceiverBalance : Decimal
+    baselineSupply : Decimal
+    baselineReceiptCount : Int
+  deriving (Eq, Show)
+
+-- | Phase 1 (Daml Script, local parties): allocate admin / app / receiver,
+-- create the factory, emit the CIP-0103 `AllocationRequest` toward the wallet
+-- party, and put the two propose-accept offers on the ledger. The wallet party
+-- is allocated externally by the Wallet Gateway and passed in.
+setup_gatewayInterop : Party -> Script GatewaySetupOutput
+setup_gatewayInterop wallet = do
+  admin <- allocateParty "gateway-admin"
+  app <- allocateParty "gateway-app"
+  receiver <- allocateParty "gateway-receiver"
+  setupGatewayInteropWith wallet admin app receiver
+
+data GatewayExternalSetupInput = GatewayExternalSetupInput with
+    wallet : Party
+    operator : Party
+  deriving (Eq, Show)
+
+-- | Setup variant for external ledgers (devnet/testnet) where the runner
+-- cannot allocate parties: the wallet party and a single pre-allocated
+-- operator party (playing admin, executor, and receiver) are passed in. The
+-- wallet stays distinct from the operator, so the balance assertions keep
+-- their meaning (receiver 25.0 / wallet change 15.0).
+setup_gatewayInteropExternal : GatewayExternalSetupInput -> Script GatewaySetupOutput
+setup_gatewayInteropExternal input =
+  setupGatewayInteropWith input.wallet input.operator input.operator input.operator
+
+setupGatewayInteropWith : Party -> Party -> Party -> Party -> Script GatewaySetupOutput
+setupGatewayInteropWith wallet admin app receiver = do
+  baselineWalletBalance <- erc20BalanceOf admin (basicAccount wallet)
+  baselineReceiverBalance <- erc20BalanceOf admin (basicAccount receiver)
+  baselineSupply <- erc20TotalSupply admin
+  baselineReceipts <- query @SettlementReceipt app
+  let baselineReceiptCount = length baselineReceipts
+  (factoryCid, factoryDisc) <- mkFactory admin
+  now <- getTime
+  let walletAcct = basicAccount wallet
+      settlement = gatewaySettlement app
+      leg = gatewayLeg wallet receiver
+  requestCid <- submit (actAs [app] <> discloseMany [factoryDisc]) do
+    exerciseCmd factoryCid SettlementFactory_CreateAllocationRequest with
+      authorizer = walletAcct
+      settlement
+      allocations =
+        [ RequestedAllocation with
+            admin
+            transferLegSides = [senderSide leg]
+            nextIterationFunding = None
+            committed = False
+            meta = emptyMetadata
+        ]
+      requestedAt = now
+      settleAt = None
+      actors = [app]
+  holdingOfferCid <- submit admin do
+    createCmd GatewayHoldingOffer with admin; owner = wallet; amount = gatewayMintAmount
+  allocationOfferCid <- submit admin do
+    createCmd GatewayAllocationOffer with admin; owner = wallet; app; receiver
+  receiverAllocationCid <-
+    createAndAcceptAllocation admin factoryCid factoryDisc settlement
+      (basicAccount receiver) [receiverSide leg] []
+  pure GatewaySetupOutput with
+    admin; app; receiver; factoryCid; requestCid
+    holdingOfferCid; allocationOfferCid; receiverAllocationCid
+    baselineWalletBalance; baselineReceiverBalance; baselineSupply; baselineReceiptCount
+
+data GatewaySettleInput = GatewaySettleInput with
+    admin : Party
+    app : Party
+    wallet : Party
+    receiver : Party
+    factoryCid : ContractId SettlementFactory
+    walletAllocationCid : ContractId Allocation
+    receiverAllocationCid : ContractId Allocation
+  deriving (Eq, Show)
+
+-- | Phase 3 (Daml Script, executor party): settle the batch built from the
+-- gateway-accepted sender allocation and the script-side receiver allocation.
+settle_gatewayInterop : GatewaySettleInput -> Script ()
+settle_gatewayInterop input = do
+  Some factoryDisc <- queryDisclosure @SettlementFactory input.admin input.factoryCid
+  receipts <- submit (actAs [input.app] <> discloseMany [factoryDisc]) do
+    exerciseCmd input.factoryCid SettlementFactory_SettleBatch with
+      settlement = gatewaySettlement input.app
+      transferLegs = [gatewayLeg input.wallet input.receiver]
+      allocationCids = [input.walletAllocationCid, input.receiverAllocationCid]
+      actors = [input.app]
+      d1ComplianceRef = None
+  length receipts === 2
+
+data GatewayVerifyInput = GatewayVerifyInput with
+    admin : Party
+    app : Party
+    wallet : Party
+    receiver : Party
+    baselineWalletBalance : Decimal
+    baselineReceiverBalance : Decimal
+    baselineSupply : Decimal
+    baselineReceiptCount : Int
+  deriving (Eq, Show)
+
+-- | Phase 4 (Daml Script, local parties): assert the settled end state on the
+-- admin / executor / receiver projections. The wallet party's own projection
+-- (receipts and event-log entries as seen by the wallet) is asserted by the
+-- harness through the gateway's `ledgerApi` passthrough, which is exactly the
+-- CIP-0103 observation surface under test.
+verify_gatewayInterop : GatewayVerifyInput -> Script ()
+verify_gatewayInterop input = do
+  receiverBalance <- erc20BalanceOf input.admin (basicAccount input.receiver)
+  receiverBalance - input.baselineReceiverBalance === gatewayTransferAmount
+  walletBalance <- erc20BalanceOf input.admin (basicAccount input.wallet)
+  walletBalance - input.baselineWalletBalance === gatewayMintAmount - gatewayTransferAmount
+  supply <- erc20TotalSupply input.admin
+  supply - input.baselineSupply === gatewayMintAmount
+  receipts <- query @SettlementReceipt input.app
+  length receipts - input.baselineReceiptCount === 2
+  entries <- query @SettlementEventLogEntry input.admin
+  assertMsg "wallet-gateway interop: expected settlement event log entries" (not (null entries))
+
+-- | In-memory rehearsal of the gateway flow with a participant-local wallet
+-- party. This keeps the offer templates covered by `dpm test` and pins the
+-- exact same choice sequence the harness drives through the gateway; the
+-- gateway gate (`scripts/wallet-gateway-cip0103-interop.sh`) is the
+-- authoritative third-party interop evidence.
+test_cip0103_gatewayOfferFlowInMemory : Script ()
+test_cip0103_gatewayOfferFlowInMemory = do
+  wallet <- allocateParty "gateway-wallet-local"
+  setup <- setup_gatewayInterop wallet
+  holdingCid <- submit wallet do
+    exerciseCmd setup.holdingOfferCid GatewayHoldingOffer_Accept
+  acceptResult <- submit wallet do
+    exerciseCmd setup.requestCid AllocationRequest_Accept with actors = [wallet]
+  acceptResult === AllocationRequestAccepted
+  walletAllocationCid <- submit wallet do
+    exerciseCmd setup.allocationOfferCid GatewayAllocationOffer_Accept with
+      holdingCids = [holdingCid]
+  settle_gatewayInterop GatewaySettleInput with
+    admin = setup.admin
+    app = setup.app
+    wallet
+    receiver = setup.receiver
+    factoryCid = setup.factoryCid
+    walletAllocationCid
+    receiverAllocationCid = setup.receiverAllocationCid
+  verify_gatewayInterop GatewayVerifyInput with
+    admin = setup.admin
+    app = setup.app
+    wallet
+    receiver = setup.receiver
+    baselineWalletBalance = setup.baselineWalletBalance
+    baselineReceiverBalance = setup.baselineReceiverBalance
+    baselineSupply = setup.baselineSupply
+    baselineReceiptCount = setup.baselineReceiptCount
+  walletReceipts <- query @SettlementReceipt wallet
+  assertMsg "wallet-gateway interop: wallet should observe its receipt" (not (null walletReceipts))
+  walletEntries <- query @SettlementEventLogEntry wallet
+  assertMsg "wallet-gateway interop: wallet should observe its event log entry" (not (null walletEntries))

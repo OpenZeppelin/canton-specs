@@ -1,0 +1,64 @@
+{
+  "run": "2026-07-22",
+  "gate": "scripts/wallet-gateway-cip0103-interop.sh",
+  "result": "PASS (all six phases)",
+  "environment": {
+    "dpm": "1.0.21",
+    "sdkAndCanton": "3.4.11",
+    "java": "OpenJDK 21.0.11",
+    "node": "v24.10.0",
+    "walletGateway": "@canton-network/wallet-gateway-remote@1.6.0",
+    "os": "macOS (Darwin 25.5.0)"
+  },
+  "walletAllocationCid": "0078c049a8ce232aafbbbb36049c5bb55785d9250f3555db8050c9ef9a5f65b9efca12122007b9e93b8d6830eb1863504e57d4e914e420649f81f2d77b1552593bf59f7ac6",
+  "txChangedEvents": [
+    {
+      "status": "pending",
+      "commandId": "oz-cip0103-interop-holding-offer"
+    },
+    {
+      "status": "signed",
+      "commandId": "oz-cip0103-interop-holding-offer"
+    },
+    {
+      "status": "executed",
+      "commandId": "oz-cip0103-interop-holding-offer",
+      "payload": {
+        "updateId": "12206dacefdcfbc22de21a306a2bd9b7a8fdba153bcd2ec85b46c89d01b37622378b",
+        "completionOffset": 35
+      }
+    },
+    {
+      "status": "pending",
+      "commandId": "oz-cip0103-interop-allocation-request"
+    },
+    {
+      "status": "signed",
+      "commandId": "oz-cip0103-interop-allocation-request"
+    },
+    {
+      "status": "executed",
+      "commandId": "oz-cip0103-interop-allocation-request",
+      "payload": {
+        "updateId": "1220116c4fe1febc1a81cb9f09b7cbce9909c1d6e26e1c7ece423061500833657a54",
+        "completionOffset": 38
+      }
+    },
+    {
+      "status": "pending",
+      "commandId": "oz-cip0103-interop-allocation-offer"
+    },
+    {
+      "status": "signed",
+      "commandId": "oz-cip0103-interop-allocation-offer"
+    },
+    {
+      "status": "executed",
+      "commandId": "oz-cip0103-interop-allocation-offer",
+      "payload": {
+        "updateId": "12208778832d00d0db97a2c2a9f29cab18c9441fb5bb15fe54c8a9a90d5000361882",
+        "completionOffset": 41
+      }
+    }
+  ]
+}
