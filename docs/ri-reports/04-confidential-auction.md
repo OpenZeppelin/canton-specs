@@ -184,7 +184,7 @@ flowchart TD
     KycIssuer([KYC issuer])
     AttReg[["TrustedAttesterRegistry<br/>key: admin"]]
     IssReg[["TrustedIssuerRegistry<br/>key: admin"]]
-    Attn["PartyComplianceAttestation<br/>signed, single-use"]
+    Attn["ComplianceAttestation<br/>signed, single-use"]
     Kyc["KycClaim<br/>signed"]
     Settle{{Atomic settlement}}
 
@@ -406,7 +406,7 @@ The clearing choice binds every settled leg to a signed bid, so the auctioneer-c
         issuerTreasury : Account
         settlement : SettlementInfo
         transferLegs : [TransferLeg]
-        attestationCid : ContractId PartyComplianceAttestation
+        attestationCid : ContractId ComplianceAttestation
       controller auctioneer
       do
         (_, pause) <- fetchByKey @PauseState (tokenIssuer, launchedInstrumentId)
@@ -485,7 +485,7 @@ We propose a three-tier validation approach, based on verification tools built b
 | Auctioneer embezzlement at settlement | The auctioneer manipulates routing or amounts to redirect payments or tokens. | The clearing choice derives every leg from a signed bid and pins routing to the issuer treasury; the factory enforces conservation per instrument. A batch that deviates fails these checks. |
 | Dishonest clearing / unfair allocation | The trusted auctioneer sees all bids and computes a self-serving clearing price or favors a colluding bidder. | **Not mitigated by the conservation invariant** (which stops theft, not unfairness). Residual trust on the off-ledger clearing, accepted for M1 ([section 1](#the-central-trust-limitation-the-auctioneer)); commit-reveal / verifiable clearing is the recorded future path. |
 | Stalling auctioneer (liveness) | The auctioneer never clears or releases, leaving escrow locked. | `settlementDeadline` is wired to the escrow `Allocation`; after it, `BidRequest_ForceRefundAfterDeadline` lets the bidder reclaim funds with no auctioneer signature. |
-| Compliance evasion (D1) | A sanctioned party tries to settle without a valid attestation, or with a stale, forged, or untrusted one. | A factory with `requiresPartyAttestation` forces settlement through `SettlementFactory_SettleBatchWithAttestation`, which verifies and consumes a `PartyComplianceAttestation` signed by a party in the factory admin's `TrustedAttesterRegistry`, bound to this settlement and within its validity window. |
+| Compliance evasion (D1) | A sanctioned party tries to settle without a valid attestation, or with a stale, forged, or untrusted one. | A factory with `requiresComplianceAttestation` forces settlement through `SettlementFactory_SettleBatchWithAttestation`, which verifies and consumes a `ComplianceAttestation` signed by a party in the factory admin's `TrustedAttesterRegistry`, bound to this settlement and within its validity window. |
 | Rogue seizure / asset burning (D2) | A compromised issuer key attempts to burn escrow or sweep it to an attacker account. | [`Allocation_SweepD2InFlightSeizure`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L625) hardcodes the destination to the preset custodian; arbitrary burn is forbidden. A compromised key can only sweep to the pre-approved, monitored custodian. |
 | DAR unvetting (liveness) | A malicious or misconfigured validator unvets the launchpad DAR. Every batch party (signatory or observer) must have the same DAR version vetted, so one affected winner blocks the entire all-or-nothing clearing batch; unvetting on the holder's participant likewise blocks a D2 sweep. | Unvetting cannot be prevented by the application. It is self-limiting: the unvetted party's own contracts freeze (readable, but no choices execute) until re-vetting, so it is no escape hatch. The clearing engine detects the failure, excludes the affected legs, and resubmits without them; the excluded escrow stays reclaimable through the post-deadline force-refund once the DAR is re-vetted. |
 
