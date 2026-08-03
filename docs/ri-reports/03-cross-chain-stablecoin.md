@@ -140,12 +140,12 @@ The inbound payment is the primary critical path: a deterministic sequence of st
 
 The diagrams below decompose the design around the shared `Atomic settlement` hub:
 
-- **A** is the compliance and identity that gates it.
+- **A** is the compliance and identity gating: D3 at request time, D1 at settlement.
 - **B** is the inbound mint it performs, with `Compliance` plugging in from A.
 - **C** is the outbound redemption that mirrors B.
 - **D** is the operational control plane (pausing and D2 seizure). Keyed contracts are marked with their key.
 
-**A. Compliance and identity (D1 + D3).** The registries list several independent attesters and issuers (one of each shown); any listed attester can sign a per-settlement compliance attestation, and any listed issuer can sign a recipient's KYC claim, all checked at settlement.
+**A. Compliance and identity (D1 + D3).** The registries list several independent attesters and issuers (one of each shown). The two gates fire at different points in the flow. D3 identity is checked at **request** time, in the gateway: no valid claim from a listed issuer whose subject is the recipient, no allocation request. D1 compliance is checked at **settlement** time: a single-use attestation from a listed attester, bound to this batch's own legs.
 
 ```mermaid
 flowchart TD
@@ -155,16 +155,19 @@ flowchart TD
     IssReg[["TrustedIssuerRegistry<br/>key: admin"]]
     Attn["PartyComplianceAttestation<br/>signed, single-use"]
     Kyc["KycClaim<br/>signed"]
-    Settle{{Atomic settlement}}
+    GW{{"Gateway_ProcessInbound<br/>D3 gate - request time"}}
+    Settle{{"Atomic settlement<br/>D1 gate - settlement time"}}
+
+    Issuer -->|"listed in"| IssReg
+    Issuer -->|"signs"| Kyc
+    Kyc -->|"subjectParty == recipient"| GW
+    IssReg -->|"fetchByKey admin; issuer trusted?"| GW
+    GW ==>|"AllocationRequest; no valid claim, no request"| Settle
 
     Attester -->|"listed in"| AttReg
-    Issuer -->|"listed in"| IssReg
     Attester -->|"signs"| Attn
-    Issuer -->|"signs"| Kyc
     Attn -->|"verify + consume"| Settle
     AttReg -->|"fetchByKey admin; attester trusted?"| Settle
-    Kyc -->|"recipient KYC checked"| Settle
-    IssReg -->|"fetchByKey admin; issuer trusted?"| Settle
 ```
 
 **B. Inbound mint settlement.** The attesters sign the one-time carrier; the gateway consumes it, records the nonce, and creates the executor-signed allocation request whose amount is exactly the attested amount. The recipient's standing `TransferPreapproval` supplies their authority to commit the receiving allocation, and the Stablecoin Admin's mint leg and the recipient's credit settle in one transaction, with compliance (from A) plugged in.
