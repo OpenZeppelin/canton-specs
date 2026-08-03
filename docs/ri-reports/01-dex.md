@@ -738,8 +738,8 @@ We propose a three-tier validation approach, based on verification tools built b
 ### 5.4 Failure Modes and Recovery
 
 The adversarial vectors above are complemented by liveness failures: parties
-that crash, stall, or never show up. The design handles all of them under one
-invariant:
+that crash, stall, or never show up, and the infrastructure they depend on.
+The design handles all of them under one invariant:
 
 **Bounded custody.** Every locked holding has a unilateral, time-bounded exit
 path for its owner: no combination of counterparty inaction, attester
@@ -749,12 +749,14 @@ explicit, finite `seizureWindowEnd` and lawful-process reference.
 
 | Failure | Effect while pending | Recovery path | Funds locked at most |
 |---|---|---|---|
+| Quote RPC times out | nothing on-ledger; the quote is the only synchronous off-ledger call in the flow | trader retries the quote | nothing locked |
 | Trader never allocates | request dangles, nothing locked | executor withdraws the request; `settleAt` passes | nothing locked |
 | Pool account never allocates | trader leg locked, settlement impossible | either the trader withdraws after the deadline, or executor cancels earlier | `settlementDeadline` |
 | Attester never attests, or attestation expires | settle blocked (fail closed) | venue re-requests within the window; else deadline lapse + withdraw | `settlementDeadline` |
 | Operator crashes or griefs (never settles) | both legs locked | committed allocations become withdrawable after the deadline (the griefing cap in [section 2](#decentralization-and-trust-topology)) | `settlementDeadline` |
 | Pause during in-flight settlement | settle blocked by `whenNotPaused` | unpause, or deadline lapse + withdraw | `settlementDeadline` |
 | Venue validator out of traffic | venue submissions rejected at the sequencer | traffic top-up and monitoring ([section 6](#6-network-economics-traffic-costs-and-app-rewards)); trader exit unaffected (own validator) | `settlementDeadline` |
+| Synchronizer outage | ledger halted: no one can settle, and no one can withdraw | service resumes; if `settlementDeadline` lapsed during the outage the allocation is withdraw-only | outage duration + `settlementDeadline` |
 | D2 marked, never swept | settle, withdraw, and cancel all blocked | admin unmark; lawful-process sweep bounded by `seizureWindowEnd` | `seizureWindowEnd` |
 
 Each row becomes a Daml Script test in the RI test suite.
@@ -788,8 +790,7 @@ amortizing a confirmation round-trip over many legs.
 ## 6. Network Economics: Traffic Costs and App Rewards
 
 Canton meters every ledger transaction as synchronizer traffic and pays apps
-back through Splice rewards. The two flows land on different parties and
-neither is negligible, so the RI treats them as design inputs.
+back through Splice rewards.
 
 ### 6.1 Traffic costs
 
@@ -798,7 +799,7 @@ the submitting participant's validator. Cost is proportional to serialized
 view bytes with read amplification per recipient
 (`writeCost * (1 + recipients * readFactor / 10^4)`, summed per envelope). The
 price is set by super-validator vote, currently 60 USD/MB, calibrated so a standard Canton
-Coin transfer burns about 1 USD (CIP-0042).
+Coin transfer burns about 1 USD ([CIP-0042](https://github.com/canton-foundation/cips/blob/main/cip-0042/cip-0042.pdf)).
 
 Implications:
 
@@ -807,17 +808,17 @@ Implications:
   plain transfer is one, and the settle is the heaviest of the five, carrying
   more views and informees than a two-party transfer. The bill is also split:
   the trader pays for their allocation, the venue for the request and the
-  settle, the attester for the attestation. Until measured, expect low
-  single-digit USD per swap; measuring all four flows precisely is an M2
-  deliverable.
-- Failed transactions burn traffic too. Losing the contention race on a hot
-  `Pool` costs real money, not just a retry. This strengthens the case for
+  settle, the attester for the attestation. The working estimate is a few USD
+  per swap; exact figures come from the M2 DevNet measurement of all four
+  flows.
+- Failed transactions burn traffic too, i.e. losing the contention race on a hot
+  `Pool`. This strengthens the case for
   batching ([section 7](#7-open-design-questions)) and opens a griefing angle:
   an adversary can feed the operator quotes doomed to fail and let it pay for
   the settles. This risk is limited, since the adversary burns traffic on their own trader allocation too.
 - Batching amortizes: several allocations riding one settle batch share one
   confirmation round-trip and one set of views.
-- Operations: validator auto-top-up is off by default (`targetThroughput = 0`),
+- Operations: validator auto-top-up is off by default,
   and the validator's reserved-traffic floor protects its own automation, not
   this app. Running the venue requires configured top-up plus balance
   monitoring, pausing intake when low.
@@ -830,7 +831,7 @@ to the Global Synchronizer Foundation), with the venue operator as provider. The
 and its lifecycle has three stages:
 
 1. **Earn.** An `AppRewardCoupon` is created against the current open mining
-   round (rounds start every 10 minutes) through one of two routes: directly,
+   round through one of two routes: directly,
    when a Canton Coin transfer executes with the featured app as its
    provider, or indirectly, when super-validator automation converts a
    `FeaturedAppActivityMarker` the app created inside its own business
@@ -846,25 +847,21 @@ and its lifecycle has three stages:
    splittable across up to 20 beneficiaries with weights summing to 1.0
    (venue, LP token issuer, instrument registrars); CIP-0098 caps per-transaction
    app rewards at 1.50 USD.
-   The fair-use policy explicitly covers composed
-   settlements where the venue and the registries of the transferred assets
-   each take a marker, which is exactly this design.
 2. **Issue.** When the round reaches its issuing phase, the
    `IssuingMiningRound` fixes how much CC each coupon mints: the round's
    `appRewardPercentage` tranche of issuance divided by total coupon demand,
    capped at `featuredAppRewardCap` (100 CC) per coupon, after a development
-   fund share (default 5%) is reserved. An undersubscribed tranche's surplus
-   cascades to the next tranche; whatever remains unclaimed accrues to
-   super-validator rewards.
+   fund share (default 5%) is reserved.
 3. **Collect.** The provider (or a named beneficiary) redeems the coupon as
-   an input to a CC transfer during the issuing window, roughly 20 to 40
-   minutes after the round. Coupons on a closed round are expired by
+   an input to a CC transfer during the issuing window. Coupons on a closed round are expired by
    super-validator automation, so collection is validator wallet automation,
    never manual.
 
-Two side notes. The venue's own traffic purchases mint
+Two side notes: 
+- The venue's own traffic purchases mint
 `ValidatorRewardCoupon`s to its validator operator, a further rebate on the
-traffic bill. And CIP-0104 (preview) replaces markers with traffic-based
+traffic bill. 
+- CIP-0104 (preview) replaces markers with traffic-based
 rewards proportional to the CC value of traffic burned on transactions where
 the featured app's party is a confirming party; the venue operator must then
 stay a signatory or controller on the settlement views, not a mere observer,
