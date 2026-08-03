@@ -77,7 +77,8 @@ by the Canton protocol. A Canton contract is an instance of a template, signed a
 actor can unilaterally mutate. State changes by archive-and-recreate rather than
 in-place mutation, and any signatory must actively co-authorize a transition, so
 **two-step handshakes (Daml's propose-and-accept pattern) are a necessity, not a
-style choice**. The design uses **contract keys** (reintroduced in Canton 3.5.1) so
+style choice**. The design uses **contract keys** (reintroduced in [Canton 3.5.1](https://github.com/digital-asset/canton/releases/tag/v3.5.1),
+and the SDK migration is planned) so
 the `Pool`, `PauseState`, and the trusted-attester and trusted-issuer registries
 keep stable, unique identities across those archive-and-recreate cycles.
 
