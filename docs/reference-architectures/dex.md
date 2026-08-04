@@ -89,10 +89,16 @@ by the Canton protocol. A Canton contract is an instance of a template, signed a
 actor can unilaterally mutate. State changes by archive-and-recreate rather than
 in-place mutation, and any signatory must actively co-authorize a transition, so
 **two-step handshakes (Daml's propose-and-accept pattern) are a necessity, not a
-style choice**. Where the target runtime supports them, the design uses
-**contract keys** so
-the `Pool`, `PauseState`, and the trusted-attester and trusted-issuer registries
+style choice**. The design uses **contract keys**
+(reintroduced in [Canton 3.5.1+](https://github.com/digital-asset/canton/releases/tag/v3.5.1))
+so the `Pool`, `PauseState`, and the trusted-attester and trusted-issuer registries
 keep stable, unique identities across those archive-and-recreate cycles.
+
+Contract keys are the design target, not what runs today. The `[IMPLEMENTED]`
+experiment code sits on the workspace's pinned SDK baseline and is keyless: each
+choice takes a caller-supplied registry contract id and asserts that registry
+shares the factory's admin. The by-key resolution shown throughout lands with the
+Canton 3.5.1+ SDK migration.
 
 To build a mathematically sound AMM in this privacy-first environment, the
 architecture reconciles the transparency needed for price discovery and
