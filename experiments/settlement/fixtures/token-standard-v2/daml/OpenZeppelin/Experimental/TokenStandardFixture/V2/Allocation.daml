@@ -80,8 +80,8 @@ data AllocationView = AllocationView with
     meta : Metadata
   deriving (Eq, Show)
 
--- | The V2 allocation interface. Settle/cancel/withdraw behaviour is realized by
--- the implementing template's choices in the experimental scaffold.
+-- | The V2 allocation interface. Implementing experiment templates provide the
+-- settle, cancel, and withdraw behavior.
 interface Allocation where
   viewtype AllocationView
 

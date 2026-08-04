@@ -1,4 +1,4 @@
--- | Focused tests for the experimental CIP-0112 settlement scaffold.
+-- | Focused tests for the experimental CIP-0112 settlement package.
 module OpenZeppelin.Test.Cip112Settlement where
 
 import DA.Assert ((===))

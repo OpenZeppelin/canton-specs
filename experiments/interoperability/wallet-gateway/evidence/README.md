@@ -9,9 +9,10 @@ Gateway interoperability gate.
 | [`gateway-run-devnet.json`](gateway-run-devnet.json) | External managed DevNet validator |
 
 Each transcript records its run date, gate, result, environment, and selected
-state transitions. These files are historical reproducibility evidence rather
-than a current compatibility guarantee. Regenerate the relevant transcript when
-the gate, Daml surface, topology assumptions, or pinned Wallet Gateway version
+state transitions. It is a dated reproducibility record for the captured
+environment. Compatibility evidence for another environment comes from running
+the gate against that environment. Regenerate the relevant transcript when the
+gate, Daml surface, topology assumptions, or pinned Wallet Gateway version
 changes.
 
 The scheduled and manual

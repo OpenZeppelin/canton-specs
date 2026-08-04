@@ -14,6 +14,7 @@ lifecycle.
 | [Interoperability](interoperability/) | CIP integration scripts, LocalNet validation, Wallet Gateway harness, and run evidence |
 
 An experiment documents its question, assumptions, result, and limitations.
-Fixtures are narrow test inputs and do not claim conformance with the standards
-they model. Reusable dependencies are consumed as pinned DARs recorded in
+Fixtures provide narrow test inputs for modeled standard surfaces. Canonical
+packages and conformance criteria belong to the upstream standard. Reusable
+dependencies are consumed as pinned DARs recorded in
 [`dars/manifest.yaml`](../dars/manifest.yaml).

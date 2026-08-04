@@ -13,7 +13,9 @@ privacy-aware application flows on Canton.
 | [`THREAT_MODEL.md`](THREAT_MODEL.md) | Assets, actors, trust boundaries, abuse cases, and residual risks |
 | [`RESEARCH.md`](RESEARCH.md) | Settlement lifecycle scoping and design alternatives |
 
-The Token Standard V2 fixture is a test input, not a canonical implementation or
-conformance artifact. The exemplar consumes pinned `canton-contracts` DARs from
-[`dars/vendor/`](../../dars/vendor/) rather than maintaining duplicate library
-source.
+The local Token Standard V2 fixture provides the type surface required by the
+experiment. Published upstream Token Standard artifacts define canonical package
+identity and behavior, while the upstream specification defines conformance. The
+exemplar consumes pinned `canton-contracts` DARs from
+[`dars/vendor/`](../../dars/vendor/), while reusable library source remains in
+`canton-contracts`.
