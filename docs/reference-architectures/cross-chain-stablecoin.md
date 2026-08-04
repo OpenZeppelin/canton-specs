@@ -682,7 +682,7 @@ sequenceDiagram
 | `SimpleHolding` / `SimpleTokenRules` / `LockedSimpleHolding` | [`canton-token-template`](https://github.com/OpenZeppelin/canton-token-template) | Asset representation and three-way dispatch evidence; settled-holding forced sweep is `[TARGET]`. | `[EXPERIMENT]` / `[TARGET]` |
 | `CredentialGatedActionRequest` / `MockVerificationResult` | [`credential-gateway`](../../experiments/identity/credential-gateway/daml/OpenZeppelin/Experimental/Credential/Gateway.daml) | Credential gating and verifier-result lifecycle. | `[EXPERIMENT]` |
 | `KycClaim` / `TrustedIssuerRegistry` | [`identity/hook-shape-b`](../../experiments/identity/hook-shape-b/) | Typed subject identity and trusted-issuer checks. | `[EXPERIMENT]` |
-| `NodeComplianceAttestation` / `TrustedAttesterRegistry` | [`Cip112.daml`](../../experiments/settlement/cip-0112/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml) | Signed, exact-batch-bound, single-use D1 attestation enforced by `SettlementFactory_SettleBatchWithAttestation`. | `[EXPERIMENT]` |
+| `NodeComplianceAttestation` / `TrustedAttesterRegistry` | [`Cip112.daml`](../../experiments/settlement/cip-0112/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml) | Signed, exact-batch-bound, single-use D1 attestation enforced by [`SettlementFactory_SettleBatchWithAttestation`](../../experiments/settlement/cip-0112/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L218). | `[EXPERIMENT]` |
 
 ### 6.2 Upstream and target boundaries
 
