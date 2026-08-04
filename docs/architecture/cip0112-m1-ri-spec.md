@@ -26,9 +26,9 @@ CIP-56-token deliverables, and are demonstrated by the interop exemplars in
 > `[FUTURE]` not built in M1 scope.
 >
 > Code references below link directly to source with `#Lnn` anchors; refresh
-> them with `scripts/refresh-ri-anchors.sh` (see
-> [`../ri-reports/README.md`](../ri-reports/README.md)). Line numbers are
-> advisory — the refresh script re-validates the symbol-at-anchor.
+> them with [`scripts/refresh-ri-anchors.sh`](../../scripts/refresh-ri-anchors.sh).
+> Line numbers are advisory — the refresh script re-validates the
+> symbol-at-anchor.
 
 ---
 
@@ -204,8 +204,8 @@ the transfer-events DAR boundary (**Q2**).
 ## 3a. Implementation Status (Code Map)
 
 > **Living document.** Each row links to the real settlement scaffold in this
-> repo. Refresh the anchors with `scripts/refresh-ri-anchors.sh` (see
-> [`../ri-reports/README.md`](../ri-reports/README.md)). Status:
+> repo. Refresh the anchors with
+> [`scripts/refresh-ri-anchors.sh`](../../scripts/refresh-ri-anchors.sh). Status:
 > ✅ implemented in the promoted library surface (or verified passing tests) ·
 > 🟡 implemented in the **experimental settlement scaffold** (real code, not yet
 > promoted; includes toy stand-ins) · ⬜ planned, not built in M1. Scaffold path:

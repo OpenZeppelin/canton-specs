@@ -43,8 +43,8 @@ Repository-local report surfaces:
   V2 architecture, promotion-boundary, import-gate, DPM, license, and source-of-
   record notes. The adopted D1–D4 design decisions are recorded in
   [`docs/architecture/cip0112-m1-ri-spec.md`](docs/architecture/cip0112-m1-ri-spec.md).
-- [`docs/ri-reports/`](docs/ri-reports/) holds the portfolio report and all four
-  RI architecture reports.
+- [`docs/ri-reports/`](docs/ri-reports/) holds the four RI architecture
+  reports.
 
 CIP-86 / CIP-103 / CIP-104 are addressed as settlement-interop criteria, not
 standalone CIP-56-token deliverables. CIP-56 is background and migration evidence

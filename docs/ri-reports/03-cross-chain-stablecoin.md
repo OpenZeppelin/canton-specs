@@ -754,8 +754,7 @@ audit-readiness claim.
 
 > **Shared model:** the cross-synchronizer mechanism (per-synchronizer
 > assignment + unassign/assign reassignment, and the SCU-compliant additive
-> path) is identical across all four RIs and is defined in
-> the [suite overview](./README.md#cross-synchronizer-model-canonical). This section elaborates only the
+> path) is identical across all four RIs. This section elaborates only the
 > RI-specific topology (including the cross-chain vs cross-synchronizer
 > distinction below).
 
@@ -810,7 +809,7 @@ audit-readiness claim.
 ## Implementation Status (Code Map)
 
 > **Living document.** Each row links to real source. Refresh the anchors with
-> `scripts/refresh-ri-anchors.sh` (see [`README.md`](./README.md)). Status:
+> [`scripts/refresh-ri-anchors.sh`](../../scripts/refresh-ri-anchors.sh). Status:
 > ✅ implemented in the promoted library surface (or verified passing tests) ·
 > 🟡 implemented in the **experimental settlement scaffold** (real code, not
 > yet promoted; includes toy stand-ins) · ⬜ planned, not built in M1.
@@ -907,8 +906,7 @@ items.
   global synchronizer? The cross-domain proof-injection trust model must be
   audited.
 - **Cross-synchronizer operation** (see [section 8](#8-cross-synchronizer-domain-extension-planned-future)) — deferred; tracked there.
-- **Composability with the other RIs** (forward-compatibility;
-  the [suite overview](./README.md#how-the-reports-compose)): recipients holding instruments settled
+- **Composability with the other RIs** (forward-compatibility): recipients holding instruments settled
   here (`wTOK`, or native USDCx) can provide liquidity to the DEX RI ([`01`](./01-dex.md)) pools or
   collateralize a Lending RI ([`02`](./02-lending.md)) vault — all over the same
   `SettlementFactory_SettleBatch` spine, with no parallel settlement path.

@@ -988,8 +988,7 @@ gate is `dpm build --all` plus the Daml Script suites run by
 
 > **Shared model:** the cross-synchronizer mechanism (per-synchronizer
 > assignment + unassign/assign reassignment, and the SCU-compliant additive
-> path) is identical across all four RIs and is defined in
-> the [suite overview](./README.md#cross-synchronizer-model-canonical). This section elaborates only the
+> path) is identical across all four RIs. This section elaborates only the
 > RI-specific topology.
 
 > **Status: out of scope for the initial design; deferred and planned for
@@ -1047,7 +1046,7 @@ atomicity and privacy across domains.
 ## Implementation Status (Code Map)
 
 > **Living document.** Each row links to real source. Refresh the anchors with
-> `scripts/refresh-ri-anchors.sh` (see [`README.md`](./README.md)). Status:
+> [`scripts/refresh-ri-anchors.sh`](../../scripts/refresh-ri-anchors.sh). Status:
 > ✅ implemented in the promoted library surface (or verified passing tests) ·
 > 🟡 implemented in the **experimental settlement scaffold** (real code, not
 > yet promoted; includes toy stand-ins) · ⬜ planned, not built in M1.
@@ -1127,8 +1126,7 @@ items.
   offset node-attestation costs is open.
 - **Cross-synchronizer operation** (see [section 8](#8-cross-synchronizer-domain-extension-planned-future)) — deferred; tracked there until
   ecosystem reassignment tooling matures.
-- **Composability with the other RIs** (forward-compatibility;
-  the [suite overview](./README.md#how-the-reports-compose)): seized collateral from
+- **Composability with the other RIs** (forward-compatibility): seized collateral from
   `Vault_Liquidate_ViaSpine` could be routed to the Auction RI
   ([`04`](./04-confidential-auction.md)) for confidential fair-value recovery;
   conversely, a borrower can mint stablecoin here and **bid in the Auction RI**.
