@@ -79,14 +79,17 @@ for directory, dirnames, filenames in os.walk(root):
                 continue
 
             checked += 1
-            if separator and anchor.startswith("L") and anchor[1:].isdigit() and os.path.isfile(resolved):
+            if not (separator and anchor):
+                continue
+
+            if anchor.startswith("L") and anchor[1:].isdigit() and os.path.isfile(resolved):
                 with open(resolved, encoding="utf-8", errors="replace") as target_stream:
                     line_count = sum(1 for _ in target_stream)
                 if int(anchor[1:]) > line_count:
                     errors.append(f"{rel_doc}: line anchor exceeds target: {target}")
-            elif separator and anchor.isdigit():
+            elif anchor.isdigit():
                 errors.append(f"{rel_doc}: line anchor must use an L prefix: {target}")
-            elif separator and anchor:
+            else:
                 heading_path = resolved
                 if os.path.isdir(heading_path):
                     heading_path = os.path.join(heading_path, "README.md")
