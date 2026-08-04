@@ -1,4 +1,7 @@
-# Token Standard V2 import evidence
+# Decision: Token Standard V2 import evidence
+
+Status: accepted
+Date: 2026-08-03
 
 This record defines the evidence required before the settlement research adopts
 upstream Token Standard V2 DARs.

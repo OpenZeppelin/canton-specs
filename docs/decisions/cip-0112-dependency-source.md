@@ -1,6 +1,7 @@
 # Decision: Token Standard V2 dependency source
 
 Status: accepted
+Date: 2026-08-03
 
 ## Context
 

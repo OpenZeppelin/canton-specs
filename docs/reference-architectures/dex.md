@@ -1,6 +1,10 @@
 # Privacy-preserving DEX reference architecture
 
-This document describes a *reference design* for a constant-product automated market maker dex on Canton, grounded in the OpenZeppelin Canton components from this workspace, as well as the Canton Network Token Standard V2.
+This document describes a *reference design* for a constant-product automated
+market maker DEX on Canton. It draws on reusable OpenZeppelin packages maintained
+in [`canton-contracts`](https://github.com/OpenZeppelin/canton-contracts),
+experimental evidence in this repository, and the Canton Network Token Standard
+V2.
 
 ## 1. Product Definition
 
