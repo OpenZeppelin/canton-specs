@@ -117,6 +117,9 @@ for directory, dirnames, filenames in os.walk(root):
                             f"{location}: line anchor does not declare "
                             f"{identifier.group(1)}: {reported}"
                         )
+            # GitHub only resolves line anchors written as #L[number]; a bare #[number] is
+            # treated as a heading fragment and silently lands at the top of the
+            # file, so reject the digits-only form instead of following it.
             elif anchor.isdigit():
                 errors.append(f"{location}: line anchor must use an L prefix: {target}")
             else:
