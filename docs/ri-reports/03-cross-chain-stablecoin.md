@@ -63,9 +63,9 @@ On public EVM networks, a bridge mints tokens into a globally visible state ledg
 
 The inbound message from the gateway therefore does **not** mint-and-broadcast an asset in one global update. Instead the gateway drives an isolated, recipient-targeted allocation on the spine. State changes by archive-and-recreate rather than in-place mutation, and the atomic DvP archives the inbound request and creates a [`SettlementReceipt`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L695) visible only to the recipient, the relayer, and the required compliance verifiers. Cross-chain settlement thereby inherits Canton's data compartmentalization.
 
-Because a recipient's signature (or a standing delegation of it) is required to bind them to an allocation, **two-step handshakes (Daml's propose-and-accept pattern) are a necessity, not a style choice**. The design uses **contract keys** (reintroduced in Canton 3.5.1) so the `PauseState`, the trusted-issuer and trusted-attester registries, and the consumed-nonce registry keep stable, unique identities across those archive-and-recreate cycles.
+Because a recipient's signature (or a standing delegation of it) is required to bind them to an allocation, **two-step handshakes (Daml's propose-and-accept pattern) are a necessity, not a style choice**. The design uses **contract keys** (reintroduced in [Canton 3.5.1+](https://github.com/digital-asset/canton/releases/tag/v3.5.1)) so the `PauseState`, the trusted-issuer and trusted-attester registries, and the consumed-nonce registry keep stable, unique identities across those archive-and-recreate cycles.
 
-Contract keys are the design target rather than what runs today: the `[IMPLEMENTED]` experiment code at the workspace's pinned SDK baseline is keyless and takes a caller-supplied registry contract id, asserting it shares the factory's admin; the by-key resolution shown throughout lands with the Canton 3.5.1+ SDK migration.
+Contract keys are the design target, not what runs today. The `[IMPLEMENTED]` experiment code sits on the workspace's pinned SDK baseline and is keyless: each choice takes a caller-supplied registry contract id and asserts that registry shares the factory's admin. The by-key resolution shown throughout lands with the Canton 3.5.1+ SDK migration.
 
 ---
 
