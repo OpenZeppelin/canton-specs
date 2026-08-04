@@ -84,6 +84,8 @@ for directory, dirnames, filenames in os.walk(root):
                     line_count = sum(1 for _ in target_stream)
                 if int(anchor[1:]) > line_count:
                     errors.append(f"{rel_doc}: line anchor exceeds target: {target}")
+            elif separator and anchor.isdigit():
+                errors.append(f"{rel_doc}: line anchor must use an L prefix: {target}")
             elif separator and anchor:
                 heading_path = resolved
                 if os.path.isdir(heading_path):
