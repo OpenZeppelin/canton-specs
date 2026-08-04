@@ -3,14 +3,13 @@
 ## Repository role
 
 This repository is the research, reference-architecture, and incubation
-workspace for OpenZeppelin's Canton work. Keep experiments bounded,
-reproducible, and clearly separated from released packages and complete
-applications.
+workspace for OpenZeppelin's Canton work. Keep experiments bounded, reproducible,
+and clearly separated from released packages and complete applications.
 
-Reusable production components belong in `OpenZeppelin/canton-contracts`
-after their promotion boundary, package identity, compatibility model,
-tests, and release path are accepted. Complete reference implementations
-belong in their application repositories.
+Reusable production components belong in `OpenZeppelin/canton-contracts` after
+their promotion boundary, package identity, compatibility model, tests, and
+release path are accepted. Complete reference implementations belong in their
+application repositories.
 
 ## Read order
 
@@ -75,10 +74,9 @@ and every package manifest mirrors that version. Package manifests target
 Daml-LF `2.1`.
 
 Use `dpm build`, `dpm damlc lint`, `dpm test`, `dpm script`, and
-`dpm upgrade-check`. Do not introduce Daml Assistant commands unless a
-documented toolchain decision changes this. For package-scoped commands run
-from the repository root, set `DAML_PACKAGE` to the repository-relative package
-path.
+`dpm upgrade-check`. Do not introduce Daml Assistant commands unless a documented
+toolchain decision changes this. For package-scoped commands run from the
+repository root, set `DAML_PACKAGE` to the repository-relative package path.
 
 ## Documentation
 
