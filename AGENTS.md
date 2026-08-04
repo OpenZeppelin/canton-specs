@@ -100,61 +100,6 @@ machine-specific absolute path. Refer to repository files by their exact
 filenames, including extensions, and format literal filenames and paths with
 backticks. Use normal ASCII hyphens instead of typographic dash characters.
 
-## Markdown formatting
-
-Every Markdown file follows one format. Do not introduce a second style, and
-never leave a file carrying two. When a file you edit already breaks a rule
-below, reflow the paragraphs, lists, and sections your change touches and leave
-the rest of the file alone.
-
-Wrap prose at 80 columns, breaking at spaces. A line may exceed 80 columns only
-when one unbreakable token makes it longer: a URL, a badge, a long repository
-path, or a table row. Length is not a reason to leave a paragraph unwrapped.
-
-Headings:
-
-- Open every file with a single `# ` heading on line 1 naming the document
-  subject.
-- Use sentence case, capitalizing the first word and proper nouns only. Write
-  `## Security and auditability`, not `## Security & Auditability`.
-- Do not number headings. Numbers break every existing anchor when a section
-  moves and duplicate the outline GitHub already renders.
-- Use `##` and `###` only. Do not skip a level and do not add `####`.
-- Leave one blank line before and after a heading, with no trailing punctuation
-  and no closing `#` characters.
-
-Lists:
-
-- Use `-` for unordered items and `1.` for ordered ones.
-- Indent nested items and continuation lines by two spaces, aligning them with
-  the parent item text.
-- Keep terminal punctuation uniform within a list. Full sentences each end with
-  a period. Clauses of one sentence introduced by a colon each end with a
-  semicolon, and the final clause ends with a period. Short noun phrases take
-  none. Do not mix the three in a single list.
-
-Tables:
-
-- Write the delimiter row as `|---|---|`, without padding or alignment colons,
-  and pad each cell's contents with one space on either side.
-- Use a table only for uniform records where every row fills every column. Two
-  columns of prose belong in paragraphs.
-
-Code, links, and emphasis:
-
-- Tag every fenced block with its language: `daml`, `sh`, `text`, or `mermaid`.
-- Write line anchors as `#L<number>`. GitHub silently ignores a bare
-  `#<number>` and lands the reader at the top of the file.
-- Reserve `**bold**` for a term the reader must not miss. Prose that bolds a
-  phrase in most sentences is harder to scan, not easier. Mark up code with
-  backticks and carry emphasis in the sentence itself.
-
-End every file with exactly one newline. Leave no trailing whitespace and no
-consecutive blank lines.
-
-`scripts/check-docs.sh` validates link targets and machine-specific paths. It
-does not check the rules in this section, so verify those yourself.
-
 ## Validation
 
 Run from the repository root:
