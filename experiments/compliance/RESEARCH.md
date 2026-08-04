@@ -90,7 +90,7 @@ places subject binding, freshness, provider authorization, and policy
 evaluation entirely in participant or operator controls. Applications using
 that boundary must not describe the Daml contract as verifying those facts.
 
-A reusable compliance primitive belongs in `canton-contracts` only with an
+A reusable compliance primitive belongs in `OpenZeppelin/canton-contracts` only with an
 accepted evidence schema, signer and rotation model, revocation behavior,
 privacy analysis, liveness policy, upgrade model, and application-independent
 test suite. These packages remain experimental while those requirements are

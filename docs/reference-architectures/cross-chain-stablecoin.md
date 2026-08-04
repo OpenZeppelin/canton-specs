@@ -8,10 +8,10 @@ readiness.
 
 > **Evidence tags**
 >
-> - `[EXPERIMENT]` - executable research code and tests in `canton-specs` or an
+> - `[EXPERIMENT]` - executable research code and tests in `OpenZeppelin/canton-specs` or an
 >   OpenZeppelin reference implementation.
 > - `[LIBRARY]` - reusable package source and versioned DAR artifacts maintained
->   in [`canton-contracts`](https://github.com/OpenZeppelin/canton-contracts).
+>   in [`OpenZeppelin/canton-contracts`](https://github.com/OpenZeppelin/canton-contracts).
 > - `[UPSTREAM]` - Canton, Splice, CIP, or external ecosystem behavior that this
 >   architecture consumes rather than implements.
 > - `[TARGET]` - a required target-architecture component or invariant specified
@@ -397,7 +397,7 @@ in the [`identity/upgrade`](../../experiments/identity/upgrade/) experiment.
 Names map to cited source components; target-only modules such as the gateway
 and orchestrator are tagged `[TARGET]`. Import paths use the module names:
 `OpenZeppelin.AccessControlV1`, `OpenZeppelin.Experimental.Settlement.Cip112`,
-`canton-token-template` `SimpleToken.*`; `KycClaim` and
+`OpenZeppelin/canton-token-template` `SimpleToken.*`; `KycClaim` and
 `TrustedIssuerRegistry` are the
 [`identity/hook-shape-b`](../../experiments/identity/hook-shape-b/) types, not
 credential-gateway types.
@@ -507,7 +507,7 @@ template StandardizedMessagingGateway
 
 ### 4.2 Inbound DvP via `SettleBatch` + delegated accept `[TARGET]`
 
-> **Evidence boundary.** The `canton-token-template` `TransferPreapproval`
+> **Evidence boundary.** The `OpenZeppelin/canton-token-template` `TransferPreapproval`
 > `[EXPERIMENT]` demonstrates the recipient-signed standing-authority pattern
 > through `TransferPreapproval_Send`. The spine-aware
 > `TransferPreapproval_AcceptInboundInstruction` shown below is `[TARGET]`.
@@ -674,12 +674,12 @@ sequenceDiagram
 
 | Component | Source Package | Usage | Tag |
 |---|---|---|---|
-| `openzeppelin-access-control-v1` | `canton-contracts` | [`RoleGrant`](https://github.com/OpenZeppelin/canton-contracts/blob/68b7c52ccb2db496a668508101fdb0024c60c713/packages/access/access-control-v1/daml/OpenZeppelin/AccessControlV1.daml) and [`requireRole`](https://github.com/OpenZeppelin/canton-contracts/blob/68b7c52ccb2db496a668508101fdb0024c60c713/packages/access/access-control-v1/daml/OpenZeppelin/AccessControlV1.daml) gate relayer and seizer capabilities. | `[LIBRARY]` |
-| `openzeppelin-ownable-v1` | `canton-contracts` | [`Ownership`](https://github.com/OpenZeppelin/canton-contracts/blob/68b7c52ccb2db496a668508101fdb0024c60c713/packages/access/ownable-v1/daml/OpenZeppelin/OwnableV1.daml) and [`OwnershipOffer`](https://github.com/OpenZeppelin/canton-contracts/blob/68b7c52ccb2db496a668508101fdb0024c60c713/packages/access/ownable-v1/daml/OpenZeppelin/OwnableV1.daml) define controlled ownership handoff. | `[LIBRARY]` |
-| `openzeppelin-pausable-v1` | `canton-contracts` | [`PauseState`](https://github.com/OpenZeppelin/canton-contracts/blob/68b7c52ccb2db496a668508101fdb0024c60c713/packages/security/pausable-v1/daml/OpenZeppelin/PausableV1.daml) and [`whenNotPaused`](https://github.com/OpenZeppelin/canton-contracts/blob/68b7c52ccb2db496a668508101fdb0024c60c713/packages/security/pausable-v1/daml/OpenZeppelin/PausableV1.daml) gate inbound operations during anomalies. | `[LIBRARY]` |
-| [`SettlementFactory`](../../experiments/settlement/cip-0112/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L137) | `canton-specs` | Allocation generation, batch DvP, typed node attestation, and D2 in-flight seizure evidence. | `[EXPERIMENT]` |
-| `TransferPreapproval` | [`canton-token-template`](https://github.com/OpenZeppelin/canton-token-template) | Recipient-signed standing-authority pattern through `TransferPreapproval_Send`; the spine-aware delegated-accept choice is `[TARGET]`. | `[EXPERIMENT]` / `[TARGET]` |
-| `SimpleHolding` / `SimpleTokenRules` / `LockedSimpleHolding` | [`canton-token-template`](https://github.com/OpenZeppelin/canton-token-template) | Asset representation and three-way dispatch evidence; settled-holding forced sweep is `[TARGET]`. | `[EXPERIMENT]` / `[TARGET]` |
+| `openzeppelin-access-control-v1` | `OpenZeppelin/canton-contracts` | [`RoleGrant`](https://github.com/OpenZeppelin/canton-contracts/blob/68b7c52ccb2db496a668508101fdb0024c60c713/packages/access/access-control-v1/daml/OpenZeppelin/AccessControlV1.daml) and [`requireRole`](https://github.com/OpenZeppelin/canton-contracts/blob/68b7c52ccb2db496a668508101fdb0024c60c713/packages/access/access-control-v1/daml/OpenZeppelin/AccessControlV1.daml) gate relayer and seizer capabilities. | `[LIBRARY]` |
+| `openzeppelin-ownable-v1` | `OpenZeppelin/canton-contracts` | [`Ownership`](https://github.com/OpenZeppelin/canton-contracts/blob/68b7c52ccb2db496a668508101fdb0024c60c713/packages/access/ownable-v1/daml/OpenZeppelin/OwnableV1.daml) and [`OwnershipOffer`](https://github.com/OpenZeppelin/canton-contracts/blob/68b7c52ccb2db496a668508101fdb0024c60c713/packages/access/ownable-v1/daml/OpenZeppelin/OwnableV1.daml) define controlled ownership handoff. | `[LIBRARY]` |
+| `openzeppelin-pausable-v1` | `OpenZeppelin/canton-contracts` | [`PauseState`](https://github.com/OpenZeppelin/canton-contracts/blob/68b7c52ccb2db496a668508101fdb0024c60c713/packages/security/pausable-v1/daml/OpenZeppelin/PausableV1.daml) and [`whenNotPaused`](https://github.com/OpenZeppelin/canton-contracts/blob/68b7c52ccb2db496a668508101fdb0024c60c713/packages/security/pausable-v1/daml/OpenZeppelin/PausableV1.daml) gate inbound operations during anomalies. | `[LIBRARY]` |
+| [`SettlementFactory`](../../experiments/settlement/cip-0112/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L137) | `OpenZeppelin/canton-specs` | Allocation generation, batch DvP, typed node attestation, and D2 in-flight seizure evidence. | `[EXPERIMENT]` |
+| `TransferPreapproval` | [`OpenZeppelin/canton-token-template`](https://github.com/OpenZeppelin/canton-token-template) | Recipient-signed standing-authority pattern through `TransferPreapproval_Send`; the spine-aware delegated-accept choice is `[TARGET]`. | `[EXPERIMENT]` / `[TARGET]` |
+| `SimpleHolding` / `SimpleTokenRules` / `LockedSimpleHolding` | [`OpenZeppelin/canton-token-template`](https://github.com/OpenZeppelin/canton-token-template) | Asset representation and three-way dispatch evidence; settled-holding forced sweep is `[TARGET]`. | `[EXPERIMENT]` / `[TARGET]` |
 | `CredentialGatedActionRequest` / `MockVerificationResult` | [`credential-gateway`](../../experiments/identity/credential-gateway/daml/OpenZeppelin/Experimental/Credential/Gateway.daml) | Credential gating and verifier-result lifecycle. | `[EXPERIMENT]` |
 | `KycClaim` / `TrustedIssuerRegistry` | [`identity/hook-shape-b`](../../experiments/identity/hook-shape-b/) | Typed subject identity and trusted-issuer checks. | `[EXPERIMENT]` |
 | `NodeComplianceAttestation` / `TrustedAttesterRegistry` | [`Cip112.daml`](../../experiments/settlement/cip-0112/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml) | Signed, exact-batch-bound, single-use D1 attestation enforced by `SettlementFactory_SettleBatchWithAttestation`. | `[EXPERIMENT]` |
@@ -747,7 +747,7 @@ transitions rather than bespoke cryptography.
 - `[EXPERIMENT]` The settlement exemplar exercises the spine together with
   pinned access-control and pausable DAR dependencies.
 - `[LIBRARY]` Reusable authorization packages carry their package-specific tests
-  and release identities in `canton-contracts`.
+  and release identities in `OpenZeppelin/canton-contracts`.
 - `[TARGET]` Gateway, reserve, redemption, and cross-synchronizer validation must
   cover source-chain reorganization, duplicate lock attestations, partial
   redemption, stalled release, and reassignment failure.
@@ -757,7 +757,7 @@ transitions rather than bespoke cryptography.
 A treasury operating this flow reconciles its private Canton settlement against
 the inbound external-chain event without parsing raw transaction trees: the
 Token Standard V2 transfer-events API (`Splice.Api.Token.TransferEventsV2`,
-imported in the `canton-token-template` evidence) emits holdings-change events the
+imported in the `OpenZeppelin/canton-token-template` evidence) emits holdings-change events the
 recipient can correlate with the gateway's inbound message id, giving a 1:1
 audit linkage between the external lock/burn and the Canton credit. This is an
 **upstream** API surface, not vendored here, and the linkage is a reference
@@ -915,7 +915,7 @@ architecture boundaries and must not be read as executable source.
   (key choices: [`SettlementFactory_SettleBatch`](../../experiments/settlement/cip-0112/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L195),
   [`Allocation_Settle`](../../experiments/settlement/cip-0112/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L407)).
 - **Holdings, rules, and preapproval evidence** `[EXPERIMENT]` -
-  [`canton-token-template`](https://github.com/OpenZeppelin/canton-token-template).
+  [`OpenZeppelin/canton-token-template`](https://github.com/OpenZeppelin/canton-token-template).
   Delegated inbound accept and settled-holding forced sweep are `[TARGET]`.
 - **Credential gating and verification** `[EXPERIMENT]` -
   [`Gateway.daml`](../../experiments/identity/credential-gateway/daml/OpenZeppelin/Experimental/Credential/Gateway.daml).
@@ -923,7 +923,7 @@ architecture boundaries and must not be read as executable source.
   [`identity/hook-shape-b`](../../experiments/identity/hook-shape-b/) and
   [`identity/upgrade`](../../experiments/identity/upgrade/).
 - **Access-control, ownership, and pause primitives** `[LIBRARY]` -
-  [`canton-contracts`](https://github.com/OpenZeppelin/canton-contracts).
+  [`OpenZeppelin/canton-contracts`](https://github.com/OpenZeppelin/canton-contracts).
 - **Token Standard V2** `[UPSTREAM]` - Splice holding, allocation, settlement,
   and transfer-event interfaces.
 - **Gateway, reserve, redemption, and cross-synchronizer protocols** `[TARGET]` -

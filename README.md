@@ -36,7 +36,7 @@ for their shared assumptions and relationship to the executable research.
 
 Each experiment answers a bounded design, compatibility, or upgrade question.
 Its Daml packages provide executable research evidence. Reusable release
-packages follow the `canton-contracts` lifecycle.
+packages follow the `OpenZeppelin/canton-contracts` lifecycle.
 
 | Area | What it explores |
 |---|---|
@@ -51,9 +51,9 @@ maps each research question to its code, tests, and evidence.
 
 ## Repository boundaries
 
-- `canton-specs` owns reference designs, prototypes, threat models, decisions,
+- `OpenZeppelin/canton-specs` owns reference designs, prototypes, threat models, decisions,
   and reproducible interoperability evidence.
-- [`canton-contracts`](https://github.com/OpenZeppelin/canton-contracts) owns
+- [`OpenZeppelin/canton-contracts`](https://github.com/OpenZeppelin/canton-contracts) owns
   reusable packages and their compatibility, security-review, and release
   lifecycle.
 - Application repositories own complete reference implementations, including
@@ -62,7 +62,7 @@ maps each research question to its code, tests, and evidence.
 
 This separation lets experiments change as evidence improves without creating a
 public package compatibility promise. A generally reusable component receives
-its stable package identity and release lifecycle in `canton-contracts`.
+its stable package identity and release lifecycle in `OpenZeppelin/canton-contracts`.
 
 ## Repository layout
 
