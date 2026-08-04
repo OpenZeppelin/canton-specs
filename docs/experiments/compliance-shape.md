@@ -64,7 +64,7 @@ Seizure-path composition:
 
 Package: `experiments/compliance-shape-b`
 
-Shape B models a node-signed `NodeAttestation` contract. The toy transfer
+Shape B models a node-signed `ComplianceAttestation` contract. The toy transfer
 computes an opaque transfer subject from issuer, sender, recipient, and amount,
 then verifies the attestation's minimum field set at exercise time:
 
