@@ -24,5 +24,4 @@ CLAUDE.local.md
 # Daml build state
 .daml/
 .cache/
-.coverage/
 .cache/identity-hook-upgrade-sandbox/

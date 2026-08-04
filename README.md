@@ -1,6 +1,7 @@
 # OpenZeppelin Canton Specs
 
 [![CI](https://github.com/OpenZeppelin/canton-specs/actions/workflows/ci.yml/badge.svg)](https://github.com/OpenZeppelin/canton-specs/actions/workflows/ci.yml)
+[![Choice coverage](https://github.com/OpenZeppelin/canton-specs/actions/workflows/coverage.yml/badge.svg?branch=main&event=push)](https://github.com/OpenZeppelin/canton-specs/actions/workflows/coverage.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
 Reference architectures, experimental Daml implementations, and

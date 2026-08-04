@@ -62,3 +62,21 @@ test_identityHookUpgradeV1Script_smokeTransfer = script do
   transferred.owner === fixture.bob
   transferred.amount === 125
   pure ()
+
+-- | The issuer controls the baseline registry and holding archival paths.
+test_identityHookUpgradeV1Script_archiveAuthority : Script ()
+test_identityHookUpgradeV1Script_archiveAuthority = script do
+  issuer <- allocateParty "identity-hook-upgrade-script-v1-archive-issuer"
+  owner <- allocateParty "identity-hook-upgrade-script-v1-archive-owner"
+  registry <- submit issuer do
+    createCmd ToyRegistry with
+      issuer
+      featureFlag = experimentalFeatureFlag
+  holding <- submit issuer do
+    exerciseCmd registry ToyRegistry_Mint with owner; amount = 125
+  submitMustFail owner do
+    exerciseCmd holding Archive
+  submit issuer do
+    exerciseCmd holding Archive
+  submit issuer do
+    exerciseCmd registry Archive

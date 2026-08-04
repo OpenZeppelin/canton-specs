@@ -2,7 +2,9 @@
 
 This directory contains executable research for Canton architecture,
 compatibility, and upgrade questions. Every package produces experimental
-evidence; reusable release packages follow the `canton-contracts` lifecycle.
+evidence; reusable release packages follow the
+[OpenZeppelin/canton-contracts](https://github.com/OpenZeppelin/canton-contracts)
+lifecycle.
 
 | Area | Contents |
 |---|---|
