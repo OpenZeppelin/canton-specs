@@ -518,7 +518,7 @@ The available executable evidence validates these building blocks:
 - typed trusted-issuer behavior in the
   [Shape-B identity tests](../../experiments/identity/test/daml/OpenZeppelin/Test/IdentityHookShapeB.daml); and
 - reusable access-control, ownership, and pausing behavior in the
-  [`OpenZeppelin/canton-contracts`](https://github.com/OpenZeppelin/canton-contracts)
+  [`canton-contracts`](https://github.com/OpenZeppelin/canton-contracts)
   component test suites.
 
 Application-level validation must additionally cover the illustrative
