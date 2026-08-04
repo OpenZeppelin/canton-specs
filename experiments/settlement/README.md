@@ -6,6 +6,7 @@ privacy-aware application flows on Canton.
 | Path | Purpose |
 |---|---|
 | [`cip-0112/`](cip-0112/) | Experimental allocation, settlement, attestation, event, and seizure lifecycle |
+| [`cip-0112-v2/`](cip-0112-v2/) | Token Standard V2-conformant settlement package built against the vendored upstream DARs ([`dars/token-standard/`](../../dars/token-standard/)); pins dpm-sdk 3.5.1 and carries its own co-located tests |
 | [`exemplar/`](exemplar/) | Regulated-settlement consumer composing Access Control, Pausable, and the settlement package |
 | [`fixtures/token-standard-v2/`](fixtures/token-standard-v2/) | Narrow local model of Token Standard V2 types used by the experiment |
 | [`test/`](test/) | Isolated Daml Script tests for the settlement package |

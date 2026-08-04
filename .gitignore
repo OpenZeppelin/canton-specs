@@ -26,3 +26,9 @@ CLAUDE.local.md
 .daml/
 .cache/
 .cache/identity-hook-upgrade-sandbox/
+
+# Local splice checkout used to build the vendored token-standard DARs
+splice/
+
+# Extracted DAR contents for local browsing (regenerate by unzipping the DARs)
+dars/token-standard/sources/

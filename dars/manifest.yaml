@@ -19,3 +19,111 @@ artifacts:
     source-commit: 68b7c52ccb2db496a668508101fdb0024c60c713
     source: https://github.com/OpenZeppelin/canton-contracts/tree/68b7c52ccb2db496a668508101fdb0024c60c713/packages/security/pausable-v1
     license: MIT
+  # Token Standard V2 (CIP-0112) DARs, built locally from the splice checkout
+  # with two patches (sdk-version 3.5.2 -> 3.5.1, `-current` -> versioned DAR
+  # names); see dars/token-standard/PROVENANCE.md. Devnet-stage upstream: no
+  # released artifacts exist yet.
+  - package: splice-api-token-metadata-v1
+    version: 1.0.0
+    file: dars/token-standard/splice-api-token-metadata-v1-1.0.0.dar
+    main-package-id: b7ff3ac68c5f8d8de84277f6f850a7bbf1c562fa0e6e328be693b2e9d5bb6ee6
+    sha256: ebb19c0dd8988677e01b523a90b84ad0390248757829b7ee9afd171b9d88b139
+    source-commit: 69b43eb761e38695052c983715aa855c8cb207fc
+    source: https://github.com/hyperledger-labs/splice/tree/69b43eb761e38695052c983715aa855c8cb207fc/token-standard/splice-api-token-metadata-v1
+    license: Apache-2.0
+  - package: splice-api-token-holding-v1
+    version: 1.0.0
+    file: dars/token-standard/splice-api-token-holding-v1-1.0.0.dar
+    main-package-id: e386af17982207d49c443a8f6fb3b24217fd32ed7be994bc58159d4933a5b1a7
+    sha256: 81e811d98b6264b4beaead8eb7ea249e0dd78ff64644795fe15d9396a4bb6b73
+    source-commit: 69b43eb761e38695052c983715aa855c8cb207fc
+    source: https://github.com/hyperledger-labs/splice/tree/69b43eb761e38695052c983715aa855c8cb207fc/token-standard/splice-api-token-holding-v1
+    license: Apache-2.0
+  - package: splice-api-token-holding-v2
+    version: 1.0.0
+    file: dars/token-standard/splice-api-token-holding-v2-1.0.0.dar
+    main-package-id: dcf74571dd11e678637924e9f10a61a15727801c83c0f21d3218656b7e6039f8
+    sha256: 1773772d230ae7331dc24b0055db91e65943e1beb879436b52288365f156868f
+    source-commit: 69b43eb761e38695052c983715aa855c8cb207fc
+    source: https://github.com/hyperledger-labs/splice/tree/69b43eb761e38695052c983715aa855c8cb207fc/token-standard/splice-api-token-holding-v2
+    license: Apache-2.0
+  - package: splice-api-token-transfer-events-v2
+    version: 1.0.0
+    file: dars/token-standard/splice-api-token-transfer-events-v2-1.0.0.dar
+    main-package-id: 718b5bd2da888fc5221c9c887ac8aa8288aa7258f3d31fdc5ee01237435ef90d
+    sha256: 5f56e219fcf9010790c2cab3379985189f9dfc5d6940886bee02c0b7ac78c6e0
+    source-commit: 69b43eb761e38695052c983715aa855c8cb207fc
+    source: https://github.com/hyperledger-labs/splice/tree/69b43eb761e38695052c983715aa855c8cb207fc/token-standard/splice-api-token-transfer-events-v2
+    license: Apache-2.0
+  - package: splice-api-token-allocation-v1
+    version: 1.0.0
+    file: dars/token-standard/splice-api-token-allocation-v1-1.0.0.dar
+    main-package-id: 20e6103654a72afc4276b66ea9b0482d3f0f1d84ad7eb8d1e47ce33e75a71f5d
+    sha256: 51cb3bc0dee44966b47a5bdebff94ede7df453b14ac3e4fa1d8e08cd1a920217
+    source-commit: 69b43eb761e38695052c983715aa855c8cb207fc
+    source: https://github.com/hyperledger-labs/splice/tree/69b43eb761e38695052c983715aa855c8cb207fc/token-standard/splice-api-token-allocation-v1
+    license: Apache-2.0
+  - package: splice-api-token-allocation-v2
+    version: 1.0.0
+    file: dars/token-standard/splice-api-token-allocation-v2-1.0.0.dar
+    main-package-id: e5b7ba48c44c972ea670a983647c544516841e0d9d893d86bdf17a025f4c8b4e
+    sha256: 29d894589f8760be73e5800d4fc137d0d6b4ae574bbd1c871ada57f7781172b4
+    source-commit: 69b43eb761e38695052c983715aa855c8cb207fc
+    source: https://github.com/hyperledger-labs/splice/tree/69b43eb761e38695052c983715aa855c8cb207fc/token-standard/splice-api-token-allocation-v2
+    license: Apache-2.0
+  - package: splice-api-token-transfer-instruction-v1
+    version: 1.0.0
+    file: dars/token-standard/splice-api-token-transfer-instruction-v1-1.0.0.dar
+    main-package-id: f1aa741ce669d3c33cdafd97de32789562815ff696cddba1ced9d16cac564732
+    sha256: 4c7da23cc6de90f1fbc4505f7b0b65b002be7340eba6fef4ac776ccd94b1c081
+    source-commit: 69b43eb761e38695052c983715aa855c8cb207fc
+    source: https://github.com/hyperledger-labs/splice/tree/69b43eb761e38695052c983715aa855c8cb207fc/token-standard/splice-api-token-transfer-instruction-v1
+    license: Apache-2.0
+  - package: splice-api-token-transfer-instruction-v2
+    version: 1.0.0
+    file: dars/token-standard/splice-api-token-transfer-instruction-v2-1.0.0.dar
+    main-package-id: 39be3518d462914e4db7d9c613b5ad2e7ef7f885a85ec15a30a57130de5a0801
+    sha256: bb29b3c88adb40b37711f2d01aaa1238b3cd738d75d0eefb7c762ffb0f294747
+    source-commit: 69b43eb761e38695052c983715aa855c8cb207fc
+    source: https://github.com/hyperledger-labs/splice/tree/69b43eb761e38695052c983715aa855c8cb207fc/token-standard/splice-api-token-transfer-instruction-v2
+    license: Apache-2.0
+  - package: splice-api-token-allocation-instruction-v1
+    version: 1.0.0
+    file: dars/token-standard/splice-api-token-allocation-instruction-v1-1.0.0.dar
+    main-package-id: a68b2f08f4d0c2d2b7ace4921f5a5f924db4e12047b793878eccaeff9e3d72fd
+    sha256: 88b1106d103b6c36f5009a603ef401c23f9d465e9bff5fe1c3458d1fd89b3dd7
+    source-commit: 69b43eb761e38695052c983715aa855c8cb207fc
+    source: https://github.com/hyperledger-labs/splice/tree/69b43eb761e38695052c983715aa855c8cb207fc/token-standard/splice-api-token-allocation-instruction-v1
+    license: Apache-2.0
+  - package: splice-api-token-allocation-instruction-v2
+    version: 1.0.0
+    file: dars/token-standard/splice-api-token-allocation-instruction-v2-1.0.0.dar
+    main-package-id: 1bc26b40a65ee49c51eefc09a4684443f270f740cbd25a2b8ebd44defde3db26
+    sha256: 8a154c50eccd053c94d0f893f0506aabf7ac95754b0af8d6d9eac1e88df9f25c
+    source-commit: 69b43eb761e38695052c983715aa855c8cb207fc
+    source: https://github.com/hyperledger-labs/splice/tree/69b43eb761e38695052c983715aa855c8cb207fc/token-standard/splice-api-token-allocation-instruction-v2
+    license: Apache-2.0
+  - package: splice-api-token-allocation-request-v1
+    version: 1.0.0
+    file: dars/token-standard/splice-api-token-allocation-request-v1-1.0.0.dar
+    main-package-id: 2d8b325a36b76019e9a8385ddf01a3436b617f7bfa54286cd071729806a0b2a4
+    sha256: 41fa716e3e2b035a29182a8896b874294e2a07c414c72f763dffe864634cfa6b
+    source-commit: 69b43eb761e38695052c983715aa855c8cb207fc
+    source: https://github.com/hyperledger-labs/splice/tree/69b43eb761e38695052c983715aa855c8cb207fc/token-standard/splice-api-token-allocation-request-v1
+    license: Apache-2.0
+  - package: splice-api-token-allocation-request-v2
+    version: 1.0.0
+    file: dars/token-standard/splice-api-token-allocation-request-v2-1.0.0.dar
+    main-package-id: 31a14f210c80643948afa6cb0097fb3058323a68d5646f4815e07ccabe34550a
+    sha256: 6a0b15708c33a6249b76614e7f73d3e1bd054cb1e219e2a8e91e8a3155e4666d
+    source-commit: 69b43eb761e38695052c983715aa855c8cb207fc
+    source: https://github.com/hyperledger-labs/splice/tree/69b43eb761e38695052c983715aa855c8cb207fc/token-standard/splice-api-token-allocation-request-v2
+    license: Apache-2.0
+  - package: splice-token-standard-utils
+    version: 2.0.0
+    file: dars/token-standard/splice-token-standard-utils-2.0.0.dar
+    main-package-id: 59fb226dc6dc896f15c89d6399d20241760328f84f9da6e11a83ee0c2d0b7108
+    sha256: 2985466cd8f55460ecc4cb6486e018017818d745273fe398a9b68a5acc8a34fc
+    source-commit: 69b43eb761e38695052c983715aa855c8cb207fc
+    source: https://github.com/hyperledger-labs/splice/tree/69b43eb761e38695052c983715aa855c8cb207fc/token-standard/splice-token-standard-utils
+    license: Apache-2.0

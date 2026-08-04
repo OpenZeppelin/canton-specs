@@ -18,4 +18,8 @@ packages:
   - experiments/settlement/cip-0112
   - experiments/settlement/test
   - experiments/settlement/exemplar
+  # Built with dpm-sdk 3.5.1 against the vendored Token Standard V2 DARs
+  # (dars/token-standard/); pins its own toolchain in its daml.yaml.
+  - experiments/settlement/cip-0112-v2
+  - experiments/settlement/cip-0112-v2/test
   - experiments/interoperability/cip-exemplar
