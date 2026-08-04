@@ -23,8 +23,8 @@ experimentalFeatureFlag = "experimental.compliance-shape-b.enabled"
 -- unforgeable in this toy model.
 -- Observers: `subjectParty`, the party allowed to present and consume the
 -- attestation.
--- Controllers: `subjectParty` controls `NodeAttestation_Consume`.
--- Choices: `NodeAttestation_Consume`.
+-- Controllers: `subjectParty` controls `ComplianceAttestation_Consume`.
+-- Choices: `ComplianceAttestation_Consume`.
 -- Disclosed parties: node and subject party are stakeholders; the toy transfer
 -- can fetch the attestation only when the subject party supplies it.
 -- Privacy expectations: the attestation is visible only to the node,
@@ -42,7 +42,7 @@ experimentalFeatureFlag = "experimental.compliance-shape-b.enabled"
 -- archiving the consumed attestation contract.
 -- Upgrade and migration assumptions: experimental-only, not public API, and
 -- removable once the D1 clarification selects the M1 hook shape.
-template NodeAttestation
+template ComplianceAttestation
   with
     node : Party
     subjectParty : Party
@@ -55,7 +55,7 @@ template NodeAttestation
     signatory node
     observer subjectParty
 
-    choice NodeAttestation_Consume : ()
+    choice ComplianceAttestation_Consume : ()
       controller subjectParty
       do pure ()
 
@@ -141,20 +141,20 @@ template ToyHolding
     choice ToyHolding_Transfer : ContractId ToyHolding
       with
         newOwner : Party
-        attestationCid : ContractId NodeAttestation
+        attestationCid : ContractId ComplianceAttestation
       controller owner
       do
         requireExperimentalFlag featureFlag
         assertMsg eSelfTransfer (newOwner /= owner)
         attestation <- fetch attestationCid
         now <- getTime
-        requireNodeAttestation
+        requireComplianceAttestation
           issuerNode
           owner
           (transferSubject issuer owner newOwner amount)
           now
           attestation
-        exercise attestationCid NodeAttestation_Consume
+        exercise attestationCid ComplianceAttestation_Consume
         create this with owner = newOwner
 
     choice ToyHolding_Burn : ()
@@ -174,8 +174,8 @@ template ToyHolding
         assertMsg eSeizureNoop (seizureDestination /= owner)
         create this with owner = seizureDestination
 
-requireNodeAttestation : Party -> Party -> Text -> Time -> NodeAttestation -> Update ()
-requireNodeAttestation expectedSigner expectedSubjectParty expectedSubject now attestation = do
+requireComplianceAttestation : Party -> Party -> Text -> Time -> ComplianceAttestation -> Update ()
+requireComplianceAttestation expectedSigner expectedSubjectParty expectedSubject now attestation = do
   assertMsg eSignerMismatch (attestation.signer == expectedSigner)
   assertMsg eNodeSignerMismatch (attestation.node == attestation.signer)
   assertMsg eSubjectPartyMismatch (attestation.subjectParty == expectedSubjectParty)

@@ -154,7 +154,7 @@ setupScenario prefix requireD1 committed = do
   factory <- submit admin do
     createCmd SettlementFactory with
       admin
-      requiresNodeAttestation = None
+      requiresComplianceAttestation = None
       featureFlag = experimentalFeatureFlag
   Some factoryDisclosure <- queryDisclosure @SettlementFactory admin factory
 
@@ -260,7 +260,7 @@ setupConservationScenario prefix aliceLocked legAmount = do
   factory <- submit admin do
     createCmd SettlementFactory with
       admin
-      requiresNodeAttestation = None
+      requiresComplianceAttestation = None
       featureFlag = experimentalFeatureFlag
   Some factoryDisclosure <- queryDisclosure @SettlementFactory admin factory
 
@@ -382,7 +382,7 @@ test_cip112Settlement_settleMultiInstrumentConservesPerInstrument = script do
       bobSides = [receiverSide usdLeg, receiverSide eurLeg]
 
   factory <- submit admin do
-    createCmd SettlementFactory with admin; requiresNodeAttestation = None; featureFlag = experimentalFeatureFlag
+    createCmd SettlementFactory with admin; requiresComplianceAttestation = None; featureFlag = experimentalFeatureFlag
   Some factoryDisclosure <- queryDisclosure @SettlementFactory admin factory
 
   usdHolding <- submit [admin, alice] do
@@ -512,7 +512,7 @@ test_cip112Settlement_multiRecipientBatchScopedLegs = script do
   factory <- submit admin do
     createCmd SettlementFactory with
       admin
-      requiresNodeAttestation = None
+      requiresComplianceAttestation = None
       featureFlag = experimentalFeatureFlag
   Some factoryDisclosure <- queryDisclosure @SettlementFactory admin factory
 
@@ -637,11 +637,11 @@ test_cip112Settlement_eventLogInterfaceConformance = script do
     (_, Some v) :: _ -> v.admin === admin
     _ -> fail "expected an EventLog interface view"
 
--- Build a trusted-attester registry plus a signed node attestation, returning
--- the cids and their disclosures for the settlement executor.
+-- Build a trusted-attester registry plus a signed compliance attestation,
+-- returning the cids and their disclosures for the settlement executor.
 mkAttestation
   : Party -> Party -> Party -> [Party] -> Text -> [Text] -> Time -> Time
-  -> Script (ContractId NodeComplianceAttestation, ContractId TrustedAttesterRegistry, [Disclosure])
+  -> Script (ContractId ComplianceAttestation, ContractId TrustedAttesterRegistry, [Disclosure])
 mkAttestation registryAdmin attester attestationObserver attesters ref boundLegIds issued expires = do
   registry <- submit registryAdmin do
     createCmd TrustedAttesterRegistry with
@@ -649,7 +649,7 @@ mkAttestation registryAdmin attester attestationObserver attesters ref boundLegI
       attesters
       featureFlag = experimentalFeatureFlag
   attestation <- submit attester do
-    createCmd NodeComplianceAttestation with
+    createCmd ComplianceAttestation with
       attester
       attestationObservers = [attestationObserver]
       settlementRef = ref
@@ -659,10 +659,10 @@ mkAttestation registryAdmin attester attestationObserver attesters ref boundLegI
       expiresAt = expires
       featureFlag = experimentalFeatureFlag
   Some regDisc <- queryDisclosure @TrustedAttesterRegistry registryAdmin registry
-  Some attDisc <- queryDisclosure @NodeComplianceAttestation attester attestation
+  Some attDisc <- queryDisclosure @ComplianceAttestation attester attestation
   pure (attestation, registry, [regDisc, attDisc])
 
--- | Typed node-attestation path: a valid signed attestation from a registry-
+-- | Typed attestation path: a valid signed attestation from a registry-
 -- trusted attester settles the batch (Daml-visible D1, layered on the hook).
 test_cip112Settlement_attestedSettlePositive : Script ()
 test_cip112Settlement_attestedSettlePositive = script do
@@ -876,7 +876,7 @@ test_cip112Settlement_inputHoldingInstrumentMismatchFails = script do
   factory <- submit admin do
     createCmd SettlementFactory with
       admin
-      requiresNodeAttestation = None
+      requiresComplianceAttestation = None
       featureFlag = experimentalFeatureFlag
   Some factoryDisclosure <- queryDisclosure @SettlementFactory admin factory
 
@@ -1259,7 +1259,7 @@ test_cip112Settlement_markD2AfterDeadlineFails = script do
     [] -> fail "expected an alice allocation"
 
 
--- | M1 (binding D1 posture): when a factory mandates node attestation, the plain
+-- | M1 (binding D1 posture): when a factory mandates attestation, the plain
 -- SettleBatch path is refused and only the attested path settles — the typed D1
 -- control is a factory property, not an executor's per-transaction choice.
 test_cip112Settlement_attestationMandatoryFactoryBindsPath : Script ()
@@ -1275,7 +1275,7 @@ test_cip112Settlement_attestationMandatoryFactoryBindsPath = script do
       settlement = mkSettlement "cip112-m1" app
       leg = mkLeg "cip112-m1" aliceAccount bobAccount
   factory <- submit admin do
-    createCmd SettlementFactory with admin; requiresNodeAttestation = Some True; featureFlag = experimentalFeatureFlag
+    createCmd SettlementFactory with admin; requiresComplianceAttestation = Some True; featureFlag = experimentalFeatureFlag
   Some factoryDisclosure <- queryDisclosure @SettlementFactory admin factory
   aliceHolding <- submit [admin, alice] do
     createCmd ToyHolding with
@@ -1368,7 +1368,7 @@ test_cip112Settlement_attestedSettleUnboundAttestationFails = script do
       attesters = [attester]
       featureFlag = experimentalFeatureFlag
   attestation <- submit attester do
-    createCmd NodeComplianceAttestation with
+    createCmd ComplianceAttestation with
       attester
       attestationObservers = [admin]
       settlementRef = settlement.settlementRef.id
@@ -1378,7 +1378,7 @@ test_cip112Settlement_attestedSettleUnboundAttestationFails = script do
       featureFlag = experimentalFeatureFlag
       boundTransferLegIds = None
   Some regDisc <- queryDisclosure @TrustedAttesterRegistry admin registry
-  Some attDisc <- queryDisclosure @NodeComplianceAttestation attester attestation
+  Some attDisc <- queryDisclosure @ComplianceAttestation attester attestation
   submitMustFail (actAs app <> discloseMany [factoryDisclosure, regDisc, attDisc]) do
     exerciseCmd factory SettlementFactory_SettleBatchWithAttestation with
       settlement
@@ -1407,7 +1407,7 @@ setupRequestScenario prefix = do
   factory <- submit admin do
     createCmd SettlementFactory with
       admin
-      requiresNodeAttestation = None
+      requiresComplianceAttestation = None
       featureFlag = experimentalFeatureFlag
   Some factoryDisclosure <- queryDisclosure @SettlementFactory admin factory
   request <- submit (actAs app <> discloseMany [factoryDisclosure]) do
@@ -1469,7 +1469,7 @@ test_cip112Settlement_instructionWithdrawLeavesHoldingUnlocked = script do
   factory <- submit admin do
     createCmd SettlementFactory with
       admin
-      requiresNodeAttestation = None
+      requiresComplianceAttestation = None
       featureFlag = experimentalFeatureFlag
   Some factoryDisclosure <- queryDisclosure @SettlementFactory admin factory
   aliceHolding <- submit [admin, alice] do
@@ -1527,7 +1527,7 @@ test_cip112Settlement_instructionArchiveNeedsAllSignatories = script do
   factory <- submit admin do
     createCmd SettlementFactory with
       admin
-      requiresNodeAttestation = None
+      requiresComplianceAttestation = None
       featureFlag = experimentalFeatureFlag
   Some factoryDisclosure <- queryDisclosure @SettlementFactory admin factory
   aliceHolding <- submit [admin, alice] do
