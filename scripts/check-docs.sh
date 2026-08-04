@@ -41,7 +41,10 @@ def markdown_headings(path):
             heading = re.sub(r"<[^>]+>", "", heading)
             heading = heading.replace("`", "").lower().strip()
             heading = re.sub(r"[^\w\s-]", "", heading)
-            slug = re.sub(r"\s+", "-", heading)
+            # One hyphen per space, not per whitespace run: GitHub drops the
+            # punctuation but keeps the spaces that surrounded it, so
+            # `## 7. Security & Auditability` is `#7-security--auditability`.
+            slug = re.sub(r"\s", "-", heading)
             occurrence = occurrences.get(slug, 0)
             occurrences[slug] = occurrence + 1
             headings.add(slug if occurrence == 0 else f"{slug}-{occurrence}")
@@ -72,7 +75,7 @@ for directory, dirnames, filenames in os.walk(root):
             if target.startswith("<") and target.endswith(">"):
                 target = target[1:-1]
             target = target.split(" ", 1)[0]
-            if not target or target.startswith(("#", "http://", "https://", "mailto:")):
+            if not target or target.startswith(("http://", "https://", "mailto:")):
                 continue
 
             file_part, separator, anchor = target.partition("#")

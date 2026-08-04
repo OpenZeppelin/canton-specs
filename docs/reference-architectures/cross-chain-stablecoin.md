@@ -274,7 +274,7 @@ separate `nonce` field.
 **Reserve invariant.** Total Canton-minted wrapped supply for an
 instrument never exceeds the sum of valid, unredeemed `LockAttestation`s for it:
 `mintedSupply <= Σ lockedAmount(unredeemed)`. Mint increments the claimed reserve;
-redemption ([section 3.6](#36-outbound-redemption-burn-on-canton--release-on-source-chain-target)) decrements it. This is the on-ledger statement of 1:1 backing.
+redemption ([section 3.6](#36-outbound-redemption-burn-on-canton---release-on-source-chain-target)) decrements it. This is the on-ledger statement of 1:1 backing.
 
 **Where the coupling must bite.** `SettleBatch` conserves value at *settlement*
 by funding the recipient's leg from a sender's locked holdings - so the actual
@@ -723,7 +723,7 @@ transitions rather than bespoke cryptography.
   unexpired, non-replayed attestation whose `lockedAmount` equals the minted
   amount. The typed D1 experiment verifies one registry-trusted attester; the
   target reserve protocol requires the trust policy selected for the gateway.
-  Redemption ([section 3.6](#36-outbound-redemption-burn-on-canton--release-on-source-chain-target)) burns first and decrements the
+  Redemption ([section 3.6](#36-outbound-redemption-burn-on-canton---release-on-source-chain-target)) burns first and decrements the
   reserve. No mint without locked backing; no double-redeem of one lock.
 
 ### 7.2 Threat Model
@@ -830,8 +830,8 @@ audit-readiness claim.
 | Token Standard V2 interfaces and events | Splice Token Standard V2 | `[UPSTREAM]` |
 | Standardized Messaging Gateway and delegated inbound accept | [Section 4](#4-interfaces--usage-examples) | `[TARGET]` |
 | Lock-to-mint reserve binding | [Section 3.5](#35-reserve--lock-attestation-model-target) | `[TARGET]` |
-| Burn-to-release redemption | [Section 3.6](#36-outbound-redemption-burn-on-canton--release-on-source-chain-target) | `[TARGET]` |
-| Governed multi-party authority | [D4 authority](#d1d4-attachment) | `[TARGET]` |
+| Burn-to-release redemption | [Section 3.6](#36-outbound-redemption-burn-on-canton---release-on-source-chain-target) | `[TARGET]` |
+| Governed multi-party authority | [D4 authority](#d1-d4-attachment) | `[TARGET]` |
 | Cross-synchronizer operation | [Section 8](#8-cross-synchronizer-domain-extension-target) | `[TARGET]` |
 
 ## 9. Open Design Questions
@@ -846,7 +846,7 @@ These questions define trust, lifecycle, and interoperability decisions at the
   threshold N, attestor selection / rotation / slashing for a false attestation,
   and how the attestor set is itself governed. This is the largest trust surface
   in the target architecture.
-- **Outbound-redemption cross-chain atomicity ([section 3.6](#36-outbound-redemption-burn-on-canton--release-on-source-chain-target)).** Burn-first / attested-
+- **Outbound-redemption cross-chain atomicity ([section 3.6](#36-outbound-redemption-burn-on-canton---release-on-source-chain-target)).** Burn-first / attested-
   release guarantees no double-spend and no unbacked supply, but the foreign
   release is not atomic with the Canton burn. Open: the standing-claim
   resubmission protocol and SLA for a stalled source-chain release, and whether a
@@ -859,7 +859,7 @@ These questions define trust, lifecycle, and interoperability decisions at the
   `BurnerCapability_Revoke`/`_Rotate` shape (single contract vs. registry of
   capabilities), and the concrete holder/co-authorization model for the
   `[TARGET]` `RedemptionBurnCapability` that gates outbound redemption burns
-  ([section 3.6](#36-outbound-redemption-burn-on-canton--release-on-source-chain-target)) - kept strictly separate from the Custodian's seizure credential.
+  ([section 3.6](#36-outbound-redemption-burn-on-canton---release-on-source-chain-target)) - kept strictly separate from the Custodian's seizure credential.
 - **Aligning gateway scope with native rails.** USDCx bridges natively via Circle
   xReserve + CCTP ([section 1](#1-product-definition)), so this architecture settles it rather than bridging it. Open: a
   general rule for when an inbound asset already has a native Canton rail (settle
@@ -881,7 +881,7 @@ These questions define trust, lifecycle, and interoperability decisions at the
   [`Allocation_Cancel`](../../experiments/settlement/cip-0112/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L477)
   (executors) and
   [`Allocation_Withdraw`](../../experiments/settlement/cip-0112/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L490)
-  (authorizer), both returning locked holdings ([section 3.6](#36-outbound-redemption-burn-on-canton--release-on-source-chain-target)) - so the open questions are
+  (authorizer), both returning locked holdings ([section 3.6](#36-outbound-redemption-burn-on-canton---release-on-source-chain-target)) - so the open questions are
   narrower: who *operationally* runs the reclaim for a dead inbound flow (an
   automated handler needs executor or authorizer authority), how the target gateway enforces
   the mandatory finite `settlementDeadline` on committed inbound allocations
