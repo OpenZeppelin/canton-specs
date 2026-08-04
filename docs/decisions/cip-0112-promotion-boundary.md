@@ -19,11 +19,11 @@ components, and the applications consume the resulting library packages.
 ## Decision
 
 The settlement spine is executable architecture research owned by
-`OpenZeppelin/canton-specs`.
+`canton-specs`.
 
 Only application-independent primitives are candidates for extraction. Each
 candidate is evaluated separately and, when accepted, receives its own package
-identity and release lifecycle in `OpenZeppelin/canton-contracts`. The experiment consumes
+identity and release lifecycle in `canton-contracts`. The experiment consumes
 the accepted DAR through `data-dependencies`.
 
 Complete DEX, lending, stablecoin, and auction implementations belong in
@@ -84,7 +84,7 @@ Promotion of any settlement primitive additionally requires:
 
 - Research can change as evidence improves without forcing public package
   compatibility.
-- `OpenZeppelin/canton-contracts` remains focused on independently consumable artifacts.
+- `canton-contracts` remains focused on independently consumable artifacts.
 - Participant operators vet only the production package closure they actually
   adopt, rather than an umbrella experiment DAR.
 - Reference applications validate library candidates without becoming the

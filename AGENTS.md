@@ -33,13 +33,13 @@ This repository contains:
 - experimental Daml packages that answer a specific research question;
 - Smart Contract Upgrade and migration evidence;
 - interoperability harnesses and reproducible evidence;
-- promotion evidence for reusable `OpenZeppelin/canton-contracts` candidates.
+- promotion evidence for reusable `canton-contracts` candidates.
 
 This repository does not contain:
 
-- a second copy of production packages maintained in `OpenZeppelin/canton-contracts`;
+- a second copy of production packages maintained in `canton-contracts`;
 - local lookalikes presented as canonical Canton or Splice standards;
-- released DARs published under the `OpenZeppelin/canton-specs` name;
+- released DARs published under the `canton-specs` name;
 - complete application products, frontends, or production deployment stacks;
 - grant administration, milestone evidence packets, or reviewer instructions in
   user-facing documentation.
