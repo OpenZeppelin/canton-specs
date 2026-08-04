@@ -871,7 +871,7 @@ Rewards partially offset the traffic bill: a marked swap earns up to 1 to
 1.50 USD against a similar-order traffic cost, so venue fees, not rewards,
 carry the business model; rewards are a rebate.
 
-A precise calculation of the application rewards and traffic cost is deffered to M2, to be done once the implementation and testing/simulations against the DevNet are available. 
+A precise calculation of the application rewards and traffic cost is defered to M2, to be done once the implementation and testing/simulations against the DevNet are available. 
 
 ---
 
