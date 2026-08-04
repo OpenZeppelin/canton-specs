@@ -1,0 +1,15 @@
+sdk-version: 3.4.11
+name: openzeppelin-experimental-cip-interop-exemplar
+source: daml
+version: 0.1.0
+dependencies:
+  - daml-prim
+  - daml-stdlib
+  - daml-script
+data-dependencies:
+  - ../../settlement/fixtures/token-standard-v2/.daml/dist/openzeppelin-experimental-token-standard-v2-fixture-0.1.0.dar
+  - ../../settlement/cip-0112/.daml/dist/openzeppelin-experimental-cip112-settlement-0.1.0.dar
+build-options:
+  - --target=2.1
+  # The executable interop experiment contains both its facade template and Daml Script scenarios.
+  - -Wno-template-interface-depends-on-daml-script

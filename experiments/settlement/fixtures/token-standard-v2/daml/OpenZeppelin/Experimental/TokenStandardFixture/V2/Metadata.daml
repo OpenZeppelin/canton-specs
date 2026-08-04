@@ -1,0 +1,13 @@
+-- | Experimental fixture approximating the metadata shape used by Token
+-- Standard packages for local settlement tests. It is not an upstream
+-- implementation or a conformance artifact. The fixture uses an association
+-- list of `(Text, Text)` instead of the upstream value representation.
+module OpenZeppelin.Experimental.TokenStandardFixture.V2.Metadata where
+
+-- | Free-form key/value metadata attached to V2 records. Experimental encoding.
+data Metadata = Metadata with
+    entries : [(Text, Text)]
+  deriving (Eq, Ord, Show)
+
+emptyMetadata : Metadata
+emptyMetadata = Metadata with entries = []
