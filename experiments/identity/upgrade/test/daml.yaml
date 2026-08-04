@@ -1,0 +1,12 @@
+sdk-version: 3.4.11
+name: openzeppelin-experimental-identity-upgrade-test
+source: daml
+version: 0.0.0
+dependencies:
+  - daml-prim
+  - daml-stdlib
+  - daml-script
+data-dependencies:
+  - ../v2/.daml/dist/openzeppelin-experimental-identity-hook-upgrade-0.2.0.dar
+build-options:
+  - --target=2.1

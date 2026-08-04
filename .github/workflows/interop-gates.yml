@@ -1,19 +1,5 @@
 name: interop-gates
 
-# Automated runs of the two live-ledger interop gates that the main `ci`
-# workflow does not cover (they boot real processes and, for the wallet
-# gateway, pull a third-party npm package):
-#
-#   - scripts/localnet-cip-interop-validation.sh   CIP-86/103/104 exemplars
-#     over the gRPC Ledger API against a static-time sandbox
-#   - scripts/wallet-gateway-cip0103-interop.sh    CIP-103 against the Canton
-#     Wallet Gateway (@canton-network/wallet-gateway-remote) with an
-#     externally-signed wallet party
-#
-# Runs nightly (schedule fires on the default branch) and on demand via
-# workflow_dispatch, so the CIP-103 acceptance evidence stays reproducible
-# instead of resting on a single manual run. DPM provisioning mirrors ci.yml.
-
 on:
   workflow_dispatch:
   schedule:
@@ -27,68 +13,49 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  interop:
+  localnet:
     runs-on: ubuntu-latest
-    timeout-minutes: 45
-    env:
-      OZ_DAML_TOOLCHAIN: dpm
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
 
-      - name: Set up Java 21
-        uses: actions/setup-java@v4
+      - name: Set up Daml
+        uses: ./.github/actions/setup-daml
+
+      - name: Run LocalNet CIP interoperability
+        run: scripts/localnet-cip-interop-validation.sh
+
+      - name: Upload LocalNet evidence
+        if: always()
+        uses: actions/upload-artifact@v4
         with:
-          distribution: temurin
-          java-version: "21"
+          name: localnet-interop-evidence
+          path: .cache/localnet-cip-interop/
+          if-no-files-found: warn
+          retention-days: 30
+
+  wallet-gateway:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Daml
+        uses: ./.github/actions/setup-daml
 
       - name: Set up Node 24
         uses: actions/setup-node@v4
         with:
           node-version: "24"
 
-      - name: Cache DPM + SDKs (~/.dpm)
-        uses: actions/cache@v4
-        with:
-          path: ~/.dpm
-          key: dpm-${{ runner.os }}-sdk-3.4.11-v2
-
-      - name: Provision DPM and the 3.4.11 SDK
-        run: |
-          set -euo pipefail
-          if [ ! -x "$HOME/.dpm/bin/dpm" ]; then
-            version="$(curl -sSf https://get.digitalasset.com/install/latest)"
-            arch="$(uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/')"
-            os="$(uname | tr '[:upper:]' '[:lower:]')"
-            tarball="dpm-${version}-${os}-${arch}.tar.gz"
-            tmp="$(mktemp -d)"
-            curl -SLf "https://get.digitalasset.com/install/dpm-sdk/${tarball}" -o "${tmp}/${tarball}"
-            mkdir -p "${tmp}/extracted"
-            tar xzf "${tmp}/${tarball}" -C "${tmp}/extracted" --strip-components 1
-            "${tmp}/extracted/bin/dpm" bootstrap "${tmp}/extracted"
-            rm -rf "${tmp}"
-          fi
-          echo "$HOME/.dpm/bin" >> "$GITHUB_PATH"
-          export PATH="$HOME/.dpm/bin:$PATH"
-          command -v dpm >/dev/null 2>&1 || {
-            echo "::error::dpm not on PATH after install (expected ~/.dpm/bin/dpm)." >&2
-            exit 1
-          }
-          (cd "$HOME" && dpm install 3.4.11)
-
-      - name: "LocalNet gate: CIP-86/103/104 exemplars over gRPC"
-        run: scripts/localnet-cip-interop-validation.sh
-
-      - name: "Third-party gate: CIP-103 against the Canton Wallet Gateway"
+      - name: Run Canton Wallet Gateway interoperability
         run: scripts/wallet-gateway-cip0103-interop.sh
 
-      - name: Upload run evidence
+      - name: Upload Wallet Gateway evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: interop-gate-evidence
-          path: |
-            .cache/wallet-gateway-interop/gateway-output.json
-            .cache/wallet-gateway-interop/*.log
-            .cache/localnet-cip-interop/*.log
+          name: wallet-gateway-interop-evidence
+          path: .cache/wallet-gateway-interop/
           if-no-files-found: warn
           retention-days: 30

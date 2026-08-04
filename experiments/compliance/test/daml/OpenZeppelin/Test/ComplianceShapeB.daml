@@ -1,0 +1,297 @@
+-- | Smoke tests for experimental compliance-check shape B.
+module OpenZeppelin.Test.ComplianceShapeB where
+
+import DA.Assert ((===))
+import DA.Date (date, Month(Jan))
+import DA.Time (time)
+import Daml.Script
+
+import OpenZeppelin.Experimental.Compliance.ShapeB
+
+t0 : Time
+t0 = time (date 2026 Jan 1) 0 0 0
+
+t1 : Time
+t1 = time (date 2026 Jan 1) 0 1 0
+
+t2 : Time
+t2 = time (date 2026 Jan 1) 0 2 0
+
+-- | Shape B composes a node-signed allow attestation with toy mint,
+-- transfer, seizure to a deployer-configured destination, and burn.
+test_shapeB_smokeTransferMintSeizeBurn : Script ()
+test_shapeB_smokeTransferMintSeizeBurn = script do
+  setTime t0
+  issuer <- allocateParty "shape-b-issuer"
+  node <- allocateParty "shape-b-node"
+  alice <- allocateParty "shape-b-alice"
+  bob <- allocateParty "shape-b-bob"
+  custodian <- allocateParty "shape-b-custodian"
+
+  registry <- submit issuer do
+    createCmd ToyRegistry with
+      issuer
+      issuerNode = node
+      featureFlag = experimentalFeatureFlag
+      seizureDestination = custodian
+  holding <- submit issuer do
+    exerciseCmd registry ToyRegistry_Mint with owner = alice, amount = 100
+  attestation <- submit node do
+    createCmd NodeAttestation with
+      node
+      subjectParty = alice
+      subject = transferSubject issuer alice bob 100
+      decision = Allow
+      validUntil = t1
+      signer = node
+      nonce = "shape-b-allow-001"
+  bobHolding <- submit alice do
+    exerciseCmd holding ToyHolding_Transfer with newOwner = bob, attestationCid = attestation
+  seized <- submit issuer do
+    exerciseCmd bobHolding ToyHolding_Seize with reason = "toy seizure composition"
+  Some seizedHolding <- queryContractId custodian seized
+  seizedHolding.owner === custodian
+  submit custodian do
+    exerciseCmd seized ToyHolding_Burn with reason = "toy burn composition"
+  pure ()
+
+-- | An expired attestation blocks the same toy transfer.
+test_shapeB_expiredAttestationBlocksTransfer : Script ()
+test_shapeB_expiredAttestationBlocksTransfer = script do
+  setTime t2
+  issuer <- allocateParty "shape-b-expired-issuer"
+  node <- allocateParty "shape-b-expired-node"
+  alice <- allocateParty "shape-b-expired-alice"
+  bob <- allocateParty "shape-b-expired-bob"
+  custodian <- allocateParty "shape-b-expired-custodian"
+
+  registry <- submit issuer do
+    createCmd ToyRegistry with
+      issuer
+      issuerNode = node
+      featureFlag = experimentalFeatureFlag
+      seizureDestination = custodian
+  holding <- submit issuer do
+    exerciseCmd registry ToyRegistry_Mint with owner = alice, amount = 100
+  expired <- submit node do
+    createCmd NodeAttestation with
+      node
+      subjectParty = alice
+      subject = transferSubject issuer alice bob 100
+      decision = Allow
+      validUntil = t1
+      signer = node
+      nonce = "shape-b-expired-001"
+  submitMustFail alice do
+    exerciseCmd holding ToyHolding_Transfer with newOwner = bob, attestationCid = expired
+  pure ()
+
+-- | A deny decision blocks the same toy transfer even when the attestation is
+-- signed by the expected node, bound to the expected subject, and not expired.
+test_shapeB_denyBlocksTransfer : Script ()
+test_shapeB_denyBlocksTransfer = script do
+  setTime t0
+  issuer <- allocateParty "shape-b-deny-issuer"
+  node <- allocateParty "shape-b-deny-node"
+  alice <- allocateParty "shape-b-deny-alice"
+  bob <- allocateParty "shape-b-deny-bob"
+  custodian <- allocateParty "shape-b-deny-custodian"
+
+  registry <- submit issuer do
+    createCmd ToyRegistry with
+      issuer
+      issuerNode = node
+      featureFlag = experimentalFeatureFlag
+      seizureDestination = custodian
+  holding <- submit issuer do
+    exerciseCmd registry ToyRegistry_Mint with owner = alice, amount = 100
+  denied <- submit node do
+    createCmd NodeAttestation with
+      node
+      subjectParty = alice
+      subject = transferSubject issuer alice bob 100
+      decision = Deny
+      validUntil = t1
+      signer = node
+      nonce = "shape-b-deny-001"
+  submitMustFail alice do
+    exerciseCmd holding ToyHolding_Transfer with newOwner = bob, attestationCid = denied
+  pure ()
+
+-- | An attestation signed by a different node blocks the toy transfer.
+test_shapeB_wrongSignerBlocksTransfer : Script ()
+test_shapeB_wrongSignerBlocksTransfer = script do
+  setTime t0
+  issuer <- allocateParty "shape-b-signer-issuer"
+  node <- allocateParty "shape-b-signer-node"
+  otherNode <- allocateParty "shape-b-signer-other-node"
+  alice <- allocateParty "shape-b-signer-alice"
+  bob <- allocateParty "shape-b-signer-bob"
+  custodian <- allocateParty "shape-b-signer-custodian"
+
+  registry <- submit issuer do
+    createCmd ToyRegistry with
+      issuer
+      issuerNode = node
+      featureFlag = experimentalFeatureFlag
+      seizureDestination = custodian
+  holding <- submit issuer do
+    exerciseCmd registry ToyRegistry_Mint with owner = alice, amount = 100
+  wrongSigner <- submit otherNode do
+    createCmd NodeAttestation with
+      node = otherNode
+      subjectParty = alice
+      subject = transferSubject issuer alice bob 100
+      decision = Allow
+      validUntil = t1
+      signer = otherNode
+      nonce = "shape-b-wrong-signer-001"
+  submitMustFail alice do
+    exerciseCmd holding ToyHolding_Transfer with newOwner = bob, attestationCid = wrongSigner
+  pure ()
+
+-- | A mismatch between the Daml signatory node and the declared signer blocks
+-- the toy transfer, even when the declared signer is the expected node.
+test_shapeB_nodeSignerMismatchBlocksTransfer : Script ()
+test_shapeB_nodeSignerMismatchBlocksTransfer = script do
+  setTime t0
+  issuer <- allocateParty "shape-b-node-signer-issuer"
+  node <- allocateParty "shape-b-node-signer-node"
+  otherNode <- allocateParty "shape-b-node-signer-other-node"
+  alice <- allocateParty "shape-b-node-signer-alice"
+  bob <- allocateParty "shape-b-node-signer-bob"
+  custodian <- allocateParty "shape-b-node-signer-custodian"
+
+  registry <- submit issuer do
+    createCmd ToyRegistry with
+      issuer
+      issuerNode = node
+      featureFlag = experimentalFeatureFlag
+      seizureDestination = custodian
+  holding <- submit issuer do
+    exerciseCmd registry ToyRegistry_Mint with owner = alice, amount = 100
+  mismatchedSigner <- submit otherNode do
+    createCmd NodeAttestation with
+      node = otherNode
+      subjectParty = alice
+      subject = transferSubject issuer alice bob 100
+      decision = Allow
+      validUntil = t1
+      signer = node
+      nonce = "shape-b-node-signer-mismatch-001"
+  submitMustFail alice do
+    exerciseCmd holding ToyHolding_Transfer with newOwner = bob, attestationCid = mismatchedSigner
+  pure ()
+
+-- | A wrong-subject attestation blocks the toy transfer even when signed by the
+-- expected node and still within its validity window.
+test_shapeB_wrongSubjectBlocksTransfer : Script ()
+test_shapeB_wrongSubjectBlocksTransfer = script do
+  setTime t0
+  issuer <- allocateParty "shape-b-subject-issuer"
+  node <- allocateParty "shape-b-subject-node"
+  alice <- allocateParty "shape-b-subject-alice"
+  bob <- allocateParty "shape-b-subject-bob"
+  custodian <- allocateParty "shape-b-subject-custodian"
+
+  registry <- submit issuer do
+    createCmd ToyRegistry with
+      issuer
+      issuerNode = node
+      featureFlag = experimentalFeatureFlag
+      seizureDestination = custodian
+  holding <- submit issuer do
+    exerciseCmd registry ToyRegistry_Mint with owner = alice, amount = 100
+  wrongSubject <- submit node do
+    createCmd NodeAttestation with
+      node
+      subjectParty = alice
+      subject = transferSubject issuer alice custodian 100
+      decision = Allow
+      validUntil = t1
+      signer = node
+      nonce = "shape-b-wrong-subject-001"
+  submitMustFail alice do
+    exerciseCmd holding ToyHolding_Transfer with newOwner = bob, attestationCid = wrongSubject
+  pure ()
+
+-- Destruction authority (the implicit Archive choice)
+-------------------------------------------------------
+
+-- | The node revokes an issued attestation by archiving it; a transfer
+-- presenting the stale attestation fails. The subject cannot destroy the
+-- node's attestation.
+test_shapeB_archivedAttestationBlocksTransfer : Script ()
+test_shapeB_archivedAttestationBlocksTransfer = script do
+  setTime t0
+  issuer <- allocateParty "shape-b-revoke-issuer"
+  node <- allocateParty "shape-b-revoke-node"
+  alice <- allocateParty "shape-b-revoke-alice"
+  bob <- allocateParty "shape-b-revoke-bob"
+  custodian <- allocateParty "shape-b-revoke-custodian"
+
+  registry <- submit issuer do
+    createCmd ToyRegistry with
+      issuer
+      issuerNode = node
+      featureFlag = experimentalFeatureFlag
+      seizureDestination = custodian
+  holding <- submit issuer do
+    exerciseCmd registry ToyRegistry_Mint with owner = alice, amount = 100
+  attestation <- submit node do
+    createCmd NodeAttestation with
+      node
+      subjectParty = alice
+      subject = transferSubject issuer alice bob 100
+      decision = Allow
+      validUntil = t1
+      signer = node
+      nonce = "shape-b-revoke-001"
+  submitMustFail alice do archiveCmd attestation
+  submit node do archiveCmd attestation
+  submitMustFail alice do
+    exerciseCmd holding ToyHolding_Transfer with newOwner = bob, attestationCid = attestation
+  pure ()
+
+-- | Only the issuer can archive the registry; an archived contract ID cannot be
+-- used to mint.
+test_shapeB_registryArchiveRemovesMintSurface : Script ()
+test_shapeB_registryArchiveRemovesMintSurface = script do
+  issuer <- allocateParty "shape-b-reg-archive-issuer"
+  node <- allocateParty "shape-b-reg-archive-node"
+  alice <- allocateParty "shape-b-reg-archive-alice"
+  custodian <- allocateParty "shape-b-reg-archive-custodian"
+
+  registry <- submit issuer do
+    createCmd ToyRegistry with
+      issuer
+      issuerNode = node
+      featureFlag = experimentalFeatureFlag
+      seizureDestination = custodian
+  submitMustFail node do archiveCmd registry
+  submit issuer do archiveCmd registry
+  submitMustFail issuer do
+    exerciseCmd registry ToyRegistry_Mint with owner = alice, amount = 100
+  pure ()
+
+-- | Destruction authority over a toy holding sits with the issuer (its sole
+-- signatory); the owner only observes it and cannot archive it.
+test_shapeB_holdingArchiveIsIssuerOnly : Script ()
+test_shapeB_holdingArchiveIsIssuerOnly = script do
+  issuer <- allocateParty "shape-b-hold-archive-issuer"
+  node <- allocateParty "shape-b-hold-archive-node"
+  alice <- allocateParty "shape-b-hold-archive-alice"
+  custodian <- allocateParty "shape-b-hold-archive-custodian"
+
+  registry <- submit issuer do
+    createCmd ToyRegistry with
+      issuer
+      issuerNode = node
+      featureFlag = experimentalFeatureFlag
+      seizureDestination = custodian
+  holding <- submit issuer do
+    exerciseCmd registry ToyRegistry_Mint with owner = alice, amount = 100
+  submitMustFail alice do archiveCmd holding
+  submit issuer do archiveCmd holding
+  res <- queryContractId issuer holding
+  res === None

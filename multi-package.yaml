@@ -1,29 +1,21 @@
-# Multi-package layout for the OpenZeppelin Daml contracts workspace.
-#
-# The access-control library ships as three INDEPENDENT packages — a consumer
-# imports only the DAR(s) it needs (e.g. just `openzeppelin-pausable`), which is the whole
-# point of the decoupling (see canton-token-template docs/ARCHITECTURE.md, AL-7).
-# `test` data-depends on all three and is not shipped. The root package and
-# `proof` are the pre-existing M0 hello-world baseline.
-#
-# Build everything in dependency order with `dpm build --all`.
+# Workspace coordinator for independently buildable research packages.
+sdk-version: 3.4.11
+
 packages:
-  - .
-  - proof
-  - access-control
-  - ownable
-  - pausable
-  - experiments/compliance-shape-a
-  - experiments/compliance-shape-b
-  - experiments/identity-hook-shape-a
-  - experiments/identity-hook-shape-b
-  - experiments/identity-hook-upgrade-v1
-  - experiments/identity-hook-upgrade-v2
-  - experiments/identity-hook-upgrade-v1-script
-  - experiments/identity-hook-upgrade-v2-script
-  - experiments/credential-gateway
-  - experiments/token-standard-v2-mock
-  - experiments/cip112-settlement
-  - experiments/settlement-exemplar
-  - experiments/cip-interop-exemplar
-  - test
+  - experiments/compliance/shape-a
+  - experiments/compliance/shape-b
+  - experiments/compliance/test
+  - experiments/identity/credential-gateway
+  - experiments/identity/hook-shape-a
+  - experiments/identity/hook-shape-b
+  - experiments/identity/test
+  - experiments/identity/upgrade/v1
+  - experiments/identity/upgrade/v2
+  - experiments/identity/upgrade/test
+  - experiments/identity/upgrade/driver-v1
+  - experiments/identity/upgrade/driver-v2
+  - experiments/settlement/fixtures/token-standard-v2
+  - experiments/settlement/cip-0112
+  - experiments/settlement/test
+  - experiments/settlement/exemplar
+  - experiments/interoperability/cip-exemplar
