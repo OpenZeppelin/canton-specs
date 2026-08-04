@@ -334,3 +334,23 @@ test_cip0103_gatewayOfferFlowInMemory = do
   assertMsg "wallet-gateway interop: wallet should observe its receipt" (not (null walletReceipts))
   walletEntries <- query @SettlementEventLogEntry wallet
   assertMsg "wallet-gateway interop: wallet should observe its event log entry" (not (null walletEntries))
+
+-- | The offer administrator controls both default archival paths.
+test_cip0103_gatewayOfferArchivesAreAdminOnly : Script ()
+test_cip0103_gatewayOfferArchivesAreAdminOnly = script do
+  admin <- allocateParty "gateway-archive-admin"
+  owner <- allocateParty "gateway-archive-owner"
+  app <- allocateParty "gateway-archive-app"
+  receiver <- allocateParty "gateway-archive-receiver"
+  holdingOfferCid <- submit admin do
+    createCmd GatewayHoldingOffer with admin; owner; amount = gatewayMintAmount
+  allocationOfferCid <- submit admin do
+    createCmd GatewayAllocationOffer with admin; owner; app; receiver
+  submitMustFail owner do
+    exerciseCmd holdingOfferCid Archive
+  submitMustFail owner do
+    exerciseCmd allocationOfferCid Archive
+  submit admin do
+    exerciseCmd holdingOfferCid Archive
+  submit admin do
+    exerciseCmd allocationOfferCid Archive

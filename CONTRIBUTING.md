@@ -4,8 +4,8 @@
 
 Use this repository for a bounded architecture question, executable research,
 or interoperability result. Submit reusable production packages to
-[`canton-contracts`](https://github.com/OpenZeppelin/canton-contracts). Keep
-application-specific business logic with the application it implements.
+[OpenZeppelin/canton-contracts](https://github.com/OpenZeppelin/canton-contracts).
+Keep application-specific business logic with the application it implements.
 
 An experiment should state the question it answers, the assumptions it makes,
 the result it demonstrates, and the conditions under which its code can be
@@ -38,6 +38,12 @@ experiment. `--all` includes templates and choices from DAR dependencies in the
 coverage report. Daml reports template and choice coverage, not source-line or
 branch coverage.
 
+CI runs every declared Daml Script package and prints their aggregate coverage
+in the workflow log and job summary. The gate requires every measured
+repository-owned template and choice to be covered; vendored DAR internals
+remain within their source repositories' coverage scope. Intermediate coverage
+data is temporary and is removed after the gate finishes.
+
 ## Integration evidence
 
 The identity upgrade smoke test exercises contracts created with the v1 package
@@ -67,7 +73,7 @@ the evidence they produce.
 - Keep fixtures narrow and name them as fixtures; do not present them as a
   canonical standard implementation or conformance proof.
 - Consume reusable components through pinned DAR `data-dependencies` and update
-  `dars/manifest.yaml` when the artifact changes.
+  [dars/manifest.yaml](dars/manifest.yaml) when the artifact changes.
 - Document authority, observers, disclosure, privacy, lifecycle, failure modes,
   dependency assumptions, and the research conclusion.
 - Treat a change to signatories, controllers, choices, or settlement behavior as
@@ -76,8 +82,8 @@ the evidence they produce.
 
 ## Documentation
 
-The root `README.md` is a user landing page. Keep testing, coverage, CI, and
-maintenance instructions in this guide or the workflows.
+The root [README.md](README.md) is a user landing page. Keep testing, coverage,
+CI, and maintenance instructions in this guide or the workflows.
 
 Write `README.md` files in present tense and describe only the current contents
 and supported usage. Avoid internal milestone language, review history, stale

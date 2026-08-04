@@ -1,6 +1,10 @@
 # Privacy-preserving DEX reference architecture
 
-This document describes a *reference design* for a constant-product automated market maker dex on Canton, grounded in the OpenZeppelin Canton components from this workspace, as well as the Canton Network Token Standard V2.
+This document describes a *reference design* for a constant-product automated
+market maker DEX on Canton. It draws on reusable OpenZeppelin packages maintained
+in [`canton-contracts`](https://github.com/OpenZeppelin/canton-contracts),
+experimental evidence in this repository, and the Canton Network Token Standard
+V2.
 
 ## 1. Product Definition
 
@@ -139,8 +143,8 @@ Duties are segregated and mapped to discrete Daml parties:
   operator has execution authority to call the settlement factory but never
   holds custody of, nor any unilateral transfer right over trader funds.
 - **LP Token Issuer (`LP_TOKEN_ISSUER`)** - manages LP-token policy. Separating
-  the issuer from the venue operator allows future delegation of LP-token issuance
-  to a regulated third-party custodian.
+  the issuer from the venue operator supports delegating LP-token issuance to a
+  regulated third-party custodian.
 - **Liquidity Token Issuer (`LIQUIDITY_TOKEN_ISSUER`)** - issuer/registrar of the
   base and quote instruments when they do not already exist. Lock-and-sweep follows
   the issuer: the `LIQUIDITY_TOKEN_ISSUER` holds it for instruments it issued, and
@@ -238,10 +242,11 @@ fee stays in the pool, the invariant is **non-decreasing**:
 (reserveIn + amountInWithFee) · (reserveOut − Δout)  ≥  reserveIn · reserveOut
 ```
 
-The implementation will bind the curve
-inputs to the trader's own signed allocation - the trader's signed sender side should equal
-(`amountIn`, input instrument), its signed receiver side should equal (`Δout`, output
-instrument), and that these two transfer legs are the only legs in the settlement. Hence, neither the venue operator nor a stale quote can move reserves off a value the trader did not sign.
+The target design binds the curve inputs to the trader's signed allocation: the
+sender side equals (`amountIn`, input instrument), the receiver side equals
+(`Δout`, output instrument), and those two transfer legs are the settlement's
+only legs. Neither the venue operator nor a stale quote can move reserves away
+from a value the trader signed.
 
 The operational lifecycle orchestrates state transitions that culminate in
 atomic, multi-lateral ledger updates via the CIP-0112 settlement spine.
@@ -489,17 +494,18 @@ For a smart contract upgrade, an existing choice's arguments must never be
 mutated to require a new field. Extensions are managed via appended `Optional`
 fields, new serializable types, and **new choices**.
 
-Consider `Pool_Swap`. Initially, identity gating is handled by inclusion in
-the `TrustedIssuerRegistry`. To later add granular jurisdictional compliance
-(e.g. US users may not trade a given security token), the existing `Pool_Swap`
-signature stays stable. A separate `Pool_SwapWithJurisdiction` choice uses an
-appended `Optional JurisdictionalComplianceHook` field on the `Pool` to enforce
-the advanced logic.
+Consider `Pool_Swap`. Identity gating is handled by inclusion in the
+`TrustedIssuerRegistry`. Granular jurisdictional compliance (e.g. US users may
+not trade a given security token) uses a separate `Pool_SwapWithJurisdiction`
+choice and an appended `Optional JurisdictionalComplianceHook` field on the
+`Pool`, while the existing `Pool_Swap` signature stays stable.
 
 SCU extensions are not security retrofits: adding a stricter choice does
 not close the looser one. If `Pool_Swap` were simply left live and the
 frontend routed around it, anyone could bypass the frontend and call the weaker
-path directly, making the jurisdiction check optional in practice. Hence, the upgrade will also aim to make the `Pool_Swap` choice fail unconditionally, and be marked as `deprecated`.
+path directly, making the jurisdiction check optional in practice. A compatible
+upgrade must therefore make the superseded `Pool_Swap` choice fail
+unconditionally and mark it as `deprecated`.
 
 ---
 
@@ -641,7 +647,7 @@ containment boundaries.
 - **Non-custodial venue (no unilateral execution)**:
   - The venue operator never holds custody of, nor any unilateral right to move, trader funds. 
   - The trader is the sole party able to lock their own holding into an allocation.
-  - The trader will not be allowed to withdraw from an allocation, until after a `settlementDeadline` timestamp.
+  - The settlement deadline blocks the trader from withdrawing an allocation before `settlementDeadline`.
   - The venue operator can only drive a settlement over those exact committed allocations. The venue operator cannot deviate from the authorized leg or fabricate a transfer the trader did not commit to. 
 - **AMM Conservation (`x · y = k`)**:
   - After a swap (minus applied fees), the product of base and quote reserves must be `>=` the product before the swap: `(baseReserves + Δin · (10000 − feeBps)/10000) · (quoteReserves − Δout) ≥
@@ -717,15 +723,16 @@ The following application decisions remain open before implementation.
 - **Venue operator ordering / private MEV.** Removing the public mempool relocates MEV
   to the venue operator, which orders and times batch-settlement submissions ([section 5.4](#54-throughput-and-contention)). Fair
   intake (commit-reveal / fair-ordering), trader-signed slippage bounds, and
-  batching rules that minimize venue operator discretion are candidate mitigations;
-  none are enforced on-ledger today.
+  batching rules that minimize venue operator discretion are candidate
+  mitigations. On-ledger fair ordering, slippage bounds, and batching policy
+  remain open design requirements.
 - **Encoding `minOutputAmount` for a swap.** The trader's `Allocation` carries an
   **exact** receive amount ([section 3](#3-target-design)), so if reserves
   move between quote and settlement the curve check fails and the swap aborts
   rather than filling at a worse price. That is safe but brittle under
   contention: every reserve move invalidates all pending quotes. Open: how to
   express "at least `minOut`" instead. Candidates: (a) keep exact legs and
-  re-quote/re-sign on failure (current behavior); (b) let the trader sign
+  re-quote/re-sign on failure (the specified behavior); (b) let the trader sign
   `minOut` plus a validity window and have `Pool_Swap` compute the actual `Δout`
   from live reserves at settlement, which requires the settlement spine to
   support variable-amount legs bounded by the signed minimum; (c) venue-side

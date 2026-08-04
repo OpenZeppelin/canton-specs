@@ -101,6 +101,15 @@ artifact_lines="$(awk '
 ' "$ROOT/dars/manifest.yaml")"
 [ -n "$artifact_lines" ] || fail "dars/manifest.yaml contains no artifact records"
 
+manifest_artifacts="$(printf '%s\n' "$artifact_lines" | cut -f3 | sort)"
+vendored_artifacts="$(
+	find "$ROOT/dars/vendor" -maxdepth 1 -type f -name '*.dar' -print |
+		sed "s#^$ROOT/##" |
+		sort
+)" || fail "failed to discover vendored DARs"
+[ "$manifest_artifacts" = "$vendored_artifacts" ] ||
+	fail "dars/manifest.yaml must list every vendored DAR exactly once"
+
 while IFS=$'\t' read -r package version file package_id expected; do
 	case "$file" in
 	dars/vendor/*.dar) ;;

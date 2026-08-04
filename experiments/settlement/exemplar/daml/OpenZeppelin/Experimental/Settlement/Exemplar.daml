@@ -251,3 +251,12 @@ regulatedSeizureExemplar = script do
         AllocationD2Swept cids -> length cids === 1
         _ -> abort "exemplar: expected AllocationD2Swept"
     [] -> abort "exemplar: expected an allocation to seize"
+
+-- | Exercises the consumer application's admin-controlled archival path.
+regulatedSettlementAppArchiveExemplar : Script ()
+regulatedSettlementAppArchiveExemplar = script do
+  admin <- allocateParty "exemplar-archive-admin"
+  appCid <- submit admin do
+    createCmd RegulatedSettlementApp with admin
+  submit admin do
+    exerciseCmd appCid Archive

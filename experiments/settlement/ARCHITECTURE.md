@@ -3,7 +3,9 @@
 This document explains how the experimental settlement package lets
 applications authorize allocations, settle batches atomically, attach
 compliance evidence, and resolve in-flight seizure states. It studies CIP-0112
-concepts with a local fixture and does not claim Token Standard V2 conformance.
+concepts with a local fixture. Published upstream Token Standard artifacts
+define canonical package identity and behavior, while the upstream specification
+defines conformance.
 
 The source is
 [`OpenZeppelin.Experimental.Settlement.Cip112`](cip-0112/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml).
@@ -38,8 +40,9 @@ repository.
 | [`../interoperability/cip-exemplar/`](../interoperability/cip-exemplar/) | CIP-0086, CIP-0103, and CIP-0104 integration scenarios |
 
 The fixture supplies the narrow Token Standard V2-shaped types needed to build
-and run the experiment. It is not a canonical Splice package, a replacement for
-published Token Standard DARs, or evidence of standard conformance.
+and run the experiment. Published upstream Token Standard artifacts provide the
+canonical package identity and implementation; the upstream specification
+provides the conformance boundary.
 
 ## Core templates
 

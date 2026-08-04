@@ -17,6 +17,7 @@ Thumbs.db
 CLAUDE.local.md
 .claude/settings.local.json
 .cursor/
+.vscode/
 .aider*
 .windsurf/
 .continue/
@@ -24,5 +25,4 @@ CLAUDE.local.md
 # Daml build state
 .daml/
 .cache/
-.coverage/
 .cache/identity-hook-upgrade-sandbox/

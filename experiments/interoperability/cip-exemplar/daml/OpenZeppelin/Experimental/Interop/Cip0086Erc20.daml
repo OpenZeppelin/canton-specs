@@ -218,6 +218,22 @@ test_cip0086_transferFromExceedsAllowanceFails = script do
       settlement; leg; amount = 30.0; ownerHoldingCids = [ownerHolding]
   pure ()
 
+-- | The allowance owner controls its default archival path.
+test_cip0086_allowanceArchiveIsOwnerOnly : Script ()
+test_cip0086_allowanceArchiveIsOwnerOnly = script do
+  admin <- allocateParty "erc20-archive-admin"
+  owner <- allocateParty "erc20-archive-owner"
+  spender <- allocateParty "erc20-archive-spender"
+  let ownerAcct = basicAccount owner
+  allowanceCid <- submit owner do
+    createCmd Erc20Allowance with
+      admin; owner; ownerAccount = ownerAcct; spender
+      instrumentId = usdSymbol; allowance = 20.0; featureFlag = experimentalFeatureFlag
+  submitMustFail admin do
+    exerciseCmd allowanceCid Archive
+  submit owner do
+    exerciseCmd allowanceCid Archive
+
 -- | A D2 lock-and-sweep resolves a seizure by moving funds to the custodian.
 -- Total supply remains unchanged and the sender receives no refund.
 test_cip0086_d2SeizureIsNotBurnOrRefund : Script ()

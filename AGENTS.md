@@ -7,10 +7,10 @@ workspace for OpenZeppelin's Canton work. Keep experiments bounded,
 reproducible, and clearly separated from released packages and complete
 applications.
 
-Reusable production components belong in `canton-contracts` after their
-promotion boundary, package identity, compatibility model, tests, and release
-path are accepted. Complete reference implementations belong in their
-application repositories.
+Reusable production components belong in `OpenZeppelin/canton-contracts`
+after their promotion boundary, package identity, compatibility model,
+tests, and release path are accepted. Complete reference implementations
+belong in their application repositories.
 
 ## Read order
 
@@ -115,6 +115,12 @@ scripts/check-docs.sh
 Run `scripts/identity-hook-upgrade-smoke.sh` when changing the SCU experiment.
 Run the LocalNet and Wallet Gateway integration gates when changing their Daml
 surface, harness, or participant assumptions.
+
+`scripts/check-tests.sh` discovers every declared Daml Script package, prints
+the aggregate coverage report, and fails when a measured repository-owned
+template or choice is uncovered. It stores intermediate coverage data in a
+temporary directory and removes it on exit. Keep vendored DAR internals outside
+this repository's coverage gate.
 
 The CI-only discovery scripts validate all declared packages. Public and
 contributor documentation shows native DPM commands instead of presenting those
