@@ -63,9 +63,9 @@ On public EVM networks, a bridge mints tokens into a globally visible state ledg
 
 The inbound message from the gateway therefore does **not** mint-and-broadcast an asset in one global update. Instead the gateway drives an isolated, recipient-targeted allocation on the spine. State changes by archive-and-recreate rather than in-place mutation, and the atomic DvP archives the inbound request and creates a [`SettlementReceipt`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L695) visible only to the recipient, the relayer, and the required compliance verifiers. Cross-chain settlement thereby inherits Canton's data compartmentalization.
 
-Because a recipient's signature (or a standing delegation of it) is required to bind them to an allocation, **two-step handshakes (Daml's propose-and-accept pattern) are a necessity, not a style choice**. The design uses **contract keys** (reintroduced in [Canton 3.5.1+](https://github.com/digital-asset/canton/releases/tag/v3.5.1)) so the `PauseState`, the trusted-issuer and trusted-attester registries, and the consumed-nonce registry keep stable, unique identities across those archive-and-recreate cycles.
+Because a recipient's signature (or a standing delegation of it) is required to bind them to an allocation, **two-step handshakes (Daml's propose-and-accept pattern) are a necessity, not a style choice**. The design uses **contract keys** (reintroduced in [Canton 3.5.1+](https://github.com/digital-asset/canton/releases/tag/v3.5.1)) so the `PauseState`, the trusted-issuer registry, and the consumed-nonce registry keep stable, unique identities across those archive-and-recreate cycles. The trusted-attester registry is the deliberate exception: settlement takes its contract id from the caller and defeats substitution by requiring `registry.admin == factoryAdmin` (diagram A, [section 3](#3-how-we-implement-it)).
 
-Contract keys are the design target, not what runs today. The `[IMPLEMENTED]` experiment code sits on the workspace's pinned SDK baseline and is keyless: each choice takes a caller-supplied registry contract id and asserts that registry shares the factory's admin. The by-key resolution shown throughout lands with the Canton 3.5.1+ SDK migration.
+Contract keys are the design target, not what runs today, and the gap has two parts. **SDK**: the `[IMPLEMENTED]` experiment code sits on the workspace's pinned baseline, which has no key support at all, so each choice instead takes a caller-supplied registry contract id and asserts that registry shares the factory's admin. **Templates**: no template in this workspace declares a `key` today, so the by-key resolution shown below is also a template change, not only an SDK migration. Because a key's maintainers must be signatories of the keyed contract, each key is fixed by that contract's own authority rather than by the rail `admin`: [`PauseState`](../../pausable/daml/OpenZeppelin/Pausable.daml#L47) is `signatory pauser` and carries no `admin` field, so its key is `pauser`, and ShapeB's [`TrustedIssuerRegistry`](../../experiments/identity-hook-shape-b/daml/OpenZeppelin/Experimental/Identity/ShapeB.daml#L84) is `signatory registryAdmin`, so its key is `registryAdmin`. The snippets and diagrams below use those maintainers.
 
 ---
 
@@ -145,14 +145,14 @@ The diagrams below decompose the design around the shared `Atomic settlement` hu
 - **C** is the outbound redemption that mirrors B.
 - **D** is the operational control plane (pausing and D2 seizure). Keyed contracts are marked with their key.
 
-**A. Compliance and identity (D1 + D3).** The registries list several independent attesters and issuers (one of each shown). The two gates fire at different points in the flow. D3 identity is checked at **request** time, in the gateway: no valid claim from a listed issuer whose subject is the recipient, no allocation request. D1 compliance is checked at **settlement** time: a single-use attestation from a listed attester, bound to this batch's own legs.
+**A. Compliance and identity (D1 + D3).** The registries list several independent attesters and issuers (one of each shown). The two gates fire at different points in the flow. D3 identity is checked at **request** time, in the gateway: no valid claim from a listed issuer whose subject is the recipient, no allocation request. D1 compliance is checked at **settlement** time: a single-use attestation from a listed attester, bound to this batch's own legs. Note the two registries are reached differently: the issuer registry is key-resolved in the gateway, while the attester registry is **not** — the settling caller supplies its contract id and [`ComplianceAttestation_Verify`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L836) rejects any registry whose `admin` is not the settling factory's admin, so what defeats registry substitution there is the admin match, not a key.
 
 ```mermaid
 flowchart TD
     Attester([Attester])
     Issuer([KYC Issuer])
-    AttReg[["TrustedAttesterRegistry<br/>key: admin"]]
-    IssReg[["TrustedIssuerRegistry<br/>key: admin"]]
+    AttReg["TrustedAttesterRegistry<br/>signatory: admin"]
+    IssReg[["TrustedIssuerRegistry<br/>key: registryAdmin"]]
     Attn["ComplianceAttestation<br/>signed, single-use"]
     Kyc["KycClaim<br/>signed"]
     GW{{"Gateway_ProcessInbound<br/>D3 gate - request time"}}
@@ -161,13 +161,13 @@ flowchart TD
     Issuer -->|"listed in"| IssReg
     Issuer -->|"signs"| Kyc
     Kyc -->|"subjectParty == recipient"| GW
-    IssReg -->|"fetchByKey admin; issuer trusted?"| GW
+    IssReg -->|"fetchByKey registryAdmin; issuer trusted?"| GW
     GW ==>|"AllocationRequest; no valid claim, no request"| Settle
 
     Attester -->|"listed in"| AttReg
     Attester -->|"signs"| Attn
     Attn -->|"verify + consume"| Settle
-    AttReg -->|"fetchByKey admin; attester trusted?"| Settle
+    AttReg -->|"cid supplied by caller; registry.admin == factory admin; attester trusted?"| Settle
 ```
 
 **B. Inbound mint settlement.** The attesters sign the one-time carrier; the gateway consumes it, records the nonce, and creates the executor-signed allocation request whose amount is exactly the attested amount. The recipient's standing `TransferPreapproval` supplies their authority to commit the receiving allocation, and the Stablecoin Admin's mint leg and the recipient's credit settle in one transaction, with compliance (from A) plugged in.
@@ -217,7 +217,7 @@ flowchart LR
 ```mermaid
 flowchart TD
     Pauser([Pause Authority])
-    Pause[["PauseState<br/>key: admin"]]
+    Pause[["PauseState<br/>key: pauser"]]
     GW[["StandardizedMessagingGateway"]]
     Custodian([Custodian])
     Cap["BurnerCapability<br/>admin-signed witness"]
@@ -225,7 +225,7 @@ flowchart TD
     Dest[("Preset custodian account")]
 
     Pauser -->|"PauseState_Set"| Pause
-    GW -->|"fetchByKey admin; abort if paused"| Pause
+    GW -->|"fetchByKey pauser; abort if paused"| Pause
     Custodian -->|"Mark + Sweep D2 in-flight seizure"| Alloc
     Cap -->|"admin / assignee / scope validated"| Alloc
     Alloc ==>|"swept"| Dest
@@ -355,7 +355,7 @@ The code below is idiomatic Daml that composes with the libraries above. These s
 
 ### 4.1 Component: Standardized Messaging Gateway (bounded mock) `[FUTURE]`
 
-The gateway is the cross-chain boundary. Its single inbound choice validates the relayer's role grant, resolves the pause state and registries **by key** (so membership changes never leave it holding a stale contract id), consumes the one-time attested carrier, records the nonce fail-closed, and creates an executor-signed allocation request whose amount is exactly the attested amount. The recipient-side allocation is deliberately not created here: the gateway carries no recipient authority, so binding the recipient happens in [section 4.2](#42-component-inbound-dvp-via-delegated-accept-future) under the recipient's own standing signature.
+The gateway is the cross-chain boundary. Its single inbound choice validates the relayer's role grant, resolves the pause state and the identity and nonce registries **by key** — each keyed by its own maintaining authority (`pauser`, `registryAdmin`, the rail `admin`), so membership changes never leave the gateway holding a stale contract id — consumes the one-time attested carrier, records the nonce fail-closed, and creates an executor-signed allocation request whose amount is exactly the attested amount. The recipient-side allocation is deliberately not created here: the gateway carries no recipient authority, so binding the recipient happens in [section 4.2](#42-component-inbound-dvp-via-delegated-accept-future) under the recipient's own standing signature.
 
 ```daml
 module CrossChain.Gateway where
@@ -377,6 +377,8 @@ template StandardizedMessagingGateway
     admin : Party
     operator : Party
     stablecoinAdmin : Party  -- issuing admin of the gateway-minted wTOK
+    pauser : Party           -- pause authority; maintainer of the PauseState key
+    registryAdmin : Party    -- compliance verifier; maintainer of the issuer-registry key
   where
     signatory admin, operator
 
@@ -396,10 +398,12 @@ template StandardizedMessagingGateway
         grant <- fetch relayerGrant
         requireRole operator (roleId Relayer) admin grant
 
-        -- Pause gate and D3 identity, resolved by key.
-        (_, pause) <- fetchByKey @PauseState admin
+        -- Pause gate and D3 identity, resolved by key. A key's maintainers must be
+        -- signatories of the keyed contract, so each key is that contract's own
+        -- authority: `pauser` for PauseState, `registryAdmin` for the issuer registry.
+        (_, pause) <- fetchByKey @PauseState pauser
         whenNotPaused pause
-        (_, registry) <- fetchByKey @TrustedIssuerRegistry admin
+        (_, registry) <- fetchByKey @TrustedIssuerRegistry registryAdmin
         claim <- fetch kycClaimCid
         assertMsg "identity mismatch" (claim.subjectParty == recipient)
         assertMsg "issuer not trusted" (claim.declaredIssuer `elem` registry.trustedIssuers)
@@ -483,6 +487,7 @@ template CrossChainDvP
         settlement : SettlementInfo
         transferLegs : [TransferLeg]
         attestationCid : ContractId ComplianceAttestation
+        registryCid : ContractId TrustedAttesterRegistry  -- checked against the factory's admin
       controller executor
       do
         -- The recipient's required co-authorization flows through a choice on the
@@ -498,12 +503,14 @@ template CrossChainDvP
 
         -- Atomic DvP via the attested spine entrypoint: the issuer's SenderSide
         -- mint leg and the recipient's ReceiverSide settle together or not at all,
-        -- presenting the signed compliance attestation (D1).
+        -- presenting the signed compliance attestation and the attester registry
+        -- (D1). The registry cid is caller-supplied; verification rejects any
+        -- registry whose admin is not the factory's own admin.
         receipts <- exercise batchFactoryCid SettlementFactory_SettleBatchWithAttestation with
           settlement; transferLegs
           allocationCids = [issuerSendAllocationId, allocationId]
           actors = settlement.executors
-          attestationCid
+          attestationCid; registryCid
         case receipts of
           r :: _ -> pure r
           [] -> abort "SettleBatch returned no receipt"
