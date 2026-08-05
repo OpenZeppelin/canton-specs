@@ -294,7 +294,6 @@ allocateImpl rules arg = do
     lockExpiresAt
     d1ComplianceHook = rules.d1ComplianceHook
     d2SeizureHook = None
-    seizureWindowEnd = None
     maxSeizureExtension = rules.maxSeizureExtension
     requiredAttesterRegistryCid = rules.requiredAttesterRegistryCid
 

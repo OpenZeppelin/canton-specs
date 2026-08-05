@@ -80,7 +80,6 @@ template TokenAllocation with
       -- succeed before the authorizer can re-spend the funding.
     d1ComplianceHook : Optional D1ComplianceHook
     d2SeizureHook : Optional D2SeizureHook
-    seizureWindowEnd : Optional Time
     maxSeizureExtension : RelTime
       -- ^ Registry policy cap, stamped at creation: how far past the deadline a
       -- seizure window may reach. Taking this from the choice argument would
@@ -150,41 +149,27 @@ template TokenAllocation with
           holdings <- unlockAndLog this "allocation cancelled"
           pure (holdings, emptyMetadata)
 
-    -- D2 extension: admin freezes the allocation pending seizure. Baseline
-    -- marks are only resolvable before the settlement deadline, so refuse to
-    -- create a frozen state no sweep could resolve.
+    -- D2 extension: admin freezes the allocation pending seizure. Every
+    -- seizure carries an explicit lapse point (`seizureHook.windowEnd`); it
+    -- must lie in the future — a lapsed window would be releasable in the same
+    -- instant and freeze nothing — and within the registry's maximum extension
+    -- past the deadline. A window reaching past the settlement deadline is
+    -- only sweepable via the lawful-process choice.
     choice TokenAllocation_MarkD2Seizure : ContractId TokenAllocation
       with seizureHook : D2SeizureHook
       controller allocation.admin
       do
         require "allocation is already under D2 seizure" (isNone d2SeizureHook)
         requireDistinctCustodian allocation.admin seizureHook
+        -- A seizure is an in-flight measure, so it cannot be opened on an
+        -- allocation already past its deadline.
         forA_ allocation.settlementDeadline (assertWithinDeadline "allocation.settlementDeadline")
-        create this with
-          d2SeizureHook = Some seizureHook
-          originalAllocationCid = Some (allocationChainRoot this self)
-
-    -- D2 with an explicit lawful seizure window, which may extend past the
-    -- settlement deadline but only as far as registry policy allows; sweeping
-    -- then requires the lawful-process choice.
-    choice TokenAllocation_MarkD2SeizureWithWindow : ContractId TokenAllocation
-      with
-        seizureHook : D2SeizureHook
-        windowEnd : Time
-      controller allocation.admin
-      do
-        require "allocation is already under D2 seizure" (isNone d2SeizureHook)
-        requireDistinctCustodian allocation.admin seizureHook
-        -- Same precondition as the baseline mark: a seizure is an in-flight
-        -- measure, so it cannot be opened on an allocation already past its
-        -- deadline.
-        forA_ allocation.settlementDeadline (assertWithinDeadline "allocation.settlementDeadline")
+        assertWithinDeadline "seizureHook.windowEnd" seizureHook.windowEnd
         let capBase = fromOptional expiresAt allocation.settlementDeadline
         require "seizure window exceeds the registry's maximum extension"
-          (windowEnd <= capBase `addRelTime` maxSeizureExtension)
+          (seizureHook.windowEnd <= capBase `addRelTime` maxSeizureExtension)
         create this with
           d2SeizureHook = Some seizureHook
-          seizureWindowEnd = Some windowEnd
           originalAllocationCid = Some (allocationChainRoot this self)
 
     -- Admin releases a seizure that will not be swept; the normal lifecycle
@@ -195,11 +180,11 @@ template TokenAllocation with
         _ <- requireD2Seizure d2SeizureHook
         create this with
           d2SeizureHook = None
-          seizureWindowEnd = None
           originalAllocationCid = Some (allocationChainRoot this self)
 
     -- Any stakeholder may release a seizure whose window has lapsed, so an
-    -- abandoned mark cannot strand the funds pending admin action.
+    -- abandoned mark cannot strand the funds pending admin action. The window
+    -- is mandatory on the hook, so the lapse point always exists.
     choice TokenAllocation_ReleaseLapsedD2Seizure : ContractId TokenAllocation
       with actor : Party
         -- ^ Any single stakeholder may act; a controller list would be a
@@ -208,20 +193,17 @@ template TokenAllocation with
       do
         require "actor must be a stakeholder of the allocation"
           (actor `elem` allocationStakeholders this)
-        _ <- requireD2Seizure d2SeizureHook
-        case seizureWindowEnd of
-          Some windowEnd -> assertDeadlineExceeded "seizureWindowEnd" windowEnd
-          None -> forA_ allocation.settlementDeadline
-            (assertDeadlineExceeded "allocation.settlementDeadline")
+        hook <- requireD2Seizure d2SeizureHook
+        assertDeadlineExceeded "seizureHook.windowEnd" hook.windowEnd
         create this with
           d2SeizureHook = None
-          seizureWindowEnd = None
           originalAllocationCid = Some (allocationChainRoot this self)
 
     -- Sweep seized locked holdings to the preset custodian destination. The
     -- burner must present an admin-issued capability naming them; destination
     -- account parties co-sign because they become signatories of the created
-    -- holdings.
+    -- holdings. Must land within both the settlement deadline and the seizure
+    -- window; only the lawful-process sweep may act past the deadline.
     choice TokenAllocation_SweepD2Seizure : TextMap.TextMap [ContractId HoldingV2.Holding]
       with
         burner : Party
@@ -230,11 +212,12 @@ template TokenAllocation with
       do
         hook <- requireD2Seizure d2SeizureHook
         forA_ allocation.settlementDeadline (assertWithinDeadline "allocation.settlementDeadline")
+        assertWithinDeadline "seizureHook.windowEnd" hook.windowEnd
         sweepToCustodian this hook burner burnerCapCid hook.seizureCaseRef
 
     -- Sweep under a lawful-process order signed by a non-admin authority in the
-    -- registry's trusted set; honours the seizure window, which is the only
-    -- path allowed to seize past the settlement deadline.
+    -- registry's trusted set; honours the seizure window alone, so it is the
+    -- only path allowed to seize past the settlement deadline.
     choice TokenAllocation_SweepD2WithLawfulProcess : TextMap.TextMap [ContractId HoldingV2.Holding]
       with
         burner : Party
@@ -243,9 +226,7 @@ template TokenAllocation with
       controller d2SweepControllers allocation.admin d2SeizureHook burner
       do
         hook <- requireD2Seizure d2SeizureHook
-        case seizureWindowEnd of
-          Some windowEnd -> assertWithinDeadline "seizureWindowEnd" windowEnd
-          None -> forA_ allocation.settlementDeadline (assertWithinDeadline "allocation.settlementDeadline")
+        assertWithinDeadline "seizureHook.windowEnd" hook.windowEnd
         -- The order is the anchor: a free-text reference chosen by the admin
         -- proved nothing about lawful process.
         requireSeizureOrder requiredAttesterRegistryCid seizureOrderCid

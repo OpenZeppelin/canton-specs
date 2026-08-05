@@ -721,6 +721,7 @@ testFixAvailableActionsMatchImpl = do
         seizureCaseRef = "case-secret"
         custodianDestination = basicAccount custodian
         inFlightHandlingStatus = "held"
+        windowEnd = t3
   Some sv <- queryInterfaceContractId @AllocationV2.Allocation alice (toInterfaceContractId markedCid)
   Map.toList sv.availableActions === []
   TextMap.lookup d2StatusMetaKey sv.meta.values === Some d2HeldStatus
@@ -740,6 +741,7 @@ testFixSeizureCustodianMustBeDistinct = do
         seizureCaseRef = "case-1"
         custodianDestination = basicAccount admin
         inFlightHandlingStatus = "held"
+        windowEnd = t3
 
 -- | HIGH-4: a seizure window beyond the registry's maximum extension is
 -- refused, and a lapsed seizure can be released by any stakeholder so an
@@ -755,16 +757,19 @@ testFixSeizureWindowBounded = do
         seizureCaseRef = "case-1"
         custodianDestination = basicAccount custodian
         inFlightHandlingStatus = "held"
+        windowEnd = t3
   -- Far-future window exceeds maxSeizureExtension (30 days from t2).
   submitMustFail (actAs admin) do
-    exerciseCmd templateCid TokenAllocation_MarkD2SeizureWithWindow with
-      seizureHook = hook
-      windowEnd = time (date 2027 Jan 1) 0 0 0
+    exerciseCmd templateCid TokenAllocation_MarkD2Seizure with
+      seizureHook = hook with windowEnd = time (date 2027 Jan 1) 0 0 0
+  -- An already-lapsed window is refused: it would freeze nothing.
+  submitMustFail (actAs admin) do
+    exerciseCmd templateCid TokenAllocation_MarkD2Seizure with
+      seizureHook = hook with windowEnd = t0
   -- A window inside policy is accepted.
   markedCid <- submit (actAs admin) do
-    exerciseCmd templateCid TokenAllocation_MarkD2SeizureWithWindow with
+    exerciseCmd templateCid TokenAllocation_MarkD2Seizure with
       seizureHook = hook
-      windowEnd = t3
   -- While the window is open, the authorizer cannot release it.
   submitMustFail (actAs alice) do
     exerciseCmd markedCid TokenAllocation_ReleaseLapsedD2Seizure with actor = alice
@@ -800,6 +805,7 @@ testFixSweepConservesAndReportsLegs = do
         seizureCaseRef = "case-1"
         custodianDestination = basicAccount custodian
         inFlightHandlingStatus = "held"
+        windowEnd = t3
   capCid <- submit admin do
     createCmd BurnerCapability with
       admin
@@ -876,10 +882,10 @@ testFixLawfulProcessNeedsOrder = do
         seizureCaseRef = "case-1"
         custodianDestination = basicAccount custodian
         inFlightHandlingStatus = "held"
+        windowEnd = t3
   markedCid <- submit (actAs admin) do
-    exerciseCmd templateCid TokenAllocation_MarkD2SeizureWithWindow with
+    exerciseCmd templateCid TokenAllocation_MarkD2Seizure with
       seizureHook = hook
-      windowEnd = t3
   capCid <- submit admin do
     createCmd BurnerCapability with
       admin; assignee = admin; instrumentScope = None
@@ -914,6 +920,53 @@ testFixLawfulProcessNeedsOrder = do
       seizureOrderCid = orderCid
   custodianAfter <- holdingAmounts custodian
   custodianAfter === [10.0]
+
+-- | D2 lapse-point regression: a seizure of an allocation with NO settlement
+-- deadline still freezes. When the window was optional, a windowless mark on a
+-- deadline-less allocation left the lapse check vacuous, so the seized party
+-- could release it in the same instant and withdraw — the freeze was a no-op.
+-- The window is now mandatory and must be in the future, so the freeze holds
+-- until `windowEnd` and the anti-strand release works only after it.
+testFixNoDeadlineSeizureStillFreezes : Script ()
+testFixNoDeadlineSeizureStillFreezes = do
+  s@Scenario{..} <- setup
+  aliceInput <- mint admin alice 10.0
+  let spec = (mkAllocationSpec admin alice [senderSide legAliceToBob]) with
+        settlementDeadline = None
+  aliceResult <- allocateSpec s alice spec [aliceInput]
+  aliceAllocCid <- completedCid aliceResult
+  let templateCid = fromInterfaceContractId @TokenAllocation aliceAllocCid
+      hook = D2SeizureHook with
+        seizureCaseRef = "case-no-deadline"
+        custodianDestination = basicAccount custodian
+        inFlightHandlingStatus = "held"
+        windowEnd = t3
+  -- An already-lapsed window cannot open the seizure.
+  submitMustFail (actAs admin) do
+    exerciseCmd templateCid TokenAllocation_MarkD2Seizure with
+      seizureHook = hook with windowEnd = t0
+  markedCid <- submit (actAs admin) do
+    exerciseCmd templateCid TokenAllocation_MarkD2Seizure with seizureHook = hook
+  -- While the window is open, the seized party can neither release the mark
+  -- nor withdraw around it.
+  submitMustFail (actAs alice) do
+    exerciseCmd markedCid TokenAllocation_ReleaseLapsedD2Seizure with actor = alice
+  submitMustFail (actAs alice) do
+    exerciseCmd (toInterfaceContractId @AllocationV2.Allocation markedCid)
+      AllocationV2.Allocation_Withdraw with
+        actors = [alice]
+        extraArgs = emptyExtraArgs
+  -- Once the window lapses, the anti-strand release opens up again.
+  setTime t4
+  releasedCid <- submit (actAs alice) do
+    exerciseCmd markedCid TokenAllocation_ReleaseLapsedD2Seizure with actor = alice
+  _ <- submit (actAs alice) do
+    exerciseCmd (toInterfaceContractId @AllocationV2.Allocation releasedCid)
+      AllocationV2.Allocation_Withdraw with
+        actors = [alice]
+        extraArgs = emptyExtraArgs
+  aliceAfter <- holdingAmounts alice
+  aliceAfter === [10.0]
 
 
 -- D1 compliance gate
