@@ -198,8 +198,13 @@ template TokenAllocation with
           seizureWindowEnd = None
           originalAllocationCid = Some (allocationChainRoot this self)
 
-    -- Any stakeholder may release a seizure whose window has lapsed, so an
-    -- abandoned mark cannot strand the funds pending admin action.
+    -- Any stakeholder may release a seizure whose lapse point has passed, so an
+    -- abandoned mark cannot strand the funds pending admin action. The lapse
+    -- point is the seizure window end, or, for a windowless mark, the settlement
+    -- deadline. A windowless mark on an allocation with no settlement deadline
+    -- has no lapse point at all: it must not be releasable this way, or the
+    -- seizure's own subject could clear it the instant it was placed. The admin
+    -- clears such a mark through `TokenAllocation_UnmarkD2Seizure`.
     choice TokenAllocation_ReleaseLapsedD2Seizure : ContractId TokenAllocation
       with actor : Party
         -- ^ Any single stakeholder may act; a controller list would be a
@@ -211,8 +216,11 @@ template TokenAllocation with
         _ <- requireD2Seizure d2SeizureHook
         case seizureWindowEnd of
           Some windowEnd -> assertDeadlineExceeded "seizureWindowEnd" windowEnd
-          None -> forA_ allocation.settlementDeadline
-            (assertDeadlineExceeded "allocation.settlementDeadline")
+          None -> case allocation.settlementDeadline of
+            Some deadline -> assertDeadlineExceeded "allocation.settlementDeadline" deadline
+            None -> fail
+              "a windowless seizure on an allocation with no settlement deadline \
+              \has no lapse point and can only be cleared by the admin"
         create this with
           d2SeizureHook = None
           seizureWindowEnd = None

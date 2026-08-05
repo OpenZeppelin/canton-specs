@@ -784,6 +784,42 @@ testFixSeizureWindowBounded = do
   aliceAfter <- holdingAmounts alice
   aliceAfter === [10.0]
 
+-- | A windowless seizure on an allocation with no settlement deadline has no
+-- lapse point, so its subject cannot self-release it: only the admin can clear
+-- it, via `TokenAllocation_UnmarkD2Seizure`. Without this the seized party could
+-- release the mark the instant it was placed and withdraw the funds.
+testFixWindowlessSeizureOnDeadlinelessAllocationNotReleasable : Script ()
+testFixWindowlessSeizureOnDeadlinelessAllocationNotReleasable = do
+  s@Scenario{..} <- setup
+  aliceInput <- mint admin alice 10.0
+  let noDeadlineSpec = (mkAllocationSpec admin alice [senderSide legAliceToBob]) with
+        settlementDeadline = None
+  aliceResult <- allocateSpec s alice noDeadlineSpec [aliceInput]
+  aliceAllocCid <- completedCid aliceResult
+  let templateCid = fromInterfaceContractId @TokenAllocation aliceAllocCid
+  markedCid <- submit (actAs admin) do
+    exerciseCmd templateCid TokenAllocation_MarkD2Seizure with
+      seizureHook = D2SeizureHook with
+        seizureCaseRef = "case-1"
+        custodianDestination = basicAccount custodian
+        inFlightHandlingStatus = "held"
+  -- The subject cannot release the mark, now or ever, as there is no lapse point.
+  submitMustFail (actAs alice) do
+    exerciseCmd markedCid TokenAllocation_ReleaseLapsedD2Seizure with actor = alice
+  setTime t4
+  submitMustFail (actAs alice) do
+    exerciseCmd markedCid TokenAllocation_ReleaseLapsedD2Seizure with actor = alice
+  -- The admin retains the escape hatch, after which the funds are withdrawable.
+  releasedCid <- submit (actAs admin) do
+    exerciseCmd markedCid TokenAllocation_UnmarkD2Seizure
+  _ <- submit (actAs alice) do
+    exerciseCmd (toInterfaceContractId @AllocationV2.Allocation releasedCid)
+      AllocationV2.Allocation_Withdraw with
+        actors = [alice]
+        extraArgs = emptyExtraArgs
+  aliceAfter <- holdingAmounts alice
+  aliceAfter === [10.0]
+
 -- | MED-2: a D2 sweep moves value between accounts, so it must report matched
 -- transfer legs; the sweep itself conserves value and needs the custodian's
 -- authority.
