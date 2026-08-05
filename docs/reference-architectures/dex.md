@@ -261,7 +261,9 @@ The target design binds the curve inputs to the trader's signed allocation: the
 sender side equals (`amountIn`, input instrument), the receiver side equals
 (`Δout`, output instrument), and those two transfer legs are the settlement's
 only legs. Neither the venue operator nor a stale quote can move reserves away
-from a value the trader signed.
+from a value the trader signed. If reserves move between quote and settlement,
+the swap aborts rather than fills worse; encoding "at least `minOut`" instead
+is an open question ([section 7](#7-open-design-questions)).
 
 The operational lifecycle orchestrates state transitions that culminate in
 atomic, multi-lateral ledger updates via the CIP-0112 settlement spine.
@@ -448,6 +450,14 @@ Assumptions:
 - Rejections, including a lost contention race on a hot `Pool`, arrive on the
   completion stream; the backend re-quotes and retries.
 
+**Progress tracking.** The async model requires the venue backend to track each
+swap as a state machine keyed by command id: every step above either lands on
+the completion stream or times out against its deadline and marks the workflow
+stuck. A stuck workflow raises an operator alert and a trader-visible status
+(pending step, owing party, the deadline after which the trader can withdraw).
+[Section 5.4](#54-failure-modes-and-recovery) enumerates the stuck states and
+their exits.
+
 ### Time Model and Deadlines
 
 Canton features that the protocol must take into consideration:
@@ -548,7 +558,7 @@ signatories), and every flow above moves holdings into or out of that account, i
 - **The invariant** that must hold is **`reserves == Σ(pool-account holdings)` per instrument**. Because reserve updates and holding movements commit co-atomically, the two cannot drift within a
 transaction; the caveat is *fragmentation* - many small holdings accumulating in
 the pool account over time. A periodic **consolidation** step (the pool merges
-its holdings for an instrument into one, leaving reserves unchaged) keeps settlement cheap.
+its holdings for an instrument into one, leaving reserves unchanged) keeps settlement cheap.
 
 ### D1: Compliance through Party-Applied Attestation
 
@@ -557,11 +567,10 @@ Institutional DeFi requires that sanctioned or unverified parties cannot trade. 
 
 ### D2: Seizure Through Preset Custodian Lock-and-Sweep
 
-Institutional DeFi requires the ability to seize assets under judicial mandate. The design uses a strict **lock-and-sweep** pattern that locks the funds and sweeps them to a preset custodian account. The settlement experiment demonstrates this through [`Allocation_MarkD2InFlightSeizure`](../../experiments/settlement/cip-0112/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml) and [`Allocation_SweepD2InFlightSeizure`](../../experiments/settlement/cip-0112/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml).
-
+Institutional DeFi requires the ability to seize assets under judicial mandate. The design uses an optional, strict **lock-and-sweep** pattern that locks the funds and sweeps them to a preset custodian account. The settlement experiment demonstrates this through [`Allocation_MarkD2InFlightSeizure`](../../experiments/settlement/cip-0112/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml) and [`Allocation_SweepD2InFlightSeizure`](../../experiments/settlement/cip-0112/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml).
 ### D3: Know-your-customer
 
-Institutional DeFi requires participants to be identified. The target design uses a single-synchronizer identity architecture. Traders must hold a `KycClaim` issued by a party present in the `TrustedIssuerRegistry` to interact with permissioned pools. D1 (compliance) and D3 (identity) can be **optional per pool** (permissioned versus permissionless).
+Institutional DeFi requires participants to be identified. The target design uses a single-synchronizer identity architecture. Traders must hold a `KycClaim` issued by a party present in the `TrustedIssuerRegistry` to interact with permissioned pools. D1 (compliance) and D3 (identity) can be **optional per pool** (permissioned versus permissionless); D2 (seizure) is **optional per instrument**, set at issuance.
 
 ### D4: Authority and Privilege Transfer
 
@@ -901,7 +910,7 @@ Rewards partially offset the traffic bill: a marked swap earns up to 1 to
 1.50 USD against a similar-order traffic cost, so venue fees, not rewards,
 carry the business model; rewards are a rebate.
 
-A precise calculation of the application rewards and traffic cost is defered to M2, to be done once the implementation and testing/simulations against the DevNet are available. 
+A precise calculation of the application rewards and traffic cost is deferred to M2, to be done once the implementation and testing/simulations against the DevNet are available.
 
 ---
 
