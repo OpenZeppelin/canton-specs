@@ -578,18 +578,20 @@ its holdings for an instrument into one, leaving reserves unchanged) keeps settl
 
 ### Privacy and Visibility Model
 
-Canton guarantees reads only to a contract's signatories and observers;
-everyone else sees nothing. Target visibility per template:
+Canton guarantees reads only to a contract's signatories and observers; other
+parties see a contract only transiently, when a transaction they witness
+divulges it. Target visibility per template:
 
 | Contract | Signatories | Observers |
 |---|---|---|
 | `Pool`, `PauseState` | venue operator (+ LP token issuer on `Pool`) | none |
-| `AllocationRequest`, `AllocationInstruction`, `Allocation` | the leg's authorizer | executor (venue operator), leg counterparty |
-| `SettlementReceipt` | executor | stakeholders of the settled legs |
+| `AllocationRequest` | settlement executors (venue operator) | the leg's authorizer |
+| `AllocationInstruction`, `Allocation` | instrument registry admin, the leg's authorizer | settlement executors |
+| `SettlementReceipt` | instrument registry admin | the leg's authorizer, settlement executors |
 | LP-token holding | LP token issuer, owner | none |
-| `KycClaim` | trusted issuer, subject | venue operator (gating) |
+| `KycClaim` | trusted issuer | subject, venue operator (gating) |
 | `PartyComplianceAttestation` | attester | executor |
-| `TrustedAttesterRegistry`, `TrustedIssuerRegistry` | admin | executors resolving them by key |
+| `TrustedAttesterRegistry`, `TrustedIssuerRegistry` | settlement-factory admin | listed attesters / issuers, executors resolving them by key |
 
 Consequences:
 
