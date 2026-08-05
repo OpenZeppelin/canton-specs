@@ -1,7 +1,7 @@
-sdk-version: 3.5.1
+sdk-version: 3.4.11
 name: openzeppelin-experimental-cip112-settlement-v2-test
 source: daml
-version: 0.1.0
+version: 0.0.0
 dependencies:
   - daml-prim
   - daml-stdlib

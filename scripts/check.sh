@@ -82,7 +82,7 @@ while IFS= read -r manifest; do
 done <<< "$actual_manifests"
 
 if grep -R -n -E \
-	--exclude-dir=.git --exclude-dir=.daml --exclude-dir=.cache --exclude-dir=.vscode \
+	--exclude-dir=.git --exclude-dir=.daml --exclude-dir=.cache --exclude-dir=.vscode --exclude-dir=.claude \
 	--exclude='*.dar' --exclude='check.sh' \
 	'/Users/|/home/[^/]+/|/private/tmp/|/var/folders/|[A-Za-z]:\\Users\\' "$ROOT"; then
 	fail "repository content contains a machine-specific home path"
@@ -103,7 +103,7 @@ artifact_lines="$(awk '
 
 manifest_artifacts="$(printf '%s\n' "$artifact_lines" | cut -f3 | sort)"
 vendored_artifacts="$(
-	find "$ROOT/dars/vendor" -maxdepth 1 -type f -name '*.dar' -print |
+	find "$ROOT/dars/vendor" "$ROOT/dars/token-standard" -maxdepth 1 -type f -name '*.dar' -print |
 		sed "s#^$ROOT/##" |
 		sort
 )" || fail "failed to discover vendored DARs"
@@ -112,7 +112,7 @@ vendored_artifacts="$(
 
 while IFS=$'\t' read -r package version file package_id expected; do
 	case "$file" in
-	dars/vendor/*.dar) ;;
+	dars/vendor/*.dar | dars/token-standard/*.dar) ;;
 	*) fail "dars/manifest.yaml contains an unsafe artifact path: $file" ;;
 	esac
 	case "$file" in

@@ -968,6 +968,116 @@ testFixNoDeadlineSeizureStillFreezes = do
   aliceAfter <- holdingAmounts alice
   aliceAfter === [10.0]
 
+-- | The admin can stand down an active seizure it will not sweep, restoring
+-- the normal lifecycle immediately — no waiting for the window to lapse.
+testD2UnmarkRestoresLifecycle : Script ()
+testD2UnmarkRestoresLifecycle = do
+  s@Scenario{..} <- setup
+  aliceInput <- mint admin alice 10.0
+  aliceResult <- allocate s alice [senderSide legAliceToBob] [aliceInput]
+  aliceAllocCid <- completedCid aliceResult
+  let templateCid = fromInterfaceContractId @TokenAllocation aliceAllocCid
+  markedCid <- submit (actAs admin) do
+    exerciseCmd templateCid TokenAllocation_MarkD2Seizure with
+      seizureHook = D2SeizureHook with
+        seizureCaseRef = "case-1"
+        custodianDestination = basicAccount custodian
+        inFlightHandlingStatus = "held"
+        windowEnd = t3
+  -- Only the admin can unmark; the seized party must wait for the lapse.
+  submitMustFail (actAs alice) do
+    exerciseCmd markedCid TokenAllocation_UnmarkD2Seizure
+  unmarkedCid <- submit (actAs admin) do
+    exerciseCmd markedCid TokenAllocation_UnmarkD2Seizure
+  _ <- submit (actAs alice) do
+    exerciseCmd (toInterfaceContractId @AllocationV2.Allocation unmarkedCid)
+      AllocationV2.Allocation_Withdraw with
+        actors = [alice]
+        extraArgs = emptyExtraArgs
+  aliceAfter <- holdingAmounts alice
+  aliceAfter === [10.0]
+
+-- | The allocation-side admin GC mirrors the transfer-side one: unavailable
+-- while the funding lock is live, and once the lock has expired the shell can
+-- be removed while the authorizer self-recovers the funding.
+testAllocationAdminGC : Script ()
+testAllocationAdminGC = do
+  s@Scenario{..} <- setup
+  aliceInput <- mint admin alice 10.0
+  aliceResult <- allocate s alice [senderSide legAliceToBob] [aliceInput]
+  aliceAllocCid <- completedCid aliceResult
+  let templateCid = fromInterfaceContractId @TokenAllocation aliceAllocCid
+  submitMustFail (actAs admin) do
+    exerciseCmd templateCid TokenAllocation_AdminGC
+  -- t4 is past lockExpiresAt (settlementDeadline t2 + lockGrace 1h).
+  setTime t4
+  _ <- submit (actAs admin) do
+    exerciseCmd templateCid TokenAllocation_AdminGC
+  gcd <- queryContractId admin templateCid
+  gcd === None
+  lockedHoldings <- query @TokenHolding alice
+  forA_ [cid | (cid, h) <- lockedHoldings, isSome h.holding.lock] $ \cid ->
+    submit (actAs alice <> actAs admin) do
+      exerciseCmd cid TokenHolding_OwnerUnlock
+  aliceAfter <- holdingAmounts alice
+  aliceAfter === [10.0]
+
+-- | Every standalone housekeeping contract is archivable by its signatory, so
+-- stale configuration and spent authorities do not accumulate on the ledger.
+testHousekeepingArchives : Script ()
+testHousekeepingArchives = do
+  admin <- allocateParty "admin"
+  attester <- allocateParty "attester"
+  alice <- allocateParty "alice"
+  custodian <- allocateParty "custodian"
+  setTime t1
+  rulesCid <- submit admin do
+    createCmd TokenRules with
+      admin
+      maxTTL = days 90
+      lockGrace = hours 1
+      maxSeizureExtension = days 30
+      requiredAttesterRegistryCid = None
+      maxAttestationValidity = days 7
+      d1ComplianceHook = None
+      allowedExecutors = None
+  registryCid <- submit admin do
+    createCmd TrustedAttesterRegistry with
+      admin
+      attesters = [attester]
+      acceptedClaimKinds = ["kyc-ok"]
+  capCid <- submit admin do
+    createCmd BurnerCapability with
+      admin
+      assignee = admin
+      instrumentScope = None
+      caseScope = None
+      expiresAt = t3
+  attestationCid <- submit attester do
+    createCmd ComplianceAttestation with
+      attester
+      attestationObservers = []
+      settlementId = "settlement-1"
+      authorizedExecutors = [admin]
+      claimKind = "kyc-ok"
+      complianceReference = "ref-1"
+      issuedAt = t1
+      expiresAt = t3
+      boundTransferLegs = [mkTransferLeg "leg-1" alice custodian 1.0]
+  orderCid <- submit attester do
+    createCmd SeizureOrder with
+      authority = attester
+      admin
+      caseRef = "case-1"
+      subjectAccount = basicAccount alice
+      custodianDestination = basicAccount custodian
+      expiresAt = t3
+  submit admin do archiveCmd rulesCid
+  submit admin do archiveCmd registryCid
+  submit admin do archiveCmd capCid
+  submit attester do archiveCmd attestationCid
+  submit attester do archiveCmd orderCid
+
 
 -- D1 compliance gate
 ---------------------

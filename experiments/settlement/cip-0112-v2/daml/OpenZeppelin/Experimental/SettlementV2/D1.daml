@@ -32,7 +32,7 @@ template TrustedAttesterRegistry with
     ensure not (null attesters)
       && attesters == dedupSort attesters
       && not (null acceptedClaimKinds)
-      && all (/= "") acceptedClaimKinds
+      && "" `notElem` acceptedClaimKinds
 
     -- | Rotate the trusted set without changing the contract id, so the
     -- `requiredAttesterRegistryCid` pinned on `TokenRules` keeps
