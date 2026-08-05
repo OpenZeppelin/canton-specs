@@ -435,37 +435,6 @@ template StandardizedMessagingGateway
 
 The `canton-token-template` evidence template `TransferPreapproval` is a toy preapproval exposing only `TransferPreapproval_Send`; what the snippet relies on is the *pattern*, which is real: a recipient-signed standing contract whose choice body contributes the recipient's authority when a third party exercises it. The delegated allocate-and-accept choice shown is an RI-level `[FUTURE]` design, to be consolidated at implementation time either as an SCU-additive choice on the evidence template or as a dedicated recipient-signed `DelegatedAcceptGrant` template. Both spine steps that need the recipient's signature run inside its body: creating the recipient's [`AllocationInstruction`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L379) from the gateway's request (the create's `actors` must carry the authorizer's own authority) and accepting it into a committed [`Allocation`](../../experiments/cip112-settlement/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L474).
 
-**The delegation is scoped, and the scope is the only filter.** A standing delegation is, by construction, the recipient's consent to receive inflows of that instrument without a live signature — it cannot simultaneously be the thing that rejects unwanted inflow ([section 5.3](#53-threat-model-and-failure-modes)). What limits exposure is therefore the grant's own bounds, which the delegated choice must check and which the RI requires to be explicit rather than open-ended:
-
-```daml
--- [FUTURE] What the recipient actually signs: a *scoped* standing delegation.
-template DelegatedAcceptGrant
-  with
-    recipient        : Party
-    instrumentId     : InstrumentId  -- exactly one instrument, bound to its issuing admin
-    gatewayAdmin     : Party         -- only requests from this rail's gateway
-    allowedExecutors : [Party]       -- who may trigger it (the rail's relayer role)
-    maxPerInflow     : Decimal       -- cap on a single inbound settlement
-    remainingTotal   : Decimal       -- cumulative cap, decremented on each use
-    validUntil       : Time          -- standing consent expires
-  where
-    signatory recipient
-
-    -- TransferPreapproval_AllocateInbound, in scoped form: it fetches the
-    -- gateway's request and fails closed unless
-    --   * request.settlement.executors ⊆ allowedExecutors and the triggering
-    --     executor is one of them;
-    --   * every requested side names `recipient`, `instrumentId`, and an admin
-    --     equal to `instrumentId.admin` (so no foreign instrument rides in);
-    --   * amount <= maxPerInflow and amount <= remainingTotal;
-    --   * now <= validUntil.
-    -- On success it recreates the grant with `remainingTotal` decremented (and
-    -- archives it once exhausted), so the caps are enforced on-ledger rather
-    -- than by the relayer's good behaviour.
-```
-
-The orchestrator below triggers that choice; it supplies no recipient authority of its own.
-
 ```daml
 module CrossChain.Orchestrator where
 
@@ -554,7 +523,7 @@ The RI prioritizes verifiable security. Security rests on Daml's authorization m
 - **Privacy partitioning**:
   - Amount, payer, and payload memo are projected only to the relayer, recipient, and designated compliance verifier. If the Stablecoin Admin could observe the memo without authorization, the invariant is broken.
 - **Non-custodial recipient binding**:
-  - No allocation binds a recipient without their signature, supplied live or through their standing `TransferPreapproval`. A standing delegation consents to inflows **inside its declared scope only** — one instrument, one gateway, an allowed-executor set, per-inflow and cumulative caps, and an expiry ([section 4.2](#42-component-inbound-dvp-via-delegated-accept-future)); anything outside it requires a live accept.
+  - No allocation binds a recipient without their signature, supplied live or through their standing `TransferPreapproval`.
   - Stalled committed value is recoverable after the settlement deadline, and every committed inbound allocation must carry a finite `settlementDeadline`.
 
 ### 5.2 Automated Validation Engine
@@ -572,7 +541,7 @@ We propose a three-tier validation approach, based on verification tools built b
 | Malicious relayer routing | Routes valid inbound funds to an unauthorized or sanctioned account. | The recipient is pinned by the attesters' signed `LockAttestation` (`cantonRecipient`), and D3 requires a `KycClaim` whose `subjectParty` matches the exact recipient. The relayer cannot spoof the destination; fail-closed. |
 | Unbacked mint (relayer or forged attestation) | A relayer, or anyone without attester authorization, tries to mint `wTOK` with no real source-chain lock. | The mint amount and instrument derive only from a registry-trusted, unexpired, single-use `LockAttestation`; there is no standalone admin mint. A lone relayer holds transport authority, not trust authority. Residual risk concentrates in the attester set, which is why its N-of-M decentralization is the largest open trust question ([section 6](#6-open-design-questions)). |
 | Replay of a used lock | A consumed inbound message (or a second carrier for the same lock) is submitted again to mint twice. | One-time carrier consumption plus the consumed-nonce registry: a duplicate `(sourceChainId, nonce)` fails closed even if the attesters misbehave. |
-| Toxic or spam inflow | A sender forces a settlement onto an unwilling recipient. | An allocation commits only under the recipient's own authority, and a recipient with no standing delegation must accept live. A standing delegation *is* consent to receive that instrument, so it cannot itself filter unwanted inflow; what bounds it is its **scope** — one instrument, a per-inflow and a cumulative amount cap, an expiry, and a fixed gateway plus allowed-executor set ([section 4.2](#42-component-inbound-dvp-via-delegated-accept-future)). Anything outside that scope fails closed and needs a live accept. Unsettled allocations expire and return to sender. |
+| Toxic or spam inflow | A sender forces a settlement onto an unwilling recipient. | Without the recipient's accept (live, or via their standing `TransferPreapproval`), the allocation never commits; unsettled allocations expire and return to sender. |
 | Compromised admin key | A compromised Stablecoin Admin or Custodian key attempts arbitrary expropriation. | D2 sweeps are hardcoded to the preset `custodianDestination` (no arbitrary burn, no return-to-sender), and supply-changing authority is slated for N-of-M multisig ([section 2](#decentralization-and-trust-topology)). |
 | Forced upgrades breaking in-flight allocations (SCU) | A poorly executed upgrade mutates fields, rendering existing `Allocation` contracts un-settleable. | Programmatic adherence to the SCU rule (Optional appends + new choices only). Existing choices stay operable; in-flight settlements conclude before users transition. |
 | UTXO fragmentation | Many small transfers accumulate holding dust. | Settlement returns a sender's surplus as a single new *change* holding per instrument rather than many fragments. |
