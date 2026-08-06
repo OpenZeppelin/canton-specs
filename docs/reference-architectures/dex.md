@@ -221,6 +221,20 @@ membership is a policy decision.
 design is non-custodial, so they only ever trust their own keys and their own
 validator.
 
+**Infrastructure trust.** The single synchronizer the design assumes is the
+**Global Synchronizer**: traffic is paid in Canton Coin and rewards flow through
+Splice ([section 6](#6-network-economics-traffic-costs-and-app-rewards)), both
+governed by super-validator vote. The residual assumptions per component:
+
+- **Sequencer**: can censor or delay, never forge; delay abuse is covered in
+  [section 5.3](#53-threat-model).
+- **Mediator**: sees view metadata, not payloads; can stall finality, never
+  move funds.
+- **Counterparty participants**: a malicious participant misbehaves only for
+  parties it hosts; confirmation thresholds above 1 contain it.
+- **Super-validator governance**: sets the traffic price and grants or revokes
+  the venue's `FeaturedAppRight`; a business dependency, not a custody risk.
+
 ---
 
 ## 3. Target Design
@@ -236,8 +250,10 @@ trade itself moves the price along the curve (price impact), on top of
 the venue operator backend, which reads the current `Pool` and evaluates the
 curve.
 
-**How traders view the current price.** The price is derived directly from the **`Pool` reserves**
-(`quoteReserves`, `baseReserves`, adjusted for `feeBps`).
+**How traders view the current price.** The price is derived from the **`Pool` reserves**
+(`quoteReserves`, `baseReserves`, adjusted for `feeBps`), quoted by the
+operator's API rather than read on-ledger
+([privacy model](#privacy-and-visibility-model)).
 
 **Swap arithmetic (constant-product, fee-inclusive).** Let the trader send `Δin`
 of the input instrument into a pool with reserves `(reserveIn, reserveOut)` and
@@ -261,7 +277,9 @@ The target design binds the curve inputs to the trader's signed allocation: the
 sender side equals (`amountIn`, input instrument), the receiver side equals
 (`Δout`, output instrument), and those two transfer legs are the settlement's
 only legs. Neither the venue operator nor a stale quote can move reserves away
-from a value the trader signed.
+from a value the trader signed. If reserves move between quote and settlement,
+the swap aborts rather than fills worse; encoding "at least `minOut`" instead
+is an open question ([section 7](#7-open-design-questions)).
 
 The operational lifecycle orchestrates state transitions that culminate in
 atomic, multi-lateral ledger updates via the CIP-0112 settlement spine.
@@ -448,6 +466,14 @@ Assumptions:
 - Rejections, including a lost contention race on a hot `Pool`, arrive on the
   completion stream; the backend re-quotes and retries.
 
+**Progress tracking.** The async model requires the venue backend to track each
+swap as a state machine keyed by command id: every step above either lands on
+the completion stream or times out against its deadline and marks the workflow
+stuck. A stuck workflow raises an operator alert and a trader-visible status
+(pending step, owing party, the deadline after which the trader can withdraw).
+[Section 5.4](#54-failure-modes-and-recovery) enumerates the stuck states and
+their exits.
+
 ### Time Model and Deadlines
 
 Canton features that the protocol must take into consideration:
@@ -548,7 +574,39 @@ signatories), and every flow above moves holdings into or out of that account, i
 - **The invariant** that must hold is **`reserves == Σ(pool-account holdings)` per instrument**. Because reserve updates and holding movements commit co-atomically, the two cannot drift within a
 transaction; the caveat is *fragmentation* - many small holdings accumulating in
 the pool account over time. A periodic **consolidation** step (the pool merges
-its holdings for an instrument into one, leaving reserves unchaged) keeps settlement cheap.
+its holdings for an instrument into one, leaving reserves unchanged) keeps settlement cheap.
+
+### Privacy and Visibility Model
+
+Canton guarantees reads only to a contract's signatories and observers; other
+parties see a contract only transiently, when a transaction they witness
+divulges it. Target visibility per template:
+
+| Contract | Signatories | Observers |
+|---|---|---|
+| `Pool`, `PauseState` | venue operator (+ LP token issuer on `Pool`) | none |
+| `AllocationRequest` | settlement executors (venue operator) | the leg's authorizer |
+| `AllocationInstruction`, `Allocation` | instrument registry admin, the leg's authorizer | settlement executors |
+| `SettlementReceipt` | instrument registry admin | the leg's authorizer, settlement executors |
+| LP-token holding | LP token issuer, owner | none |
+| `KycClaim` | trusted issuer | subject, venue operator (gating) |
+| `PartyComplianceAttestation` | attester | executor |
+| `TrustedAttesterRegistry`, `TrustedIssuerRegistry` | settlement-factory admin | listed attesters / issuers, executors resolving them by key |
+
+Consequences:
+
+- **Traders never observe the `Pool`.** Observer status would broadcast every
+  reserve update (the venue's full flow, reconstructable by anyone) and multiply
+  the swap's write cost per recipient ([section 6.1](#61-traffic-costs)). A
+  trader wanting proof of reserves requests explicit disclosure of the current
+  `Pool`.
+- **The venue operator sees everything.** That is the private-MEV surface of
+  [section 5.5](#55-throughput-and-contention), not a third-party leak.
+- **Attesters see the legs of the settlements they attest**, so registry
+  membership is a privacy decision on top of the compliance one.
+- **No PII on ledger.** A `KycClaim` carries an issuer reference, not personal
+  attributes; the data stays with the issuer off-ledger, avoiding the
+  immutable-ledger versus right-to-erasure conflict.
 
 ### D1: Compliance through Party-Applied Attestation
 
@@ -557,15 +615,39 @@ Institutional DeFi requires that sanctioned or unverified parties cannot trade. 
 
 ### D2: Seizure Through Preset Custodian Lock-and-Sweep
 
-Institutional DeFi requires the ability to seize assets under judicial mandate. The design uses a strict **lock-and-sweep** pattern that locks the funds and sweeps them to a preset custodian account. The settlement experiment demonstrates this through [`Allocation_MarkD2InFlightSeizure`](../../experiments/settlement/cip-0112/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml) and [`Allocation_SweepD2InFlightSeizure`](../../experiments/settlement/cip-0112/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml).
-
+Institutional DeFi requires the ability to seize assets under judicial mandate. The design uses an optional, strict **lock-and-sweep** pattern that locks the funds and sweeps them to a preset custodian account. The settlement experiment demonstrates this through [`Allocation_MarkD2InFlightSeizure`](../../experiments/settlement/cip-0112/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml) and [`Allocation_SweepD2InFlightSeizure`](../../experiments/settlement/cip-0112/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml).
 ### D3: Know-your-customer
 
-Institutional DeFi requires participants to be identified. The target design uses a single-synchronizer identity architecture. Traders must hold a `KycClaim` issued by a party present in the `TrustedIssuerRegistry` to interact with permissioned pools. D1 (compliance) and D3 (identity) can be **optional per pool** (permissioned versus permissionless).
+Institutional DeFi requires participants to be identified. The target design uses a single-synchronizer identity architecture. Traders must hold a `KycClaim` issued by a party present in the `TrustedIssuerRegistry` to interact with permissioned pools. D1 (compliance) and D3 (identity) can be **optional per pool** (permissioned versus permissionless); D2 (seizure) is **optional per instrument**, set at issuance.
 
 ### D4: Authority and Privilege Transfer
 
 Institutional DeFi requires administrative power to be explicit and accountable: every privileged action traces to a named authority. There is no single admin holding every privilege. Each action sits with the role responsible for it: LP-token minting and burning with the `LP_TOKEN_ISSUER`, swap execution with the `VENUE_OPERATOR`, and lock-and-sweep with the `INSTRUMENT_REGISTRAR`. These privileges are granted, transferred, and revoked through `openzeppelin-access-control` role administration and the `openzeppelin-ownable` two-step ownership handover, so authority can move between parties without redeploying. A permission is bound by direct controllership when its holder is fixed for the life of the contract, and through `openzeppelin-access-control` (`RoleGrant` / `requireRole`) when it must be swappable or revocable without recreating the contract.
+
+### Wallet Integration Requirements
+
+A trader-facing wallet must support, per CIP-0112:
+
+- creating and accepting allocation instructions, showing the exact legs and
+  `settlementDeadline` before signing;
+- exercising the unilateral withdraw once the deadline lapses;
+- accepting disclosed contracts (quotes, `Pool` reserve verification);
+- tracking swap status off the completion stream (pending step, owing party,
+  deadline).
+
+### Deployment and Bootstrap
+
+Deployment order:
+
+1. Parties onboarded and hosted per [section 2](#party-and-role-model-topology).
+2. DARs distributed and **vetted**. A trader's validator must vet the venue
+   packages before the trader can be a contract stakeholder, so vetting rollout
+   gates adoption; unvetting is a self-DoS to monitor.
+3. Attester and issuer registries populated.
+4. Pool creation and a seeded first provision
+   ([section 5.1](#51-security-invariants) first-deposit resistance).
+5. A keyed **pool directory** contract listing live pools per pair: without
+   global state, traders cannot otherwise discover that a pool exists.
 
 ### Implementing Smart Contract Upgrades
 
@@ -585,6 +667,23 @@ frontend routed around it, anyone could bypass the frontend and call the weaker
 path directly, making the jurisdiction check optional in practice. A compatible
 upgrade must therefore make the superseded `Pool_Swap` choice fail
 unconditionally and mark it as `deprecated`.
+
+### Extension Points
+
+Each extension lands SCU-compatibly (new templates, new choices, `Optional`
+appends):
+
+- **Alternative curves.** A stable-swap or concentrated-liquidity pool is a new
+  template over the same allocation lifecycle and settlement spine; only the
+  curve check in the swap choice changes.
+- **Protocol-fee switch.** An `Optional` operator share on the `Pool` routes a
+  fraction of `feeBps` to a venue account instead of reserves, giving the
+  operator on-ledger revenue ([section 6](#6-network-economics-traffic-costs-and-app-rewards)
+  currently assumes venue fees without a collection mechanism).
+- **TWAP price feed.** The `Pool` accumulates a time-weighted price and
+  publishes it through the committee-attested oracle of the
+  [lending design](./lending.md), making the DEX the lending protocol's price
+  source.
 
 ---
 
@@ -764,6 +863,8 @@ or formal analysis when supported by the implementation toolchain.
 | Rogue seizure / asset burning (D2) | A compromised instrument registrar key attempts to maliciously burn user assets or return seized funds to unverified actors. | [`Allocation_SweepD2InFlightSeizure`](../../experiments/settlement/cip-0112/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L532) hardcodes the destination to the preset `custodianDestination`; arbitrary burn is forbidden. A compromised instrument registrar can only sweep to the pre-approved, monitored custodian. |
 | Forced upgrades breaking in-flight allocations (SCU) | A poorly executed upgrade mutates fields, rendering existing `Allocation` contracts un-settleable. | Programmatic adherence to the SCU rule (Optional appends + new choices only). The `Pool` template's existing choices stay operable; in-flight transactions conclude before users transition. |
 | Venue Operator swap re-ordering / private MEV | The venue operator sees traders' allocations before batching and can order or delay batch-settlement submissions to its own benefit (e.g. sandwiching a large swap). MEV does **not** disappear on Canton - it moves from a public mempool into the venue operator's private view. | The on-ledger invariant blocks *off-curve* execution, but **not** ordering. Candidate mitigations are commit-reveal or fair-ordering for allocation intake, per-swap slippage bounds carried on the trader's signed request ([section 3](#3-target-design)), and batching rules that minimize venue-operator discretion. See [section 5.5](#55-throughput-and-contention). |
+| Malicious or buggy token registry | Settlement executes registry-implemented code for both legs. A hostile registry can fail legs selectively (griefing one side of a pair), inflate supply and drain the pool through the curve, freeze the pool account's holdings via its own D2 capability, or break settlement with a bad upgrade. | Listing is a trust decision, gated by an **instrument listing policy**: audited TSv2 registry code, bounded admin powers, disclosed D2/freeze capabilities, and SCU-conformant upgrade governance. The curve cannot defend against supply inflation of a listed asset; the policy is the only mitigation. |
+| Infrastructure censorship or delay | A sequencer or the venue's validator delays submissions until `settlementDeadline` lapses, stalling the venue and handing traders a free withdraw option (exit if the price moved against them). | Multi-hosted parties ([section 2](#decentralization-and-trust-topology)), deadline monitoring with re-quote on lapse, and deadlines long enough to absorb transient delay. Residual risk is accepted as part of the infrastructure trust assumptions. |
 
 ### 5.4 Failure Modes and Recovery
 
@@ -777,6 +878,16 @@ inaction, operator crash, pause, or contention can extend custody past
 `settlementDeadline`. The sole exception is an active D2 seizure with an
 explicit, finite `seizureWindowEnd` and lawful-process reference.
 
+Bounded custody covers allocations; LP reserves sit in the pool account
+indefinitely, and removal runs through the operator-driven choice with the
+issuer's burn authority, so permanent venue death would strand them. The design
+therefore adds an **LP emergency exit**: a removal choice on the `Pool`
+controlled by the LP, exercisable only after a configured
+`venueInactivityWindow` with no settlement activity. As a `Pool` choice it
+inherits the operator, issuer, and pool-account authority from the `Pool`'s
+signatories, so it needs no live venue key, and it settles over the same
+D1-gated spine.
+
 | Failure | Effect while pending | Recovery path | Funds locked at most |
 |---|---|---|---|
 | Quote RPC times out | nothing on-ledger; the quote is the only synchronous off-ledger call in the flow | trader retries the quote | nothing locked |
@@ -788,6 +899,8 @@ explicit, finite `seizureWindowEnd` and lawful-process reference.
 | Venue validator out of traffic | venue submissions rejected at the sequencer | traffic top-up and monitoring ([section 6](#6-network-economics-traffic-costs-and-app-rewards)); trader exit unaffected (own validator) | `settlementDeadline` |
 | Synchronizer outage | ledger halted: no one can settle, and no one can withdraw | service resumes; if `settlementDeadline` lapsed during the outage the allocation is withdraw-only | outage duration + `settlementDeadline` |
 | D2 marked, never swept | settle, withdraw, and cancel all blocked | admin unmark; lawful-process sweep bounded by `seizureWindowEnd` | `seizureWindowEnd` |
+| Venue operator gone permanently | no new settles; operator-driven LP removal impossible | LP emergency exit after `venueInactivityWindow` | allocations: `settlementDeadline`; reserves: `venueInactivityWindow` |
+| LP token issuer unavailable | no live submitter for the burn path | the exit choice inherits issuer authority from the `Pool` signatory, so LP withdrawal still settles | `venueInactivityWindow` |
 
 Each row becomes a Daml Script test in the RI test suite.
 
@@ -901,7 +1014,7 @@ Rewards partially offset the traffic bill: a marked swap earns up to 1 to
 1.50 USD against a similar-order traffic cost, so venue fees, not rewards,
 carry the business model; rewards are a rebate.
 
-A precise calculation of the application rewards and traffic cost is defered to M2, to be done once the implementation and testing/simulations against the DevNet are available. 
+A precise calculation of the application rewards and traffic cost is deferred to M2, to be done once the implementation and testing/simulations against the DevNet are available.
 
 ---
 
