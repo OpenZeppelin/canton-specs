@@ -102,7 +102,7 @@ Because Canton settles on per-party projection, the settlement is fractured into
 
 ### Decentralization and Trust Topology
 
-Canton decentralizes a party along three independent axes, and the design assigns each role a deliberate position on each:
+Canton [decentralizes](https://docs.canton.network/overview/reference/decentralization) a party along three independent axes `[UPSTREAM]`, and the design assigns each role a deliberate position on each:
 
 1. **governance** - whose signatures can change the party's identity and hosting (re-home the party to their own validator and act freely);
 2. **validation** - how many independent validators must confirm the party's transactions (the `PartyToParticipant` confirmation threshold; a threshold above 1 defends against a malicious validator, at a latency and cost premium, and such a party can no longer submit Ledger API commands directly - it acts through externally signed submissions or through choices submitted by others);
