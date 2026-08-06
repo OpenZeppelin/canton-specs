@@ -976,45 +976,47 @@ Since CIP-0078 only featured apps earn rewards. The venue holds a
 to the Global Synchronizer Foundation), with the venue operator as provider.
 
 Rewards are traffic-based
-([CIP-0104](https://github.com/canton-foundation/cips/blob/main/cip-0104/cip-0104.md),
-approved February 2026, rolling out on MainNet in increments since April 2026).
-Super-validator automation measures activity directly from sequencer and
-mediator data; the app creates nothing on-ledger to earn.
+([CIP-0104](https://github.com/canton-foundation/cips/blob/main/cip-0104/cip-0104.md), rolling out on MainNet in increments since April 2026).
+Super-validator automation
+measures activity directly from sequencer and mediator data, and the app
+creates nothing on-ledger to earn. The pipeline runs entirely off the swap
+path, in three steps:
 
-1. **Earn.** The traffic cost of every successful confirmation request is
-   credited to its **app confirmers**: parties holding an active
-   `FeaturedAppRight` at round start that confirm the request's views. Each
-   envelope's cost splits equally among its app confirmers.
-2. **Issue.** Per round, super-validator automation agrees on each party's
-   minting allowance: its traffic credit priced in CC, scaled by the issuance
-   curve's `appRewardPercentage` tranche, diluted pro rata when
+1. **Earn** (per transaction, automatic). The traffic cost of every successful
+   confirmation request is credited to its **app confirmers**: parties holding
+   an active `FeaturedAppRight` at round start that confirm the request's
+   views, i.e. sign created contracts or sign/act on exercised ones. Contract
+   and choice observers earn nothing. Each envelope's cost splits equally
+   among its app confirmers.
+2. **Issue** (per round, by the DSO). Super-validator automation agrees on
+   each party's minting allowance: its traffic credit priced in CC, scaled by
+   the issuance curve's `appRewardPercentage` tranche, diluted pro rata when
    oversubscribed. Exactly one DSO-created `AppRewardCoupon` per party
    carries the allowance (the app itself never creates coupons); allowances
    below `appRewardCouponThreshold` (`AmuletConfig`, default 0.50 USD) are
    burned.
-3. **Collect.** The provider mints against the coupon within
-   `appRewardCouponLifetime` (`AmuletConfig`, default 24h from creation);
-   coupons from several rounds can batch into one mint. Collection is
-   validator wallet automation, never manual.
+3. **Collect** (within 24h, by the provider's wallet). The provider mints CC
+   against the coupon within `appRewardCouponLifetime` (`AmuletConfig`,
+   default 24h from creation); coupons from several rounds can batch into one
+   mint. Collection is validator wallet automation, never manual. Reward
+   sharing with the LP token issuer or instrument registrars happens here:
+   the venue accounts for the split itself off Scan's activity records, then
+   names beneficiaries and CC amounts out of its allowance (CIP-0073 minting
+   delegations). Per-transaction beneficiary attribution is not supported.
 
-Design consequences:
+Applying the earn rule to the five swap transactions
+([section 3](#the-settlement-spine-flow-step-by-step)):
 
-- The venue earns only where its party **confirms**: a signatory of created
-  contracts, or a signatory/actor on exercised ones; contract and choice
-  observers earn nothing. The operator signs the `Pool` and drives
-  `Pool_Swap`, so the settle transaction - the heaviest of the five - is
-  credited. The trader's and pool account's allocation transactions earn the
-  venue nothing: it only observes them. Their credit goes to a **featured
-  instrument registry**, if any - the registry admin signs every holding and
-  allocation view, so such a registry also splits the settle envelopes it
-  confirms with the venue.
-- Reward sharing with the LP token issuer or instrument registrars happens at
-  minting: the venue accounts for the split itself off Scan's activity
-  records, then names beneficiaries and CC amounts out of its allowance
-  (CIP-0073 minting delegations). Per-transaction beneficiary attribution is
-  not supported.
-- The venue's own traffic purchases mint `ValidatorRewardCoupon`s to its
-  validator operator, a further rebate on the traffic bill.
+| Transaction | Who pays traffic | Confirms, so earns (if featured) |
+| --- | --- | --- |
+| Allocation request | venue | venue operator (signs the `AllocationRequest`) |
+| Trader allocation | trader | instrument registry admin (signs the holding and allocation); the venue only observes and earns nothing |
+| Pool allocation | pool account | as trader allocation |
+| Attestation | attester | attester |
+| Settle | venue | venue operator (signs the `Pool`, drives `Pool_Swap`); a featured registry splits the envelopes it also confirms |
+
+The settle, being the most complex of the five ([section 6.1](#61-traffic-costs)),
+debits the venue the most credit. Important to note, the venue's own traffic purchases also mint `ValidatorRewardCoupon`s to its validator operator, a further rebate on the traffic bill.
 
 Rewards partially offset the traffic bill: the credit is an issuance-scaled
 fraction of the settle transaction's own burn, so venue fees are also needed to carry the business model; rewards are a rebate.
