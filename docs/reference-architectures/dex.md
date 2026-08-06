@@ -103,7 +103,7 @@ baseline, which has no key support at all. **Templates**: no template in this
 workspace declares a `key` today, so by-key resolution is also a template change,
 not only an SDK migration. Because a key's maintainers must be signatories of the
 keyed contract, each key is that contract's own authority: the library
-[`PauseState`](https://github.com/OpenZeppelin/canton-contracts/blob/69a810a1c90f1d0b182858c536d80b56f3acc31d/packages/security/pausable-v1/daml/OpenZeppelin/PausableV1.daml#L47) is
+[`PauseState`](https://github.com/OpenZeppelin/canton-contracts/blob/68b7c52ccb2db496a668508101fdb0024c60c713/packages/security/pausable-v1/daml/OpenZeppelin/PausableV1.daml#L47) is
 `signatory pauser` with a single global flag, so the per-pool pause state below is
 a design-level variant of it (signed by the venue operator and keyed by the pool
 tuple), and ShapeB's
