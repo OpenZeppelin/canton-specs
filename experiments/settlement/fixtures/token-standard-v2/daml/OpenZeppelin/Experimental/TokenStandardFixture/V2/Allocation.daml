@@ -1,0 +1,97 @@
+-- | Experimental fixture approximating selected Token Standard V2 allocation
+-- types for local settlement tests. It is not an upstream implementation or a
+-- conformance artifact. The modeled surface includes:
+-- `Reference`, `SettlementInfo`, `TransferLeg`, `TransferLegSide`,
+-- `RequestedAllocation`, `AllocationSpecification`, and the `Allocation` /
+-- `SettlementFactory` interfaces, which are viewtype-only in this fixture.
+module OpenZeppelin.Experimental.TokenStandardFixture.V2.Allocation where
+
+import OpenZeppelin.Experimental.TokenStandardFixture.V2.Metadata
+import OpenZeppelin.Experimental.TokenStandardFixture.V2.Holding
+
+-- | Settlement reference. `cidText` is the fixture's textual approximation of
+-- CIP-0112's optional `AnyContractId` reference.
+data Reference = Reference with
+    id : Text
+    cidText : Optional Text
+  deriving (Eq, Show)
+
+-- | Settlement coordinates shared by a batch. Mirrors `AllocationV2.SettlementInfo`.
+data SettlementInfo = SettlementInfo with
+    executors : [Party]
+    settlementRef : Reference
+    settlementDeadline : Optional Time
+    meta : Metadata
+  deriving (Eq, Show)
+
+-- | Polarity of a transfer leg relative to an authorizer.
+data TransferSide
+  = SenderSide
+  | ReceiverSide
+  deriving (Eq, Ord, Show)
+
+-- | A full transfer leg (both sides). Mirrors the V2 transfer-leg shape.
+data TransferLeg = TransferLeg with
+    transferLegId : Text
+    sender : Account
+    receiver : Account
+    amount : Decimal
+    instrumentId : Text
+    meta : Metadata
+  deriving (Eq, Ord, Show)
+
+-- | One authorizer's side of a transfer leg. Mirrors `AllocationV2.TransferLegSide`
+-- (here a superset carrying the leg id and polarity for the experiment).
+data TransferLegSide = TransferLegSide with
+    transferLegId : Text
+    side : TransferSide
+    otherside : Account
+    amount : Decimal
+    instrumentId : Text
+    meta : Metadata
+  deriving (Eq, Ord, Show)
+
+-- | An allocation requested of an authorizer. Mirrors `AllocationRequestV2.RequestedAllocation`.
+data RequestedAllocation = RequestedAllocation with
+    admin : Party
+    transferLegSides : [TransferLegSide]
+    nextIterationFunding : Optional [(Text, Decimal)]
+    committed : Bool
+    meta : Metadata
+  deriving (Eq, Show)
+
+-- | The committed allocation specification. Mirrors `AllocationV2.AllocationSpecification`.
+data AllocationSpecification = AllocationSpecification with
+    settlement : SettlementInfo
+    admin : Party
+    authorizer : Account
+    transferLegSides : [TransferLegSide]
+    nextIterationFunding : Optional [(Text, Decimal)]
+    committed : Bool
+    meta : Metadata
+  deriving (Eq, Show)
+
+-- | Viewtype for the `Allocation` interface. Mirrors `AllocationV2.AllocationView`.
+data AllocationView = AllocationView with
+    allocation : AllocationSpecification
+    holdingCids : [ContractId Holding]
+    createdAt : Time
+    numIterations : Int
+    meta : Metadata
+  deriving (Eq, Show)
+
+-- | The V2 allocation interface. Implementing experiment templates provide the
+-- settle, cancel, and withdraw behavior.
+interface Allocation where
+  viewtype AllocationView
+
+-- | Viewtype for the `SettlementFactory` interface. Mirrors the V2 factory view.
+data SettlementFactoryView = SettlementFactoryView with
+    admin : Party
+    meta : Metadata
+  deriving (Eq, Show)
+
+-- | The V2 settlement-factory interface (request/instruction/batch entrypoints
+-- are realized by the implementing template's choices).
+interface SettlementFactory where
+  viewtype SettlementFactoryView
