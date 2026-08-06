@@ -37,7 +37,7 @@ test_shapeB_smokeTransferMintSeizeBurn = script do
   holding <- submit issuer do
     exerciseCmd registry ToyRegistry_Mint with owner = alice, amount = 100
   attestation <- submit node do
-    createCmd NodeAttestation with
+    createCmd ComplianceAttestation with
       node
       subjectParty = alice
       subject = transferSubject issuer alice bob 100
@@ -74,7 +74,7 @@ test_shapeB_expiredAttestationBlocksTransfer = script do
   holding <- submit issuer do
     exerciseCmd registry ToyRegistry_Mint with owner = alice, amount = 100
   expired <- submit node do
-    createCmd NodeAttestation with
+    createCmd ComplianceAttestation with
       node
       subjectParty = alice
       subject = transferSubject issuer alice bob 100
@@ -106,7 +106,7 @@ test_shapeB_denyBlocksTransfer = script do
   holding <- submit issuer do
     exerciseCmd registry ToyRegistry_Mint with owner = alice, amount = 100
   denied <- submit node do
-    createCmd NodeAttestation with
+    createCmd ComplianceAttestation with
       node
       subjectParty = alice
       subject = transferSubject issuer alice bob 100
@@ -138,7 +138,7 @@ test_shapeB_wrongSignerBlocksTransfer = script do
   holding <- submit issuer do
     exerciseCmd registry ToyRegistry_Mint with owner = alice, amount = 100
   wrongSigner <- submit otherNode do
-    createCmd NodeAttestation with
+    createCmd ComplianceAttestation with
       node = otherNode
       subjectParty = alice
       subject = transferSubject issuer alice bob 100
@@ -171,7 +171,7 @@ test_shapeB_nodeSignerMismatchBlocksTransfer = script do
   holding <- submit issuer do
     exerciseCmd registry ToyRegistry_Mint with owner = alice, amount = 100
   mismatchedSigner <- submit otherNode do
-    createCmd NodeAttestation with
+    createCmd ComplianceAttestation with
       node = otherNode
       subjectParty = alice
       subject = transferSubject issuer alice bob 100
@@ -203,7 +203,7 @@ test_shapeB_wrongSubjectBlocksTransfer = script do
   holding <- submit issuer do
     exerciseCmd registry ToyRegistry_Mint with owner = alice, amount = 100
   wrongSubject <- submit node do
-    createCmd NodeAttestation with
+    createCmd ComplianceAttestation with
       node
       subjectParty = alice
       subject = transferSubject issuer alice custodian 100
@@ -239,7 +239,7 @@ test_shapeB_archivedAttestationBlocksTransfer = script do
   holding <- submit issuer do
     exerciseCmd registry ToyRegistry_Mint with owner = alice, amount = 100
   attestation <- submit node do
-    createCmd NodeAttestation with
+    createCmd ComplianceAttestation with
       node
       subjectParty = alice
       subject = transferSubject issuer alice bob 100

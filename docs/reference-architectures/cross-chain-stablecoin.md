@@ -83,7 +83,7 @@ extension point or excluded.
 |---|---|---|
 | Atomic Settlement | Private on-Canton settlement of inbound stablecoin payments via [`SettlementFactory_SettleBatch`](../../experiments/settlement/cip-0112/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml) (atomic DvP). | Custom settlement primitives, fallback matching engines, fragmented parallel liquidity pools. |
 | Cross-Chain Bridge | `[TARGET]` Daml-facing inbound and outbound interfaces for a Standardized Messaging Gateway. | Production bridge nodes, source-chain validators, oracle infrastructure, and cryptographic light-client proofs. |
-| Compliance & Control | `[EXPERIMENT]` D1 fail-closed verification through `NodeComplianceAttestation` and `TrustedAttesterRegistry`; D2 lock-and-sweep through [`BurnerCapability`](../../experiments/settlement/cip-0112/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml). | Off-ledger caching of compliance status, probabilistic risk scoring, heuristic filtering. |
+| Compliance & Control | `[EXPERIMENT]` D1 fail-closed verification through `ComplianceAttestation` and `TrustedAttesterRegistry`; D2 lock-and-sweep through [`BurnerCapability`](../../experiments/settlement/cip-0112/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml). | Off-ledger caching of compliance status, probabilistic risk scoring, heuristic filtering. |
 | Identity Framework | `[EXPERIMENT]` Single-domain, issuer-held KYC and deterministic claims. | `[TARGET]` Cross-domain identity resolution through mechanisms such as ONCHAINID, ERC-3643, or CCID. |
 | Asset Issuance | The gateway-minted wrapped instrument (`wTOK`) and the integration **shape** for settling an existing native Canton stablecoin (e.g. USDCx) by interface. | The stablecoin issuance / peg / CDP mechanism itself. |
 
@@ -123,7 +123,7 @@ recipient-targeted [`AllocationRequest`](../../experiments/settlement/cip-0112/d
 | Operational Role | `roleId` wrapper | Responsibilities / trust boundary |
 |---|---|---|
 | BridgeRelayer | `Relayer` | Monitors the external chain, submits `InboundMessage`, and acts as settlement executor through the target gateway boundary. |
-| ComplianceAttester | `Verifier` | Signs `NodeComplianceAttestation` contracts and is authorized through `TrustedAttesterRegistry`; target gateway policy determines how identity evidence authorizes issuance. |
+| ComplianceAttester | `Verifier` | Signs `ComplianceAttestation` contracts and is authorized through `TrustedAttesterRegistry`; target gateway policy determines how identity evidence authorizes issuance. |
 | IdentityIssuer | `Verifier` | Issues `KycClaim` contracts used by the single-domain identity experiment. |
 | Custodian | `Seizer` | Holds the `BurnerCapability` for D2 lock-and-sweep to a preset destination under mandate. |
 | StablecoinAdmin | `Issuer` | Issuing admin of the gateway-minted wrapped instrument (`wTOK`) - its mint leg is admin-authored and the [section 4.1](#41-standardized-messaging-gateway-target) gateway asserts `att.cantonInstrumentId.admin == admin`; oversees `SimpleTokenRules`. It has **no** authority over an externally-issued instrument like USDCx ([section 1](#1-product-definition)): in the settled-native case there is no architecture-side issuer role. |
@@ -164,14 +164,14 @@ CIP-0112 spine.
    it can settle the recipient leg it must pass the **D1 compliance check**. The
    experimental spine implements a typed, node-applied path through
    [`SettlementFactory_SettleBatchWithAttestation`](../../experiments/settlement/cip-0112/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml),
-   [`NodeComplianceAttestation`](../../experiments/settlement/cip-0112/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml), and
+   [`ComplianceAttestation`](../../experiments/settlement/cip-0112/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml), and
    [`TrustedAttesterRegistry`](../../experiments/settlement/cip-0112/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml).
-   A factory configured with `requiresNodeAttestation = Some True` rejects the
+   A factory configured with `requiresComplianceAttestation = Some True` rejects the
    plain settlement path. The attested path verifies the signer, validity window,
    settlement reference, and exact transfer-leg set, then consumes the
    attestation to prevent replay. Shape B `KycClaim` and
    `TrustedIssuerRegistry` contracts provide separate `[EXPERIMENT]` evidence for
-   subject-level identity; connecting those claims to node attestation issuance
+   subject-level identity; connecting those claims to compliance attestation issuance
    is part of the gateway `[TARGET]` boundary.
 3. **Recipient co-authorization via `TransferPreapproval` `[TARGET]`.** A recipient cannot
    be bound unilaterally; a new signatory must co-authorize. For an offline
@@ -223,7 +223,7 @@ data LockAttestation = LockAttestation with
 experimental [`SettlementFactory_SettleBatchWithAttestation`](../../experiments/settlement/cip-0112/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml)
 and [`TrustedAttesterRegistry`](../../experiments/settlement/cip-0112/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml)
 establish the on-ledger pattern: registry-rooted signer trust, validity checks,
-exact-batch binding, and consuming verification. `NodeComplianceAttestation`
+exact-batch binding, and consuming verification. `ComplianceAttestation`
 does not carry source-chain lock fields, so the target gateway requires a
 dedicated reserve-attestation carrier or an explicitly typed payload that binds
 the lock, instrument, recipient, amount, and replay identifier. This separates
@@ -231,7 +231,7 @@ the relayer's *transport* role from the attester's *mint authorization* role.
 
 > **Accuracy caveat.** The intended posture is a **threshold N-of-M** attestor
 > set, but the spine's consuming
-> [`NodeComplianceAttestation_Verify`](../../experiments/settlement/cip-0112/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml)
+> [`ComplianceAttestation_Verify`](../../experiments/settlement/cip-0112/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml)
 > choice (driven by
 > [`SettlementFactory_SettleBatchWithAttestation`](../../experiments/settlement/cip-0112/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml))
 > verifies a **single** registry-rooted attestation - one signed by an attester in
@@ -355,7 +355,7 @@ and fail-closed:
 - **D1 - compliance `[EXPERIMENT]`.** The settlement spine implements the
   node-applied, fail-closed typed attestation path. A factory may make this path
   mandatory; the plain `SettleBatch` path remains available only when the
-  factory does not require node attestation. Shape B provides separate typed
+  factory does not require compliance attestation. Shape B provides separate typed
   identity evidence.
 - **D2 - seizure (lock-and-sweep) `[EXPERIMENT]`.** Under mandate, the Custodian uses the
   single-admin [`BurnerCapability`](../../experiments/settlement/cip-0112/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml) to sweep a targeted holding to an admin-preset
@@ -460,7 +460,7 @@ template StandardizedMessagingGateway
         -- 2. D1 (Shape B, fail-closed): the KycClaim's subjectParty must match
         --    the recipient and its issuer must be trusted by the current registry.
         --    This on-ledger identity check can authorize issuance of the
-        --    NodeComplianceAttestation consumed during settlement.
+        --    ComplianceAttestation consumed during settlement.
         registry <- fetch registryCid
         claim <- fetch kycClaim
         now <- getTime
@@ -538,7 +538,7 @@ template CrossChainDvP
         batchFactory : ContractId SettlementFactory
         settlement : SettlementInfo
         transferLegs : [TransferLeg]
-        d1AttestationCid : ContractId NodeComplianceAttestation
+        d1AttestationCid : ContractId ComplianceAttestation
         d1RegistryCid : ContractId TrustedAttesterRegistry
       controller executor
       do
@@ -677,12 +677,12 @@ sequenceDiagram
 | `openzeppelin-access-control-v1` | `canton-contracts` | [`RoleGrant`](https://github.com/OpenZeppelin/canton-contracts/blob/69a810a1c90f1d0b182858c536d80b56f3acc31d/packages/access/access-control-v1/daml/OpenZeppelin/AccessControlV1.daml) and [`requireRole`](https://github.com/OpenZeppelin/canton-contracts/blob/69a810a1c90f1d0b182858c536d80b56f3acc31d/packages/access/access-control-v1/daml/OpenZeppelin/AccessControlV1.daml) gate relayer and seizer capabilities. | `[LIBRARY]` |
 | `openzeppelin-ownable-v1` | `canton-contracts` | [`Ownership`](https://github.com/OpenZeppelin/canton-contracts/blob/69a810a1c90f1d0b182858c536d80b56f3acc31d/packages/access/ownable-v1/daml/OpenZeppelin/OwnableV1.daml) and [`OwnershipOffer`](https://github.com/OpenZeppelin/canton-contracts/blob/69a810a1c90f1d0b182858c536d80b56f3acc31d/packages/access/ownable-v1/daml/OpenZeppelin/OwnableV1.daml) define controlled ownership handoff. | `[LIBRARY]` |
 | `openzeppelin-pausable-v1` | `canton-contracts` | [`PauseState`](https://github.com/OpenZeppelin/canton-contracts/blob/69a810a1c90f1d0b182858c536d80b56f3acc31d/packages/security/pausable-v1/daml/OpenZeppelin/PausableV1.daml) and [`whenNotPaused`](https://github.com/OpenZeppelin/canton-contracts/blob/69a810a1c90f1d0b182858c536d80b56f3acc31d/packages/security/pausable-v1/daml/OpenZeppelin/PausableV1.daml) gate inbound operations during anomalies. | `[LIBRARY]` |
-| [`SettlementFactory`](../../experiments/settlement/cip-0112/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml) | `canton-specs` | Allocation generation, batch DvP, typed node attestation, and D2 in-flight seizure evidence. | `[EXPERIMENT]` |
+| [`SettlementFactory`](../../experiments/settlement/cip-0112/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml) | `canton-specs` | Allocation generation, batch DvP, typed compliance attestation, and D2 in-flight seizure evidence. | `[EXPERIMENT]` |
 | `TransferPreapproval` | [`canton-token-template`](https://github.com/OpenZeppelin/canton-token-template) | Recipient-signed standing-authority pattern through `TransferPreapproval_Send`; the spine-aware delegated-accept choice is `[TARGET]`. | `[EXPERIMENT]` / `[TARGET]` |
 | `SimpleHolding` / `SimpleTokenRules` / `LockedSimpleHolding` | [`canton-token-template`](https://github.com/OpenZeppelin/canton-token-template) | Asset representation and three-way dispatch evidence; settled-holding forced sweep is `[TARGET]`. | `[EXPERIMENT]` / `[TARGET]` |
 | `CredentialGatedActionRequest` / `MockVerificationResult` | [`credential-gateway`](../../experiments/identity/credential-gateway/daml/OpenZeppelin/Experimental/Credential/Gateway.daml) | Credential gating and verifier-result lifecycle. | `[EXPERIMENT]` |
 | `KycClaim` / `TrustedIssuerRegistry` | [`identity/hook-shape-b`](../../experiments/identity/hook-shape-b/) | Typed subject identity and trusted-issuer checks. | `[EXPERIMENT]` |
-| `NodeComplianceAttestation` / `TrustedAttesterRegistry` | [`Cip112.daml`](../../experiments/settlement/cip-0112/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml) | Signed, exact-batch-bound, single-use D1 attestation enforced by `SettlementFactory_SettleBatchWithAttestation`. | `[EXPERIMENT]` |
+| `ComplianceAttestation` / `TrustedAttesterRegistry` | [`Cip112.daml`](../../experiments/settlement/cip-0112/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml) | Signed, exact-batch-bound, single-use D1 attestation enforced by `SettlementFactory_SettleBatchWithAttestation`. | `[EXPERIMENT]` |
 
 ### 6.2 Upstream and target boundaries
 
@@ -730,7 +730,7 @@ transitions rather than bespoke cryptography.
 
 | Vector | Description | Mitigation |
 |---|---|---|
-| Malicious relayer | Routes valid inbound funds to an unauthorized/sanctioned account. | The target gateway validates a `KycClaim` whose `subjectParty` matches the exact recipient. A factory configured to require node attestation also rejects settlement without a trusted, exact-batch-bound `NodeComplianceAttestation`; the relayer cannot substitute the destination (fail-closed). |
+| Malicious relayer | Routes valid inbound funds to an unauthorized/sanctioned account. | The target gateway validates a `KycClaim` whose `subjectParty` matches the exact recipient. A factory configured to require compliance attestation also rejects settlement without a trusted, exact-batch-bound `ComplianceAttestation`; the relayer cannot substitute the destination (fail-closed). |
 | Malicious sender | Triggers spam/toxic settlement to an unwilling recipient. | Without a configured `TransferPreapproval` or explicit accept, the allocation is not settled and funds return to sender (transfer-failure semantics). |
 | Compromised admin | Attempts arbitrary expropriation. | D4 single-admin is a structural boundary; even a compromised admin's D2 sweep is hardcoded to the preset `custodianDestination` (no arbitrary burn, no return-to-sender). |
 | **Relayer centralization** (primary risk) | A single relayer is both a **liveness** chokepoint (can censor or stall inbound mints and outbound redemptions) and, if it is also the sole attestor, a **trust** chokepoint (could authorize a mint with no real source-chain lock). | Separate the relayer's *transport/liveness* role from the *attestation/trust* role. The experiment verifies one registry-trusted signer; the target requires a threshold N-of-M attestor set rooted in a registry (no mint/redeem without quorum - fail-closed, [section 3.5](#35-reserve--lock-attestation-model-target)). Relay should be permissionless so any party can submit a valid quorum-signed attestation, and the source-chain escrow needs an inbound timeout and forced-refund path. The attestor/relayer trust parameters remain an open design question. |
@@ -821,7 +821,7 @@ audit-readiness claim.
 | Allocation instruction lifecycle | [`SettlementFactory_CreateAllocationInstruction`](../../experiments/settlement/cip-0112/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml), [`AllocationInstruction_Accept`](../../experiments/settlement/cip-0112/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml), [`AllocationInstruction_Withdraw`](../../experiments/settlement/cip-0112/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml) | `[EXPERIMENT]` |
 | Committed allocation, settlement, cancellation, and withdrawal | [`Allocation`](../../experiments/settlement/cip-0112/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml), [`Allocation_Settle`](../../experiments/settlement/cip-0112/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml), [`Allocation_Cancel`](../../experiments/settlement/cip-0112/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml), [`Allocation_Withdraw`](../../experiments/settlement/cip-0112/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml) | `[EXPERIMENT]` |
 | Settlement receipt and conservation helpers | [`SettlementReceipt`](../../experiments/settlement/cip-0112/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml), [`archiveAndTallyLockedHoldings`](../../experiments/settlement/cip-0112/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml), [`conserveSenderSides`](../../experiments/settlement/cip-0112/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml) | `[EXPERIMENT]` |
-| Typed, node-applied D1 attestation | [`SettlementFactory_SettleBatchWithAttestation`](../../experiments/settlement/cip-0112/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml), [`NodeComplianceAttestation`](../../experiments/settlement/cip-0112/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml), [`TrustedAttesterRegistry`](../../experiments/settlement/cip-0112/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml) | `[EXPERIMENT]` |
+| Typed, node-applied D1 attestation | [`SettlementFactory_SettleBatchWithAttestation`](../../experiments/settlement/cip-0112/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml), [`ComplianceAttestation`](../../experiments/settlement/cip-0112/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml), [`TrustedAttesterRegistry`](../../experiments/settlement/cip-0112/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml) | `[EXPERIMENT]` |
 | D2 in-flight lock-and-sweep | [`Allocation_MarkD2InFlightSeizure`](../../experiments/settlement/cip-0112/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml), [`Allocation_SweepD2InFlightSeizure`](../../experiments/settlement/cip-0112/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml), [`BurnerCapability`](../../experiments/settlement/cip-0112/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml) | `[EXPERIMENT]` |
 | Settlement test suite | [`Cip112Settlement.daml`](../../experiments/settlement/test/daml/OpenZeppelin/Test/Cip112Settlement.daml) | `[EXPERIMENT]` |
 | Relayer and seizer authorization | [`RoleGrant`](https://github.com/OpenZeppelin/canton-contracts/blob/69a810a1c90f1d0b182858c536d80b56f3acc31d/packages/access/access-control-v1/daml/OpenZeppelin/AccessControlV1.daml), [`requireRole`](https://github.com/OpenZeppelin/canton-contracts/blob/69a810a1c90f1d0b182858c536d80b56f3acc31d/packages/access/access-control-v1/daml/OpenZeppelin/AccessControlV1.daml) | `[LIBRARY]` |
