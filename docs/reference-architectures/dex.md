@@ -956,7 +956,7 @@ Implications:
   settle, the attester for the attestation. The working estimate is a few USD
   per swap; exact figures come from the M2 DevNet measurement of all four
   flows.
-- Failed transactions burn traffic too, i.e. losing the contention race on a hot
+- Failed transactions burn traffic too, e.g. losing the contention race on a hot
   `Pool`, and earn no reward: CIP-0104 credits only successful confirmation
   requests ([section 6.2](#62-app-rewards)). This strengthens the case for
   batching ([section 7](#7-open-design-questions)) and opens a griefing angle:
