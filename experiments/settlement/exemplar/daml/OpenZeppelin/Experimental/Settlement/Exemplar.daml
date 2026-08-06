@@ -53,7 +53,7 @@ template RegulatedSettlementApp
         settlement : SettlementInfo
         transferLegs : [TransferLeg]
         allocationCids : [ContractId Allocation]
-        attestationCid : ContractId NodeComplianceAttestation
+        attestationCid : ContractId ComplianceAttestation
         registryCid : ContractId TrustedAttesterRegistry
       controller executor
       do
@@ -165,7 +165,7 @@ regulatedSettlementExemplar = script do
   appCid <- submit admin do createCmd RegulatedSettlementApp with admin
 
   factory <- submit admin do
-    createCmd SettlementFactory with admin; requiresNodeAttestation = None; featureFlag = experimentalFeatureFlag
+    createCmd SettlementFactory with admin; requiresComplianceAttestation = None; featureFlag = experimentalFeatureFlag
   Some factoryDisclosure <- queryDisclosure @SettlementFactory admin factory
 
   (settlement, leg, allocationCids) <-
@@ -175,7 +175,7 @@ regulatedSettlementExemplar = script do
   registry <- submit admin do
     createCmd TrustedAttesterRegistry with admin; attesters = [attester]; featureFlag = experimentalFeatureFlag
   attestation <- submit attester do
-    createCmd NodeComplianceAttestation with
+    createCmd ComplianceAttestation with
       attester
       attestationObservers = [admin]
       settlementRef = settlement.settlementRef.id
@@ -221,7 +221,7 @@ regulatedSeizureExemplar = script do
   bob <- allocateParty "exemplar-seize-bob"
 
   factory <- submit admin do
-    createCmd SettlementFactory with admin; requiresNodeAttestation = None; featureFlag = experimentalFeatureFlag
+    createCmd SettlementFactory with admin; requiresComplianceAttestation = None; featureFlag = experimentalFeatureFlag
   Some factoryDisclosure <- queryDisclosure @SettlementFactory admin factory
   (_settlement, _leg, allocationCids) <-
     buildTwoSidedAllocations admin app alice bob factory factoryDisclosure

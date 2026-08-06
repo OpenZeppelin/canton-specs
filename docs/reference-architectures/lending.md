@@ -472,7 +472,7 @@ template Vault
         debtAllocationId : ContractId Allocation        -- liquidator's committed stablecoin
         settlement : SettlementInfo
         transferLegs : [TransferLeg]
-        attestationCid : ContractId PartyComplianceAttestation
+        attestationCid : ContractId ComplianceAttestation
       controller liquidator
       do
         now <- getTime

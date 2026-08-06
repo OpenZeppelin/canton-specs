@@ -34,9 +34,9 @@ The exact contract instance cannot be replayed after it is consumed. A provider
 can issue multiple equivalent results because the opaque identifier is
 descriptive rather than a uniqueness constraint.
 
-## Shape B: typed node attestation
+## Shape B: typed compliance attestation
 
-[`shape-b/`](shape-b/) models a node-signed `NodeAttestation`. The transfer
+[`shape-b/`](shape-b/) models a node-signed `ComplianceAttestation`. The transfer
 checks:
 
 - the Daml signatory and declared signer;
