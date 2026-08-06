@@ -428,9 +428,12 @@ template StandardizedMessagingGateway
         -- via their standing TransferPreapproval (section 4.2): the gateway holds
         -- no recipient authority and cannot bind them here.
         exercise settlementFactoryCid SettlementFactory_CreateAllocationRequest with
+          authorizer = recipientAccount
           settlement = inboundSettlement
-          transferLegs = [ mintLeg recipient att.lockedAmount att.cantonInstrumentId ]
-          meta = emptyMetadata
+          allocations = [ mintAllocation recipient att.lockedAmount att.cantonInstrumentId ]
+          requestedAt = now
+          settleAt = Some att.expiry
+          actors = inboundSettlement.executors
 ```
 
 ### 4.2 Component: Inbound DvP via Delegated Accept `[FUTURE]`
