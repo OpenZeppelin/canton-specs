@@ -61,11 +61,25 @@ ledger any observer can trace. Canton operates on **per-party projection**: a
 contract is visible only to its signatories/observers. So the inbound message
 from the gateway does **not** mint-and-broadcast an asset in one global update.
 Instead the gateway drives an isolated, recipient-targeted allocation on the
-spine; because Daml-LF 2.1 is **keyless** (archive-and-recreate, not mutation),
+spine; state changes by archive-and-recreate rather than in-place mutation, and
 the atomic delivery-vs-payment archives the inbound request and creates a
 [`SettlementReceipt`](../../experiments/settlement/cip-0112/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml) visible only to the recipient, the relayer, and the required
 compliance verifiers. Cross-chain settlement thereby inherits Canton's data
 compartmentalization.
+
+Because a recipient's signature (or a standing delegation of it) is required to
+bind them to an allocation, **two-step handshakes (Daml's propose-and-accept
+pattern) are a necessity, not a style choice**. The design uses **contract
+keys** (reintroduced in [Canton 3.5.1+](https://github.com/digital-asset/canton/releases/tag/v3.5.1))
+so the `PauseState`, the trusted-issuer and trusted-attester registries, and the
+consumed-nonce registry keep stable, unique identities across those
+archive-and-recreate cycles.
+
+Contract keys are the design target, not what runs today. The experiment code
+sits on the workspace's pinned SDK baseline and is keyless: each choice takes a
+caller-supplied registry contract id and asserts that registry shares the
+factory's admin. The by-key resolution shown throughout lands with the Canton
+3.5.1+ SDK migration.
 
 ### Target Users
 
@@ -333,9 +347,11 @@ messages back to the source chain would require multi-round message passing with
 its own delay, cost, and failure surface. The guarantees are instead structural
 and fail-closed:
 
-- **Before settlement, nothing is credited.** A stalled or failed relayer leaves
+- **Before the gateway step, nothing is credited.** A stalled or failed relayer leaves
   the source-chain backing locked and the Canton side untouched - no partial
-  state, no unbacked credit.
+  state, no unbacked credit. Once `Gateway_ProcessInbound` commits, the nonce is
+  spent: a failed settlement cannot be re-driven on Canton, and recovery falls
+  to the source-chain refund below.
 - **On Canton, stalled committed value is recoverable.** A committed
   [`Allocation`](../../experiments/settlement/cip-0112/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml)
   becomes releasable once its settlement deadline passes: the executors may
@@ -356,7 +372,11 @@ and fail-closed:
   node-applied, fail-closed typed attestation path. A factory may make this path
   mandatory; the plain `SettleBatch` path remains available only when the
   factory does not require compliance attestation. Shape B provides separate typed
-  identity evidence.
+  identity evidence. The D1 and D3 gates fire at different points in the flow:
+  D3 identity is checked at **request** time, in the gateway (no valid claim
+  from a listed issuer whose subject is the recipient, no allocation request),
+  while D1 compliance is checked at **settlement** time (a single-use
+  attestation from a listed attester, bound to this batch's own legs).
 - **D2 - seizure (lock-and-sweep) `[EXPERIMENT]`.** Under mandate, the Custodian uses the
   single-admin [`BurnerCapability`](../../experiments/settlement/cip-0112/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml) to sweep a targeted holding to an admin-preset
   `custodianDestination`. `BurnerCapability` is **deliberately choice-less** - a
@@ -889,6 +909,15 @@ These questions define trust, lifecycle, and interoperability decisions at the
   the upstream Token Standard V2 Allocation lifecycle `[UPSTREAM]`, which
   separates allocation expiry from the settlement deadline.
   (Maps to the transfer-failure return-to-sender rule.)
+- **Synchrony and time assumptions.** The boundary is asynchronous by
+  construction: the gateway consumes finalized source-chain events, and Canton
+  settlement is a separate, later transaction, while the on-Canton windows (the
+  attestation `expiry`, the mandatory finite `settlementDeadline`) are checked
+  against ledger time. Open: concrete window sizes (the margin between
+  source-chain finality and Canton ledger time, attester turnaround ceilings)
+  and the operational SLAs around them. Also open: whether the nonce should be
+  recorded at settlement rather than at the gateway, since no window size makes
+  a consumed-but-unsettled nonce retryable.
 - **Cross-domain identity proof injection (D3) `[TARGET]`.** Does the
   `TrustedIssuerRegistry` ingest external
   state proofs via an oracle, or rely on a CCID protocol synchronized across the
