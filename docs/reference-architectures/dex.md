@@ -941,8 +941,10 @@ Traffic beyond a small free base rate is bought in Canton Coin and burned by
 the submitting participant's validator. Cost is proportional to serialized
 view bytes with read amplification per recipient
 (`writeCost * (1 + recipients * readFactor / 10^4)`, summed per envelope). The
-price is set by super-validator vote, currently 60 USD/MB, calibrated so a standard Canton
-Coin transfer burns about 1 USD ([CIP-0042](https://github.com/canton-foundation/cips/blob/main/cip-0042/cip-0042.pdf)).
+price is calibrated so a standard Canton Coin transfer burns about 1 USD
+([CIP-0042](https://github.com/canton-foundation/cips/blob/main/cip-0042/cip-0042.pdf));
+the current 60 USD/MB is set by the Tokenomics Committee under the authority
+delegated by [CIP-0084](https://github.com/canton-foundation/cips/blob/main/cip-0084/cip-0084.md).
 
 Implications:
 
@@ -955,7 +957,8 @@ Implications:
   per swap; exact figures come from the M2 DevNet measurement of all four
   flows.
 - Failed transactions burn traffic too, i.e. losing the contention race on a hot
-  `Pool`. This strengthens the case for
+  `Pool`, and earn no reward: CIP-0104 credits only successful confirmation
+  requests ([section 6.2](#62-app-rewards)). This strengthens the case for
   batching ([section 7](#7-open-design-questions)) and opens a griefing angle:
   an adversary can feed the operator quotes doomed to fail and let it pay for
   the settles. This risk is limited, since the adversary burns traffic on their own trader allocation too.
@@ -970,51 +973,55 @@ Implications:
 
 Since CIP-0078 only featured apps earn rewards. The venue holds a
 `FeaturedAppRight` (granted jointly by the super validators, on application
-to the Global Synchronizer Foundation), with the venue operator as provider. The claimable object is the **`AppRewardCoupon`**,
-and its lifecycle has three stages:
+to the Global Synchronizer Foundation), with the venue operator as provider.
 
-1. **Earn.** An `AppRewardCoupon` is created against the current open mining
-   round through one of two routes: directly,
-   when a Canton Coin transfer executes with the featured app as its
-   provider, or indirectly, when super-validator automation converts a
-   `FeaturedAppActivityMarker` the app created inside its own business
-   transaction (CIP-0047).
+Rewards are traffic-based
+([CIP-0104](https://github.com/canton-foundation/cips/blob/main/cip-0104/cip-0104.md),
+approved February 2026, rolling out on MainNet in increments since April 2026).
+Super-validator automation measures activity directly from sequencer and
+mediator data; the app creates nothing on-ledger to earn.
 
-   The DEX uses the marker route: a token standard V2
-   settlement is not a CC transfer and issues no coupon by itself, so each
-   settling choice (swap, liquidity provision, liquidity removal) creates the
-   marker in its settle transaction; without it the venue earns nothing.
-   Markers attach only to economically meaningful events (asset transfers,
-   mints, burns, per [the fair-use policy](https://github.com/canton-foundation/cips/blob/main/cip-0047/cip-0047.md?plain=1#L85C1-L90C66)), so the intermediate steps
-   (allocation requests, allocation locking) carry none. A marker carries reward weight worth about 1 USD,
-   splittable across up to 20 beneficiaries with weights summing to 1.0
-   (venue, LP token issuer, instrument registrars); CIP-0098 caps per-transaction
-   app rewards at 1.50 USD.
-2. **Issue.** When the round reaches its issuing phase, the
-   `IssuingMiningRound` fixes how much CC each coupon mints: the round's
-   `appRewardPercentage` tranche of issuance divided by total coupon demand,
-   capped at `featuredAppRewardCap` (100 CC) per coupon, after a development
-   fund share (default 5%) is reserved.
-3. **Collect.** The provider (or a named beneficiary) redeems the coupon as
-   an input to a CC transfer during the issuing window. Coupons on a closed round are expired by
-   super-validator automation, so collection is validator wallet automation,
-   never manual.
+1. **Earn.** The traffic cost of every successful confirmation request is
+   credited to its **app confirmers**: parties holding an active
+   `FeaturedAppRight` at round start that confirm the request's views. Each
+   envelope's cost splits equally among its app confirmers.
+2. **Issue.** Per round, super-validator automation agrees on each party's
+   minting allowance: its traffic credit priced in CC, scaled by the issuance
+   curve's `appRewardPercentage` tranche, diluted pro rata when
+   oversubscribed. Exactly one DSO-created `AppRewardCoupon` per party
+   carries the allowance (the app itself never creates coupons); allowances
+   below `appRewardCouponThreshold` (`AmuletConfig`, default 0.50 USD) are
+   burned.
+3. **Collect.** The provider mints against the coupon within
+   `appRewardCouponLifetime` (`AmuletConfig`, default 24h from creation);
+   coupons from several rounds can batch into one mint. Collection is
+   validator wallet automation, never manual.
 
-Two side notes: 
-- The venue's own traffic purchases mint
-`ValidatorRewardCoupon`s to its validator operator, a further rebate on the
-traffic bill. 
-- CIP-0104 (preview) replaces markers with traffic-based
-rewards proportional to the CC value of traffic burned on transactions where
-the featured app's party is a confirming party; the venue operator must then
-stay a signatory or controller on the settlement views, not a mere observer,
-to keep earning.
+Design consequences:
 
-Rewards partially offset the traffic bill: a marked swap earns up to 1 to
-1.50 USD against a similar-order traffic cost, so venue fees, not rewards,
-carry the business model; rewards are a rebate.
+- The venue earns only where its party **confirms**: a signatory of created
+  contracts, or a signatory/actor on exercised ones; contract and choice
+  observers earn nothing. The operator signs the `Pool` and drives
+  `Pool_Swap`, so the settle transaction - the heaviest of the five - is
+  credited. The trader's and pool account's allocation transactions earn the
+  venue nothing: it only observes them. Their credit goes to a **featured
+  instrument registry**, if any - the registry admin signs every holding and
+  allocation view, so such a registry also splits the settle envelopes it
+  confirms with the venue.
+- Reward sharing with the LP token issuer or instrument registrars happens at
+  minting: the venue accounts for the split itself off Scan's activity
+  records, then names beneficiaries and CC amounts out of its allowance
+  (CIP-0073 minting delegations). Per-transaction beneficiary attribution is
+  not supported.
+- The venue's own traffic purchases mint `ValidatorRewardCoupon`s to its
+  validator operator, a further rebate on the traffic bill.
 
-A precise calculation of the application rewards and traffic cost is deferred to M2, to be done once the implementation and testing/simulations against the DevNet are available.
+Rewards partially offset the traffic bill: the credit is an issuance-scaled
+fraction of the settle transaction's own burn, so venue fees are also needed to carry the business model; rewards are a rebate.
+
+A precise calculation of the application rewards and traffic cost, under
+CIP-0104 accounting, is deferred to M2, to be done once the implementation and
+testing/simulations against the DevNet are available.
 
 ---
 
