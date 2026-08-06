@@ -165,7 +165,7 @@ The experiment follows the same compatibility discipline demonstrated by the
 - introduce new choices for new required behavior.
 
 These experimental shapes carry no public backward-compatibility promise. A
-candidate promoted to `canton-contracts` receives its own package identity,
+candidate promoted to `OpenZeppelin/canton-contracts` receives its own package identity,
 compatibility baseline, and release assessment.
 
 ## Dependency and promotion boundary
