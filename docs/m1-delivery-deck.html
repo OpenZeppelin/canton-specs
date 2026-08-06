@@ -1129,7 +1129,7 @@
         <span class="tag">Added beyond the proposal</span>
         <h3>CIP-0112 settlement primitive</h3>
         <p>A Token Standard V2-aligned settlement engine with compliance and seizure extension points. All four Reference Implementations inherit it as their shared base.</p>
-        <p class="foot mono">canton-specs/experiments/cip112-settlement</p>
+        <p class="foot mono">canton-specs/experiments/settlement</p>
       </div>
     </div>
   </section>
@@ -1174,7 +1174,7 @@
 <rect x="9.65039" y="12" width="3.32408" height="3.32408" rx="0.25" transform="rotate(-45 9.65039 12)" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
         <div>
           <span class="tag">RI-01</span>
-          <p class="foot mono" style="margin: 0 0 .45rem;">docs/ri-reports/01-dex.md</p>
+          <p class="foot mono" style="margin: 0 0 .45rem;">docs/reference-architectures/dex.md</p>
           <h3>Privacy-Preserving DEX</h3>
           <p>Atomic delivery-versus-payment swaps, with positions and flows visible only to the parties involved.</p>
         </div>
@@ -1185,7 +1185,7 @@
 <path d="M4.9707 19.0293H19.0293" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
         <div>
           <span class="tag">RI-02</span>
-          <p class="foot mono" style="margin: 0 0 .45rem;">docs/ri-reports/02-lending.md</p>
+          <p class="foot mono" style="margin: 0 0 .45rem;">docs/reference-architectures/lending.md</p>
           <h3>Lending Protocol</h3>
           <p>Fixed-rate, overcollateralized institutional lending; every value movement through atomic settlement.</p>
         </div>
@@ -1199,7 +1199,7 @@
 <line x1="16.334" y1="7.30444" x2="16.334" y2="17.473" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
         <div>
           <span class="tag">RI-03</span>
-          <p class="foot mono" style="margin: 0 0 .45rem;">docs/ri-reports/03-cross-chain-stablecoin.md</p>
+          <p class="foot mono" style="margin: 0 0 .45rem;">docs/reference-architectures/cross-chain-stablecoin.md</p>
           <h3>Cross-Chain Stablecoin Payments</h3>
           <p>Private, atomic settlement on Canton of payments originating on external chains.</p>
         </div>
@@ -1209,7 +1209,7 @@
 <rect x="8.91797" y="12" width="4.36049" height="4.36049" rx="0.485108" transform="rotate(-45 8.91797 12)" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
         <div>
           <span class="tag">RI-04</span>
-          <p class="foot mono" style="margin: 0 0 .45rem;">docs/ri-reports/04-confidential-auction.md</p>
+          <p class="foot mono" style="margin: 0 0 .45rem;">docs/reference-architectures/confidential-auction.md</p>
           <h3>Confidential Auction Launchpad</h3>
           <p>Sealed-bid token distribution by protocol design; no commit-reveal schemes.</p>
         </div>
@@ -1225,12 +1225,12 @@
       <table>
         <thead><tr><th>Proposal acceptance criterion</th><th>Status</th><th>Evidence</th></tr></thead>
         <tbody>
-          <tr><td class="crit">Library code compiles on the current Daml SDK; CI passes with 100% test pass rate</td><td><span class="pill ok">Met</span></td><td class="mono">130/130 scripts · SDK 3.4.11 · CI green</td></tr>
-          <tr><td class="crit">≥ 90% code coverage via automated test reporting</td><td><span class="pill ok">Met</span></td><td class="mono">100% merged coverage (30/30 templates, 81/81 choices)</td></tr>
+          <tr><td class="crit">Library code compiles on the current Daml SDK; CI passes with 100% test pass rate</td><td><span class="pill ok">Met</span></td><td class="mono">109/109 scripts · SDK 3.4.11 · CI green</td></tr>
+          <tr><td class="crit">≥ 90% code coverage via automated test reporting</td><td><span class="pill ok">Met</span></td><td class="mono">100% merged coverage of measured templates and choices (8 packages)</td></tr>
           <tr><td class="crit">CIP-56 &amp; CIP-86 demonstrate token creation, transfer, querying on LocalNet, incl. backwards compatibility</td><td><span class="pill ok">Met</span></td><td>LocalNet gate 11/11 · V1-wallet path · CIP-56→V2 migration evidence</td></tr>
-          <tr><td class="crit">CIP-103 components compatible with an existing CIP-103 implementation</td><td><span class="pill ok">Met</span></td><td>Full account/command/event lifecycle on LocalNet</td></tr>
+          <tr><td class="crit">CIP-103 components compatible with an existing CIP-103 implementation</td><td><span class="pill ok">Met</span></td><td>Canton Wallet Gateway gate passing on a local sandbox and an external DevNet validator; full account/command/event lifecycle on LocalNet</td></tr>
           <tr><td class="crit">CIP-104 integration with the traffic-based rewards model on LocalNet</td><td><span class="pill ok">Met</span></td><td>Attribution from settlement views alone; executor authority enforced</td></tr>
-          <tr><td class="crit">RI architecture documents published and reviewed by Digital Asset</td><td><span class="pill ok">Met</span></td><td>Four RI reports published in canton-specs; reviewed by Digital Asset</td></tr>
+          <tr><td class="crit">RI architecture documents published and reviewed by Digital Asset</td><td><span class="pill pend">In review</span></td><td>Four RI reports published in canton-specs; Digital Asset review round in progress (PR #40)</td></tr>
           <tr><td class="crit">Library and RI code in public GitHub repos (MIT; OZ tooling AGPL-3.0)</td><td><span class="pill ok">Met</span></td><td>canton-specs, canton-contracts, canton-token-template, canton-stablecoin public on github.com/OpenZeppelin</td></tr>
         </tbody>
       </table>
