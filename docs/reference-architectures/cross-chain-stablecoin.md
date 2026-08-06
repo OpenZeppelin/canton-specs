@@ -8,7 +8,9 @@ Source-grounding tags used throughout: `[IMPLEMENTED]` real code in this workspa
 
 This report specifies a cross-chain stablecoin payment orchestration design for the Canton Network. Institutional participants accept an inbound asset representation, either an already-native Canton stablecoin such as USDCx or a gateway-minted wrapped instrument (written **`wTOK`** throughout), while the settlement amount, payer and payee identities, and compliance markers stay projected only to explicitly authorized parties.
 
-Two components are planned or external rather than present in this workspace: the **Standardized Messaging Gateway** `[FUTURE]` (modeled as a bounded mock) and **USDCx** (an external ecosystem stablecoin, consumed by interface). Both are flagged throughout and in [section 6](#6-open-design-questions).
+Most of the payment path is planned, external, or evidenced elsewhere rather than present in this
+workspace. Every item is tagged where it appears, and [section 6](#6-open-design-questions)
+collects the open questions.
 
 For such a payment rail to work, the inbound credit must settle atomically: the recipient is credited exactly the attested amount or nothing at all, and no intermediary holds the assets along the way. Therefore the settlement architecture centers on [CIP-0112 - Canton Network Token Standard V2](https://github.com/canton-foundation/cips/blob/main/cip-0112/cip-0112.md), specifically its support for [atomic settlement](https://github.com/canton-foundation/cips/blob/main/cip-0112/cip-0112.md#416-committed-allocations-for-prefunded-trading-and-iterated-settlement). The core building block is the **atomic delivery-versus-payment (DvP) settlement**: committed allocations are settled in one all-or-nothing transaction, with each leg's amount fixed on-ledger by the allocation sides their authorizers signed. A signed side is what makes the amount non-repudiable, not what makes it *correct*: tying the inbound amount, recipient, and instrument to the attesters' `LockAttestation` is the job of the explicit binding checks in [section 3](#3-how-we-implement-it), without which a signed side is only the submitter's own declaration.
 
