@@ -998,7 +998,7 @@ path, in three steps:
 3. **Collect** (within 24h, by the provider's wallet). The provider mints CC
    against the coupon within `appRewardCouponLifetime` (`AmuletConfig`,
    default 24h from creation); coupons from several rounds can batch into one
-   mint. Collection is validator wallet automation, never manual. Reward
+   mint. Collection is validator wallet automation. Reward
    sharing with the LP token issuer or instrument registrars happens here:
    the venue accounts for the split itself off Scan's activity records, then
    names beneficiaries and CC amounts out of its allowance (CIP-0073 minting
