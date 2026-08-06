@@ -69,17 +69,17 @@ compartmentalization.
 
 Because a recipient's signature (or a standing delegation of it) is required to
 bind them to an allocation, **two-step handshakes (Daml's propose-and-accept
-pattern) are a necessity, not a style choice**. The design uses **contract
-keys** (reintroduced in [Canton 3.5.1+](https://github.com/digital-asset/canton/releases/tag/v3.5.1))
-so the `PauseState`, the trusted-issuer and trusted-attester registries, and the
-consumed-nonce registry keep stable, unique identities across those
-archive-and-recreate cycles.
-
-Contract keys are the design target, not what runs today. The experiment code
-sits on the workspace's pinned SDK baseline and is keyless: each choice takes a
-caller-supplied registry contract id and asserts that registry shares the
-factory's admin. The by-key resolution shown throughout lands with the Canton
-3.5.1+ SDK migration.
+pattern) are a necessity, not a style choice**. The snippets in this report show
+today's keyless pattern: the pause state, the registries, and the consumed-nonce
+registry archive-and-recreate on every change, so their current contract ids are
+passed as choice arguments (never stored), and the attester registry is accepted
+from the caller only when `registry.admin` matches the settling factory's admin.
+**Contract keys** (reintroduced in
+[Canton 3.5.1+](https://github.com/digital-asset/canton/releases/tag/v3.5.1))
+are the migration target for the stable-identity lookups: because a key's
+maintainers must be signatories of the keyed contract, each key is that
+contract's own authority (`pauser` for a pause state, `registryAdmin` for the
+issuer registry), a template change as well as an SDK migration.
 
 ### Target Users
 
@@ -109,10 +109,14 @@ independent from the settlement spine and compliance logic.
 All flows in this report (sections [2](#2-architecture-overview)-[4](#4-interfaces--usage-examples)) mint, settle, and redeem a **generic
 gateway-minted wrapped instrument, `wTOK`**, whose issuing admin is the
 StablecoinAdmin defined by this architecture. **USDCx is not that instrument**:
-it is already native on
-Canton via Circle's own xReserve lock-and-mint + CCTP rail, so routing it
-through this gateway would re-bridge an already-bridged asset, adding trust
-surface. Where a native rail exists, the architecture simply *settles* the
+it is already issued on Canton through Circle's own first-party rail,
+[xReserve](https://www.circle.com/blog/usdcx-on-canton-now-available-via-circle-xreserve) -
+USDC deposited into the xReserve contract on Ethereum is held there and USDCx is
+minted 1:1 on Canton, i.e. **lock-and-mint**, with Circle as the issuing
+authority. (Circle Gateway and CCTP sit *beside* that rail to keep USDCx
+interoperable with native USDC on other chains; CCTP is burn-and-mint and is not
+the USDCx mint path.) Routing USDCx through this gateway would therefore
+re-bridge an already-bridged asset, adding trust surface. Where a native rail exists, the architecture simply *settles* the
 native mint output by interface (no architecture-side issuer role); the gateway
 is the reference rail only for assets that **lack** a native Canton path. The general
 native-rail-vs-gateway rule is an open question.
@@ -376,7 +380,13 @@ and fail-closed:
   D3 identity is checked at **request** time, in the gateway (no valid claim
   from a listed issuer whose subject is the recipient, no allocation request),
   while D1 compliance is checked at **settlement** time (a single-use
-  attestation from a listed attester, bound to this batch's own legs).
+  attestation from a listed attester, bound to this batch's own legs). The two
+  registries are also reached differently: the gateway takes the issuer
+  registry's current contract id as a choice argument, while the settling caller
+  supplies the attester registry's contract id and
+  `ComplianceAttestation_Verify` rejects any registry whose `admin` is not the
+  settling factory's admin - what defeats registry substitution there is the
+  admin match.
 - **D2 - seizure (lock-and-sweep) `[EXPERIMENT]`.** Under mandate, the Custodian uses the
   single-admin [`BurnerCapability`](../../experiments/settlement/cip-0112/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml) to sweep a targeted holding to an admin-preset
   `custodianDestination`. `BurnerCapability` is **deliberately choice-less** - a
@@ -755,6 +765,7 @@ transitions rather than bespoke cryptography.
 | Compromised admin | Attempts arbitrary expropriation. | D4 single-admin is a structural boundary; even a compromised admin's D2 sweep is hardcoded to the preset `custodianDestination` (no arbitrary burn, no return-to-sender). |
 | **Relayer centralization** (primary risk) | A single relayer is both a **liveness** chokepoint (can censor or stall inbound mints and outbound redemptions) and, if it is also the sole attestor, a **trust** chokepoint (could authorize a mint with no real source-chain lock). | Separate the relayer's *transport/liveness* role from the *attestation/trust* role. The experiment verifies one registry-trusted signer; the target requires a threshold N-of-M attestor set rooted in a registry (no mint/redeem without quorum - fail-closed, [section 3.5](#35-reserve--lock-attestation-model-target)). Relay should be permissionless so any party can submit a valid quorum-signed attestation, and the source-chain escrow needs an inbound timeout and forced-refund path. The attestor/relayer trust parameters remain an open design question. |
 | UTXO fragmentation | Many small transfers accumulate holding dust. | Settlement returns a sender's surplus as a single new *change* holding per instrument (rather than many fragments); iterated settlement can further merge inputs across rounds. |
+| DAR unvetting | A participant unvets the rail's DAR on their validator, blocking every choice on contracts its parties are stakeholders of: a holder freezes the D2 sweep of their own funds, and an unvetted attester or recipient blocks pending settlements they are party to. | A transaction succeeds only if every participant hosting each **informee** has vetted the package version the submitter selected for it. Unvetting therefore freezes contracts rather than freeing them: the holder cannot move the asset either, and the locked value stays readable and swept-able once re-vetted. Attester-side liveness risk is bounded by the N-of-M registry posture ([section 2](#2-architecture-overview)); holder-side unvetting is an inherent Canton vetting property with no protocol-level bypass. |
 
 ### 7.3 Validation evidence
 
@@ -880,8 +891,8 @@ These questions define trust, lifecycle, and interoperability decisions at the
   capabilities), and the concrete holder/co-authorization model for the
   `[TARGET]` `RedemptionBurnCapability` that gates outbound redemption burns
   ([section 3.6](#36-outbound-redemption-burn-on-canton--release-on-source-chain-target)) - kept strictly separate from the Custodian's seizure credential.
-- **Aligning gateway scope with native rails.** USDCx bridges natively via Circle
-  xReserve + CCTP ([section 1](#1-product-definition)), so this architecture settles it rather than bridging it. Open: a
+- **Aligning gateway scope with native rails.** USDCx is minted on Canton by
+  Circle's own xReserve lock-and-mint rail ([section 1](#1-product-definition)), so this architecture settles it rather than bridging it. Open: a
   general rule for when an inbound asset already has a native Canton rail (settle
   the native mint output) versus when the generic Standardized Messaging Gateway
   is the right reference, so the architecture never re-bridges an already-bridged
