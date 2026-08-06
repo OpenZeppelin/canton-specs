@@ -91,24 +91,14 @@ in-place mutation, and any signatory must actively co-authorize a transition, so
 **two-step handshakes (Daml's propose-and-accept pattern) are a necessity, not a
 style choice**. The design uses **contract keys**
 (reintroduced in [Canton 3.5.1+](https://github.com/digital-asset/canton/releases/tag/v3.5.1))
-so the `Pool`, its pool-scoped pause state, and the trusted-issuer registry
-keep stable, unique identities across those archive-and-recreate cycles. The
-trusted-attester registry is the deliberate exception: settlement takes its
-contract id from the caller and defeats substitution by requiring
-`registry.admin == factoryAdmin` ([section 4.2](#42-component-d1-party-attestation)).
+so the `Pool`, `PauseState`, and the trusted-attester and trusted-issuer registries
+keep stable, unique identities across those archive-and-recreate cycles.
 
-Contract keys are the design target, not what runs today, and the gap has two
-parts. **SDK**: the `[IMPLEMENTED]` experiment code sits on the workspace's pinned
-baseline, which has no key support at all. **Templates**: no template in this
-workspace declares a `key` today, so by-key resolution is also a template change,
-not only an SDK migration. Because a key's maintainers must be signatories of the
-keyed contract, each key is that contract's own authority: the library
-[`PauseState`](https://github.com/OpenZeppelin/canton-contracts/blob/68b7c52ccb2db496a668508101fdb0024c60c713/packages/security/pausable-v1/daml/OpenZeppelin/PausableV1.daml#L47) is
-`signatory pauser` with a single global flag, so the per-pool pause state below is
-a design-level variant of it (signed by the venue operator and keyed by the pool
-tuple), and ShapeB's
-[`TrustedIssuerRegistry`](../../experiments/identity/hook-shape-b/daml/OpenZeppelin/Experimental/Identity/ShapeB.daml)
-is `signatory registryAdmin`, so its key is `registryAdmin`.
+Contract keys are the design target, not what runs today. The `[IMPLEMENTED]`
+experiment code sits on the workspace's pinned SDK baseline and is keyless: each
+choice takes a caller-supplied registry contract id and asserts that registry
+shares the factory's admin. The by-key resolution shown throughout lands with the
+Canton 3.5.1+ SDK migration.
 
 To build a mathematically sound AMM in this privacy-first environment, the
 architecture reconciles the transparency needed for price discovery and
@@ -308,8 +298,8 @@ The diagrams below decompose the design around the shared `Atomic settlement` hu
 flowchart TD
     Attester1([Attester])
     Attester2([Attester])
-    AttReg["TrustedAttesterRegistry<br/>signatory: admin"]
-    IssReg[["TrustedIssuerRegistry<br/>key: registryAdmin"]]
+    AttReg[["TrustedAttesterRegistry<br/>key: admin"]]
+    IssReg[["TrustedIssuerRegistry<br/>key: admin"]]
     Attn["ComplianceAttestation<br/>signed, single-use"]
     Kyc["KycClaim<br/>signed"]
     Settle{{Atomic settlement}}
@@ -319,9 +309,9 @@ flowchart TD
     Attester1 -->|"signs"| Attn
     Attester2 -->|"signs"| Kyc
     Attn -->|"verify + consume"| Settle
-    AttReg -->|"cid supplied by caller; registry.admin == factory admin; attester trusted?"| Settle
+    AttReg -->|"fetchByKey admin; attester trusted?"| Settle
     Kyc -->|"trader KYC checked"| Settle
-    IssReg -->|"fetchByKey registryAdmin; issuer trusted?"| Settle
+    IssReg -->|"fetchByKey admin; issuer trusted?"| Settle
 ```
 
 **B. Swap settlement and holdings.** The trader and the pool account each commit one leg; the atomic settlement swaps them in one transaction, with compliance (from A) plugged in.
@@ -365,7 +355,7 @@ flowchart LR
 flowchart TD
     Operator([Venue Operator / Pauser])
     Pool[["Pool<br/>key: operator + base + quote"]]
-    Pause[["PauseState (pool-scoped)<br/>key: operator + base + quote"]]
+    Pause[["PauseState<br/>key: operator + base + quote"]]
     Settle{{Atomic settlement}}
 
     Operator -->|"PauseState_Set"| Pause
@@ -710,7 +700,7 @@ which archives this `Pool` and recreates the successor with updated reserves.
 The `Pool` carries a contract key `(venueOperator, baseInstrumentId,
 quoteInstrumentId)`, so consumers reference it by pair rather than by a cid that
 changes every swap. `Pool_Swap` is the venue's **single swap entry point** and is
-**pause-gated**: it looks up that pool's pause state - the pool-scoped variant of the library `PauseState`, keyed by the same tuple ([section 1](#educational-framing-how-to-think-about-building-a-dex-on-canton)) - and fails while paused.
+**pause-gated**: it looks up that pool's `PauseState` (keyed by the same tuple) and fails while paused.
 
 ```daml
 module OpenZeppelin.Experimental.Dex.Amm where
@@ -749,7 +739,6 @@ template Pool
         settlement : SettlementInfo
         transferLegs : [TransferLeg]
         attestationCid : ContractId ComplianceAttestation
-        registryCid : ContractId TrustedAttesterRegistry  -- checked against the factory's admin
       controller venueOperator
       do
         -- Pause is resolved by key, per pool (same key tuple as the Pool).
@@ -777,14 +766,13 @@ template Pool
           (outSide.amount == dOut && outSide.instrumentId == outInstrument.id && outSide.otherside == poolAccount)
 
         -- Atomic DvP: settle the trader's input and the pool's output in one batch,
-        -- presenting the signed compliance attestation and the attester registry.
-        -- The registry cid is caller-supplied, but verification rejects any registry
-        -- whose admin is not the factory's own admin.
+        -- presenting the signed compliance attestation. The factory resolves its
+        -- TrustedAttesterRegistry by key, so no caller-supplied registry is trusted.
         receipts <- exercise settlementFactoryId SettlementFactory_SettleBatchWithAttestation with
           settlement; transferLegs
           allocationCids = [traderAllocationId, poolAllocationId]
           actors = [venueOperator]
-          attestationCid; registryCid
+          attestationCid
         let (newBase, newQuote) =
               if baseToQuote then (baseReserves + amountIn, quoteReserves - dOut)
                              else (baseReserves - dOut, quoteReserves + amountIn)
@@ -800,30 +788,25 @@ through `SettlementFactory_SettleBatchWithAttestation`, which is given a signed
 `ComplianceAttestation`.
 
 The factory verifies and **consumes** the attestation before settling (single-use,
-no replay). The `TrustedAttesterRegistry` is **not** key-resolved: its contract id
-comes from the caller, and verification rejects any registry whose `admin` is not
-the settling factory's admin. So the attester must still be trusted by a registry
-the factory's own admin signed - substitution is defeated by that admin match, not
-by a key. The attestation must also cover this settlement, bind to the batch's
-exact transfer-leg set, and be within its validity window.
+no replay). It resolves its `TrustedAttesterRegistry` **by key** (keyed by the
+factory admin), so the attester must be trusted by the factory's own registry, not
+one the caller supplies. The attestation must also cover this settlement, bind to
+the batch's exact transfer-leg set, and be within its validity window.
 
 ```daml
 -- Executors settle by presenting the attestation.
 exercise factoryCid SettlementFactory_SettleBatchWithAttestation with
   settlement; transferLegs; allocationCids; actors
-  attestationCid; registryCid
+  attestationCid
 
--- The factory calls the attestation's consuming verify, passing the caller's
--- registry cid together with its own admin:
+-- The factory calls the attestation's consuming verify, passing its own admin:
 choice ComplianceAttestation_Verify : Text
   with
     settlement : SettlementInfo; transferLegs : [TransferLeg]
-    registryCid : ContractId TrustedAttesterRegistry
     factoryAdmin : Party
   controller settlement.executors
   do
-    registry <- fetch registryCid
-    assertMsg "foreign registry"     (registry.admin == factoryAdmin)
+    (_, registry) <- fetchByKey @TrustedAttesterRegistry factoryAdmin
     assertMsg "attester not trusted" (attester `elem` registry.attesters)
     assertMsg "wrong settlement"     (settlementRef == settlement.settlementRef.id)
     -- also: bound to this batch's exact leg set; now within [issuedAt, expiresAt]
