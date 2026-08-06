@@ -76,7 +76,7 @@ when the Daml field remains a `Party`.
 | `SettlementReceipt` | administrator | none | Terminal prototype evidence |
 | `SettlementEventLogEntry` | event administrator | none | Persistent prototype event entry |
 | `TrustedAttesterRegistry` | administrator | none | Persistent trust anchor |
-| `NodeComplianceAttestation` | attester | consumed by verification | Single-use typed evidence |
+| `ComplianceAttestation` | attester | consumed by verification | Single-use typed evidence |
 
 ## Validation map
 
