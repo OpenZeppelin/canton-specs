@@ -17,7 +17,7 @@ Install DPM and Java 21+. From the repository root, install the Daml SDK selecte
 by [`multi-package.yaml`](multi-package.yaml) and build the workspace:
 
 ```sh
-dpm install package
+dpm install
 dpm build --all
 ```
 

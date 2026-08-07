@@ -2,7 +2,7 @@
 
 This document describes a *reference design* for a constant-product automated
 market maker DEX on Canton. It draws on reusable OpenZeppelin packages maintained
-in [`OpenZeppelin/canton-contracts`](https://github.com/OpenZeppelin/canton-contracts),
+in [`canton-contracts`](https://github.com/OpenZeppelin/canton-contracts),
 experimental evidence in this repository, and the Canton Network Token Standard
 V2.
 
@@ -52,7 +52,7 @@ tables below distinguish its core design from adjacent architectural concerns.
 | Asset Representation | Fungible digital assets compliant with the CIP-0112 Token Standard V2 holding interfaces. LP tokens represent pool-share ownership and are minted/burned via the spine. |
 | Compliance & Control | D1: a settlement does not execute unless an attester has signalled compliance. D2: a privileged party can block settlement and sweep allocation funds to a preset custodian account. D3: single-synchronizer identity. |
 | Trust Topology | Operator-authorized venue: the `Pool` is signed by the venue operator and LP token issuer, and swap correctness is enforced on-ledger by the swap choice rather than by operator discretion. |
-| Component Integration | Direct reuse of `openzeppelin-access-control-v1`, `openzeppelin-ownable-v1`, `openzeppelin-pausable-v1`, the CIP-0112 settlement spine, as well as patterns from the [`OpenZeppelin/canton-token-template`](https://github.com/OpenZeppelin/canton-token-template),  [`OpenZeppelin/canton-stablecoin`](https://github.com/OpenZeppelin/canton-stablecoin) and [`ShapeB`](../../experiments/identity/hook-shape-b/daml/OpenZeppelin/Experimental/Identity/ShapeB.daml#L6) codebases. |
+| Component Integration | Direct reuse of `openzeppelin-access-control-v1`, `openzeppelin-ownable-v1`, `openzeppelin-pausable-v1`, the CIP-0112 settlement spine, as well as patterns from the [`canton-token-template`](https://github.com/OpenZeppelin/canton-token-template),  [`canton-stablecoin`](https://github.com/OpenZeppelin/canton-stablecoin) and [`ShapeB`](../../experiments/identity/hook-shape-b/daml/OpenZeppelin/Experimental/Identity/ShapeB.daml#L6) codebases. |
 
 | Feature Category | Out-of-Scope Architectural Components |
 |---|---|
@@ -123,9 +123,11 @@ The architecture is assembled from reused OpenZeppelin Daml primitives (role man
 
 ### Core Components and Library Mapping
 
-Tags distinguish reusable packages from bounded research evidence:
-`[LIBRARY]` identifies a package in `OpenZeppelin/canton-contracts`, while `[EXPERIMENT]`
-identifies executable evidence in this repository.
+Tags distinguish library packages from bounded research evidence:
+`[LIBRARY]` identifies a package maintained under `experiments/` in
+`canton-contracts` (experimental, unaudited, and subject to interface changes
+before release), while `[EXPERIMENT]` identifies executable evidence in this
+repository.
 
 | Component Suite | Applied Templates and Libraries | Architectural Function |
 |---|---|---|

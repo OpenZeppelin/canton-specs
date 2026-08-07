@@ -7,7 +7,7 @@ Token Standard V2 boundary.
 
 This report specifies the target auction application. The reusable
 access-control, ownership, and pausing components are maintained in
-[`OpenZeppelin/canton-contracts`](https://github.com/OpenZeppelin/canton-contracts). This
+[`canton-contracts`](https://github.com/OpenZeppelin/canton-contracts). This
 repository contains executable settlement and identity experiments. The
 `AuctionLaunchpad`, `BidRequest`, and clearing snippets in this report are
 illustrative application design; an implementation must complete and validate
@@ -61,7 +61,7 @@ mechanics**. The tables below define its boundaries.
 | Escrow | Bid capital locked in a committed [`Allocation`](../../experiments/settlement/cip-0112/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L388) under the bidder's own signature, with a deadline-gated force-refund for liveness. The winner-side settlement commits a separate post-clearing allocation; sequencing the two is an open question ([section 6](#6-open-design-questions)). |
 | Atomic Settlement | Token-for-payment exchange **only** via [`SettlementFactory_SettleBatchWithAttestation`](../../experiments/settlement/cip-0112/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L218) (atomic DvP, single transaction). |
 | Compliance & Control | D1: a settlement does not execute unless an attester has signalled compliance. D2: a privileged party can sweep allocation funds to a preset custodian account. D3: single-synchronizer identity, gated at bid acceptance by trusted-issuer KYC and re-checked at settlement. |
-| Component Integration | Target composition of `openzeppelin-access-control-v1`, `openzeppelin-ownable-v1`, `openzeppelin-pausable-v1`, the CIP-0112 settlement spine, the [`ShapeB`](../../experiments/identity/hook-shape-b/daml/OpenZeppelin/Experimental/Identity/ShapeB.daml#L6) identity experiment, and asset patterns from [`OpenZeppelin/canton-token-template`](https://github.com/OpenZeppelin/canton-token-template). |
+| Component Integration | Target composition of `openzeppelin-access-control-v1`, `openzeppelin-ownable-v1`, `openzeppelin-pausable-v1`, the CIP-0112 settlement spine, the [`ShapeB`](../../experiments/identity/hook-shape-b/daml/OpenZeppelin/Experimental/Identity/ShapeB.daml#L6) identity experiment, and asset patterns from [`canton-token-template`](https://github.com/OpenZeppelin/canton-token-template). |
 
 | Feature Category | Out-of-Scope Architectural Components |
 |---|---|
@@ -112,7 +112,9 @@ The architecture is assembled from reused OpenZeppelin Daml primitives (role man
 The status labels distinguish reusable source and executable research from the
 auction application described only in this report:
 
-- **Library** - reusable component source exists in `OpenZeppelin/canton-contracts`.
+- **Library** - component source exists under `experiments/` in
+  `canton-contracts`; experimental, unaudited, and subject to interface
+  changes before release.
 - **Experiment** - executable research exists in this repository, without a
   production or standards-conformance claim.
 - **Target design** - the report specifies illustrative application-level
@@ -520,7 +522,7 @@ The available executable evidence validates these building blocks:
 - typed trusted-issuer behavior in the
   [Shape-B identity tests](../../experiments/identity/test/daml/OpenZeppelin/Test/IdentityHookShapeB.daml); and
 - reusable access-control, ownership, and pausing behavior in the
-  [`OpenZeppelin/canton-contracts`](https://github.com/OpenZeppelin/canton-contracts)
+  [`canton-contracts`](https://github.com/OpenZeppelin/canton-contracts)
   component test suites.
 
 Application-level validation must additionally cover the illustrative
