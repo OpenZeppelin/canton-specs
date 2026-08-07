@@ -472,8 +472,8 @@ async function setupExternal() { // Function used for setting up the necessary l
   const baselineReceiptCount = receipts.length
   log(`baselines: wallet=${baselineWalletBalance} receiver=${baselineReceiverBalance} supply=${baselineSupply} receipts=${baselineReceiptCount}`)
 
-  const factory = await submitAndWait(token, op, 'factory', [ // Create the settlement factory
-    { CreateCommand: { templateId: T.factory, createArguments: { admin: op, requiresNodeAttestation: null, featureFlag: FEATURE_FLAG } } },
+  const factory = await submitAndWait(token, op, 'factory', [
+    { CreateCommand: { templateId: T.factory, createArguments: { admin: op, requiresComplianceAttestation: null, featureFlag: FEATURE_FLAG } } },
   ])
   const factoryCid = createdOf(factory, 'SettlementFactory')
 

@@ -56,7 +56,7 @@ provides the conformance boundary.
 | `SettlementReceipt` | Records terminal settlement evidence used by the prototype |
 | `SettlementEventLogEntry` | Models holdings-change reporting through the fixture interface |
 | `TrustedAttesterRegistry` | Anchors the parties accepted as compliance attesters |
-| `NodeComplianceAttestation` | Carries typed, time-bounded settlement evidence |
+| `ComplianceAttestation` | Carries typed, time-bounded settlement evidence |
 | `BurnerCapability` | Authorizes a named party to resolve marked allocations through seizure |
 
 ## Lifecycle
@@ -129,7 +129,7 @@ The `D1` label identifies the compliance research seam in type and choice names.
 
 The reference path uses an optional `D1ComplianceHook` and fails closed when a
 required settlement reference is absent. The typed path additionally consumes a
-`NodeComplianceAttestation` that is:
+`ComplianceAttestation` that is:
 
 - signed by a registry-authorized attester;
 - rooted in the factory administrator;
@@ -137,7 +137,7 @@ required settlement reference is absent. The typed path additionally consumes a
 - valid at ledger time; and
 - single-use.
 
-When `requiresNodeAttestation` is enabled, the factory rejects the plain batch
+When `requiresComplianceAttestation` is enabled, the factory rejects the plain batch
 entrypoint. Consumers can verify ledger-facing evidence through this path; an
 external service remains responsible for KYC or sanctions evaluation.
 
