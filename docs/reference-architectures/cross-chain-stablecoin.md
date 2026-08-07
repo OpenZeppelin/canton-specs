@@ -253,7 +253,7 @@ sequenceDiagram
     SettleFactory-->>Recipient: committed Allocation (receive wTOK)
     Relayer->>SettleFactory: SettleBatchWithAttestation (issuer mint leg + recipient leg)
     SettleFactory-->>Recipient: SettlementReceipt + wTOK holding
-    Note over SettleFactory,Recipient: payload visible to relayer + recipient + verifier<br/>+ Stablecoin Admin (it signs the wTOK legs and the receipt);<br/>never to another recipient
+    Note over SettleFactory,Recipient: payload visible ONLY to relayer + recipient + verifier<br/>+ Stablecoin Admin (it signs the wTOK legs and the receipt);
 ```
 
 ### Reserve and Lock-Attestation Model `[FUTURE]`
