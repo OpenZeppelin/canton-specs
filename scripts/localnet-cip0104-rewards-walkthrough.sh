@@ -1,21 +1,23 @@
 #!/usr/bin/env bash
 #
-# CIP-0104 off-chain rewards walkthrough: boots a local Canton sandbox with the
-# JSON Ledger API enabled, then runs the Node harness
-# (experiments/interoperability/app-rewards/harness.mjs), a fully off-chain
-# client that drives the CIP-0112 settlement surface over the JSON Ledger API
-# v2 and derives the app-provider's attribution and illustrative accrued
-# rewards from Ledger API reads alone. It replays the same steps and asserts
-# the same numbers as the on-ledger executable spec
-# (Cip0104RewardsWalkthrough.daml, run by localnet-cip-interop-validation.sh).
+# CIP-0104 off-chain rewards walkthrough. This script starts a local Canton
+# sandbox with the JSON Ledger API on. Then it starts the Node harness
+# (experiments/interoperability/app-rewards/harness.mjs). The harness is a
+# fully off-chain client. It sends its commands to the CIP-0112 settlement
+# surface through the JSON Ledger API v2. It gets the attribution of the
+# app-provider and the example accrued rewards only from Ledger API reads. It
+# does the same steps and makes assertions on the same numbers as the
+# on-ledger executable specification (Cip0104RewardsWalkthrough.daml, which
+# localnet-cip-interop-validation.sh runs).
 #
-# The sandbox runs on WALLCLOCK time: the harness settlements carry no
-# deadline, so nothing here needs static time.
+# The sandbox operates on WALLCLOCK time. The harness settlements have no
+# deadline. Thus this script does not need static time.
 #
 # Requirements: DPM, Java 21+, and Node.js 20+.
-# Env overrides: OZ_LEDGER_PORT (6865), OZ_JSON_API_PORT (7575),
-# OZ_LOCALNET_LOG_DIR. To target an already-running auth-less participant with
-# the exemplar DAR uploaded, set OZ_USE_EXTERNAL_LEDGER=1 and OZ_JSON_API_URL.
+# Environment overrides: OZ_LEDGER_PORT (6865), OZ_JSON_API_PORT (7575),
+# OZ_LOCALNET_LOG_DIR. To use a participant that already operates, set
+# OZ_USE_EXTERNAL_LEDGER=1 and OZ_JSON_API_URL. That participant must have no
+# authentication and must have the exemplar DAR uploaded.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"

@@ -1,21 +1,23 @@
 # CIP-0104 off-chain rewards walkthrough
 
-A fully off-chain Node client ([`harness.mjs`](harness.mjs)) that consumes the CIP-0112 settlement surface the way real CIP-0104 reward infrastructure would: it drives mint, allocation, and settlement over the JSON Ledger API v2, and derives the app-provider's attribution (settlements, settled volume, holdings-change events) and an illustrative accrued reward purely from Ledger API reads of `SettlementReceipt` and `SettlementEventLogEntry`. No reward-marker contract exists to create; every reward number is plain client-side computation.
+[`harness.mjs`](harness.mjs) is a fully off-chain Node client. It uses the CIP-0112 settlement surface in the same way as real CIP-0104 reward infrastructure. It sends mint, allocation, and settlement commands through the JSON Ledger API v2. It gets the attribution of the app-provider (settlements, settled volume, holdings-change events) and an example accrued reward only from Ledger API reads of `SettlementReceipt` and `SettlementEventLogEntry`. No reward-marker contract exists. All reward numbers come from client-side calculation.
 
-It replays the same six steps and asserts the same numbers as the on-ledger executable spec ([`Cip0104RewardsWalkthrough.daml`](../cip-exemplar/daml/OpenZeppelin/Experimental/Interop/Cip0104RewardsWalkthrough.daml)), so the two artifacts stay in lockstep: mint, two settlements executed by the app-provider, a failed non-executor settle (nothing accrues), the pending batch settled, and a round close distributing the accrual across beneficiaries.
+The harness does the same six steps as the on-ledger executable specification ([`Cip0104RewardsWalkthrough.daml`](../cip-exemplar/daml/OpenZeppelin/Experimental/Interop/Cip0104RewardsWalkthrough.daml)). It makes assertions on the same numbers. Thus the two artifacts show the same behavior. The steps are: a mint; two settlements that the app-provider executes; a settle attempt by a party that is not the executor (the attempt fails and no reward accrues); the settle of the pending batch; a round close that divides the accrual between the beneficiaries.
 
-## Run
+## Procedure
 
-From the repository root, with DPM, Java 21+, and Node.js 20+:
+Start from the repository root. Make sure that DPM, Java 21+, and Node.js 20+ are installed. Then run:
 
 ```sh
 scripts/localnet-cip0104-rewards-walkthrough.sh
 ```
 
-The launcher builds the interop exemplar DAR, boots a wallclock Canton sandbox with the JSON Ledger API enabled, runs the harness, and tears the sandbox down. Logs land under `.cache/cip0104-rewards-walkthrough/`. To target an already-running auth-less participant with the exemplar DAR uploaded, set `OZ_USE_EXTERNAL_LEDGER=1` and `OZ_JSON_API_URL`.
+The launcher builds the interop exemplar DAR. It starts a wallclock Canton sandbox with the JSON Ledger API on. It runs the harness. Then it stops the sandbox. The logs go to `.cache/cip0104-rewards-walkthrough/`.
 
-Unlike the Daml walkthrough, the harness settlements carry no deadline, so the sandbox runs on wallclock time and nothing needs `setTime`.
+To use a participant that already operates, set `OZ_USE_EXTERNAL_LEDGER=1` and `OZ_JSON_API_URL`. That participant must have no authentication and must have the exemplar DAR uploaded.
+
+The harness settlements have no deadline. Thus the sandbox operates on wallclock time, and `setTime` is not necessary. (The Daml walkthrough uses a deadline and static time.)
 
 ## Scope
 
-Experimental interoperability validation. The reward rate (0.01 CC per settled USD) and the beneficiary split (venue 0.7 / instrument registrar 0.2 / validator operator 0.1) are illustrative stand-ins for CIP-0104's traffic-proportional CC math (precise calculation is deferred to M2). This harness makes no CIP-0104 reward, SV, or Scan production claim.
+This experiment gives interoperability validation only. The reward rate (0.01 CC for each settled USD) and the beneficiary split (venue 0.7 / instrument registrar 0.2 / validator operator 0.1) are examples. They are not the traffic-proportional CC calculation of CIP-0104. That calculation is deferred to M2. This harness makes no CIP-0104 reward, SV, or Scan production claim.

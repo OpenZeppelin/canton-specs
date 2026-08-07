@@ -1,37 +1,41 @@
 #!/usr/bin/env node
-// CIP-0104 rewards-accounting walkthrough, fully off-chain: a Node client that
-// drives the CIP-0112 settlement surface over the JSON Ledger API v2 and
-// derives the app-provider's attribution and (illustrative) accrued rewards
-// from Ledger API reads alone - the way real CIP-0104 reward infrastructure
-// consumes the ledger. It replays the same six steps as the on-ledger
-// executable spec (`Cip0104RewardsWalkthrough.daml`) and asserts the same
-// numbers, so the two artifacts stay in lockstep.
+// CIP-0104 rewards accounting walkthrough, fully off-chain. This Node client
+// sends its commands to the CIP-0112 settlement surface through the JSON
+// Ledger API v2. It gets the attribution of the app-provider and the example
+// accrued rewards only from Ledger API reads. Real CIP-0104 reward
+// infrastructure reads the ledger in the same way. The client does the same
+// six steps as the on-ledger executable specification
+// (`Cip0104RewardsWalkthrough.daml`) and makes assertions on the same
+// numbers. Thus the two artifacts show the same behavior.
 //
-// What talks to the ledger (all via `/v2/...` JSON Ledger API endpoints):
-//   - party allocation (walkthrough plumbing)
-//   - CreateCommand ToyHolding                       (issuer mints)
+// These operations use the ledger (all through `/v2/...` JSON Ledger API
+// endpoints):
+//   - party allocation                               (walkthrough setup)
+//   - CreateCommand ToyHolding                       (the issuer mints)
 //   - SettlementFactory_CreateAllocationInstruction + AllocationInstruction_Accept
 //                                                    (each side authorizes its leg)
-//   - SettlementFactory_SettleBatch                  (app-provider executor settles;
-//                                                     factory passed as a disclosed contract)
+//   - SettlementFactory_SettleBatch                  (the app-provider executor settles;
+//                                                     the factory is a disclosed contract)
 //   - active-contracts reads of ToyHolding, SettlementReceipt,
-//     SettlementEventLogEntry                        (balances + the attribution surface)
+//     SettlementEventLogEntry                        (the balances and the attribution surface)
 //
-// What never touches the ledger: every reward number. `attributedActivity`,
-// `accruedReward`, and `distributeReward` are plain JavaScript over query
-// results; no reward-marker contract exists to create.
+// These operations do not use the ledger: all reward numbers. The functions
+// `attributedActivity`, `accruedReward`, and `distributeReward` are plain
+// JavaScript over query results. No reward-marker contract exists.
 //
-// The sandbox runs on WALLCLOCK time: unlike the Daml walkthrough this client
-// uses settlements without a deadline, so nothing needs `setTime`.
+// The sandbox operates on WALLCLOCK time. The client settlements have no
+// deadline. Thus this client does not need `setTime`. (The Daml walkthrough
+// uses a deadline and static time.)
 //
 // Scope: experimental interoperability validation. The reward rate and the
-// beneficiary split are illustrative stand-ins for CIP-0104's
-// traffic-proportional CC math (precise calculation deferred to M2); this
-// harness makes no CIP-0104 reward, SV, or Scan production claim.
+// beneficiary split are examples. They are not the traffic-proportional CC
+// calculation of CIP-0104 (that calculation is deferred to M2). This harness
+// makes no CIP-0104 reward, SV, or Scan production claim.
 //
-// Orchestrated by scripts/localnet-cip0104-rewards-walkthrough.sh; needs an
-// auth-less local participant with the exemplar DAR uploaded and the JSON
-// Ledger API at OZ_JSON_API_URL (default http://127.0.0.1:7575).
+// The script scripts/localnet-cip0104-rewards-walkthrough.sh starts this
+// harness. The harness needs a local participant without authentication, with
+// the exemplar DAR uploaded, and with the JSON Ledger API at OZ_JSON_API_URL
+// (default http://127.0.0.1:7575).
 
 const JSON_API = process.env.OZ_JSON_API_URL ?? 'http://127.0.0.1:7575'
 
@@ -48,13 +52,14 @@ const FEATURE_FLAG = 'experimental.cip112-settlement.enabled'
 const META = { entries: [] }
 const EPS = 1e-9
 
-// --- off-ledger reward model (illustrative) ----------------------------------
+// --- off-ledger reward model (example values) --------------------------------
 
-// CC accrued per USD of settled volume the app-provider confirmed; a stand-in
-// for CIP-0104's traffic-proportional rate.
+// The CC that accrues for each USD of settled volume that the app-provider
+// confirmed. This value is not the CIP-0104 traffic-proportional rate.
 const REWARD_RATE_PER_USD = 0.01
 
-// Beneficiary split applied when a round closes; weights sum to 1.0.
+// The beneficiary split that the client applies when a round closes. The
+// weights have a sum of 1.0.
 const BENEFICIARY_SPLIT = [
   ['venue (app-provider)', 0.7],
   ['instrument registrar', 0.2],
@@ -100,10 +105,10 @@ async function allocateParty(hint) {
   return party
 }
 
-// Ledger-user provisioning against the auth-less sandbox: submissions must
-// name a user even when authentication is off, so the harness creates one with
-// actAs rights over the walkthrough parties. On a real network the validator
-// operator provisions this through its IAM instead.
+// Ledger-user setup on the sandbox without authentication: each submission
+// must give a user id, also when authentication is off. Thus the harness
+// creates one user with actAs rights for the walkthrough parties. On a real
+// network, the validator operator does this setup through its IAM.
 const LEDGER_USER = 'oz-cip0104-walkthrough'
 async function ensureLedgerUser(parties) {
   const rights = parties.map((party) => ({ kind: { CanActAs: { value: { party } } } }))
@@ -147,8 +152,9 @@ const createdOf = (result, entity) => {
   return hit.contractId
 }
 
-// Active contracts of one template as seen by `party`; optionally carry the
-// created-event blob so the contract can be passed on as a disclosed contract.
+// Read the active contracts of one template, as `party` sees them. Set
+// `withBlob` to also get the created-event blob. The blob lets the caller
+// give the contract to an other party as a disclosed contract.
 async function acs(party, templateId, { withBlob = false } = {}) {
   const end = await api('GET', '/v2/state/ledger-end')
   const request = {
@@ -184,10 +190,10 @@ async function acs(party, templateId, { withBlob = false } = {}) {
   return contracts
 }
 
-// --- settlement-surface helpers (the functions an integrator calls) ----------
+// --- settlement-surface helpers (the functions that an integrator calls) -----
 
 const acct = (p) => ({ owner: p, provider: null, id: '' })
-// Wallclock ledger: the walkthrough settlements carry no deadline.
+// Wallclock ledger: the walkthrough settlements have no deadline.
 const settlementInfo = (ref, app) => ({
   executors: [app],
   settlementRef: { id: ref, cidText: null },
@@ -226,9 +232,10 @@ async function mintUsd(admin, owner, amount) {
   return createdOf(res, 'ToyHolding')
 }
 
-// Create the settlement factory and read it back with its created-event blob,
-// so the executor (a non-stakeholder) can be handed the factory as a disclosed
-// contract - the JSON API equivalent of the Daml script's `discloseMany`.
+// Create the settlement factory. Then read it back with its created-event
+// blob. The executor is not a stakeholder of the factory. Thus the client
+// gives the factory to the executor as a disclosed contract. This is the JSON
+// API equivalent of `discloseMany` in the Daml script.
 async function mkFactory(admin) {
   const res = await submit([admin], 'factory', [
     { CreateCommand: { templateId: T.factory, createArguments: { admin, requiresComplianceAttestation: null, featureFlag: FEATURE_FLAG } } },
@@ -245,12 +252,12 @@ async function mkFactory(admin) {
   return { factoryCid, disclosure }
 }
 
-// One side authorizes its leg: allocation instruction via the factory, then
-// accept (locking any input holdings).
+// One side authorizes its leg: an allocation instruction through the factory,
+// then an accept. The accept locks the input holdings.
 async function createAndAcceptAllocation(admin, factory, settlement, authorizer, sides, inputHoldingCids) {
-  // For a basic owner-only account the authorizer's account parties are just
-  // the owner (Cip112 `accountParties`), and the engine asserts actors equal
-  // them exactly.
+  // For a basic owner-only account, the account parties of the authorizer are
+  // only the owner (Cip112 `accountParties`). The engine makes sure that the
+  // actors are exactly equal to them.
   const actors = [authorizer]
   const instruction = await submit(actors, 'instruction', [
     { ExerciseCommand: { templateId: T.factory, contractId: factory.factoryCid, choice: 'SettlementFactory_CreateAllocationInstruction', choiceArgument: {
@@ -276,7 +283,7 @@ async function settleBatch(executor, factory, settlement, legs, allocationCids, 
   ], { disclosedContracts: [factory.disclosure], mustFail })
 }
 
-// Full alice/bob-style transfer: fresh factory, both allocations, settle.
+// A full transfer: a new factory, the two allocations, then the settle.
 async function settleUsdTransfer(admin, app, sender, receiver, senderHoldingCid, amount, ref) {
   const factory = await mkFactory(admin)
   const settlement = settlementInfo(ref, app)
@@ -291,15 +298,17 @@ async function settleUsdTransfer(admin, app, sender, receiver, senderHoldingCid,
 const unlockedUsd = (hs) => hs.filter((h) => !h.payload?.lock && h.payload?.instrumentId?.id === 'USD')
 const balanceOf = (hs, party) =>
   unlockedUsd(hs).filter((h) => h.payload?.account?.owner === party).reduce((a, h) => a + Number(h.payload.amount), 0)
-// Supply counts locked holdings too (mirrors erc20TotalSupply): a pending
-// allocation locks value, it does not burn it.
+// The supply includes the locked holdings (the same as erc20TotalSupply). A
+// pending allocation locks value. It does not burn value.
 const totalSupply = (hs) =>
   hs.filter((h) => h.payload?.instrumentId?.id === 'USD').reduce((a, h) => a + Number(h.payload.amount), 0)
 
-// The app-provider's confirmed activity, derived entirely from its Ledger API
-// projection of receipts and holdings-change events. Each settled batch yields
-// one receipt per authorizer sharing a settlement ref (count by unique ref)
-// and each leg's sender side appears in exactly one receipt (sum for volume).
+// The confirmed activity of the app-provider. The data comes only from its
+// Ledger API projection of the receipts and the holdings-change events. Each
+// settled batch makes one receipt for each authorizer, and these receipts
+// have the same settlement ref. Thus the function counts batches by unique
+// ref. The sender side of each leg is in exactly one receipt. Thus the
+// function adds the sender-side amounts to get the volume.
 async function attributedActivity(app) {
   const receipts = await acs(app, T.receipt)
   const events = await acs(app, T.eventLog)
@@ -339,13 +348,15 @@ async function main() {
   const notApp = await allocateParty('reward-walk-notapp')
   await ensureLedgerUser([admin, app, alice, bob, notApp])
 
-  // Step 0: the issuer mints 100 USD to alice; nothing is attributable yet.
+  // Step 0: the issuer mints 100 USD to alice. No settlement occurred. Thus
+  // no activity is attributable.
   const aliceHolding = await mintUsd(admin, alice, 100.0)
   const a0 = await logSnapshot('step 0: minted, nothing settled', admin, app, alice, bob)
   assertEq('step 0 settlements', a0.settlements, 0)
   assertEq('step 0 volume', a0.settledVolume, 0)
 
-  // Step 1: the app-provider executes a settlement moving 30 USD alice -> bob.
+  // Step 1: the app-provider executes a settlement that moves 30 USD from
+  // alice to bob.
   await settleUsdTransfer(admin, app, alice, bob, aliceHolding, 30.0, 'reward-walk-1')
   const a1 = await logSnapshot('step 1: app settled alice -> bob 30 USD', admin, app, alice, bob)
   assertEq('step 1 settlements', a1.settlements, 1)
@@ -353,7 +364,7 @@ async function main() {
   assertEq('step 1 events', a1.holdingsChangeEvents, 2)
   assertEq('step 1 accrual', accruedReward(a1), 0.3)
 
-  // Step 2: a second settlement (bob -> alice 10 USD) accumulates.
+  // Step 2: a second settlement (bob -> alice 10 USD) increases the counters.
   const bobHolding = await holdingWithAmount(admin, bob, 30.0)
   await settleUsdTransfer(admin, app, bob, alice, bobHolding, 10.0, 'reward-walk-2')
   const a2 = await logSnapshot('step 2: app settled bob -> alice 10 USD', admin, app, alice, bob)
@@ -361,10 +372,10 @@ async function main() {
   assertEq('step 2 volume', a2.settledVolume, 40)
   assertEq('step 2 accrual', accruedReward(a2), 0.4)
 
-  // Step 3: a third batch is allocated (locking alice's 70 USD holding) and a
-  // party that is not the executor tries to settle it. The attempt fails and
-  // the counters do not move: rewards only accrue on confirmed executor
-  // activity.
+  // Step 3: the client allocates a third batch. The allocation locks the 70
+  // USD holding of alice. A party that is not the executor tries to settle
+  // the batch. The attempt fails. The counters do not change: rewards accrue
+  // only on activity that the app-provider confirmed.
   const factory = await mkFactory(admin)
   const settlement = settlementInfo('reward-walk-3', app)
   const leg = transferLeg('reward-walk-3', alice, bob, 20.0)
@@ -376,7 +387,8 @@ async function main() {
   assertEq('step 3 settlements unchanged', a3.settlements, a2.settlements)
   assertEq('step 3 volume unchanged', a3.settledVolume, a2.settledVolume)
 
-  // Step 4: the app-provider settles the pending batch; the counters increment.
+  // Step 4: the app-provider settles the pending batch. The counters
+  // increase.
   await settleBatch(app, factory, settlement, [leg], [aliceAlloc, bobAlloc])
   const a4 = await logSnapshot('step 4: app settled the pending alice -> bob 20 USD batch', admin, app, alice, bob)
   assertEq('step 4 settlements', a4.settlements, 3)
@@ -384,8 +396,9 @@ async function main() {
   assertEq('step 4 events', a4.holdingsChangeEvents, 6)
   assertEq('step 4 accrual', accruedReward(a4), 0.6)
 
-  // Step 5: the round closes; the accrued reward is distributed across the
-  // declared beneficiaries and the shares conserve the total.
+  // Step 5: the round closes. The client divides the accrued reward between
+  // the declared beneficiaries. The sum of the shares is equal to the
+  // accrual.
   const total = accruedReward(a4)
   const shares = distributeReward(total)
   log('== step 5: round closes, reward distributed (illustrative) ==')
@@ -395,7 +408,7 @@ async function main() {
   assertEq('registrar share', shares[1][1], 0.12)
   assertEq('operator share', shares[2][1], 0.06)
 
-  // Final balance check: settlement conserved supply throughout.
+  // Final balance check: settlement kept the supply constant at each step.
   const holdings = await acs(admin, T.toyHolding)
   assertEq('final alice balance', balanceOf(holdings, alice), 60)
   assertEq('final bob balance', balanceOf(holdings, bob), 40)
