@@ -62,8 +62,11 @@ USE_EXTERNAL_LEDGER="${OZ_USE_EXTERNAL_LEDGER:-0}"
 LOG_DIR="${OZ_LOCALNET_LOG_DIR:-$ROOT/.cache/cip0104-rewards-walkthrough}"
 mkdir -p "$LOG_DIR"
 
-printf 'cip0104-walkthrough: building the interop exemplar package\n'
-(cd "$PKG_DIR" && dpm build)
+printf 'cip0104-walkthrough: building the interop exemplar package (log: %s)\n' "$LOG_DIR/build.log"
+(cd "$PKG_DIR" && dpm build) > "$LOG_DIR/build.log" 2>&1 || {
+	printf 'cip0104-walkthrough: build failed; see %s\n' "$LOG_DIR/build.log" >&2
+	exit 1
+}
 [ -f "$DAR" ] || {
 	printf 'cip0104-walkthrough: expected DAR not found: %s\n' "$DAR" >&2
 	exit 1
@@ -131,6 +134,10 @@ else
 		> "$LOG_DIR/sandbox.log" 2>&1) &
 	SANDBOX_PID=$!
 	SANDBOX_PGID=$SANDBOX_PID
+	# Remove the job from the shell's job table. This stops the job-control
+	# "Terminated" message when the cleanup stops the sandbox. The process-group
+	# kill in cleanup() does not need the job table.
+	disown
 
 	export OZ_JSON_API_URL="http://127.0.0.1:$JSON_API_PORT"
 	ready=0

@@ -141,7 +141,9 @@ async function submit(actAs, label, commands, { disclosedContracts, mustFail = f
     return { created, updateId: res?.transaction?.updateId }
   } catch (err) {
     if (!mustFail) throw err
-    log(`${label}: rejected as expected (${String(err.message).slice(0, 120)}...)`)
+    // Show only the error code, not the full HTTP body.
+    const code = /"code":"([A-Z_]+)"/.exec(String(err.message))?.[1] ?? 'rejected'
+    log(`${label}: rejected as expected (${code})`)
     return null
   }
 }
