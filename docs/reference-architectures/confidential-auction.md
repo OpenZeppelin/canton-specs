@@ -7,7 +7,7 @@ Token Standard V2 boundary.
 
 This report specifies the target auction application. The reusable
 access-control, ownership, and pausing components are maintained in
-[`canton-contracts`](https://github.com/OpenZeppelin/canton-contracts). This
+[`OpenZeppelin/canton-contracts`](https://github.com/OpenZeppelin/canton-contracts). This
 repository contains executable settlement and identity experiments. The
 `AuctionLaunchpad`, `BidRequest`, and clearing snippets in this report are
 illustrative application design; an implementation must complete and validate
@@ -112,9 +112,9 @@ The architecture is assembled from reused OpenZeppelin Daml primitives (role man
 The status labels distinguish reusable source and executable research from the
 auction application described only in this report:
 
-- **Library** - component source exists under `experiments/` in
-  `canton-contracts`; experimental, unaudited, and subject to interface
-  changes before release.
+- **Library** - library component source exists in `OpenZeppelin/canton-contracts`; no
+  component is released yet, all are unaudited, and their interfaces can
+  change before release.
 - **Experiment** - executable research exists in this repository, without a
   production or standards-conformance claim.
 - **Target design** - the report specifies illustrative application-level
@@ -522,7 +522,7 @@ The available executable evidence validates these building blocks:
 - typed trusted-issuer behavior in the
   [Shape-B identity tests](../../experiments/identity/test/daml/OpenZeppelin/Test/IdentityHookShapeB.daml); and
 - reusable access-control, ownership, and pausing behavior in the
-  [`canton-contracts`](https://github.com/OpenZeppelin/canton-contracts)
+  [`OpenZeppelin/canton-contracts`](https://github.com/OpenZeppelin/canton-contracts)
   component test suites.
 
 Application-level validation must additionally cover the illustrative

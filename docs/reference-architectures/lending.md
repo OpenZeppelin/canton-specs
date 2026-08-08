@@ -88,9 +88,8 @@ The architecture is assembled from reused OpenZeppelin Daml primitives (role man
 
 Evidence labels distinguish the source of each component:
 
-- `[LIBRARY]` is a package maintained under `experiments/` in
-  `canton-contracts`, experimental, unaudited, and subject to interface
-  changes before release;
+- `[LIBRARY]` is a library package in `OpenZeppelin/canton-contracts`; none is released
+  yet, all are unaudited, and their interfaces can change before release;
 - `[EXPERIMENT]` is bounded executable evidence in this repository;
 - `[REFERENCE]` is code in a companion OpenZeppelin repository that informs the
   design; and

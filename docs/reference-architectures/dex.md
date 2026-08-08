@@ -2,7 +2,7 @@
 
 This document describes a *reference design* for a constant-product automated
 market maker DEX on Canton. It draws on reusable OpenZeppelin packages maintained
-in [`canton-contracts`](https://github.com/OpenZeppelin/canton-contracts),
+in [`OpenZeppelin/canton-contracts`](https://github.com/OpenZeppelin/canton-contracts),
 experimental evidence in this repository, and the Canton Network Token Standard
 V2.
 
@@ -124,10 +124,10 @@ The architecture is assembled from reused OpenZeppelin Daml primitives (role man
 ### Core Components and Library Mapping
 
 Tags distinguish library packages from bounded research evidence:
-`[LIBRARY]` identifies a package maintained under `experiments/` in
-`canton-contracts` (experimental, unaudited, and subject to interface changes
-before release), while `[EXPERIMENT]` identifies executable evidence in this
-repository.
+`[LIBRARY]` identifies a library package in `OpenZeppelin/canton-contracts`, while
+`[EXPERIMENT]` identifies executable evidence in this repository
+(`OpenZeppelin/canton-specs`). No `[LIBRARY]` package is released yet: all are unaudited,
+and their interfaces can change before release.
 
 | Component Suite | Applied Templates and Libraries | Architectural Function |
 |---|---|---|
