@@ -88,7 +88,8 @@ The architecture is assembled from reused OpenZeppelin Daml primitives (role man
 
 Evidence labels distinguish the source of each component:
 
-- `[LIBRARY]` is a reusable package maintained in `OpenZeppelin/canton-contracts`;
+- `[LIBRARY]` is a library package in
+  [`OpenZeppelin/canton-contracts`](https://github.com/OpenZeppelin/canton-contracts);
 - `[EXPERIMENT]` is bounded executable evidence in this repository;
 - `[REFERENCE]` is code in a companion OpenZeppelin repository that informs the
   design; and

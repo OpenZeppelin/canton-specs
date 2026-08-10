@@ -112,7 +112,8 @@ The architecture is assembled from reused OpenZeppelin Daml primitives (role man
 The status labels distinguish reusable source and executable research from the
 auction application described only in this report:
 
-- **Library** - reusable component source exists in `OpenZeppelin/canton-contracts`.
+- **Library** - library component source exists in
+  [`OpenZeppelin/canton-contracts`](https://github.com/OpenZeppelin/canton-contracts).
 - **Experiment** - executable research exists in this repository, without a
   production or standards-conformance claim.
 - **Target design** - the report specifies illustrative application-level
