@@ -363,13 +363,17 @@ async function holdingWithAmount(admin, owner, amount) {
 
 // --- the walkthrough ----------------------------------------------------------
 
+// A party id hint must be unique on the participant. A per-run suffix lets
+// the harness run repeatedly against the same external participant.
+const RUN_ID = Date.now().toString(36)
+
 async function main() {
-  log(`JSON Ledger API: ${JSON_API}`)
-  const admin = await allocateParty('reward-walk-admin')
-  const app = await allocateParty('reward-walk-app')
-  const alice = await allocateParty('reward-walk-alice')
-  const bob = await allocateParty('reward-walk-bob')
-  const notApp = await allocateParty('reward-walk-notapp')
+  log(`JSON Ledger API: ${JSON_API} (run ${RUN_ID})`)
+  const admin = await allocateParty(`reward-walk-admin-${RUN_ID}`)
+  const app = await allocateParty(`reward-walk-app-${RUN_ID}`)
+  const alice = await allocateParty(`reward-walk-alice-${RUN_ID}`)
+  const bob = await allocateParty(`reward-walk-bob-${RUN_ID}`)
+  const notApp = await allocateParty(`reward-walk-notapp-${RUN_ID}`)
   await ensureLedgerUser([admin, app, alice, bob, notApp])
 
   // Step 0: the issuer mints 100 USD to alice. No settlement occurred. Thus
