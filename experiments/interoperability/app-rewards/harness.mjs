@@ -52,6 +52,10 @@ const FEATURE_FLAG = 'experimental.cip112-settlement.enabled'
 const META = { entries: [] }
 const EPS = 1e-9
 
+// The rejection that the engine raises when the settle actors are not the
+// declared executors (Cip112.daml, eExecutorsMismatch).
+const E_EXECUTORS_MISMATCH = 'Cip112Settlement: actors must equal settlement executors'
+
 // --- off-ledger reward model (example values) --------------------------------
 
 // The CC that accrues for each USD of settled volume that the app-provider
@@ -93,6 +97,7 @@ async function api(method, path, body) {
   if (!res.ok) {
     const err = new Error(`${method} ${path}: HTTP ${res.status}: ${text.slice(0, 500)}`)
     err.status = res.status
+    err.body = text
     throw err
   }
   return text ? JSON.parse(text) : undefined
@@ -125,8 +130,12 @@ async function ensureLedgerUser(parties) {
   }
 }
 
+// Submit commands and collect the created contracts. Set `mustFail` to the
+// exact rejection text that the engine must raise. A success, or a failure
+// without that text (an HTTP 401/500, a network error, a different
+// assertion), fails the walkthrough.
 let cmdSeq = 0
-async function submit(actAs, label, commands, { disclosedContracts, mustFail = false } = {}) {
+async function submit(actAs, label, commands, { disclosedContracts, mustFail = null } = {}) {
   const commandId = `oz-cip0104-walkthrough-${label}-${++cmdSeq}`
   try {
     const res = await api('POST', '/v2/commands/submit-and-wait-for-transaction', {
@@ -141,8 +150,10 @@ async function submit(actAs, label, commands, { disclosedContracts, mustFail = f
     return { created, updateId: res?.transaction?.updateId }
   } catch (err) {
     if (!mustFail) throw err
+    const body = err.body ?? String(err.message)
+    if (!body.includes(mustFail)) throw err
     // Show only the error code, not the full HTTP body.
-    const code = /"code":"([A-Z_]+)"/.exec(String(err.message))?.[1] ?? 'rejected'
+    const code = /"code":"([A-Z_]+)"/.exec(body)?.[1] ?? 'rejected'
     log(`${label}: rejected as expected (${code})`)
     return null
   }
@@ -277,7 +288,7 @@ async function createAndAcceptAllocation(admin, factory, settlement, authorizer,
   return createdOf(accepted, 'Allocation')
 }
 
-async function settleBatch(executor, factory, settlement, legs, allocationCids, { mustFail = false } = {}) {
+async function settleBatch(executor, factory, settlement, legs, allocationCids, { mustFail = null } = {}) {
   return submit([executor], 'settle', [
     { ExerciseCommand: { templateId: T.factory, contractId: factory.factoryCid, choice: 'SettlementFactory_SettleBatch', choiceArgument: {
       settlement, transferLegs: legs, allocationCids, actors: [executor], d1ComplianceRef: null,
@@ -395,7 +406,7 @@ async function main() {
   const aliceInput = await holdingWithAmount(admin, alice, 70.0)
   const aliceAlloc = await createAndAcceptAllocation(admin, factory, settlement, alice, [legSide('SenderSide', leg)], [aliceInput])
   const bobAlloc = await createAndAcceptAllocation(admin, factory, settlement, bob, [legSide('ReceiverSide', leg)], [])
-  await settleBatch(notApp, factory, settlement, [leg], [aliceAlloc, bobAlloc], { mustFail: true })
+  await settleBatch(notApp, factory, settlement, [leg], [aliceAlloc, bobAlloc], { mustFail: E_EXECUTORS_MISMATCH })
   const a3 = await logSnapshot("step 3: non-executor settle failed (alice's 70 USD locked in the pending allocation)", admin, app, alice, bob)
   assertEq('step 3 settlements unchanged', a3.settlements, a2.settlements)
   assertEq('step 3 volume unchanged', a3.settledVolume, a2.settledVolume)
