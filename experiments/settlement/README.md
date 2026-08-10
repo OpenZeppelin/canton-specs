@@ -16,6 +16,8 @@ privacy-aware application flows on Canton.
 The local Token Standard V2 fixture provides the type surface required by the
 experiment. Published upstream Token Standard artifacts define canonical package
 identity and behavior, while the upstream specification defines conformance. The
-exemplar consumes pinned `OpenZeppelin/canton-contracts` DARs from
-[`dars/vendor/`](../../dars/vendor/), while reusable library source remains in
-`OpenZeppelin/canton-contracts`.
+exemplar consumes pinned
+[`OpenZeppelin/canton-contracts`](https://github.com/OpenZeppelin/canton-contracts)
+DARs from [`dars/vendor/`](../../dars/vendor/), while library source remains in
+[`OpenZeppelin/canton-contracts`](https://github.com/OpenZeppelin/canton-contracts)
+under its `experiments/` tree.

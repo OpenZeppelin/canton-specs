@@ -123,9 +123,11 @@ The architecture is assembled from reused OpenZeppelin Daml primitives (role man
 
 ### Core Components and Library Mapping
 
-Tags distinguish reusable packages from bounded research evidence:
-`[LIBRARY]` identifies a package in `OpenZeppelin/canton-contracts`, while `[EXPERIMENT]`
-identifies executable evidence in this repository.
+Tags distinguish library packages from bounded research evidence:
+`[LIBRARY]` identifies a library package in
+[`OpenZeppelin/canton-contracts`](https://github.com/OpenZeppelin/canton-contracts),
+while `[EXPERIMENT]` identifies executable evidence in this repository
+(`OpenZeppelin/canton-specs`).
 
 | Component Suite | Applied Templates and Libraries | Architectural Function |
 |---|---|---|
