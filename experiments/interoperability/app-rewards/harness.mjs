@@ -37,7 +37,7 @@
 // the exemplar DAR uploaded, and with the JSON Ledger API at OZ_JSON_API_URL
 // (default http://127.0.0.1:7575).
 
-const JSON_API = process.env.OZ_JSON_API_URL ?? 'http://127.0.0.1:7575'
+const JSON_API = (process.env.OZ_JSON_API_URL ?? 'http://127.0.0.1:7575').replace(/\/+$/, '')
 
 const PKG_SETTLEMENT = '#openzeppelin-experimental-cip112-settlement'
 const MOD_ENGINE = 'OpenZeppelin.Experimental.Settlement.Cip112'
@@ -416,7 +416,7 @@ async function main() {
   assertEq('final bob balance', balanceOf(holdings, bob), 40)
   assertEq('final supply', totalSupply(holdings), 100)
 
-  log('OK - off-chain rewards walkthrough passed (numbers match Cip0104RewardsWalkthrough.daml)')
+  log('OK - off-chain rewards walkthrough passed')
 }
 
 main().catch((err) => fail(err.stack ?? String(err)))
