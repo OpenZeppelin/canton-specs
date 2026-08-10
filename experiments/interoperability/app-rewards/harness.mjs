@@ -135,9 +135,9 @@ async function submit(actAs, label, commands, { disclosedContracts, mustFail = n
     const created = []
     for (const e of res?.transaction?.events ?? []) {
       const ev = e?.CreatedEvent ?? e?.created ?? e?.CreatedTreeEvent?.value
-      if (ev) created.push({ contractId: ev.contractId, templateId: ev.templateId, payload: ev.createArgument ?? ev.createArguments })
+      if (ev) created.push({ contractId: ev.contractId, templateId: ev.templateId })
     }
-    return { created, updateId: res?.transaction?.updateId }
+    return { created }
   } catch (err) {
     if (!mustFail) throw err
     const body = err.body ?? String(err.message)
