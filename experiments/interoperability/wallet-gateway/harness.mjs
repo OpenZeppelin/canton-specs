@@ -4,11 +4,15 @@
 //
 // The wallet user is an externally-signed party created and held by the
 // gateway (built-in `wallet-kernel` Ed25519 signing driver). Every wallet-side
-// ledger action goes through the gateway's CIP-0103 dApp JSON-RPC API
-// (`prepareExecute` + `txChanged` + `ledgerApi`); transaction approval uses the
-// gateway's user JSON-RPC API (`sign` + `execute`), i.e. the same calls the
-// gateway's own approve UI makes. No direct Ledger API access is used for the
-// wallet party anywhere in this file.
+// ledger action goes through the gateway's CIP-0103 dApp JSON-RPC API;
+// transaction approval uses the gateway's user JSON-RPC API (`sign` +
+// `execute`), i.e. the same calls the gateway's own approve UI makes. No
+// direct Ledger API access is used for the wallet party anywhere in this file.
+//
+// CIP-0103 dApp API coverage: connect, isConnected, status, getActiveNetwork,
+// listAccounts, getPrimaryAccount, signMessage, prepareExecute (incl. the
+// async-variant userUrl and a failed-command path), ledgerApi, txChanged,
+// disconnect.
 //
 // Subcommands (orchestrated by scripts/wallet-gateway-cip0103-interop.sh):
 //   create-wallet      create session + externally-signed wallet party
@@ -18,6 +22,7 @@
 // Scope: experimental interoperability validation. The harness makes no
 // conformance or production claim.
 
+import { createPublicKey, verify as cryptoVerify } from 'node:crypto'
 import { readFileSync, writeFileSync, mkdirSync } from 'node:fs'
 import { join } from 'node:path'
 
@@ -65,6 +70,27 @@ function redactSecrets(value) {
 
 const safeJson = (value) => JSON.stringify(redactSecrets(value))
 
+// Evidence-safe form of a gateway userUrl: origin + path only, since the
+// query string may embed session tokens.
+const withoutQuery = (url) => {
+  try {
+    const u = new URL(url)
+    return u.origin + u.pathname
+  } catch {
+    return '[unparseable-url]'
+  }
+}
+
+// Verify an Ed25519 signature (base64 signature, base64 raw 32-byte public
+// key) over the UTF-8 message bytes.
+function verifyEd25519(publicKeyB64, message, signatureB64) {
+  const raw = Buffer.from(publicKeyB64, 'base64')
+  if (raw.length !== 32) throw new Error(`unexpected Ed25519 public key length ${raw.length}`)
+  const spki = Buffer.concat([Buffer.from('302a300506032b6570032100', 'hex'), raw])
+  const key = createPublicKey({ key: spki, format: 'der', type: 'spki' })
+  return cryptoVerify(null, Buffer.from(message, 'utf8'), key, Buffer.from(signatureB64, 'base64'))
+}
+
 function fail(msg) {
   console.error('[harness] FAIL:', msg)
   process.exit(1)
@@ -86,7 +112,12 @@ async function rpc(url, method, params, token) {
     throw new Error(`${method}: non-JSON response (HTTP ${res.status}): ${text.slice(0, 500)}`)
   }
   if (body.error) {
-    throw new Error(`${method}: JSON-RPC error ${body.error.code}: ${body.error.message} ${JSON.stringify(body.error.data ?? '')}`)
+    // Surface the CIP-0103 ProviderRpcError shape ({ message, code, data? })
+    // so callers can match on the standardized code, not the message text.
+    const err = new Error(`${method}: JSON-RPC error ${body.error.code}: ${body.error.message} ${JSON.stringify(body.error.data ?? '')}`)
+    err.code = body.error.code
+    err.data = body.error.data
+    throw err
   }
   return body.result
 }
@@ -124,31 +155,23 @@ async function ledgerApi(token, requestMethod, resource, body) {
   return rpc(DAPP_API, 'ledgerApi', { requestMethod, resource, ...(body ? { body } : {}) }, token)
 }
 
-// Query the wallet party's active contracts for one template via the gateway.
-async function acs(token, party, templateId) {
-  const end = await ledgerApi(token, 'get', '/v2/state/ledger-end')
-  const offset = end?.offset ?? end?.body?.offset
-  if (offset === undefined) throw new Error(`ledger-end gave no offset: ${JSON.stringify(end)}`)
-  const request = {
-    filter: {
-      filtersByParty: {
-        [party]: {
-          cumulative: [
-            {
-              identifierFilter: {
-                TemplateFilter: {
-                  value: { templateId, includeCreatedEventBlob: false },
-                },
-              },
-            },
-          ],
-        },
+const acsRequest = (party, templateId, activeAtOffset) => ({
+  filter: {
+    filtersByParty: {
+      [party]: {
+        cumulative: [{ identifierFilter: { TemplateFilter: { value: { templateId, includeCreatedEventBlob: false } } } }],
       },
     },
-    verbose: false,
-    activeAtOffset: offset,
-  }
-  const res = await ledgerApi(token, 'post', '/v2/state/active-contracts', request)
+  },
+  verbose: false,
+  activeAtOffset,
+})
+
+// Parse a /v2/state/active-contracts response. Fails loudly on schema drift:
+// a non-empty response none of whose entries parse means the pinned
+// gateway/ledger schema changed, and returning [] would surface only as an
+// opaque downstream poll timeout.
+function parseActiveContracts(res) {
   const items = Array.isArray(res) ? res : Array.isArray(res?.body) ? res.body : null
   if (items === null) {
     throw new Error(`active-contracts: unrecognized response shape: ${JSON.stringify(res).slice(0, 400)}`)
@@ -159,41 +182,36 @@ async function acs(token, party, templateId) {
     const ev = entry?.createdEvent
     if (ev) contracts.push({ contractId: ev.contractId, payload: ev.createArgument ?? ev.createArguments })
   }
-  // Fail loudly on schema drift: a non-empty response none of whose entries
-  // parse means the pinned gateway/ledger schema changed, and returning []
-  // would surface only as an opaque downstream poll timeout.
   if (items.length > 0 && contracts.length === 0) {
     throw new Error(`active-contracts: ${items.length} entries but none parseable; first: ${JSON.stringify(items[0]).slice(0, 400)}`)
   }
   return contracts
 }
 
+// Shared holding arithmetic (payloads from either ACS path).
+const isUnlocked = (h) => !h.payload?.lock
+const unlockedBalance = (hs) => hs.filter(isUnlocked).reduce((acc, h) => acc + Number(h.payload?.amount ?? 0), 0)
+const unlockedUsd = (hs) => hs.filter((h) => isUnlocked(h) && h.payload?.instrumentId?.id === 'USD')
+const balanceOf = (hs, party) =>
+  unlockedUsd(hs).filter((h) => h.payload?.account?.owner === party).reduce((a, h) => a + Number(h.payload.amount), 0)
+
+// Query the wallet party's active contracts for one template via the gateway. In other words: for this templateId, what contracts does the party see/own?
+async function acs(token, party, templateId) {
+  const end = await ledgerApi(token, 'get', '/v2/state/ledger-end')
+  const offset = end?.offset ?? end?.body?.offset
+  if (offset === undefined) throw new Error(`ledger-end gave no offset: ${JSON.stringify(end)}`)
+  return parseActiveContracts(await ledgerApi(token, 'post', '/v2/state/active-contracts', acsRequest(party, templateId, offset)))
+}
+
 // --- dApp command submission + user-side approval ----------------------------
 
-async function exerciseViaGateway(token, party, label, templateId, contractId, choice, choiceArgument) {
-  const commandId = `oz-cip0103-interop-${label}`
-  log(`prepareExecute ${choice} (commandId=${commandId})`)
-  await rpc(
-    DAPP_API,
-    'prepareExecute',
-    {
-      commandId,
-      commands: [{ ExerciseCommand: { templateId, contractId, choice, choiceArgument } }],
-    },
-    token
-  )
-
-  // The remote gateway parks the prepared transaction for user approval.
-  // Approve it programmatically through the user API, exactly as the
-  // gateway's own approve page does: sign, then execute.
-  const tx = await poll(`pending transaction ${commandId}`, 30_000, 300, async () => {
-    const { transactions } = await rpc(USER_API, 'listTransactions', {}, token)
-    return transactions.find((t) => t.commandId === commandId && t.status === 'pending')
-  })
+// Sign and execute a pending transaction through the user API - the same
+// calls the gateway's own approve page makes.
+async function approveTransaction(token, party, tx) {
   log(`sign transaction ${tx.id}`)
   const signed = await rpc(USER_API, 'sign', { transactionId: tx.id, partyId: party }, token)
   if (signed.status !== 'signed') {
-    throw new Error(`sign returned status ${signed.status}: ${JSON.stringify(signed)}`)
+    throw new Error(`sign returned status ${signed.status}: ${safeJson(signed)}`)
   }
   log(`execute transaction ${tx.id}`)
   await rpc(
@@ -202,6 +220,37 @@ async function exerciseViaGateway(token, party, label, templateId, contractId, c
     { signature: signed.signature, signedBy: signed.signedBy, transactionId: tx.id, partyId: party },
     token
   )
+}
+
+const prepareExecuteUserUrls = []
+
+async function exerciseViaGateway(token, party, label, templateId, contractId, choice, choiceArgument) {
+  const commandId = `oz-cip0103-interop-${label}`
+  log(`prepareExecute ${choice} (commandId=${commandId})`)
+  const prepared = await rpc( // Demonstrates the use of CIP103 prepareExecute, which prepares, signs and executes a command.
+    DAPP_API,
+    'prepareExecute',
+    {
+      commandId,
+      commands: [{ ExerciseCommand: { templateId, contractId, choice, choiceArgument } }],
+    },
+    token
+  )
+  // Async dApp API: prepareExecute MUST return a userUrl pointing the user to
+  // the wallet's review facility.
+  if (typeof prepared?.userUrl !== 'string' || prepared.userUrl.length === 0) {
+    throw new Error(`prepareExecute returned no userUrl: ${safeJson(prepared)}`)
+  }
+  prepareExecuteUserUrls.push(withoutQuery(prepared.userUrl))
+
+  // The remote gateway parks the prepared transaction for user approval.
+  // Approve it programmatically through the user API, exactly as the
+  // gateway's own approve page does: sign, then execute.
+  const tx = await poll(`pending transaction ${commandId}`, 30_000, 300, async () => {
+    const { transactions } = await rpc(USER_API, 'listTransactions', {}, token)
+    return transactions.find((t) => t.commandId === commandId && t.status === 'pending')
+  })
+  await approveTransaction(token, party, tx)
   const done = await poll(`transaction ${commandId} executed`, 30_000, 300, async () => {
     const transaction = await rpc(USER_API, 'getTransaction', { transactionId: tx.id }, token)
     if (transaction.status === 'failed') throw new Error(`transaction failed: ${JSON.stringify(transaction)}`)
@@ -209,6 +258,70 @@ async function exerciseViaGateway(token, party, label, templateId, contractId, c
   })
   log(`executed ${choice} (transaction ${done.id})`)
   return done
+}
+
+// CIP-0103 signMessage (async variant): the dApp requests the signature and
+// gets { messageId, userUrl }; the user approves through the user API, which
+// returns { signature, publicKey }. The same calls the gateway's approve UI
+// makes, mirroring the transaction path above.
+async function signMessageViaGateway(token, party, message) {
+  const requested = await rpc(DAPP_API, 'signMessage', { message }, token)
+  if (!requested?.messageId || typeof requested.userUrl !== 'string' || requested.userUrl.length === 0) {
+    throw new Error(`signMessage returned no messageId/userUrl: ${safeJson(requested)}`)
+  }
+  const signed = await rpc(USER_API, 'signMessage', { messageId: requested.messageId, partyId: party }, token)
+  if (!signed?.signature || !signed?.publicKey) {
+    throw new Error(`user signMessage returned no signature/publicKey: ${safeJson(signed)}`)
+  }
+  return { messageId: requested.messageId, userUrl: withoutQuery(requested.userUrl), signature: signed.signature, publicKey: signed.publicKey }
+}
+
+// CIP-0103 error code exemplified by the doomed command below: the CIP's
+// error table adopts EIP-1474, whose -32603 is "Internal error". Gateway
+// 1.6.0 maps a prepare-time interpretation failure (consumed contract) to
+// this code, with the Canton CONTRACT_NOT_FOUND detail in `data`.
+const CIP0103_INTERNAL_ERROR = -32603
+
+// CIP-0103 standardized errors: a doomed command (re-exercising a consumed
+// contract) must surface either as a ProviderRpcError with a code from the
+// CIP-0103 error table at prepare time, or as a failed transaction on the
+// lifecycle the wallet observes. Anything else (silent success, a non-table
+// code) fails the gate.
+async function expectFailedTx(token, party, consumedOfferCid) { // Exemplifies receiving a standardized error, in this case -32603	Internal error. 
+  const commandId = 'oz-cip0103-interop-doomed'
+  log(`prepareExecute doomed re-accept of consumed offer (commandId=${commandId})`)
+  try {
+    await rpc(
+      DAPP_API,
+      'prepareExecute',
+      {
+        commandId,
+        commands: [{ ExerciseCommand: { templateId: T.holdingOffer, contractId: consumedOfferCid, choice: 'GatewayHoldingOffer_Accept', choiceArgument: {} } }],
+      },
+      token
+    )
+  } catch (err) {
+    if (typeof err.code !== 'number') throw err // transport failure, not a provider error
+    if (err.code !== CIP0103_INTERNAL_ERROR) {
+      throw new Error(`doomed command failed with code ${err.code}, expected CIP-0103 ${CIP0103_INTERNAL_ERROR} (Internal error): ${err.message}`)
+    }
+    log(`doomed command rejected at prepare with CIP-0103 error ${err.code} (Internal error, EIP-1474 table)`)
+    return { path: 'rpc-error', cip0103Code: err.code, error: err.message }
+  }
+  // Prepare parked the transaction: approve it; execution against a consumed
+  // contract must transition it to failed.
+  const failed = await poll(`doomed transaction ${commandId} failed`, 30_000, 300, async () => {
+    const { transactions } = await rpc(USER_API, 'listTransactions', {}, token)
+    const tx = transactions.find((t) => t.commandId === commandId)
+    if (!tx) return undefined
+    if (tx.status === 'failed') return tx
+    if (tx.status === 'pending') {
+      await approveTransaction(token, party, tx).catch((err) => log(`doomed approval rejected: ${err.message}`))
+    }
+    return undefined
+  })
+  log(`doomed transaction failed as expected (${failed.id})`)
+  return { path: 'tx-failed', transactionId: failed.id }
 }
 
 // --- txChanged SSE listener (CIP-0103 event surface) -------------------------
@@ -336,29 +449,8 @@ const createdOf = (result, entity) => {
 // ledgerApi instead - that is the surface under test; this one is plumbing).
 async function acsDirect(token, party, templateId) {
   const end = await jsonApiDirect(token, 'GET', '/v2/state/ledger-end')
-  const request = {
-    filter: {
-      filtersByParty: {
-        [party]: { cumulative: [{ identifierFilter: { TemplateFilter: { value: { templateId, includeCreatedEventBlob: false } } } }] },
-      },
-    },
-    verbose: false,
-    activeAtOffset: end.offset,
-  }
-  const res = await jsonApiDirect(token, 'POST', '/v2/state/active-contracts', request)
-  const items = Array.isArray(res) ? res : Array.isArray(res?.body) ? res.body : []
-  const contracts = []
-  for (const item of items) {
-    const entry = item?.contractEntry?.JsActiveContract ?? item?.contractEntry?.activeContract
-    const ev = entry?.createdEvent
-    if (ev) contracts.push({ contractId: ev.contractId, payload: ev.createArgument ?? ev.createArguments })
-  }
-  return contracts
+  return parseActiveContracts(await jsonApiDirect(token, 'POST', '/v2/state/active-contracts', acsRequest(party, templateId, end.offset)))
 }
-
-const unlockedUsd = (hs) => hs.filter((h) => !h.payload?.lock && h.payload?.instrumentId?.id === 'USD')
-const balanceOf = (hs, party) =>
-  unlockedUsd(hs).filter((h) => h.payload?.account?.owner === party).reduce((a, h) => a + Number(h.payload.amount), 0)
 
 async function operatorContext() {
   const { partyId: wallet } = readJson('wallet.json')
@@ -367,12 +459,12 @@ async function operatorContext() {
   return { wallet, operator, token }
 }
 
-async function setupExternal() {
+async function setupExternal() { // Function used for setting up the necessary ledger state. 
   const { wallet, operator: op, token } = await operatorContext()
   const now = new Date().toISOString()
 
   // Baselines for delta-based verification on a reused ledger.
-  const holdings = await acsDirect(token, op, T.toyHolding)
+  const holdings = await acsDirect(token, op, T.toyHolding) // Read the operators holdings, receipts, wallet balance, etc.
   const receipts = await acsDirect(token, op, T.receipt)
   const baselineWalletBalance = balanceOf(holdings, wallet)
   const baselineReceiverBalance = balanceOf(holdings, op)
@@ -386,7 +478,7 @@ async function setupExternal() {
   const factoryCid = createdOf(factory, 'SettlementFactory')
 
   const leg = transferLeg(wallet, op)
-  const request = await submitAndWait(token, op, 'request', [
+  const request = await submitAndWait(token, op, 'request', [ // Create an allocation request over leg. 
     { ExerciseCommand: { templateId: T.factory, contractId: factoryCid, choice: 'SettlementFactory_CreateAllocationRequest', choiceArgument: {
       authorizer: acct(wallet),
       settlement: settlementInfo(op),
@@ -398,17 +490,17 @@ async function setupExternal() {
   ])
   const requestCid = createdOf(request, 'AllocationRequest')
 
-  const holdingOffer = await submitAndWait(token, op, 'holding-offer', [
+  const holdingOffer = await submitAndWait(token, op, 'holding-offer', [ // Create a GatewayHoldingOffer
     { CreateCommand: { templateId: T.holdingOffer, createArguments: { admin: op, owner: wallet, amount: MINT } } },
   ])
   const holdingOfferCid = createdOf(holdingOffer, 'GatewayHoldingOffer')
 
-  const allocationOffer = await submitAndWait(token, op, 'allocation-offer', [
+  const allocationOffer = await submitAndWait(token, op, 'allocation-offer', [ // Create a GatewayAllocationOffer
     { CreateCommand: { templateId: T.allocationOffer, createArguments: { admin: op, owner: wallet, app: op, receiver: op } } },
   ])
   const allocationOfferCid = createdOf(allocationOffer, 'GatewayAllocationOffer')
 
-  const instruction = await submitAndWait(token, op, 'receiver-instruction', [
+  const instruction = await submitAndWait(token, op, 'receiver-instruction', [ // Create an allocation instruction
     { ExerciseCommand: { templateId: T.factory, contractId: factoryCid, choice: 'SettlementFactory_CreateAllocationInstruction', choiceArgument: {
       allocation: { settlement: settlementInfo(op), admin: op, authorizer: acct(op), transferLegSides: [legSide('ReceiverSide', leg)], nextIterationFunding: null, committed: false, meta: META },
       requestedAt: now,
@@ -418,19 +510,19 @@ async function setupExternal() {
     } } },
   ])
   const instructionCid = createdOf(instruction, 'AllocationInstruction')
-  const accepted = await submitAndWait(token, op, 'receiver-accept', [
+  const accepted = await submitAndWait(token, op, 'receiver-accept', [ // And accept it automatically. The operator in this case plays the role of the counterparty, the receiver.
     { ExerciseCommand: { templateId: T.instruction, contractId: instructionCid, choice: 'AllocationInstruction_Accept', choiceArgument: { actors: [op] } } },
   ])
   const receiverAllocationCid = createdOf(accepted, 'Allocation')
 
-  writeJson('setup-output.json', {
+  writeJson('setup-output.json', { // This function ends, having created the receiver's allocation, the sender's AllocationRequest, as well as a GatewayHoldingOffer and GatewayAllocationOffer.
     admin: op, app: op, receiver: op, factoryCid, requestCid, holdingOfferCid, allocationOfferCid, receiverAllocationCid,
     baselineWalletBalance, baselineReceiverBalance, baselineSupply, baselineReceiptCount,
   })
   log('external setup complete')
 }
 
-async function settleExternal() {
+async function settleExternal() { // Function used to call batch settle, by the operator. 
   const { wallet, operator: op, token } = await operatorContext()
   const setup = readJson('setup-output.json')
   const { walletAllocationCid } = readJson('gateway-output.json')
@@ -448,7 +540,7 @@ async function settleExternal() {
   log(`settled batch: 2 receipts (updateId ${result.updateId})`)
 }
 
-async function verifyExternal() {
+async function verifyExternal() { // Should be ran post-settlement. Queries the operators toyHoldings, receipts and eventLogs, and asserts the correct deltas have occurred. Wallet should be 15, receiver (operator) should be +25.
   const { wallet, operator: op, token } = await operatorContext()
   const setup = readJson('setup-output.json')
   const holdings = await acsDirect(token, op, T.toyHolding)
@@ -548,6 +640,7 @@ async function createWalletExternal() {
   writeJson('setup-input.json', { wallet: partyId, operator })
 }
 
+// createWallet functionality runs straight on the Wallet Gateway JSON-RPC API. It does not go through CIP103 interfaces supported methods, since dApps do not provision wallets. 
 async function createWallet() {
   if (EXTERNAL) return createWalletExternal()
   log(`user API: ${USER_API}, network: ${NETWORK_ID}`)
@@ -581,24 +674,34 @@ async function dappFlow() {
   const { partyId, accessToken } = readJson('wallet.json')
   const setup = readJson('setup-output.json')
 
-  // CIP-0103 session surface.
+  // CIP-0103 session surface: connects through `connect`, checks connection through `isConnected` and `status`, checks correct network through `getActiveNetwork`. 
   const connect = await rpc(DAPP_API, 'connect', {}, accessToken)
-  log(`connect: ${JSON.stringify(connect)}`)
-  if (connect.isConnected === false) fail(`gateway session not connected: ${JSON.stringify(connect)}`)
+  log(`connect: ${safeJson(connect)}`)
+  if (connect.isConnected === false) fail(`gateway session not connected: ${safeJson(connect)}`)
+  const alive = await rpc(DAPP_API, 'isConnected', {}, accessToken)
+  if (alive.isConnected !== true) fail(`isConnected: ${safeJson(alive)}`)
   const status = await rpc(DAPP_API, 'status', {}, accessToken)
   log(`status: ${safeJson(status)}`)
+  const network = await rpc(DAPP_API, 'getActiveNetwork', {}, accessToken)
+  if (network.networkId !== NETWORK_ID) fail(`getActiveNetwork returned ${network.networkId}, expected ${NETWORK_ID}`)
+  log(`getActiveNetwork: ${network.networkId}`)
+
+  // CIP-0103 account surface: retrieve all parties controlled by this wallet, through `listAccounts`; retrieve the primary account through `getPrimaryAccount`. Primary account is the account that serves as the default, unless some other is specified for execution.
   const accounts = await rpc(DAPP_API, 'listAccounts', {}, accessToken)
   const accountList = Array.isArray(accounts) ? accounts : accounts.accounts
   const mine = accountList.find((a) => a.partyId === partyId)
   if (!mine) fail(`listAccounts does not include wallet party ${partyId}`)
   log(`listAccounts includes wallet party (primary=${mine.primary})`)
+  const primaryAccount = await rpc(DAPP_API, 'getPrimaryAccount', {}, accessToken)
+  if (primaryAccount.partyId !== partyId || primaryAccount.primary !== true) {
+    fail(`getPrimaryAccount returned ${primaryAccount.partyId} (primary=${primaryAccount.primary}), expected wallet party`)
+  }
+  log('getPrimaryAccount is the wallet party')
 
   // Baselines: a shared external ledger accumulates state across runs, so all
   // post-settlement checks are deltas against what the wallet sees now.
-  const isUnlocked = (h) => !h.payload?.lock
-  const unlockedBalance = (hs) => hs.filter(isUnlocked).reduce((acc, h) => acc + Number(h.payload?.amount ?? 0), 0)
-  const preHoldings = await acs(accessToken, partyId, T.toyHolding)
-  const baseline = {
+  const preHoldings = await acs(accessToken, partyId, T.toyHolding) // Returns all ToyHolding contracts the party is a stakeholder of. 
+  const baseline = { // Does the same for receipts, events, and sums up all unlocked holdings. 
     receipts: (await acs(accessToken, partyId, T.receipt)).length,
     eventLogEntries: (await acs(accessToken, partyId, T.eventLog)).length,
     unlockedBalance: unlockedBalance(preHoldings),
@@ -606,12 +709,12 @@ async function dappFlow() {
   const preHoldingCids = new Set(preHoldings.map((h) => h.contractId))
   log(`baselines: ${JSON.stringify(baseline)}`)
 
-  const sse = listenTxChanged(accessToken)
+  const sse = listenTxChanged(accessToken) // Opens a connection to the Server-Sent Event stream. This stream can be drained later, to look for the events we are interested in.
 
   // 1. Wallet receives its funding holding (propose-accept mint).
   await exerciseViaGateway(accessToken, partyId, 'holding-offer', T.holdingOffer, setup.holdingOfferCid, 'GatewayHoldingOffer_Accept', {})
-  const minted = await poll('freshly minted wallet ToyHolding in ACS', 30_000, 500, async () => {
-    const hs = await acs(accessToken, partyId, T.toyHolding)
+  const minted = await poll('freshly minted wallet ToyHolding in ACS', 30_000, 500, async () => { // To demonstrate the flow, the operator has previously created a 40 USD funding mint, waiting to be accepted. This call accepts it by calling GatewayHoldingOffer_Accept on the GatewayHoldingOffer.
+    const hs = await acs(accessToken, partyId, T.toyHolding) // After accepting, query the toyHoldings again and compare them to the previous cid set, to figure out the new ToyHolding id. 
     const fresh = hs.filter((h) => !preHoldingCids.has(h.contractId) && isUnlocked(h) && Number(h.payload?.amount ?? 0) === 40)
     return fresh.length > 0 ? fresh : undefined
   })
@@ -619,20 +722,43 @@ async function dappFlow() {
   log(`wallet holding: ${holdingCid}`)
 
   // 2. Wallet accepts the app's CIP-0103 allocation request.
-  await exerciseViaGateway(accessToken, partyId, 'allocation-request', T.allocationRequest, setup.requestCid, 'AllocationRequest_Accept', { actors: [partyId] })
+  await exerciseViaGateway(accessToken, partyId, 'allocation-request', T.allocationRequest, setup.requestCid, 'AllocationRequest_Accept', { actors: [partyId] }) // Accept the AllocationRequest previously created by the dApp operator.
 
   // 3. Wallet funds and accepts the sender-side allocation.
   const preAllocations = new Set((await acs(accessToken, partyId, T.allocation)).map((a) => a.contractId))
-  await exerciseViaGateway(accessToken, partyId, 'allocation-offer', T.allocationOffer, setup.allocationOfferCid, 'GatewayAllocationOffer_Accept', { holdingCids: [holdingCid] })
-  const allocations = await poll('wallet Allocation in ACS', 30_000, 500, async () => {
+  await exerciseViaGateway(accessToken, partyId, 'allocation-offer', T.allocationOffer, setup.allocationOfferCid, 'GatewayAllocationOffer_Accept', { holdingCids: [holdingCid] }) // Commit the 40 USD into an Allocation.
+  const allocations = await poll('wallet Allocation in ACS', 30_000, 500, async () => { // Poll the party's allocations until the new one pops up.
     const as = (await acs(accessToken, partyId, T.allocation)).filter((a) => !preAllocations.has(a.contractId))
     return as.length > 0 ? as : undefined
   })
   const walletAllocationCid = allocations[0].contractId
   log(`wallet allocation: ${walletAllocationCid}`)
 
+  // 4. signMessage: proof of wallet-party key control. Strict locally; in
+  // external mode the adopted party signs via the participant, which may not
+  // expose message signing - tolerated and recorded as skipped.
+  const message = 'oz-cip0103-interop proof-of-party-control'
+  let signMessageEvidence
+  try {
+    const signedMsg = await signMessageViaGateway(accessToken, partyId, message) // Ask the gateway to sign the message, through the CIP103 interface signMessage.
+    const keyMatchesPrimary = !primaryAccount.publicKey || signedMsg.publicKey === primaryAccount.publicKey // Check that the publicKey that corresponds to the signed message is the one of the primary account.
+    if (!keyMatchesPrimary) fail(`signMessage public key differs from getPrimaryAccount's`)
+    if (!verifyEd25519(signedMsg.publicKey, message, signedMsg.signature)) {
+      fail('signMessage signature failed Ed25519 verification against the wallet public key')
+    }
+    log('signMessage: signature verified against the wallet party public key')
+    signMessageEvidence = { messageId: signedMsg.messageId, userUrl: signedMsg.userUrl, verified: true }
+  } catch (err) {
+    if (!EXTERNAL) throw err
+    log(`signMessage skipped in external mode: ${err.message}`)
+    signMessageEvidence = { skipped: true, reason: err.message }
+  }
+
+  // 5. Standardized error path: a doomed command must fail visibly.
+  const failedTx = await expectFailedTx(accessToken, partyId, setup.holdingOfferCid)
+
   // Pre-settlement: this run's settlement must not have produced receipts yet.
-  const preReceipts = await acs(accessToken, partyId, T.receipt)
+  const preReceipts = await acs(accessToken, partyId, T.receipt) // Assert that no settlements have happened yet, only an Allocation ahs been created.
   if (preReceipts.length !== baseline.receipts) {
     fail(`expected ${baseline.receipts} receipts before settlement, saw ${preReceipts.length}`)
   }
@@ -645,7 +771,7 @@ async function dappFlow() {
       .flatMap((e) => (Array.isArray(e.data) ? e.data : [e.data]))
       .filter((d) => d && typeof d === 'object' && d.status)
       .map((d) => ({ status: d.status, commandId: d.commandId, ...(d.payload ? { payload: d.payload } : {}) }))
-  await poll('3 executed txChanged frames', 30_000, 200, () =>
+  await poll('3 executed txChanged frames', 30_000, 200, () => // Poll until the SSE stream has shown events for all three commands we executed successfully, and collect those events.
     collectTxEvents().filter((e) => e.status === 'executed').length >= 3 ? true : undefined
   )
   await sse.stop()
@@ -653,8 +779,15 @@ async function dappFlow() {
   log(`txChanged events observed: ${txEvents.length}`)
   for (const e of txEvents) log(`  ${JSON.stringify(e)}`)
 
-  writeJson('gateway-output.json', { walletAllocationCid, baseline, txChangedEvents: txEvents })
-  writeJson('settle-input.json', {
+  writeJson('gateway-output.json', { // Write the events to json and other evidence to json. 
+    walletAllocationCid,
+    baseline,
+    txChangedEvents: txEvents,
+    prepareExecuteUserUrls,
+    signMessage: signMessageEvidence,
+    failedTx,
+  })
+  writeJson('settle-input.json', { // Save allocationId and other necessary info, for the settlement step.
     admin: setup.admin,
     app: setup.app,
     wallet: partyId,
@@ -663,7 +796,7 @@ async function dappFlow() {
     walletAllocationCid,
     receiverAllocationCid: setup.receiverAllocationCid,
   })
-  writeJson('verify-input.json', {
+  writeJson('verify-input.json', { // Save balances for the verify input step.
     admin: setup.admin,
     app: setup.app,
     wallet: partyId,
@@ -679,7 +812,7 @@ async function verifyWalletView() {
   const { partyId, accessToken } = readJson('wallet.json')
   const { baseline } = readJson('gateway-output.json')
 
-  const receipts = await acs(accessToken, partyId, T.receipt)
+  const receipts = await acs(accessToken, partyId, T.receipt) // This function should run after settlement. It asserts that the party has at least one more receipt, at least one more event log, and that they have 15 more balance.
   if (receipts.length < baseline.receipts + 1) {
     fail(`wallet sees ${receipts.length} settlement receipts, expected >= ${baseline.receipts + 1}`)
   }
@@ -692,11 +825,16 @@ async function verifyWalletView() {
   log(`wallet sees ${entries.length - baseline.eventLogEntries} new settlement event log entrie(s)`)
 
   const holdings = await acs(accessToken, partyId, T.toyHolding)
-  const unlocked = holdings.filter((h) => !h.payload?.lock)
-  const balance = unlocked.reduce((acc, h) => acc + Number(h.payload?.amount ?? 0), 0)
-  const delta = balance - baseline.unlockedBalance
+  const delta = unlockedBalance(holdings) - baseline.unlockedBalance
   if (Math.abs(delta - 15) > 1e-9) fail(`wallet balance delta is ${delta}, expected +15 (minted 40, sent 25)`)
   log(`wallet balance delta is +15.0 as expected`)
+
+  // CIP-0103 session teardown: disconnect, then confirm the dApp is no longer
+  // connected. Last step, after every gateway read above.
+  await rpc(DAPP_API, 'disconnect', {}, accessToken)
+  const after = await rpc(DAPP_API, 'isConnected', {}, accessToken)
+  if (after.isConnected !== false) fail(`isConnected after disconnect: ${safeJson(after)}`)
+  log('disconnect: session closed, isConnected now false')
 
   log('wallet-view verification passed')
 }
