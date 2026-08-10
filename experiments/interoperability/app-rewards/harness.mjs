@@ -4,7 +4,7 @@
 // Ledger API v2. It gets the attribution of the app-provider and the example
 // accrued rewards only from Ledger API reads. Real CIP-0104 reward
 // infrastructure reads the ledger in the same way. The client does the same
-// six steps as the on-ledger executable specification
+// seven steps as the on-ledger executable specification
 // (`Cip0104RewardsWalkthrough.daml`) and makes assertions on the same
 // numbers. Thus the two artifacts show the same behavior.
 //
@@ -305,21 +305,32 @@ const balanceOf = (hs, party) =>
 const totalSupply = (hs) =>
   hs.filter((h) => h.payload?.instrumentId?.id === 'USD').reduce((a, h) => a + Number(h.payload.amount), 0)
 
-// The confirmed activity of the app-provider. The data comes only from its
-// Ledger API projection of the receipts and the holdings-change events. Each
-// settled batch makes one receipt for each authorizer, and these receipts
-// have the same settlement ref. Thus the function counts batches by unique
-// ref. The sender side of each leg is in exactly one receipt. Thus the
-// function adds the sender-side amounts to get the volume.
+// The activity of the app-provider as the confirming executor. The data comes
+// only from its Ledger API projection of the receipts and the holdings-change
+// events, and only the settlements that the app-provider confirmed as
+// executor count. Visibility alone does not attribute: the app-provider also
+// observes receipts as an account party when it sends or receives in a
+// settlement that an other party executes, and the function must not credit
+// those. Each settled batch makes one receipt for each authorizer, and these
+// receipts have the same settlement ref. Thus the function counts batches by
+// unique ref. The sender side of each leg is in exactly one receipt. Thus the
+// function adds the USD sender-side amounts to get the volume. An event
+// counts only when one of its transfer legs is in a confirmed receipt.
 async function attributedActivity(app) {
-  const receipts = await acs(app, T.receipt)
+  const receipts = (await acs(app, T.receipt))
+    .filter((r) => (r.payload.settlement.executors ?? []).includes(app))
   const events = await acs(app, T.eventLog)
   const refs = new Set(receipts.map((r) => r.payload.settlement.settlementRef.id))
+  const confirmedLegIds = new Set(
+    receipts.flatMap((r) => (r.payload.settledTransferLegSides ?? []).map((s) => s.transferLegId)),
+  )
   const settledVolume = receipts
     .flatMap((r) => r.payload.settledTransferLegSides ?? [])
-    .filter((s) => s.side === 'SenderSide')
+    .filter((s) => s.side === 'SenderSide' && s.instrumentId === 'USD')
     .reduce((a, s) => a + Number(s.amount), 0)
-  return { settlements: refs.size, settledVolume, holdingsChangeEvents: events.length }
+  const confirmedEvents = events
+    .filter((e) => (e.payload.event?.transferLegSides ?? []).some((s) => confirmedLegIds.has(s.transferLegId)))
+  return { settlements: refs.size, settledVolume, holdingsChangeEvents: confirmedEvents.length }
 }
 
 async function logSnapshot(label, admin, app, alice, bob) {
@@ -398,12 +409,26 @@ async function main() {
   assertEq('step 4 events', a4.holdingsChangeEvents, 6)
   assertEq('step 4 accrual', accruedReward(a4), 0.6)
 
-  // Step 5: the round closes. The client divides the accrued reward between
+  // Step 5: an other executor (notApp) settles a transfer where the app is
+  // only the receiver (bob -> app 5 USD). The app observes its own receipt
+  // and holdings-change event as an account party. The attribution does not
+  // credit them: only the settlements that the app confirmed as executor
+  // count.
+  const bobHolding2 = await holdingWithAmount(admin, bob, 20.0)
+  await settleUsdTransfer(admin, notApp, bob, app, bobHolding2, 5.0, 'reward-walk-4')
+  const rawReceipts = await acs(app, T.receipt)
+  assertEq('step 5 receipts visible to the app', rawReceipts.length, 7)
+  const a5 = await logSnapshot('step 5: notApp settled bob -> app 5 USD; app attribution unchanged', admin, app, alice, bob)
+  assertEq('step 5 settlements unchanged', a5.settlements, a4.settlements)
+  assertEq('step 5 volume unchanged', a5.settledVolume, a4.settledVolume)
+  assertEq('step 5 events unchanged', a5.holdingsChangeEvents, a4.holdingsChangeEvents)
+
+  // Step 6: the round closes. The client divides the accrued reward between
   // the declared beneficiaries. The sum of the shares is equal to the
   // accrual.
   const total = accruedReward(a4)
   const shares = distributeReward(total)
-  log('== step 5: round closes, reward distributed (illustrative) ==')
+  log('== step 6: round closes, reward distributed (illustrative) ==')
   for (const [who, amt] of shares) log(`${who}: ${amt} CC`)
   assertEq('distribution conserves the accrual', shares.reduce((a, [, amt]) => a + amt, 0), total)
   assertEq('venue share', shares[0][1], 0.42)
@@ -413,7 +438,8 @@ async function main() {
   // Final balance check: settlement kept the supply constant at each step.
   const holdings = await acs(admin, T.toyHolding)
   assertEq('final alice balance', balanceOf(holdings, alice), 60)
-  assertEq('final bob balance', balanceOf(holdings, bob), 40)
+  assertEq('final bob balance', balanceOf(holdings, bob), 35)
+  assertEq('final app balance', balanceOf(holdings, app), 5)
   assertEq('final supply', totalSupply(holdings), 100)
 
   log('OK - off-chain rewards walkthrough passed')

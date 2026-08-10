@@ -63,34 +63,48 @@ beneficiarySplit =
   , ("validator operator", 0.1)
   ]
 
--- | The confirmed activity of the app-provider. The data comes only from the
--- two settlement views that the executor observes. This is the CIP-0104
--- attribution surface. No marker contract supplies it.
+-- | The activity of the app-provider as the confirming executor. The data
+-- comes only from the two settlement views that the executor observes. No
+-- marker contract supplies it.
 data AttributedActivity = AttributedActivity with
-    settlements : Int        -- ^ count of settled batches (unique settlement refs)
-    settledVolume : Decimal  -- ^ sum of the settled sender-leg amounts, in USD
-    holdingsChangeEvents : Int -- ^ count of observed `EventLog_HoldingsChange` entries
+    settlements : Int        -- ^ count of executor-confirmed batches (unique settlement refs)
+    settledVolume : Decimal  -- ^ sum of the confirmed USD sender-leg amounts
+    holdingsChangeEvents : Int -- ^ count of `EventLog_HoldingsChange` entries of confirmed batches
   deriving (Eq, Show)
 
 -- | Off-ledger attribution: read the projection of the app-provider for
--- `SettlementReceipt` and `SettlementEventLogEntry`. Each settled batch makes
+-- `SettlementReceipt` and `SettlementEventLogEntry`. Keep only the
+-- settlements that the app-provider confirmed as executor. Visibility alone
+-- does not attribute: the app-provider also observes receipts as an account
+-- party when it sends or receives in a settlement that an other party
+-- executes, and the function must not credit those. Each settled batch makes
 -- one receipt for each authorizer, and these receipts have the same
 -- settlement ref. Thus the function counts batches by unique ref. The sender
--- side of each leg is in exactly one receipt. Thus the function adds the
--- sender-side amounts to get the volume.
+-- side of each leg is in exactly one receipt. Thus the function adds the USD
+-- sender-side amounts to get the volume. An event counts only when one of
+-- its transfer legs is in a confirmed receipt.
 attributedActivity : Party -> Script AttributedActivity
 attributedActivity app = do
   receipts <- query @SettlementReceipt app
   events <- query @SettlementEventLogEntry app
-  let refs = dedup [r.settlement.settlementRef.id | (_, r) <- receipts]
+  let confirmed = [r | (_, r) <- receipts, app `elem` r.settlement.executors]
+      refs = dedup [r.settlement.settlementRef.id | r <- confirmed]
+      confirmedLegIds =
+        dedup [s.transferLegId | r <- confirmed, s <- r.settledTransferLegSides]
       senderAmounts =
         [ s.amount
-        | (_, r) <- receipts, s <- r.settledTransferLegSides, s.side == SenderSide
+        | r <- confirmed, s <- r.settledTransferLegSides
+        , s.side == SenderSide, s.instrumentId == usdSymbol
+        ]
+      confirmedEvents =
+        [ e
+        | (_, e) <- events
+        , any (\s -> s.transferLegId `elem` confirmedLegIds) e.event.transferLegSides
         ]
   pure AttributedActivity with
     settlements = length refs
     settledVolume = sum senderAmounts
-    holdingsChangeEvents = length events
+    holdingsChangeEvents = length confirmedEvents
 
 -- | Example accrual: the reward is proportional to the confirmed settled
 -- volume.
@@ -145,7 +159,10 @@ holdingWithAmount reader account amount = do
 --   batch; the attempt fails; no reward accrues, because only confirmed
 --   executor activity is attributable.
 -- * Step 4 - the app-provider settles that batch; the accrual increases.
--- * Step 5 - the round closes; the walkthrough divides the accrued reward
+-- * Step 5 - an other executor settles a transfer where the app-provider is
+--   only the receiver; the app-provider sees the receipt, but the attribution
+--   does not change, because visibility alone does not attribute.
+-- * Step 6 - the round closes; the walkthrough divides the accrued reward
 --   between the declared beneficiaries (example calculation, off-ledger).
 test_cip0104_rewardsAccountingWalkthrough : Script ()
 test_cip0104_rewardsAccountingWalkthrough = script do
@@ -210,12 +227,25 @@ test_cip0104_rewardsAccountingWalkthrough = script do
   activity4 === AttributedActivity 3 60.0 6
   accruedReward activity4 === 0.60
 
-  -- Step 5: the round closes. The walkthrough divides the accrued reward
+  -- Step 5: an other executor (notApp) settles a transfer where the
+  -- app-provider is only the receiver (bob -> app 5 USD). The app-provider
+  -- observes its own receipt and holdings-change event as an account party.
+  -- The attribution does not credit them: only the settlements that the
+  -- app-provider confirmed as executor count.
+  let appAcct = basicAccount app
+  bobHolding2 <- holdingWithAmount admin bobAcct 20.0
+  _ <- settleUsdTransfer admin notApp bobAcct appAcct bobHolding2 5.0 "reward-walk-4"
+  rawReceipts <- query @SettlementReceipt app
+  length rawReceipts === 7
+  activity5 <- logSnapshot "step 5: notApp settled bob -> app 5 USD; app attribution unchanged" admin app aliceAcct bobAcct
+  activity5 === activity4
+
+  -- Step 6: the round closes. The walkthrough divides the accrued reward
   -- between the declared beneficiaries. The sum of the shares is always equal
   -- to the accrual (conservation of the distributed reward).
   let total = accruedReward activity4
       shares = distributeReward total
-  debug "== step 5: round closes, reward distributed (illustrative) =="
+  debug "== step 6: round closes, reward distributed (illustrative) =="
   forA_ shares \(who, amt) -> debug $ who <> ": " <> show amt <> " CC"
   sum (map snd shares) === total
   shares === [("venue (app-provider)", 0.42), ("instrument registrar", 0.12), ("validator operator", 0.06)]
@@ -223,7 +253,9 @@ test_cip0104_rewardsAccountingWalkthrough = script do
   -- Final balance check: settlement kept the supply constant at each step.
   aliceBal <- erc20BalanceOf admin aliceAcct
   bobBal <- erc20BalanceOf admin bobAcct
+  appBal <- erc20BalanceOf admin appAcct
   supply <- erc20TotalSupply admin
   aliceBal === 60.0
-  bobBal === 40.0
+  bobBal === 35.0
+  appBal === 5.0
   supply === 100.0
