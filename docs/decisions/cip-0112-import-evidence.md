@@ -72,9 +72,9 @@ An accepted import uses the following repository integration contract:
 - verify the transitive package closure expected to be uploaded and vetted by
   participant operators.
 
-The import should remain in `canton-specs` while it supports research. A stable
+The import should remain in `OpenZeppelin/canton-specs` while it supports research. A stable
 OpenZeppelin interface or implementation extracted from the result belongs in
-`canton-contracts` with its own package and release lifecycle.
+`OpenZeppelin/canton-contracts` with its own package and release lifecycle.
 
 ## License handling
 

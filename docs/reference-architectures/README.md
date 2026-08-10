@@ -32,9 +32,9 @@ complete target applications that compose them.
 
 Each report separates the target design from available experimental evidence and
 upstream dependencies. Code links identify evaluated mechanisms. Reusable
-package commitments follow the `canton-contracts` lifecycle. Open design
+package commitments follow the `OpenZeppelin/canton-contracts` lifecycle. Open design
 questions identify choices an application implementation must resolve before
 deployment.
 
 Reusable components follow the package and release lifecycle in
-[`canton-contracts`](https://github.com/OpenZeppelin/canton-contracts).
+[`OpenZeppelin/canton-contracts`](https://github.com/OpenZeppelin/canton-contracts).
