@@ -2,30 +2,26 @@
 --
 -- The module `Cip0104AppRewards` shows two structural properties: the
 -- settlement views alone give attribution, and only the app-provider executor
--- can settle. This module shows the procedure that a CIP-0104 reward pipeline
--- applies to those properties. It shows:
+-- can settle. This module shows app-side beneficiary accounting on top of
+-- those properties: the bookkeeping that CIP-0104 leaves to app providers.
+-- Real CIP-0104 attribution measures sequencer and mediator traffic per
+-- confirming party (`FeaturedAppRight` holders, ingested through Scan) and
+-- never reads app-level settlement contracts. The walkthrough applies the
+-- same principle at the app level: it credits the app-provider only for the
+-- settlements that the app-provider confirmed as executor. It shows:
 --
 -- * the ledger functions that an integrator calls
 -- * the balances before and after each action
--- * how the attributable activity of the app-provider increases
+-- * how the executor-confirmed activity of the app-provider increases
 -- * how the pipeline divides an accrued reward between the beneficiaries when
 --   a round closes.
 --
--- The walkthrough calls three types of ledger functions:
---
--- 1. `mintUsd` - the issuer creates a holding (`ToyHolding` create).
--- 2. `SettlementFactory_CreateAllocationInstruction` and
---    `AllocationInstruction_Accept` (through `createAndAcceptAllocation`) -
---    each side authorizes its leg.
--- 3. `SettlementFactory_SettleBatch` (through `settleUsdTransfer` or
---    directly) - the app-provider executor settles the batch.
---
 -- All reward calculations are off-ledger. The function `attributedActivity`
--- gets the confirmed activity of the app-provider only from `query` results
--- over `SettlementReceipt` and `SettlementEventLogEntry`. The functions
--- `accruedReward` and `distributeReward` apply an example reward formula to
--- that activity. The walkthrough does not create reward-marker templates.
--- That is the CIP-0104 property that this module shows.
+-- gets the executor-confirmed activity of the app-provider only from `query`
+-- results over `SettlementReceipt` and `SettlementEventLogEntry`. The
+-- functions `accruedReward` and `distributeReward` apply an example reward
+-- formula to that activity. The walkthrough does not create reward-marker
+-- templates.
 --
 -- Scope: experimental interoperability behavior. The reward rate and the
 -- beneficiary split are examples. They are not the traffic-proportional CC
@@ -47,9 +43,9 @@ import OpenZeppelin.Experimental.TokenStandardFixture.V2.Holding
 
 -- * Off-ledger reward model (example values)
 
--- | Example reward rate: the CC that accrues for each USD of settled volume
--- that the app-provider confirmed. This value is not the CIP-0104
--- traffic-proportional rate.
+-- | Example reward rate: the CC that accrues to the app-provider, as the
+-- confirming executor, for each USD of confirmed settled volume. This value
+-- is not the CIP-0104 traffic-proportional rate.
 rewardRatePerUsd : Decimal
 rewardRatePerUsd = 0.01
 

@@ -1,27 +1,16 @@
 #!/usr/bin/env node
 // CIP-0104 rewards accounting walkthrough, fully off-chain. This Node client
-// sends its commands to the CIP-0112 settlement surface through the JSON
-// Ledger API v2. It gets the attribution of the app-provider and the example
-// accrued rewards only from Ledger API reads. Real CIP-0104 reward
-// infrastructure reads the ledger in the same way. The client does the same
-// seven steps as the on-ledger executable specification
-// (`Cip0104RewardsWalkthrough.daml`) and makes assertions on the same
-// numbers. Thus the two artifacts show the same behavior.
-//
-// These operations use the ledger (all through `/v2/...` JSON Ledger API
-// endpoints):
-//   - party allocation                               (walkthrough setup)
-//   - CreateCommand ToyHolding                       (the issuer mints)
-//   - SettlementFactory_CreateAllocationInstruction + AllocationInstruction_Accept
-//                                                    (each side authorizes its leg)
-//   - SettlementFactory_SettleBatch                  (the app-provider executor settles;
-//                                                     the factory is a disclosed contract)
-//   - active-contracts reads of ToyHolding, SettlementReceipt,
-//     SettlementEventLogEntry                        (the balances and the attribution surface)
-//
-// These operations do not use the ledger: all reward numbers. The functions
-// `attributedActivity`, `accruedReward`, and `distributeReward` are plain
-// JavaScript over query results. No reward-marker contract exists.
+// drives the CIP-0112 settlement surface through the JSON Ledger API v2 and
+// shows app-side beneficiary accounting: the bookkeeping that CIP-0104 leaves
+// to app providers. Real CIP-0104 attribution measures sequencer and mediator
+// traffic per confirming party (`FeaturedAppRight` holders, ingested through
+// Scan) and never reads app-level settlement contracts. The client applies
+// the same principle at the app level: it credits the app-provider only for
+// the settlements that the app-provider confirmed as executor, and it gets
+// all numbers from Ledger API reads of `SettlementReceipt` and
+// `SettlementEventLogEntry`. No reward-marker contract exists. The client
+// does the same seven steps and asserts the same numbers as the on-ledger
+// executable specification (`Cip0104RewardsWalkthrough.daml`).
 //
 // The sandbox operates on WALLCLOCK time. The client settlements have no
 // deadline. Thus this client does not need `setTime`. (The Daml walkthrough
@@ -58,8 +47,9 @@ const E_EXECUTORS_MISMATCH = 'Cip112Settlement: actors must equal settlement exe
 
 // --- off-ledger reward model (example values) --------------------------------
 
-// The CC that accrues for each USD of settled volume that the app-provider
-// confirmed. This value is not the CIP-0104 traffic-proportional rate.
+// The CC that accrues to the app-provider, as the confirming executor, for
+// each USD of confirmed settled volume. This value is not the CIP-0104
+// traffic-proportional rate.
 const REWARD_RATE_PER_USD = 0.01
 
 // The beneficiary split that the client applies when a round closes. The
