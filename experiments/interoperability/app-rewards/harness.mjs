@@ -359,11 +359,13 @@ const RUN_ID = Date.now().toString(36)
 
 async function main() {
   log(`JSON Ledger API: ${JSON_API} (run ${RUN_ID})`)
-  const admin = await allocateParty(`reward-walk-admin-${RUN_ID}`)
-  const app = await allocateParty(`reward-walk-app-${RUN_ID}`)
-  const alice = await allocateParty(`reward-walk-alice-${RUN_ID}`)
-  const bob = await allocateParty(`reward-walk-bob-${RUN_ID}`)
-  const notApp = await allocateParty(`reward-walk-notapp-${RUN_ID}`)
+  const [admin, app, alice, bob, notApp] = await Promise.all([
+    allocateParty(`reward-walk-admin-${RUN_ID}`),
+    allocateParty(`reward-walk-app-${RUN_ID}`),
+    allocateParty(`reward-walk-alice-${RUN_ID}`),
+    allocateParty(`reward-walk-bob-${RUN_ID}`),
+    allocateParty(`reward-walk-notapp-${RUN_ID}`),
+  ])
   await provisionLedgerUser([admin, app, alice, bob, notApp])
 
   // Step 0: the issuer mints 100 USD to alice. No settlement occurred. Thus
