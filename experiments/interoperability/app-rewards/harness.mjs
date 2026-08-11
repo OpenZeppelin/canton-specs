@@ -150,7 +150,7 @@ async function submit(actAs, label, commands, { disclosedContracts, mustFail = n
 }
 
 const createdOf = (result, entity) => {
-  const hit = result.created.find((c) => c.templateId?.includes(`:${entity}`))
+  const hit = result.created.find((c) => c.templateId?.endsWith(`:${entity}`))
   if (!hit) throw new Error(`no created ${entity}; created: ${result.created.map((c) => c.templateId).join(', ')}`)
   return hit.contractId
 }

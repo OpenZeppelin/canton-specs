@@ -440,7 +440,7 @@ async function submitAndWait(token, actAs, label, commands) {
 }
 
 const createdOf = (result, entity) => {
-  const hit = result.created.find((c) => c.templateId?.endsWith(`:${entity}`) || c.templateId?.includes(`:${entity}`))
+  const hit = result.created.find((c) => c.templateId?.endsWith(`:${entity}`))
   if (!hit) throw new Error(`no created ${entity} in transaction; created: ${result.created.map((c) => c.templateId).join(', ')}`)
   return hit.contractId
 }
