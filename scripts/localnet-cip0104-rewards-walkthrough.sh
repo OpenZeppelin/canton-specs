@@ -13,7 +13,8 @@
 # The sandbox operates on WALLCLOCK time. The harness settlements have no
 # deadline. Thus this script does not need static time.
 #
-# Requirements: DPM, Java 21+, and Node.js 20+.
+# Requirements: DPM, Java 21+, Node.js 20+, lsof, and curl. The external mode
+# (OZ_USE_EXTERNAL_LEDGER=1) needs only Node.js 20+.
 # Environment overrides: OZ_LEDGER_PORT (6865), OZ_JSON_API_PORT (7575),
 # OZ_LOCALNET_LOG_DIR. To use a participant that already operates, set
 # OZ_USE_EXTERNAL_LEDGER=1 and OZ_JSON_API_URL. That participant must have no
@@ -21,32 +22,10 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-command -v dpm >/dev/null 2>&1 || {
-	printf 'cip0104-walkthrough: dpm is not available\n' >&2
-	exit 1
-}
-command -v java >/dev/null 2>&1 || {
-	printf 'cip0104-walkthrough: Java is not available\n' >&2
-	exit 1
-}
+USE_EXTERNAL_LEDGER="${OZ_USE_EXTERNAL_LEDGER:-0}"
+
 command -v node >/dev/null 2>&1 || {
 	printf 'cip0104-walkthrough: node is not available (Node.js >= 20 required)\n' >&2
-	exit 1
-}
-command -v lsof >/dev/null 2>&1 || {
-	printf 'cip0104-walkthrough: lsof is not available\n' >&2
-	exit 1
-}
-command -v curl >/dev/null 2>&1 || {
-	printf 'cip0104-walkthrough: curl is not available\n' >&2
-	exit 1
-}
-
-# Parse the line with `version "`. The version line is not always line 1:
-# JAVA_TOOL_OPTIONS and _JAVA_OPTIONS prepend a "Picked up ..." line.
-java_version="$(java -version 2>&1 | sed -n 's/.*version "\([0-9][0-9]*\).*/\1/p' | head -n 1)"
-[ -n "$java_version" ] && [ "$java_version" -ge 21 ] || {
-	printf 'cip0104-walkthrough: Java 21 or newer is required\n' >&2
 	exit 1
 }
 node_version="$(node -p 'process.versions.node.split(".")[0]')"
@@ -55,24 +34,42 @@ node_version="$(node -p 'process.versions.node.split(".")[0]')"
 	exit 1
 }
 
+# The external mode runs only the Node harness. dpm, Java, lsof, and curl
+# serve only the sandbox mode: the build, the port checks, and the readiness
+# probe.
+if [ "$USE_EXTERNAL_LEDGER" != 1 ]; then
+	command -v dpm >/dev/null 2>&1 || {
+		printf 'cip0104-walkthrough: dpm is not available\n' >&2
+		exit 1
+	}
+	command -v java >/dev/null 2>&1 || {
+		printf 'cip0104-walkthrough: Java is not available\n' >&2
+		exit 1
+	}
+	command -v lsof >/dev/null 2>&1 || {
+		printf 'cip0104-walkthrough: lsof is not available\n' >&2
+		exit 1
+	}
+	command -v curl >/dev/null 2>&1 || {
+		printf 'cip0104-walkthrough: curl is not available\n' >&2
+		exit 1
+	}
+	# Parse the line with `version "`. The version line is not always line 1:
+	# JAVA_TOOL_OPTIONS and _JAVA_OPTIONS prepend a "Picked up ..." line.
+	java_version="$(java -version 2>&1 | sed -n 's/.*version "\([0-9][0-9]*\).*/\1/p' | head -n 1)"
+	[ -n "$java_version" ] && [ "$java_version" -ge 21 ] || {
+		printf 'cip0104-walkthrough: Java 21 or newer is required\n' >&2
+		exit 1
+	}
+fi
+
 PKG_DIR="$ROOT/experiments/interoperability/cip-exemplar"
 DAR="$PKG_DIR/.daml/dist/openzeppelin-experimental-cip-interop-exemplar-0.1.0.dar"
 HARNESS="$ROOT/experiments/interoperability/app-rewards/harness.mjs"
 LEDGER_PORT="${OZ_LEDGER_PORT:-6865}"
 JSON_API_PORT="${OZ_JSON_API_PORT:-7575}"
-USE_EXTERNAL_LEDGER="${OZ_USE_EXTERNAL_LEDGER:-0}"
 LOG_DIR="${OZ_LOCALNET_LOG_DIR:-$ROOT/.cache/cip0104-rewards-walkthrough}"
 mkdir -p "$LOG_DIR"
-
-printf 'cip0104-walkthrough: building the interop exemplar package (log: %s)\n' "$LOG_DIR/build.log"
-(cd "$PKG_DIR" && dpm build) > "$LOG_DIR/build.log" 2>&1 || {
-	printf 'cip0104-walkthrough: build failed; see %s\n' "$LOG_DIR/build.log" >&2
-	exit 1
-}
-[ -f "$DAR" ] || {
-	printf 'cip0104-walkthrough: expected DAR not found: %s\n' "$DAR" >&2
-	exit 1
-}
 
 SANDBOX_PID=""
 SANDBOX_PGID=""
@@ -124,6 +121,15 @@ if [ "$USE_EXTERNAL_LEDGER" = 1 ]; then
 	: "${OZ_JSON_API_URL:?external mode requires OZ_JSON_API_URL}"
 	printf 'cip0104-walkthrough: using external ledger at %s (no sandbox started)\n' "$OZ_JSON_API_URL"
 else
+	printf 'cip0104-walkthrough: building the interop exemplar package (log: %s)\n' "$LOG_DIR/build.log"
+	(cd "$PKG_DIR" && dpm build) > "$LOG_DIR/build.log" 2>&1 || {
+		printf 'cip0104-walkthrough: build failed; see %s\n' "$LOG_DIR/build.log" >&2
+		exit 1
+	}
+	[ -f "$DAR" ] || {
+		printf 'cip0104-walkthrough: expected DAR not found: %s\n' "$DAR" >&2
+		exit 1
+	}
 	for port in "$LEDGER_PORT" "$JSON_API_PORT"; do
 		if lsof -nP -iTCP:"$port" -sTCP:LISTEN >/dev/null 2>&1; then
 			printf 'cip0104-walkthrough: port %s is already in use\n' "$port" >&2
