@@ -1,0 +1,32 @@
+-- | Experimental fixture approximating selected
+-- `splice-api-token-transfer-instruction-v2` types for local tests. It is not an
+-- upstream implementation or a conformance artifact. The interface is
+-- viewtype-only; implementing templates define their own choice behavior.
+module OpenZeppelin.Experimental.TokenStandardFixture.V2.TransferInstruction where
+
+import OpenZeppelin.Experimental.TokenStandardFixture.V2.Metadata
+import OpenZeppelin.Experimental.TokenStandardFixture.V2.Holding
+
+-- | A V2 transfer. Mirrors `TransferInstructionV2.Transfer` (account-to-account
+-- with explicit input holdings).
+data Transfer = Transfer with
+    sender : Account
+    receiver : Account
+    amount : Decimal
+    instrumentId : InstrumentId
+    requestedAt : Time
+    executeBefore : Time
+    inputHoldingCids : [ContractId Holding]
+    meta : Metadata
+  deriving (Eq, Show)
+
+-- | Viewtype for the `TransferInstruction` interface. Mirrors
+-- `TransferInstructionV2.TransferInstructionView`.
+data TransferInstructionView = TransferInstructionView with
+    transfer : Transfer
+    expiresAt : Optional Time
+    meta : Metadata
+  deriving (Eq, Show)
+
+interface TransferInstruction where
+  viewtype TransferInstructionView

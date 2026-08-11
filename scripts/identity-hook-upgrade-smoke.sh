@@ -3,17 +3,18 @@ set -euo pipefail
 set -m
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-source "$ROOT/scripts/dpm-env.sh"
 
 LEDGER_PORT="${IDENTITY_HOOK_UPGRADE_LEDGER_PORT:-6865}"
-JSON_API_PORT="${IDENTITY_HOOK_UPGRADE_JSON_API_PORT:-7575}"
 RUN_ID="${IDENTITY_HOOK_UPGRADE_RUN_ID:-$(date -u +%Y%m%dT%H%M%SZ)-$$}"
 RUN_ID="${RUN_ID//[^A-Za-z0-9_-]/-}"
 
 SANDBOX_PID=""
 SANDBOX_PGID=""
-SANDBOX_DIR="$ROOT/.cache/identity-hook-upgrade-sandbox"
+SANDBOX_ROOT="$ROOT/.cache/identity-hook-upgrade-sandbox"
+mkdir -p "$SANDBOX_ROOT"
+SANDBOX_DIR="$(mktemp -d "$SANDBOX_ROOT/run.XXXXXX")"
 SANDBOX_STDOUT="$SANDBOX_DIR/sandbox.out"
+SANDBOX_PORT_FILE="$SANDBOX_DIR/canton-ports.json"
 RUN_INPUT="$(mktemp "${TMPDIR:-/tmp}/identity-hook-upgrade-run.XXXXXX.json")"
 FIXTURE_FILE="$(mktemp "${TMPDIR:-/tmp}/identity-hook-upgrade-fixture.XXXXXX.json")"
 
@@ -93,7 +94,6 @@ cleanup() {
 	fi
 	if [ -n "$SANDBOX_PGID" ]; then
 		wait_for_port_release "$LEDGER_PORT" "Ledger API" || cleanup_failed=1
-		wait_for_port_release "$JSON_API_PORT" "JSON API" || cleanup_failed=1
 	fi
 	rm -f "$RUN_INPUT" "$FIXTURE_FILE"
 
@@ -103,71 +103,79 @@ cleanup() {
 	exit "$status"
 }
 
-wait_for_ledger_port() {
-	local attempts=60
+wait_for_ledger_ready() {
+	local attempts=120
 	local i=0
 	local pgid=""
 	local foreign_pgids=""
+	local listener_pgids=""
+	local owned_listener=0
 
 	while [ "$i" -lt "$attempts" ]; do
 		foreign_pgids=""
+		owned_listener=0
+		listener_pgids="$(port_listener_pgids "$LEDGER_PORT")" ||
+			fail "failed to inspect Ledger API port $LEDGER_PORT"
 		while IFS= read -r pgid; do
+			[ -n "$pgid" ] || continue
 			if [ "$pgid" = "$SANDBOX_PGID" ]; then
-				sleep 8
-				return 0
+				owned_listener=1
+				continue
 			fi
 			foreign_pgids="$foreign_pgids $pgid"
-		done < <(port_listener_pgids "$LEDGER_PORT")
+		done <<< "$listener_pgids"
 		if [ -n "$foreign_pgids" ]; then
 			port_listeners "$LEDGER_PORT" >&2
 			fail "Ledger API port $LEDGER_PORT was claimed by foreign process group(s):$foreign_pgids"
 		fi
-		if (echo >/dev/tcp/127.0.0.1/"$LEDGER_PORT") >/dev/null 2>&1; then
+		if [ "$owned_listener" -eq 1 ] && [ -s "$SANDBOX_PORT_FILE" ]; then
+			return 0
+		fi
+		if [ "$owned_listener" -eq 0 ] && (echo >/dev/tcp/127.0.0.1/"$LEDGER_PORT") >/dev/null 2>&1; then
 			port_listeners "$LEDGER_PORT" >&2
 			fail "Ledger API port $LEDGER_PORT is reachable but not owned by this sandbox process group"
 		fi
 		if [ -n "$SANDBOX_PGID" ] && ! process_group_alive; then
 			tail -n 80 "$SANDBOX_STDOUT" >&2 || true
-			fail "sandbox exited before Ledger API port $LEDGER_PORT became reachable"
+			fail "sandbox exited before the ledger became ready"
 		fi
 		if [ -n "$SANDBOX_PID" ] && ! kill -0 "$SANDBOX_PID" >/dev/null 2>&1; then
 			tail -n 80 "$SANDBOX_STDOUT" >&2 || true
-			fail "sandbox exited before Ledger API port $LEDGER_PORT became reachable"
+			fail "sandbox exited before the ledger became ready"
 		fi
 		i=$((i + 1))
 		sleep 1
 	done
 
 	tail -n 80 "$SANDBOX_STDOUT" >&2 || true
-	fail "timed out waiting for Ledger API port $LEDGER_PORT"
+	fail "timed out waiting for the sandbox readiness file and Ledger API port $LEDGER_PORT"
 }
 
 trap cleanup EXIT
 
-oz_setup_dpm_env "$ROOT/.cache"
-oz_has_dpm || fail "dpm is not available; install DPM or expose ~/.dpm/bin/dpm"
-oz_has_java_21_or_newer || fail "Java 21 or newer is not available; install or expose a JDK before running dpm"
+command -v dpm >/dev/null 2>&1 || fail "dpm is not available"
+command -v java >/dev/null 2>&1 || fail "Java is not available"
 command -v lsof >/dev/null 2>&1 || fail "lsof is required for sandbox port ownership checks"
 
-require_port_free "$LEDGER_PORT" "Ledger API" "IDENTITY_HOOK_UPGRADE_LEDGER_PORT"
-require_port_free "$JSON_API_PORT" "JSON API" "IDENTITY_HOOK_UPGRADE_JSON_API_PORT"
+java_version="$(java -version 2>&1 | sed -n '1s/.*version "\([0-9][0-9]*\).*/\1/p')"
+[ -n "$java_version" ] && [ "$java_version" -ge 21 ] || fail "Java 21 or newer is required"
 
-mkdir -p "$SANDBOX_DIR"
+require_port_free "$LEDGER_PORT" "Ledger API" "IDENTITY_HOOK_UPGRADE_LEDGER_PORT"
 
 printf 'identity-hook-upgrade-smoke: building v1/v2 experiment packages\n'
-(cd "$ROOT/experiments/identity-hook-upgrade-v1" && dpm build)
-(cd "$ROOT/experiments/identity-hook-upgrade-v2" && dpm build)
-(cd "$ROOT/experiments/identity-hook-upgrade-v1-script" && dpm build)
-(cd "$ROOT/experiments/identity-hook-upgrade-v2-script" && dpm build)
+(cd "$ROOT" && DAML_PACKAGE=experiments/identity/upgrade/v1 dpm build)
+(cd "$ROOT" && DAML_PACKAGE=experiments/identity/upgrade/v2 dpm build)
+(cd "$ROOT" && DAML_PACKAGE=experiments/identity/upgrade/driver-v1 dpm build)
+(cd "$ROOT" && DAML_PACKAGE=experiments/identity/upgrade/driver-v2 dpm build)
 
 printf '{ "runId": "%s" }\n' "$RUN_ID" >"$RUN_INPUT"
 
-printf 'identity-hook-upgrade-smoke: starting sandbox on Ledger API %s, JSON API %s\n' "$LEDGER_PORT" "$JSON_API_PORT"
+printf 'identity-hook-upgrade-smoke: starting sandbox on Ledger API %s\n' "$LEDGER_PORT"
 (
 	cd "$ROOT"
 	exec dpm sandbox \
 		--ledger-api-port "$LEDGER_PORT" \
-		--json-api-port "$JSON_API_PORT" \
+		--canton-port-file "$SANDBOX_PORT_FILE" \
 		--log-file-name "$SANDBOX_DIR/canton.log" \
 		--log-file-appender flat \
 		--log-truncate \
@@ -176,15 +184,15 @@ printf 'identity-hook-upgrade-smoke: starting sandbox on Ledger API %s, JSON API
 SANDBOX_PID="$!"
 SANDBOX_PGID="$SANDBOX_PID"
 disown "$SANDBOX_PID" >/dev/null 2>&1 || true
-wait_for_ledger_port
+wait_for_ledger_ready
 
 printf 'identity-hook-upgrade-smoke: creating v1 fixture with run id %s\n' "$RUN_ID"
 (
-	cd "$ROOT/experiments/identity-hook-upgrade-v1-script"
+	cd "$ROOT/experiments/identity/upgrade/driver-v1"
 	dpm script \
 		--ledger-host localhost \
 		--ledger-port "$LEDGER_PORT" \
-		--dar .daml/dist/openzeppelin-experimental-identity-hook-upgrade-v1-script-0.1.0.dar \
+		--dar .daml/dist/openzeppelin-experimental-identity-hook-upgrade-driver-v1-0.1.0.dar \
 		--script-name OpenZeppelin.Experimental.Identity.UpgradeScript.V1:createV1HoldingFixtureForRun \
 		--input-file "$RUN_INPUT" \
 		--output-file "$FIXTURE_FILE" \
@@ -193,11 +201,11 @@ printf 'identity-hook-upgrade-smoke: creating v1 fixture with run id %s\n' "$RUN
 
 printf 'identity-hook-upgrade-smoke: exercising v1-created holding through v2\n'
 (
-	cd "$ROOT/experiments/identity-hook-upgrade-v2-script"
+	cd "$ROOT/experiments/identity/upgrade/driver-v2"
 	dpm script \
 		--ledger-host localhost \
 		--ledger-port "$LEDGER_PORT" \
-		--dar .daml/dist/openzeppelin-experimental-identity-hook-upgrade-v2-script-0.2.0.dar \
+		--dar .daml/dist/openzeppelin-experimental-identity-hook-upgrade-driver-v2-0.2.0.dar \
 		--script-name OpenZeppelin.Experimental.Identity.UpgradeScript.V2:migrateV1HoldingTransferUnderV2 \
 		--input-file "$FIXTURE_FILE" \
 		--upload-dar true

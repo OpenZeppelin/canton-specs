@@ -1,0 +1,17 @@
+sdk-version: 3.4.11
+name: openzeppelin-experimental-settlement-exemplar
+source: daml
+version: 0.1.0
+dependencies:
+  - daml-prim
+  - daml-stdlib
+  - daml-script
+data-dependencies:
+  - ../../../dars/vendor/openzeppelin-access-control-v1-0.1.0.dar
+  - ../../../dars/vendor/openzeppelin-pausable-v1-0.1.0.dar
+  - ../fixtures/token-standard-v2/.daml/dist/openzeppelin-experimental-token-standard-v2-fixture-0.1.0.dar
+  - ../cip-0112/.daml/dist/openzeppelin-experimental-cip112-settlement-0.1.0.dar
+build-options:
+  - --target=2.1
+  # The executable exemplar contains both its consumer template and Daml Script scenarios.
+  - -Wno-template-interface-depends-on-daml-script

@@ -1,0 +1,171 @@
+-- | Experimental compliance-check shape A.
+--
+-- This package models a contract-oblivious compliance boundary. The hook accepts
+-- an allow/deny result token and checks only the decision on-ledger. Subject,
+-- signer, expiry, and transcript validation remain operator responsibilities.
+-- Every contract requires an explicit experimental feature flag.
+module OpenZeppelin.Experimental.Compliance.ShapeA where
+
+data ComplianceDecision
+  = Allow
+  | Deny
+  deriving (Eq, Show)
+
+experimentalFeatureFlag : Text
+experimentalFeatureFlag = "experimental.compliance-shape-a.enabled"
+
+-- | A pre-signed off-ledger compliance result token.
+--
+-- Signatories: `provider`, representing the off-ledger system or node-side
+-- service that issued the result.
+-- Observers: `presenter`, the party allowed to present and consume the result.
+-- Controllers: `presenter` controls `OffLedgerComplianceResult_Consume`.
+-- Choices: `OffLedgerComplianceResult_Consume`.
+-- Disclosed parties: the provider and presenter are stakeholders; toy transfer
+-- code only sees the token if the presenter supplies or discloses it.
+-- Privacy expectations: the result is visible only to the provider, presenter,
+-- and explicitly-disclosed verifiers.
+-- Authorization assumptions: the contract trusts the provider-signed token as
+-- the off-ledger output and checks only `decision == Allow`; subject, signer,
+-- freshness, and transcript verification remain operator responsibilities in
+-- this shape.
+-- Archival behavior: consuming the token archives it to prevent exact-token
+-- replay in the toy flow.
+-- Failure modes: deny tokens block transfer; allow tokens for the wrong
+-- subject, stale allow tokens, or duplicate off-ledger tokens are not detected
+-- on-ledger. `opaqueResultId` is not read on-ledger; replay protection in this
+-- toy flow rests only on archiving the consumed result contract.
+-- Compatibility: experimental package with no stable API or migration promise.
+template OffLedgerComplianceResult
+  with
+    provider : Party
+    presenter : Party
+    decision : ComplianceDecision
+    opaqueResultId : Text
+  where
+    signatory provider
+    observer presenter
+
+    choice OffLedgerComplianceResult_Consume : ComplianceDecision
+      controller presenter
+      do pure decision
+
+-- | Toy issuer registry used to compose the compliance hook with minting.
+--
+-- Signatories: `issuer`.
+-- Observers: none.
+-- Controllers: `issuer` controls `ToyRegistry_Mint`.
+-- Choices: `ToyRegistry_Mint`.
+-- Disclosed parties: the issuer discloses the registry to parties that need to
+-- use it.
+-- Privacy expectations: registry configuration is private to the issuer unless
+-- explicitly disclosed.
+-- Authorization assumptions: this is a stub issuer authority; applications
+-- supply their production multi-sig or topology-based authority model.
+-- Archival behavior: nonconsuming mint; the registry persists.
+-- Failure modes: mint rejects if the experimental feature flag is absent or the
+-- amount is non-positive.
+-- Compatibility: experimental package with no stable API or migration promise.
+template ToyRegistry
+  with
+    issuer : Party
+    featureFlag : Text
+    seizureDestination : Party
+  where
+    signatory issuer
+
+    nonconsuming choice ToyRegistry_Mint : ContractId ToyHolding
+      with
+        owner : Party
+        amount : Int
+      controller issuer
+      do
+        requireExperimentalFlag featureFlag
+        assertMsg eNonPositiveAmount (amount > 0)
+        create ToyHolding with
+          issuer
+          owner
+          amount
+          featureFlag
+          seizureDestination
+
+-- | Toy transferable holding used to exercise transfer, burn, and seizure.
+--
+-- Signatories: `issuer`, so the issuer authority can create successor holdings
+-- during owner-controlled transfer and burn/seizure flows.
+-- Observers: `owner`.
+-- Controllers: `owner` controls `ToyHolding_Transfer` and `ToyHolding_Burn`;
+-- `issuer` controls `ToyHolding_Seize`.
+-- Choices: `ToyHolding_Transfer`, `ToyHolding_Burn`, `ToyHolding_Seize`.
+-- Disclosed parties: current owner observes the holding; successor owners or
+-- seizure destination observe only the successor contract; the compliance
+-- result token is separately disclosed by its presenter.
+-- Privacy expectations: holdings are private to issuer and current owner,
+-- while the off-ledger compliance result remains private to its own
+-- stakeholders.
+-- Authorization assumptions: the transfer hook trusts the presented result
+-- token and checks only allow/deny. Mint, burn, and seizure are composition
+-- fixtures; applications supply their production authority models.
+-- Archival behavior: all choices are consuming; transfer and seizure create a
+-- successor holding, burn creates nothing.
+-- Failure modes: denied result blocks transfer; stale or wrong-context allow
+-- results are accepted because shape A checks only the decision on-ledger.
+-- Compatibility: experimental package with no stable API or migration promise.
+template ToyHolding
+  with
+    issuer : Party
+    owner : Party
+    amount : Int
+    featureFlag : Text
+    seizureDestination : Party
+  where
+    signatory issuer
+    observer owner
+
+    choice ToyHolding_Transfer : ContractId ToyHolding
+      with
+        newOwner : Party
+        resultCid : ContractId OffLedgerComplianceResult
+      controller owner
+      do
+        requireExperimentalFlag featureFlag
+        assertMsg eSelfTransfer (newOwner /= owner)
+        decision <- exercise resultCid OffLedgerComplianceResult_Consume
+        assertMsg eComplianceDenied (decision == Allow)
+        create this with owner = newOwner
+
+    choice ToyHolding_Burn : ()
+      with
+        reason : Text
+      controller owner
+      do
+        requireExperimentalFlag featureFlag
+        pure ()
+
+    choice ToyHolding_Seize : ContractId ToyHolding
+      with
+        reason : Text
+      controller issuer
+      do
+        requireExperimentalFlag featureFlag
+        assertMsg eSeizureNoop (seizureDestination /= owner)
+        create this with owner = seizureDestination
+
+requireExperimentalFlag : Text -> Update ()
+requireExperimentalFlag flag =
+  assertMsg eFeatureDisabled (flag == experimentalFeatureFlag)
+
+eFeatureDisabled : Text
+eFeatureDisabled = "ComplianceShapeA: experimental feature flag disabled"
+
+eNonPositiveAmount : Text
+eNonPositiveAmount = "ComplianceShapeA: amount must be positive"
+
+eSelfTransfer : Text
+eSelfTransfer = "ComplianceShapeA: self-transfer is not part of the toy flow"
+
+eComplianceDenied : Text
+eComplianceDenied = "ComplianceShapeA: off-ledger result denied"
+
+eSeizureNoop : Text
+eSeizureNoop = "ComplianceShapeA: seizure destination already owns holding"
