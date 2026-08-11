@@ -1,149 +1,125 @@
 # AGENTS.md - canton-specs
 
-## Role
+## Repository role
 
-This repo is the home for **all** OpenZeppelin Canton docs, specs, and Reference
-Implementations (RIs): the **CIP-0112 / Token Standard V2 settlement specs and
-the RI implementation code** (the experimental settlement scaffold plus the
-compliance/identity experiments), the architecture/decision docs, and the four
-RI architecture reports. Keep changes small, auditable, and tied to M1
-settlement/specs/RI deliverables.
+This repository is the research, reference-architecture, and incubation
+workspace for OpenZeppelin's Canton work. Keep experiments bounded, reproducible,
+and clearly separated from released packages and complete applications.
 
-The decoupled, ergonomic general library (`openzeppelin-access-control` / `openzeppelin-ownable` /
-`openzeppelin-pausable`) is owned by `canton-contracts` — that repo is the **source of
-truth** for the reusable primitives and contains no RI/specs code. The RI here
-**consumes** the library and builds against a vendored snapshot of those
-primitives: evolve a primitive in `canton-contracts`, then refresh the snapshot
-here; do not fork the library design in this repo. A primitive graduates from
-the RI scaffold into the `canton-contracts` library only via the CIP-0112
-promotion-boundary ADR.
+Reusable production components belong in `OpenZeppelin/canton-contracts` after
+their promotion boundary, package identity, compatibility model, tests, and
+release path are accepted. Complete reference implementations belong in their
+application repositories.
 
-This repo also carries the migrated RI architecture documentation:
+## Read order
 
-- `docs/ri-reports/` — portfolio + four RI architecture reports.
-- `docs/architecture/` — CIP-0112 architecture, ADRs, threat model, and
-  audit-readiness notes; the adopted D1–D4 design decisions live in
-  `docs/architecture/cip0112-m1-ri-spec.md`.
+Before changing the repository, read:
 
-Those documents describe reference designs. They do not add RI implementation
-scope, public API stability, CIP-0112 conformance, M1 acceptance, audit
-readiness, production readiness, or release readiness.
+1. `README.md`
+2. `docs/README.md`
+3. `experiments/README.md`
+4. The affected domain `README.md`
+5. `CONTRIBUTING.md`
 
-## Read Order
-
-Before changing this repo:
-
-1. Read root `../AGENTS.md`.
-2. Read root `../PLAN.md`.
-3. Read this file.
-4. Read `README.md`.
-5. Check the accepted SDK/CIP ADR before adding or changing `daml.yaml`.
-
-For standalone GitHub review where the umbrella workspace is not available, read
-this file and `README.md` in that order.
-
-**Reviewing the M1 settlement work?** Start with the review entry points:
-
-1. [`docs/architecture/M1_DELIVERABLE_STATUS.md`](docs/architecture/M1_DELIVERABLE_STATUS.md)
-   — what is implemented (🟡 experimental / ✅ tested) vs gated/deferred (⬜).
-2. [`docs/architecture/cip0112-threat-model.md`](docs/architecture/cip0112-threat-model.md)
-   — assets, trust boundaries, abuse cases → negative tests, plus the folded-in
-   audit-readiness material (per-template authority/lifecycle matrix, D1–D4
-   control map, test-coverage map).
-4. [`docs/architecture/cip0112-m1-ri-spec.md`](docs/architecture/cip0112-m1-ri-spec.md)
-   and [`docs/ri-reports/`](docs/ri-reports/) — the living architecture docs;
-   every code reference is a line-anchored link, refreshable with
-   `scripts/refresh-ri-anchors.sh`.
-5. The code: `experiments/cip112-settlement/` (engine), `experiments/token-standard-v2-mock/`
-   (mock V2 interfaces), `experiments/settlement-exemplar/` (end-to-end consumer),
-   `test/daml/OpenZeppelin/Test/Cip112Settlement.daml` (spine suite).
-
-Build/verify locally: `OZ_DAML_TOOLCHAIN=dpm dpm build --all`, then
-`cd test && dpm test` (and the exemplar package's scripts), and
-`scripts/refresh-ri-anchors.sh` (expect `0 drift, 0 error`). Everything here is
-the **experimental** surface — no public-API/conformance/audit/production claim.
+All instructions are self-contained in this checkout. Do not assume parent
+workspace files exist.
 
 ## Boundaries
 
-In scope here: the CIP-0112 settlement RI scaffold, the compliance/identity
-experiments, the specs/architecture docs, and the four RI architecture reports.
+This repository contains:
 
-Do not add:
+- reference architectures and threat models;
+- durable architecture and dependency decisions;
+- experimental Daml packages that answer a specific research question;
+- Smart Contract Upgrade and migration evidence;
+- interoperability harnesses and reproducible evidence;
+- promotion evidence for reusable `OpenZeppelin/canton-contracts` candidates.
 
-- The four RIs' own business logic (DEX AMM, lending vaults, stablecoin
-  orchestration, sealed-bid auction) — those are M2–M4 implementation, not M1;
-  M1 builds the shared settlement primitive and documents the RI designs.
-- The decoupled library's design — evolve `openzeppelin-access-control` / `openzeppelin-ownable` /
-  `openzeppelin-pausable` in `canton-contracts` and refresh the snapshot here.
-- Production private integrations.
-- Full relayer infrastructure.
-- Year 2 components before scope review approval.
-- Public APIs without an ADR once implementation begins.
+This repository does not contain:
 
-## Decision Authority
+- a second copy of production packages maintained in `OpenZeppelin/canton-contracts`;
+- local lookalikes presented as canonical Canton or Splice standards;
+- released DARs published under the `OpenZeppelin/canton-specs` name;
+- complete application products, frontends, or production deployment stacks;
+- grant administration, milestone evidence packets, or reviewer instructions in
+  user-facing documentation.
 
-The adopted D1–D4 decisions (recorded in
-[`docs/architecture/cip0112-m1-ri-spec.md`](docs/architecture/cip0112-m1-ri-spec.md)):
+Consume reusable OpenZeppelin components and upstream standards as pinned DAR
+artifacts. Record their package identity, checksum, source, and license in
+`dars/manifest.yaml`. A fixture may model only the surface needed by an
+experiment, but its name and documentation must state that it is a fixture and
+must not claim conformance.
 
-- D1: transfer validation is checked on every transfer/settlement leg, no
-  caching, fail-closed, node-side. The Daml-visible attestation shape is an
-  optional hook and remains a non-blocking implementation clarification.
-- D2: seizure routes to an admin-preset custodian destination, not burn and not
-  return-to-sender. In-flight seizure is lock-and-sweep to that destination.
-- D3: v1 is single-domain; cross-domain identity is deferred, with an additive
-  SCU-safe extension path.
-- D4: M1 uses single-admin capability authority. On-ledger multi-sig and
-  multi-hosted-party authority are deferred unless a specific deployment
-  requires them.
+## Experiment organization
 
-When work depends on D1-D4, cite `docs/architecture/cip0112-m1-ri-spec.md` (which
-records the adopted D1–D4 decisions) rather than re-deriving the boundaries.
+- Group experiments by research area under `experiments/`.
+- Keep one Daml package per independently buildable experiment or fixture.
+- Put Daml Script tests in a separate `-test` package with version `0.0.0`.
+- Name live-ledger SCU helpers as explicit `-driver-*` packages; their versions
+  may mirror the implementation version they load.
+- Keep intentional multi-package scenarios in an explicit integration or
+  executable exemplar package.
+- Place experiment-specific harnesses and evidence with the experiment.
+- Keep top-level `scripts/` for repository-wide checks and integration gates.
+- Do not create empty placeholder directories.
+- Do not give an experimental package a production release path.
 
-## Daml Requirements
+Changes that restructure files should remain separate from changes to contract
+authority, privacy, lifecycle, or settlement behavior.
 
-This repo is DPM-native. Use `dpm build`, `dpm test`, `dpm script`, and
-`dpm init`; do not use legacy `daml ...` commands or stale SDK binaries unless
-a superseding ADR or explicit temporary exception accepts them. Daml Assistant
-absence is expected for the M0 proof path and must not be treated as a reason
-to fall back from DPM.
+## Daml toolchain
 
-Local scripts bootstrap DPM from PATH or `~/.dpm/bin/dpm`, require Java 21 or
-newer for the accepted DPM build/test/script path, and default DPM/DAML cache writes to
-the repo-local ignored `.cache/` directory. The repo-local
-`scripts/dpm-env.sh` is intentionally duplicated with the coordinating root
-helper so standalone checkouts remain buildable; update both copies together
-until an accepted vendoring step replaces the duplication.
+The repository is DPM-native. `multi-package.yaml` declares the workspace SDK,
+and every package manifest mirrors that version. Package manifests target
+Daml-LF `2.1`.
 
-Every template or interface must document:
+Use `dpm build`, `dpm damlc lint`, `dpm test`, `dpm script`, and
+`dpm upgrade-check`. Do not introduce Daml Assistant commands unless a documented
+toolchain decision changes this. For package-scoped commands run from the
+repository root, set `DAML_PACKAGE` to the repository-relative package path.
 
-- Signatories
-- Observers
-- Controllers
-- Choices
-- Disclosed parties
-- Privacy expectations
-- Authorization assumptions
-- Archival behavior
-- Failure modes
-- Upgrade and migration assumptions
+## Documentation
 
-If any item is unclear, document the uncertainty before implementation.
+The root `README.md` is a user landing page. It presents the reference
+architectures, experiment areas, repository boundaries, security posture, and
+navigation. Contributor testing, coverage, maintenance, and CI instructions
+belong in `CONTRIBUTING.md` or the workflow itself.
+
+All `README.md` files use present-tense, user-facing language that describes the
+current repository contents and their supported use. Do not describe removed
+content, previous layouts, internal milestones, review chronology, empty
+scaffolding, or planned file operations. Research documents may distinguish
+implemented evidence from design proposals when that distinction is part of the
+technical result.
+
+Use repository-relative paths in documentation and configuration. Never include
+a developer username, home directory, temporary directory, or another
+machine-specific absolute path. Refer to repository files by their exact
+filenames, including extensions, and format literal filenames and paths with
+backticks. Use normal ASCII hyphens instead of typographic dash characters.
 
 ## Validation
 
-Use repo-local scripts for standalone validation:
+Run from the repository root:
 
 ```sh
-scripts/check-scaffold.sh
-scripts/manual-workflow-test.sh
+dpm build --all
+scripts/check.sh
+scripts/check-lint.sh
+scripts/check-tests.sh
+scripts/check-docs.sh
 ```
 
-The accepted M0 proof baseline uses DPM with SDK 3.4.11. Because `daml.yaml`
-exists, missing DPM or Java 21+ tooling is a validation failure, not a green
-skip. Use `OZ_DAML_TOOLCHAIN=dpm` for the M0 proof baseline; Daml Assistant
-requires a superseding ADR or explicit exception.
+Run `scripts/identity-hook-upgrade-smoke.sh` when changing the SCU experiment.
+Run the LocalNet and Wallet Gateway integration gates when changing their Daml
+surface, harness, or participant assumptions.
 
-The repo-local manual validation entrypoint is
-`scripts/manual-workflow-test.sh`. GitHub Actions / hosted CI workflows are
-allowed here like in any OpenZeppelin repo; nothing in this repo forbids
-`.github/workflows`.
+`scripts/check-tests.sh` discovers every declared Daml Script package, prints
+the aggregate coverage report, and fails when a measured repository-owned
+template or choice is uncovered. It stores intermediate coverage data in a
+temporary directory and removes it on exit. Keep vendored DAR internals outside
+this repository's coverage gate.
+
+The CI-only discovery scripts validate all declared packages. Public and
+contributor documentation shows native DPM commands instead of presenting those
+scripts as the development interface.

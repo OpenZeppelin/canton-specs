@@ -1,0 +1,13 @@
+sdk-version: 3.4.11
+name: openzeppelin-experimental-compliance-test
+source: daml
+version: 0.0.0
+dependencies:
+  - daml-prim
+  - daml-stdlib
+  - daml-script
+data-dependencies:
+  - ../shape-a/.daml/dist/openzeppelin-experimental-compliance-shape-a-0.1.0.dar
+  - ../shape-b/.daml/dist/openzeppelin-experimental-compliance-shape-b-0.1.0.dar
+build-options:
+  - --target=2.1

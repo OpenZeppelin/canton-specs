@@ -1,0 +1,13 @@
+sdk-version: 3.4.11
+name: openzeppelin-experimental-cip112-settlement-test
+source: daml
+version: 0.0.0
+dependencies:
+  - daml-prim
+  - daml-stdlib
+  - daml-script
+data-dependencies:
+  - ../fixtures/token-standard-v2/.daml/dist/openzeppelin-experimental-token-standard-v2-fixture-0.1.0.dar
+  - ../cip-0112/.daml/dist/openzeppelin-experimental-cip112-settlement-0.1.0.dar
+build-options:
+  - --target=2.1
