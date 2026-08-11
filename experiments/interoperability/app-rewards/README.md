@@ -16,7 +16,7 @@ The harness does the same seven steps as the on-ledger executable specification 
 
 ## Procedure
 
-Start from the repository root. Make sure that DPM, Java 21+, and Node.js 20+ are installed. Then run:
+Start from the repository root. Make sure that DPM, Java 21+, Node.js 20+, `lsof`, and `curl` are installed. Then run:
 
 ```sh
 scripts/localnet-cip0104-rewards-walkthrough.sh
@@ -24,12 +24,12 @@ scripts/localnet-cip0104-rewards-walkthrough.sh
 
 The launcher builds the interop exemplar DAR. It starts a wallclock Canton sandbox with the JSON Ledger API on. It runs the harness. Then it stops the sandbox. The logs go to `.cache/cip0104-rewards-walkthrough/`.
 
-To use a participant that already operates, set `OZ_USE_EXTERNAL_LEDGER=1` and `OZ_JSON_API_URL`. That participant must have no authentication and must have the exemplar DAR uploaded. The harness gives each run a unique party-hint suffix, so repeated runs against the same participant are possible.
+To use a participant that already operates, set `OZ_USE_EXTERNAL_LEDGER=1` and `OZ_JSON_API_URL`. That participant must have no authentication and must have the exemplar DAR uploaded. In this mode the script needs only Node.js 20+: it does not build the DAR and does not start a sandbox. The harness gives each run a unique party-hint suffix, so repeated runs against the same participant are possible.
 
 The harness settlements have no deadline. Thus the sandbox operates on wallclock time, and `setTime` is not necessary. (The Daml walkthrough uses a deadline and static time.)
 
 ## Scope
 
-This experiment gives interoperability validation only. The reward accrues to the app-provider as the confirming executor of each settlement. The reward rate (0.01 CC for each settled USD) and the beneficiary split (venue 0.7 / instrument registrar 0.2 / validator operator 0.1) are examples. They are not the traffic-proportional CC calculation of CIP-0104. That calculation is deferred to M2. This harness makes no CIP-0104 reward, SV, or Scan production claim.
+This experiment gives interoperability validation only. The reward accrues to the app-provider as the confirming executor of each settlement. The reward rate (0.01 CC for each settled USD) and the beneficiary split (venue 0.7 / instrument registrar 0.2 / validator operator 0.1) are examples. They are not the traffic-proportional CC calculation of CIP-0104. This harness makes no CIP-0104 reward, SV, or Scan production claim.
 
 The Daml walkthrough and this harness assert the same expected numbers on purpose. One artifact is the on-ledger executable specification. The other is an off-chain consumer of the same surface. The interop gates run both in CI, so a drift between them fails there.

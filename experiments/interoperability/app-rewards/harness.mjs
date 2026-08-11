@@ -18,8 +18,8 @@
 //
 // Scope: experimental interoperability validation. The reward rate and the
 // beneficiary split are examples. They are not the traffic-proportional CC
-// calculation of CIP-0104 (that calculation is deferred to M2). This harness
-// makes no CIP-0104 reward, SV, or Scan production claim.
+// calculation of CIP-0104. This harness makes no CIP-0104 reward, SV, or
+// Scan production claim.
 //
 // The script scripts/localnet-cip0104-rewards-walkthrough.sh starts this
 // harness. The harness needs a local participant without authentication, with
@@ -105,7 +105,7 @@ async function allocateParty(hint) {
 // creates one user with actAs rights for the walkthrough parties. On a real
 // network, the validator operator does this setup through its IAM.
 const LEDGER_USER = 'oz-cip0104-walkthrough'
-async function ensureLedgerUser(parties) {
+async function provisionLedgerUser(parties) {
   const rights = parties.map((party) => ({ kind: { CanActAs: { value: { party } } } }))
   try {
     await api('POST', '/v2/users', {
@@ -150,7 +150,7 @@ async function submit(actAs, label, commands, { disclosedContracts, mustFail = n
 }
 
 const createdOf = (result, entity) => {
-  const hit = result.created.find((c) => c.templateId?.includes(`:${entity}`))
+  const hit = result.created.find((c) => c.templateId?.endsWith(`:${entity}`))
   if (!hit) throw new Error(`no created ${entity}; created: ${result.created.map((c) => c.templateId).join(', ')}`)
   return hit.contractId
 }
@@ -359,12 +359,14 @@ const RUN_ID = Date.now().toString(36)
 
 async function main() {
   log(`JSON Ledger API: ${JSON_API} (run ${RUN_ID})`)
-  const admin = await allocateParty(`reward-walk-admin-${RUN_ID}`)
-  const app = await allocateParty(`reward-walk-app-${RUN_ID}`)
-  const alice = await allocateParty(`reward-walk-alice-${RUN_ID}`)
-  const bob = await allocateParty(`reward-walk-bob-${RUN_ID}`)
-  const notApp = await allocateParty(`reward-walk-notapp-${RUN_ID}`)
-  await ensureLedgerUser([admin, app, alice, bob, notApp])
+  const [admin, app, alice, bob, notApp] = await Promise.all([
+    allocateParty(`reward-walk-admin-${RUN_ID}`),
+    allocateParty(`reward-walk-app-${RUN_ID}`),
+    allocateParty(`reward-walk-alice-${RUN_ID}`),
+    allocateParty(`reward-walk-bob-${RUN_ID}`),
+    allocateParty(`reward-walk-notapp-${RUN_ID}`),
+  ])
+  await provisionLedgerUser([admin, app, alice, bob, notApp])
 
   // Step 0: the issuer mints 100 USD to alice. No settlement occurred. Thus
   // no activity is attributable.
@@ -372,6 +374,7 @@ async function main() {
   const a0 = await logSnapshot('step 0: minted, nothing settled', admin, app, alice, bob)
   assertEq('step 0 settlements', a0.settlements, 0)
   assertEq('step 0 volume', a0.settledVolume, 0)
+  assertEq('step 0 holdingsChangeEvents', a0.holdingsChangeEvents, 0)
 
   // Step 1: the app-provider executes a settlement that moves 30 USD from
   // alice to bob.
@@ -388,6 +391,7 @@ async function main() {
   const a2 = await logSnapshot('step 2: app settled bob -> alice 10 USD', admin, app, alice, bob)
   assertEq('step 2 settlements', a2.settlements, 2)
   assertEq('step 2 volume', a2.settledVolume, 40)
+  assertEq('step 2 holdingsChangeEvents', a2.holdingsChangeEvents, 4)
   assertEq('step 2 accrual', accruedReward(a2), 0.4)
 
   // Step 3: the client allocates a third batch. The allocation locks the 70
@@ -404,6 +408,7 @@ async function main() {
   const a3 = await logSnapshot("step 3: non-executor settle failed (alice's 70 USD locked in the pending allocation)", admin, app, alice, bob)
   assertEq('step 3 settlements unchanged', a3.settlements, a2.settlements)
   assertEq('step 3 volume unchanged', a3.settledVolume, a2.settledVolume)
+  assertEq('step 3 holdingsChangeEvents unchanged', a3.holdingsChangeEvents, a2.holdingsChangeEvents)
 
   // Step 4: the app-provider settles the pending batch. The counters
   // increase.
