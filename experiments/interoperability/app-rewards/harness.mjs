@@ -105,7 +105,7 @@ async function allocateParty(hint) {
 // creates one user with actAs rights for the walkthrough parties. On a real
 // network, the validator operator does this setup through its IAM.
 const LEDGER_USER = 'oz-cip0104-walkthrough'
-async function ensureLedgerUser(parties) {
+async function provisionLedgerUser(parties) {
   const rights = parties.map((party) => ({ kind: { CanActAs: { value: { party } } } }))
   try {
     await api('POST', '/v2/users', {
@@ -364,7 +364,7 @@ async function main() {
   const alice = await allocateParty(`reward-walk-alice-${RUN_ID}`)
   const bob = await allocateParty(`reward-walk-bob-${RUN_ID}`)
   const notApp = await allocateParty(`reward-walk-notapp-${RUN_ID}`)
-  await ensureLedgerUser([admin, app, alice, bob, notApp])
+  await provisionLedgerUser([admin, app, alice, bob, notApp])
 
   // Step 0: the issuer mints 100 USD to alice. No settlement occurred. Thus
   // no activity is attributable.

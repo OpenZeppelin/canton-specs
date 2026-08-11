@@ -569,7 +569,7 @@ async function verifyExternal() { // Should be ran post-settlement. Queries the 
 // gateway's self-signed bearer tokens are likewise not validated by it).
 // An IAM-protected participant supplies this step through the operator's
 // authenticated user-provisioning flow.
-async function ensureLedgerUser(userId) {
+async function provisionLedgerUser(userId) {
   const res = await fetch(`${JSON_API}/v2/users`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
@@ -644,7 +644,7 @@ async function createWalletExternal() {
 async function createWallet() {
   if (EXTERNAL) return createWalletExternal()
   log(`user API: ${USER_API}, network: ${NETWORK_ID}`)
-  await ensureLedgerUser(LEDGER_USER)
+  await provisionLedgerUser(LEDGER_USER)
   const { accessToken } = await rpc(USER_API, 'selfSignedAccessToken', {
     networkId: NETWORK_ID,
     clientId: LEDGER_USER,
