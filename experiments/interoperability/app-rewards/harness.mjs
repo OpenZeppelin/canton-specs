@@ -372,6 +372,7 @@ async function main() {
   const a0 = await logSnapshot('step 0: minted, nothing settled', admin, app, alice, bob)
   assertEq('step 0 settlements', a0.settlements, 0)
   assertEq('step 0 volume', a0.settledVolume, 0)
+  assertEq('step 0 holdingsChangeEvents', a0.holdingsChangeEvents, 0)
 
   // Step 1: the app-provider executes a settlement that moves 30 USD from
   // alice to bob.
@@ -388,6 +389,7 @@ async function main() {
   const a2 = await logSnapshot('step 2: app settled bob -> alice 10 USD', admin, app, alice, bob)
   assertEq('step 2 settlements', a2.settlements, 2)
   assertEq('step 2 volume', a2.settledVolume, 40)
+  assertEq('step 2 holdingsChangeEvents', a2.holdingsChangeEvents, 4)
   assertEq('step 2 accrual', accruedReward(a2), 0.4)
 
   // Step 3: the client allocates a third batch. The allocation locks the 70
@@ -404,6 +406,7 @@ async function main() {
   const a3 = await logSnapshot("step 3: non-executor settle failed (alice's 70 USD locked in the pending allocation)", admin, app, alice, bob)
   assertEq('step 3 settlements unchanged', a3.settlements, a2.settlements)
   assertEq('step 3 volume unchanged', a3.settledVolume, a2.settledVolume)
+  assertEq('step 3 holdingsChangeEvents unchanged', a3.holdingsChangeEvents, a2.holdingsChangeEvents)
 
   // Step 4: the app-provider settles the pending batch. The counters
   // increase.
