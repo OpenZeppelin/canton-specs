@@ -42,7 +42,9 @@ command -v curl >/dev/null 2>&1 || {
 	exit 1
 }
 
-java_version="$(java -version 2>&1 | sed -n '1s/.*version "\([0-9][0-9]*\).*/\1/p')"
+# Parse the line with `version "`. The version line is not always line 1:
+# JAVA_TOOL_OPTIONS and _JAVA_OPTIONS prepend a "Picked up ..." line.
+java_version="$(java -version 2>&1 | sed -n 's/.*version "\([0-9][0-9]*\).*/\1/p' | head -n 1)"
 [ -n "$java_version" ] && [ "$java_version" -ge 21 ] || {
 	printf 'cip0104-walkthrough: Java 21 or newer is required\n' >&2
 	exit 1
