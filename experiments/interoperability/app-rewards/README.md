@@ -30,6 +30,6 @@ The harness settlements have no deadline. Thus the sandbox operates on wallclock
 
 ## Scope
 
-This experiment gives interoperability validation only. The reward accrues to the app-provider as the confirming executor of each settlement. The reward rate (0.01 CC for each settled USD) and the beneficiary split (venue 0.7 / instrument registrar 0.2 / validator operator 0.1) are examples. They are not the traffic-proportional CC calculation of CIP-0104. That calculation is deferred to M2. This harness makes no CIP-0104 reward, SV, or Scan production claim.
+This experiment gives interoperability validation only. The reward accrues to the app-provider as the confirming executor of each settlement. The reward rate (0.01 CC for each settled USD) and the beneficiary split (venue 0.7 / instrument registrar 0.2 / validator operator 0.1) are examples. They are not the traffic-proportional CC calculation of CIP-0104. This harness makes no CIP-0104 reward, SV, or Scan production claim.
 
 The Daml walkthrough and this harness assert the same expected numbers on purpose. One artifact is the on-ledger executable specification. The other is an off-chain consumer of the same surface. The interop gates run both in CI, so a drift between them fails there.

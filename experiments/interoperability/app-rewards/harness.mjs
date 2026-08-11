@@ -18,8 +18,8 @@
 //
 // Scope: experimental interoperability validation. The reward rate and the
 // beneficiary split are examples. They are not the traffic-proportional CC
-// calculation of CIP-0104 (that calculation is deferred to M2). This harness
-// makes no CIP-0104 reward, SV, or Scan production claim.
+// calculation of CIP-0104. This harness makes no CIP-0104 reward, SV, or
+// Scan production claim.
 //
 // The script scripts/localnet-cip0104-rewards-walkthrough.sh starts this
 // harness. The harness needs a local participant without authentication, with
