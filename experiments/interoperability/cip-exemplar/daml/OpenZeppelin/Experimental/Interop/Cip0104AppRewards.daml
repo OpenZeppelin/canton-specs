@@ -22,11 +22,10 @@ import OpenZeppelin.Experimental.TokenStandardFixture.V2.Holding
 -- holdings-change events used by off-ledger reward attribution.
 test_cip0104_attributableViaSettlementViewsWithoutMarkers : Script ()
 test_cip0104_attributableViaSettlementViewsWithoutMarkers = script do
-  setTime i0
-  admin <- allocateParty "reward-view-admin"
-  app <- allocateParty "reward-view-app"
-  alice <- allocateParty "reward-view-alice"
-  bob <- allocateParty "reward-view-bob"
+  admin <- allocateInteropParty "reward-view-admin"
+  app <- allocateInteropParty "reward-view-app"
+  alice <- allocateInteropParty "reward-view-alice"
+  bob <- allocateInteropParty "reward-view-bob"
   let aliceAcct = basicAccount alice
       bobAcct = basicAccount bob
   aliceHolding <- mintUsd [admin, alice] admin aliceAcct 50.0
@@ -45,15 +44,14 @@ test_cip0104_attributableViaSettlementViewsWithoutMarkers = script do
 -- attributable to the app-provider without a marker contract recording it.
 test_cip0104_onlyAppProviderExecutorCanSettle : Script ()
 test_cip0104_onlyAppProviderExecutorCanSettle = script do
-  setTime i0
-  admin <- allocateParty "reward-exec-admin"
-  app <- allocateParty "reward-exec-app"
-  alice <- allocateParty "reward-exec-alice"
-  bob <- allocateParty "reward-exec-bob"
-  notApp <- allocateParty "reward-exec-notapp"
+  admin <- allocateInteropParty "reward-exec-admin"
+  app <- allocateInteropParty "reward-exec-app"
+  alice <- allocateInteropParty "reward-exec-alice"
+  bob <- allocateInteropParty "reward-exec-bob"
+  notApp <- allocateInteropParty "reward-exec-notapp"
+  settlement <- mkSettlementInfo "reward-exec" app
   let aliceAcct = basicAccount alice
       bobAcct = basicAccount bob
-      settlement = mkSettlementInfo "reward-exec" app
       leg = mkUsdLeg "reward-exec" aliceAcct bobAcct 15.0
   aliceHolding <- mintUsd [admin, alice] admin aliceAcct 15.0
   (factory, factoryDisc) <- mkFactory admin
