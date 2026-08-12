@@ -27,7 +27,7 @@ the agreed amounts or reverts entirely.
 The executable research in this repository provides evidence for several parts
 of the design:
 
-1. The [settlement experiment](https://github.com/OpenZeppelin/canton-contracts/tree/7696749737885e25cd88422847105f890f03b00d/experiments/token/tokenCIP112-v1) models
+1. The [settlement experiment](../../experiments/settlement/) models
    per-authorizer allocation, atomic batch settlement, compliance attestations,
    and seizure of marked in-flight allocations.
 2. The [identity experiments](../../experiments/identity/) separately model an
@@ -105,7 +105,7 @@ architecture reconciles the transparency needed for price discovery and
 invariant validation with the privacy needed for individual positions. It does
 this by **fracturing settlements into per-authorizer allocation requests**:
 a trader's intent interacts with the public logic of a `Pool` contract, but the
-actual asset movement rides on per-party `TokenAllocationRequest` and `TokenAllocation`
+actual asset movement rides on per-party `AllocationRequest` and `Allocation`
 contracts on the CIP-0112 spine. Counterparties observe only their own legs -
 visibility is restricted to a strict need-to-know basis.
 
@@ -134,12 +134,12 @@ while `[EXPERIMENT]` identifies executable evidence in this repository
 | Access Control `[LIBRARY]` | `openzeppelin-access-control-v1`: [`RoleGrant`](https://github.com/OpenZeppelin/canton-contracts/blob/cec416d6e3c2118551c761d5598c403ab27ee342/experiments/access/access-control-v1/daml/OpenZeppelin/AccessControlV1.daml#L58), [`RoleAdmin`](https://github.com/OpenZeppelin/canton-contracts/blob/cec416d6e3c2118551c761d5598c403ab27ee342/experiments/access/access-control-v1/daml/OpenZeppelin/AccessControlV1.daml#L116), [`DefaultAdminTransferOffer`](https://github.com/OpenZeppelin/canton-contracts/blob/cec416d6e3c2118551c761d5598c403ab27ee342/experiments/access/access-control-v1/daml/OpenZeppelin/AccessControlV1.daml#L237), [`requireRole`](https://github.com/OpenZeppelin/canton-contracts/blob/cec416d6e3c2118551c761d5598c403ab27ee342/experiments/access/access-control-v1/daml/OpenZeppelin/AccessControlV1.daml#L287) | Role-based permissioning. Governs the venue operator and LP token issuer. |
 | Ownership Lifecycle `[LIBRARY]` | `openzeppelin-ownable-v1`: [`Ownership`](https://github.com/OpenZeppelin/canton-contracts/blob/cec416d6e3c2118551c761d5598c403ab27ee342/experiments/access/ownable-v1/daml/OpenZeppelin/OwnableV1.daml#L41), [`OwnershipOffer`](https://github.com/OpenZeppelin/canton-contracts/blob/cec416d6e3c2118551c761d5598c403ab27ee342/experiments/access/ownable-v1/daml/OpenZeppelin/OwnableV1.daml#L82) | Provides support for D4: Secure two-step handover of venue administration. |
 | Venue Constraints `[LIBRARY]` | `openzeppelin-pausable-v1`: [`PauseState`](https://github.com/OpenZeppelin/canton-contracts/blob/cec416d6e3c2118551c761d5598c403ab27ee342/experiments/security/pausable-v1/daml/OpenZeppelin/PausableV1.daml#L47), [`whenNotPaused`](https://github.com/OpenZeppelin/canton-contracts/blob/cec416d6e3c2118551c761d5598c403ab27ee342/experiments/security/pausable-v1/daml/OpenZeppelin/PausableV1.daml#L77) | Emergency circuit breaker. `whenNotPaused` blocks new swaps as well as in-flight settlements. |
-| Settlement Model `[EXPERIMENT]` | `OpenZeppelin.TokenCIP112V1`: [`TokenRules`](https://github.com/OpenZeppelin/canton-contracts/blob/7696749737885e25cd88422847105f890f03b00d/experiments/token/tokenCIP112-v1/daml/OpenZeppelin/TokenCIP112V1/Registry.daml#L28), [`TokenAllocationRequest`](https://github.com/OpenZeppelin/canton-contracts/blob/7696749737885e25cd88422847105f890f03b00d/experiments/token/tokenCIP112-v1/daml/OpenZeppelin/TokenCIP112V1/AllocationRequest.daml#L18), [`AllocationFactory_Allocate`](https://github.com/OpenZeppelin/canton-contracts/blob/7696749737885e25cd88422847105f890f03b00d/experiments/token/tokenCIP112-v1/daml/OpenZeppelin/TokenCIP112V1/Registry.daml#L280), [`TokenAllocation`](https://github.com/OpenZeppelin/canton-contracts/blob/7696749737885e25cd88422847105f890f03b00d/experiments/token/tokenCIP112-v1/daml/OpenZeppelin/TokenCIP112V1/Allocation.daml#L67), [`TokenEventLog`](https://github.com/OpenZeppelin/canton-contracts/blob/7696749737885e25cd88422847105f890f03b00d/experiments/token/tokenCIP112-v1/daml/OpenZeppelin/TokenCIP112V1/Base.daml#L75), [`TokenHolding`](https://github.com/OpenZeppelin/canton-contracts/blob/7696749737885e25cd88422847105f890f03b00d/experiments/token/tokenCIP112-v1/daml/OpenZeppelin/TokenCIP112V1/Holding.daml#L17), [`BurnerCapability`](https://github.com/OpenZeppelin/canton-contracts/blob/7696749737885e25cd88422847105f890f03b00d/experiments/token/tokenCIP112-v1/daml/OpenZeppelin/TokenCIP112V1/Allocation.daml#L52) | Bounded evidence for allocation and settlement behavior. |
+| Settlement Model `[EXPERIMENT]` | `OpenZeppelin.Experimental.Settlement.Cip112`: [`SettlementFactory`](../../experiments/settlement/cip-0112/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L137), [`AllocationRequest`](../../experiments/settlement/cip-0112/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L257), [`AllocationInstruction`](../../experiments/settlement/cip-0112/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L306), [`Allocation`](../../experiments/settlement/cip-0112/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L388), [`SettlementReceipt`](../../experiments/settlement/cip-0112/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L588), [`ToyHolding`](../../experiments/settlement/cip-0112/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L98), [`BurnerCapability`](../../experiments/settlement/cip-0112/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L75) | Bounded evidence for allocation and settlement behavior. `ToyHolding` is an experimental unit of value, not a reusable token package. |
 | Identity Verification `[EXPERIMENT]` | `ShapeB`: [`KycClaim`](../../experiments/identity/hook-shape-b/daml/OpenZeppelin/Experimental/Identity/ShapeB.daml#L43), [`TrustedIssuerRegistry`](../../experiments/identity/hook-shape-b/daml/OpenZeppelin/Experimental/Identity/ShapeB.daml#L74) | Provides evidence for D3: a trader must hold a `KycClaim` issued by a trusted party to interact with permissioned pools. |
 
-The design uses the Splice Token Standard V2 interfaces as its
-interoperability boundary; the `tokenCIP112-v1` package implements them
-directly against the upstream splice interface packages.
+The design uses the Splice Token Standard V2 interfaces as its interoperability
+boundary. The settlement fixture in this repository is not a canonical Token
+Standard implementation.
 
 ### Party and Role Model Topology
 
@@ -167,7 +167,7 @@ Duties are segregated and mapped to discrete Daml parties:
   party (e.g. Canton Coin), that party holds lock-and-sweep instead. Example:
   under a court order, the registrar of the base instrument marks a trader's
   locked allocation and sweeps it to the custodian.
-- **Trader / Liquidity Provider** - the end-user authoring `TokenAllocation`
+- **Trader / Liquidity Provider** - the end-user authoring `Allocation`
   contracts from their wallet. The sole party able to lock
   their own holdings.
 - **Custodian** - owns the preset account that receives funds swept by a D2
@@ -363,7 +363,7 @@ flowchart TD
     Operator -->|"PauseState_Set"| Pause
     Operator ==>|"Pool_Swap: re-derive curve, bind to signed sides"| Pool
     Pool -->|"fetchByKey; abort if paused"| Pause
-    Pool ==>|"SettleBatch"| Settle
+    Pool ==>|"SettleBatchWithAttestation"| Settle
     Settle -.->|"archive + recreate: reserves +Δin / -Δout"| Pool
 ```
 
@@ -373,7 +373,7 @@ The execution of a swap is the primary critical path. The flow guarantees funds
 are never locked without a resolution path and that execution is atomic.
 
 Demonstrates per-authorizer allocation requests and atomic co-settlement via
-`SettlementFactory_SettleBatch`. The privacy boundary: the trader sees their
+`SettlementFactory_SettleBatchWithAttestation`. The privacy boundary: the trader sees their
 allocation and receipt, not the backend pool routing.
 
 ```mermaid
@@ -388,48 +388,49 @@ sequenceDiagram
 
     Trader->>Wallet: Initiate swap (Token A for Token B)
     Wallet->>VenueOperator: Request swap (intent + quote)
-    VenueOperator->>SettleFactory: create TokenAllocationRequest (names the legs)
-    Wallet->>SettleFactory: AllocationFactory_Allocate (locks A)
+    VenueOperator->>SettleFactory: CreateAllocationRequest (names the legs)
+    Wallet->>SettleFactory: CreateAllocationInstruction + Accept (locks A)
     SettleFactory-->>Wallet: committed Allocation (trader: send A, receive B)
-    PoolAccount->>SettleFactory: AllocationFactory_Allocate (locks B)
+    PoolAccount->>SettleFactory: CreateAllocationInstruction + Accept (locks B)
     SettleFactory-->>PoolAccount: committed Allocation (pool: send B, receive A)
 
     rect rgb(240, 248, 255)
     Note over VenueOperator, PoolContract: Private venueOperator execution
     VenueOperator->>PoolContract: Pool_Swap (pause-gated)
-    PoolContract->>SettleFactory: SettleBatch (both allocations)
+    PoolContract->>SettleFactory: SettleBatchWithAttestation (both allocations)
     SettleFactory->>Wallet: Credit Token B to trader
     SettleFactory->>PoolAccount: Credit Token A to pool account
     PoolContract->>PoolContract: Archive old Pool, create new (+A, -B)
     end
 
-    SettleFactory-->>Wallet: settlement events (TokenEventLog)
+    SettleFactory-->>Wallet: SettlementReceipt
     Wallet-->>Trader: Swap confirmed
 ```
 
 1. **Intent and Quotation.** A trader requests a quote (swap Token A → Token B).
    The venue operator backend reads current `Pool` state and returns an expected
    output amount plus an `AllocationSpecification`.
-2. **Request Formulation.** The venue operator, as settlement executor, creates
-   the [`TokenAllocationRequest`](https://github.com/OpenZeppelin/canton-contracts/blob/7696749737885e25cd88422847105f890f03b00d/experiments/token/tokenCIP112-v1/daml/OpenZeppelin/TokenCIP112V1/AllocationRequest.daml#L18),
+2. **Request Formulation.** The venue operator, as settlement executor, formulates
+   the [`AllocationRequest`](../../experiments/settlement/cip-0112/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L257)
+   via [`SettlementFactory_CreateAllocationRequest`](../../experiments/settlement/cip-0112/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L151),
    naming the swap's legs and their **exact** amounts.
 3. **Trader Allocation.** The trader signs
-   [`AllocationFactory_Allocate`](https://github.com/OpenZeppelin/canton-contracts/blob/7696749737885e25cd88422847105f890f03b00d/experiments/token/tokenCIP112-v1/daml/OpenZeppelin/TokenCIP112V1/Registry.daml#L280),
-   then [`AllocationFactory_Allocate`](https://github.com/OpenZeppelin/canton-contracts/blob/7696749737885e25cd88422847105f890f03b00d/experiments/token/tokenCIP112-v1/daml/OpenZeppelin/TokenCIP112V1/Registry.daml#L280)
-   locks their Token A and creates a committed [`TokenAllocation`](https://github.com/OpenZeppelin/canton-contracts/blob/7696749737885e25cd88422847105f890f03b00d/experiments/token/tokenCIP112-v1/daml/OpenZeppelin/TokenCIP112V1/Allocation.daml#L67)
+   [`SettlementFactory_CreateAllocationInstruction`](../../experiments/settlement/cip-0112/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L174),
+   then [`AllocationInstruction_Accept`](../../experiments/settlement/cip-0112/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L319)
+   locks their Token A and creates a committed [`Allocation`](../../experiments/settlement/cip-0112/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L388)
    (send `Δin` Token A, receive `Δout` Token B) designating `VENUE_OPERATOR` as the
    authorized executor.
 4. **Pool Allocation.** The pool account likewise creates and accepts an
-   [`AllocationFactory_Allocate`](https://github.com/OpenZeppelin/canton-contracts/blob/7696749737885e25cd88422847105f890f03b00d/experiments/token/tokenCIP112-v1/daml/OpenZeppelin/TokenCIP112V1/Registry.daml#L280),
+   [`AllocationInstruction`](../../experiments/settlement/cip-0112/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L306),
    locking `Δout` of Token B from the pool-account holdings and producing the pool's
-   own committed [`TokenAllocation`](https://github.com/OpenZeppelin/canton-contracts/blob/7696749737885e25cd88422847105f890f03b00d/experiments/token/tokenCIP112-v1/daml/OpenZeppelin/TokenCIP112V1/Allocation.daml#L67)
+   own committed [`Allocation`](../../experiments/settlement/cip-0112/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L388)
    (send `Δout` Token B, receive `Δin` Token A).
 5. **Atomic Batch Settlement.** `VENUE_OPERATOR` exercises the pause-gated
-   `Pool_Swap`, which settles both committed `TokenAllocation`s in one
-   [`SettlementFactory_SettleBatch`](https://github.com/OpenZeppelin/canton-contracts/blob/7696749737885e25cd88422847105f890f03b00d/experiments/token/tokenCIP112-v1/daml/OpenZeppelin/TokenCIP112V1/Registry.daml#L79)
+   `Pool_Swap`, which settles both committed `Allocation`s in one
+   [`SettlementFactory_SettleBatchWithAttestation`](../../experiments/settlement/cip-0112/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L218)
    (presenting a compliance attestation from a trusted attester - see D1),
    archives the current `Pool`, credits `Δout` Token B to the trader and `Δin`
-   Token A to the pool account, emits a [`TokenEventLog`](https://github.com/OpenZeppelin/canton-contracts/blob/7696749737885e25cd88422847105f890f03b00d/experiments/token/tokenCIP112-v1/daml/OpenZeppelin/TokenCIP112V1/Base.daml#L75),
+   Token A to the pool account, emits a [`SettlementReceipt`](../../experiments/settlement/cip-0112/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L588),
    and creates a new `Pool` with updated reserves. This all commits in one Daml
    transaction: the reserve update and every settlement leg land together or not at
    all, so the published price and the assets delivered never diverge.
@@ -450,7 +451,7 @@ Step-by-step execution of a swap:
 | # | Step | Submitter | Kind |
 |---|---|---|---|
 | 1 | Quote request | trader wallet | synchronous off-ledger RPC |
-| 2 | `TokenAllocationRequest` creation | venue operator | async ledger command |
+| 2 | `AllocationRequest` creation | venue operator | async ledger command |
 | 3 | Trader allocation (locks funds) | trader wallet | async ledger command; trader online to sign |
 | 4 | Pool allocation (locks pool leg) | pool account | async ledger command; a threshold-key pool account makes this a signing ceremony, 24h ceiling (see below); ideally the signers are automatic |
 | 5 | D1 attestation issuance | attester | async ledger command, automated |
@@ -517,10 +518,10 @@ Liquidity provision reuses the same allocation
 lifecycle, with the LP-token mint as a sibling consequence of the settlement:
 
 1. **Deposit Allocation.** The LP commits its two deposits (`Δbase`, `Δquote`) as
-   committed `TokenAllocation`s into the pool account, through the same
-   `AllocationFactory_Allocate` the trader uses above.
+   committed `Allocation`s into the pool account, through the same
+   instruction-and-accept lifecycle the trader uses above.
 2. **Provision and Mint.** `VENUE_OPERATOR` exercises the provision choice on the
-   `Pool`. In one transaction it settles both deposit `TokenAllocation`s over the spine
+   `Pool`. In one transaction it settles both deposit `Allocation`s over the spine
    and, as a sibling `create` rather than a transfer leg (so funding conservation
    is untouched), issues the LP a fresh LP-token holding. Creating the holding requires the
    authority of both of its signatories. The `LP_TOKEN_ISSUER` signs the `Pool`,
@@ -542,12 +543,12 @@ supply.
 ### Liquidity Provision, Removal, and Fee Accrual
 
 The same settlement boundary carries the non-swap flows; all remain atomic via
-`SettlementFactory_SettleBatch`.
+`SettlementFactory_SettleBatchWithAttestation`.
 
 - **Pool creation.** `VENUE_OPERATOR` and `LP_TOKEN_ISSUER` jointly create the
   `Pool`. Initial reserves are seeded by the first liquidity provision.
 - **Liquidity provision.** The LP allocates *both* instruments (two committed
-  `TokenAllocation`s) and the venue operator batch-settles them into the pool reserves; in
+  `Allocation`s) and the venue operator batch-settles them into the pool reserves; in
   the same transaction the `LP_TOKEN_ISSUER` mints LP tokens proportional to
   the contributed share. The new `Pool` reflects increased reserves.
 - **Liquidity removal.** The LP burns LP tokens; the batch settles a withdrawal
@@ -567,7 +568,7 @@ they are **not** the assets themselves. The real value lives in TSv2 holdings
 owned by a dedicated **pool account** (an `Account` whose parties are the pool's
 signatories), and every flow above moves holdings into or out of that account, in the same transaction that updates the reserve numbers:
 
-- **On provision**, the LP's two committed `TokenAllocation`s settle *into* the pool
+- **On provision**, the LP's two committed `Allocation`s settle *into* the pool
   account (new holdings owned by the pool), and `baseReserves`/`quoteReserves`
   are incremented to match.
 - **On removal**, the withdrawal legs are funded *from* the pool account's own
@@ -586,9 +587,9 @@ divulges it. Target visibility per template:
 | Contract | Signatories | Observers |
 |---|---|---|
 | `Pool`, `PauseState` | venue operator (+ LP token issuer on `Pool`) | none |
-| `TokenAllocationRequest` | settlement executors (venue operator) | the leg's authorizer |
-| `TokenAllocation` | instrument registry admin, the leg's authorizer | settlement executors |
-| `TokenEventLog` entries | instrument registry admin | the leg's authorizer, settlement executors |
+| `AllocationRequest` | settlement executors (venue operator) | the leg's authorizer |
+| `AllocationInstruction`, `Allocation` | instrument registry admin, the leg's authorizer | settlement executors |
+| `SettlementReceipt` | instrument registry admin | the leg's authorizer, settlement executors |
 | LP-token holding | LP token issuer, owner | none |
 | `KycClaim` | trusted issuer | subject, venue operator (gating) |
 | `ComplianceAttestation` | attester | executor |
@@ -611,12 +612,12 @@ Consequences:
 
 ### D1: Compliance through Party-Applied Attestation
 
-Institutional DeFi requires that sanctioned or unverified parties cannot trade. The design checks compliance per settlement and fails closed: no valid attestation, no trade. The settlement experiment demonstrates this through [`SettlementFactory_SettleBatch`](https://github.com/OpenZeppelin/canton-contracts/blob/7696749737885e25cd88422847105f890f03b00d/experiments/token/tokenCIP112-v1/daml/OpenZeppelin/TokenCIP112V1/Registry.daml#L79), which requires an attestation covering this specific settlement, from an attester listed in the
-[`TrustedAttesterRegistry`](https://github.com/OpenZeppelin/canton-contracts/blob/7696749737885e25cd88422847105f890f03b00d/experiments/token/tokenCIP112-v1/daml/OpenZeppelin/TokenCIP112V1/D1.daml#L22). The registry must share the factory's admin, so callers cannot substitute a registry of their own choosing. Attestations are single-use, so none can be cached or reused across settlements.
+Institutional DeFi requires that sanctioned or unverified parties cannot trade. The design checks compliance per settlement and fails closed: no valid attestation, no trade. The settlement experiment demonstrates this through [`SettlementFactory_SettleBatchWithAttestation`](../../experiments/settlement/cip-0112/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L218), which requires an attestation covering this specific settlement, from an attester listed in the
+[`TrustedAttesterRegistry`](../../experiments/settlement/cip-0112/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L665). The registry must share the factory's admin, so callers cannot substitute a registry of their own choosing. Attestations are single-use, so none can be cached or reused across settlements.
 
 ### D2: Seizure Through Preset Custodian Lock-and-Sweep
 
-Institutional DeFi requires the ability to seize assets under judicial mandate. The design uses an optional, strict **lock-and-sweep** pattern that locks the funds and sweeps them to a preset custodian account. The settlement experiment demonstrates this through [`TokenAllocation_MarkD2Seizure`](https://github.com/OpenZeppelin/canton-contracts/blob/7696749737885e25cd88422847105f890f03b00d/experiments/token/tokenCIP112-v1/daml/OpenZeppelin/TokenCIP112V1/Allocation.daml#L158) and [`TokenAllocation_SweepD2Seizure`](https://github.com/OpenZeppelin/canton-contracts/blob/7696749737885e25cd88422847105f890f03b00d/experiments/token/tokenCIP112-v1/daml/OpenZeppelin/TokenCIP112V1/Allocation.daml#L207).
+Institutional DeFi requires the ability to seize assets under judicial mandate. The design uses an optional, strict **lock-and-sweep** pattern that locks the funds and sweeps them to a preset custodian account. The settlement experiment demonstrates this through [`Allocation_MarkD2InFlightSeizure`](../../experiments/settlement/cip-0112/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L502) and [`Allocation_SweepD2InFlightSeizure`](../../experiments/settlement/cip-0112/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L532).
 
 ### D3: Know-your-customer
 
@@ -706,9 +707,9 @@ changes every swap. `Pool_Swap` is the venue's **single swap entry point** and i
 ```daml
 module OpenZeppelin.Experimental.Dex.Amm where
 
-import OpenZeppelin.TokenCIP112V1
-import Splice.Api.Token.HoldingV2 (InstrumentId)
-import Splice.Api.Token.AllocationV2 (SettlementInfo, TransferLeg)
+import OpenZeppelin.Experimental.Settlement.Cip112
+import OpenZeppelin.Experimental.TokenStandardFixture.V2.Holding (InstrumentId)
+import OpenZeppelin.Experimental.TokenStandardFixture.V2.Allocation (SettlementInfo, TransferLeg)
 import OpenZeppelin.PausableV1 (PauseState, whenNotPaused)
 
 -- | Constant-product AMM state. Reserves are `Decimal` accounting figures; the
@@ -730,7 +731,7 @@ template Pool
 
     -- Consuming: archives this Pool and recreates it with updated reserves.
     -- Controlled by venueOperator; correctness is enforced in the body.
-    choice Pool_Swap : (ContractId TokenEventLog, ContractId Pool)
+    choice Pool_Swap : (ContractId SettlementReceipt, ContractId Pool)
       with
         traderAllocationId : ContractId Allocation   -- trader's committed input
         poolAllocationId : ContractId Allocation      -- pool's own output leg
@@ -769,7 +770,7 @@ template Pool
         -- Atomic DvP: settle the trader's input and the pool's output in one batch,
         -- presenting the signed compliance attestation. The factory resolves its
         -- TrustedAttesterRegistry by key, so no caller-supplied registry is trusted.
-        receipts <- exercise settlementFactoryId SettlementFactory_SettleBatch with
+        receipts <- exercise settlementFactoryId SettlementFactory_SettleBatchWithAttestation with
           settlement; transferLegs
           allocationCids = [traderAllocationId, poolAllocationId]
           actors = [venueOperator]
@@ -783,9 +784,9 @@ template Pool
 
 ### 4.2 Component: D1 Party Attestation
 
-D1 compliance is enforced at settle time and fails closed. A `TokenRules` registry
-with `requiredAttesterRegistryCid` set closes the plain path, forcing every settlement
-through `SettlementFactory_SettleBatch`, which is given a signed
+D1 compliance is enforced at settle time and fails closed. A `SettlementFactory`
+set with `requiresComplianceAttestation` closes the plain path, forcing every settlement
+through `SettlementFactory_SettleBatchWithAttestation`, which is given a signed
 `ComplianceAttestation`.
 
 The factory verifies and **consumes** the attestation before settling (single-use,
@@ -796,7 +797,7 @@ the batch's exact transfer-leg set, and be within its validity window.
 
 ```daml
 -- Executors settle by presenting the attestation.
-exercise factoryCid SettlementFactory_SettleBatch with
+exercise factoryCid SettlementFactory_SettleBatchWithAttestation with
   settlement; transferLegs; allocationCids; actors
   attestationCid
 
@@ -861,9 +862,9 @@ or formal analysis when supported by the implementation toolchain.
 | Vector | Attack | Mitigation |
 |---|---|---|
 | Malicious venue operator state manipulation | Venue operator submits a settlement batch favoring their own holdings, bypassing the price curve or extracting excessive slippage. | `Pool_Swap` enforces the curve on-ledger: it re-derives the output, asserts the `x·y=k` invariant, and binds the settled legs to the amounts the trader signed. A batch that favors the operator or departs from the curve fails these checks, so the operator cannot manipulate reserves even though it drives the swap. |
-| Compliance evasion (D1) | A sanctioned party tries to settle without a valid attestation, or with a stale, forged, or untrusted one. | A registry with `requiredAttesterRegistryCid` set forces settlement through `SettlementFactory_SettleBatch`, which verifies and consumes a `ComplianceAttestation` signed by a party in the factory admin's `TrustedAttesterRegistry`, bound to this settlement and within its validity window. No valid attestation, no settlement. |
-| Rogue seizure / asset burning (D2) | A compromised instrument registrar key attempts to maliciously burn user assets or return seized funds to unverified actors. | [`TokenAllocation_SweepD2Seizure`](https://github.com/OpenZeppelin/canton-contracts/blob/7696749737885e25cd88422847105f890f03b00d/experiments/token/tokenCIP112-v1/daml/OpenZeppelin/TokenCIP112V1/Allocation.daml#L207) hardcodes the destination to the preset `custodianDestination`; arbitrary burn is forbidden. A compromised instrument registrar can only sweep to the pre-approved, monitored custodian. |
-| Forced upgrades breaking in-flight allocations (SCU) | A poorly executed upgrade mutates fields, rendering existing `TokenAllocation` contracts un-settleable. | Programmatic adherence to the SCU rule (Optional appends + new choices only). The `Pool` template's existing choices stay operable; in-flight transactions conclude before users transition. |
+| Compliance evasion (D1) | A sanctioned party tries to settle without a valid attestation, or with a stale, forged, or untrusted one. | A factory with `requiresComplianceAttestation` forces settlement through `SettlementFactory_SettleBatchWithAttestation`, which verifies and consumes a `ComplianceAttestation` signed by a party in the factory admin's `TrustedAttesterRegistry`, bound to this settlement and within its validity window. No valid attestation, no settlement. |
+| Rogue seizure / asset burning (D2) | A compromised instrument registrar key attempts to maliciously burn user assets or return seized funds to unverified actors. | [`Allocation_SweepD2InFlightSeizure`](../../experiments/settlement/cip-0112/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L532) hardcodes the destination to the preset `custodianDestination`; arbitrary burn is forbidden. A compromised instrument registrar can only sweep to the pre-approved, monitored custodian. |
+| Forced upgrades breaking in-flight allocations (SCU) | A poorly executed upgrade mutates fields, rendering existing `Allocation` contracts un-settleable. | Programmatic adherence to the SCU rule (Optional appends + new choices only). The `Pool` template's existing choices stay operable; in-flight transactions conclude before users transition. |
 | Venue Operator swap re-ordering / private MEV | The venue operator sees traders' allocations before batching and can order or delay batch-settlement submissions to its own benefit (e.g. sandwiching a large swap). MEV does **not** disappear on Canton - it moves from a public mempool into the venue operator's private view. | The on-ledger invariant blocks *off-curve* execution, but **not** ordering. Candidate mitigations are commit-reveal or fair-ordering for allocation intake, per-swap slippage bounds carried on the trader's signed request ([section 3](#3-target-design)), and batching rules that minimize venue-operator discretion. See [section 5.5](#55-throughput-and-contention). |
 | Malicious or buggy token registry | Settlement executes registry-implemented code for both legs. A hostile registry can fail legs selectively (griefing one side of a pair), inflate supply and drain the pool through the curve, freeze the pool account's holdings via its own D2 capability, or break settlement with a bad upgrade. | Listing is a trust decision, gated by an **instrument listing policy**: audited TSv2 registry code, bounded admin powers, disclosed D2/freeze capabilities, and SCU-conformant upgrade governance. The curve cannot defend against supply inflation of a listed asset; the policy is the only mitigation. |
 | Infrastructure censorship or delay | A sequencer or the venue's validator delays submissions until `settlementDeadline` lapses, stalling the venue and handing traders a free withdraw option (exit if the price moved against them). | Multi-hosted parties ([section 2](#decentralization-and-trust-topology)), deadline monitoring with re-quote on lapse, and deadlines long enough to absorb transient delay. Residual risk is accepted as part of the infrastructure trust assumptions. |
@@ -878,7 +879,7 @@ The design handles all of them under one invariant:
 path for its owner: no combination of counterparty inaction, attester
 inaction, operator crash, pause, or contention can extend custody past
 `settlementDeadline`. The sole exception is an active D2 seizure with an
-explicit, finite seizure window end and lawful-process reference.
+explicit, finite `seizureWindowEnd` and lawful-process reference.
 
 Bounded custody covers allocations; LP reserves sit in the pool account
 indefinitely, and removal runs through the operator-driven choice with the
@@ -893,14 +894,14 @@ D1-gated spine.
 | Failure | Effect while pending | Recovery path | Funds locked at most |
 |---|---|---|---|
 | Quote RPC times out | nothing on-ledger; the quote is the only synchronous off-ledger call in the flow | trader retries the quote | nothing locked |
-| Trader never allocates | request dangles, nothing locked | executor withdraws the request, or `settlementDeadline` passes | nothing locked |
+| Trader never allocates | request dangles, nothing locked | executor withdraws the request; `settleAt` passes | nothing locked |
 | Pool account never allocates | trader leg locked, settlement impossible | either the trader withdraws after the deadline, or executor cancels earlier | `settlementDeadline` |
 | Attester never attests, or attestation expires | settle blocked (fail closed) | venue re-requests within the window; else deadline lapse + withdraw | `settlementDeadline` |
 | Operator crashes or griefs (never settles) | both legs locked | committed allocations become withdrawable after the deadline (the griefing cap in [section 2](#decentralization-and-trust-topology)) | `settlementDeadline` |
 | Pause during in-flight settlement | settle blocked by `whenNotPaused` | unpause, or deadline lapse + withdraw | `settlementDeadline` |
 | Venue validator out of traffic | venue submissions rejected at the sequencer | traffic top-up and monitoring ([section 6](#6-network-economics-traffic-costs-and-app-rewards)); trader exit unaffected (own validator) | `settlementDeadline` |
 | Synchronizer outage | ledger halted: no one can settle, and no one can withdraw | service resumes; if `settlementDeadline` lapsed during the outage the allocation is withdraw-only | outage duration + `settlementDeadline` |
-| D2 marked, never swept | settle, withdraw, and cancel all blocked | admin unmark; lawful-process sweep bounded by the seizure window | seizure window end |
+| D2 marked, never swept | settle, withdraw, and cancel all blocked | admin unmark; lawful-process sweep bounded by `seizureWindowEnd` | `seizureWindowEnd` |
 | Venue operator gone permanently | no new settles; operator-driven LP removal impossible | LP emergency exit after `venueInactivityWindow` | allocations: `settlementDeadline`; reserves: `venueInactivityWindow` |
 | LP token issuer unavailable | no live submitter for the burn path | the exit choice inherits issuer authority from the `Pool` signatory, so LP withdrawal still settles | `venueInactivityWindow` |
 
@@ -927,7 +928,7 @@ update, not a global ledger bottleneck.
 Against an EVM AMM the design also has structural throughput advantages: with no
 public mempool and no global state tree, (a) independent pools settle in parallel,
 (b) there is no public-mempool MEV/front-running tax on the critical path, and (c)
-several allocations can ride one `SettlementFactory_SettleBatch`,
+several allocations can ride one `SettlementFactory_SettleBatchWithAttestation`,
 amortizing a confirmation round-trip over many legs.
 
 ---
@@ -1011,7 +1012,7 @@ Applying the earn rule to the five swap transactions
 
 | Transaction | Who pays traffic | Confirms, so earns (if featured) |
 | --- | --- | --- |
-| Allocation request | venue | venue operator (signs the `TokenAllocationRequest`) |
+| Allocation request | venue | venue operator (signs the `AllocationRequest`) |
 | Trader allocation | trader | instrument registry admin (signs the holding and allocation); the venue only observes and earns nothing |
 | Pool allocation | pool account | as trader allocation |
 | Attestation | attester | attester |
@@ -1053,7 +1054,7 @@ The following application decisions remain open before implementation.
   batching rules that minimize venue operator discretion are candidate
   mitigations. On-ledger fair ordering, slippage bounds, and batching policy
   remain open design requirements.
-- **Encoding `minOutputAmount` for a swap.** The trader's `TokenAllocation` carries an
+- **Encoding `minOutputAmount` for a swap.** The trader's `Allocation` carries an
   **exact** receive amount ([section 3](#3-target-design)), so if reserves
   move between quote and settlement the curve check fails and the swap aborts
   rather than filling at a worse price. That is safe but brittle under
@@ -1081,4 +1082,4 @@ The following application decisions remain open before implementation.
   cross-chain stablecoin design ([cross-chain stablecoin](./cross-chain-stablecoin.md)), and the DEX is the
   **secondary market** for tokens distributed by the
   [confidential auction](./confidential-auction.md) - both over the same
-  `SettlementFactory_SettleBatch` spine, with no parallel settlement path.
+  `SettlementFactory_SettleBatchWithAttestation` spine, with no parallel settlement path.
