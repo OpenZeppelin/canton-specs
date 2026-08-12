@@ -35,20 +35,6 @@ Each proposal item lists every Daml module, test package, and script that delive
 | All library code published to GitHub with >90% test coverage | The coverage gates in both repositories currently confirm 100% coverage of the measured templates and choices: each gate fails when any measured repository-owned template or choice is uncovered, and both pass on `main` | canton-specs: [scripts/check-tests.sh](../scripts/check-tests.sh), [ci.yml](../.github/workflows/ci.yml), [coverage.yml](../.github/workflows/coverage.yml) (README badges); canton-contracts: [`scripts/check-coverage.sh`](https://github.com/OpenZeppelin/canton-contracts/blob/7696749737885e25cd88422847105f890f03b00d/scripts/check-coverage.sh) and its coverage workflow |
 | Initial Canton section on OpenZeppelin Documentation | Published Canton section in the OpenZeppelin docs | [docs.openzeppelin.com/canton](https://docs.openzeppelin.com/canton) |
 
-### Security
-
-| Proposal item | Delivered as | Location |
-| --- | --- | --- |
-| Security audits of library components | Audit reports indexed by package name, package version, source commit, and DAR SHA-256; each report is published alongside its audited release | [canton-contracts `audits/`](https://github.com/OpenZeppelin/canton-contracts/tree/7696749737885e25cd88422847105f890f03b00d/audits) |
-| Continuous coverage and AI-Security Agent | Gates on every push in both repositories (structure, build, lint, tests, merged coverage, SCU smoke, docs links) plus scheduled interop gates; the open-source analysis tools `daml-lint`, `daml-props`, and `daml-verify` provide continuous static, property-based, and symbolic coverage; the AI security agent runs inside OpenZeppelin's audit workflow | [ci.yml](../.github/workflows/ci.yml), [coverage.yml](../.github/workflows/coverage.yml), [interop-gates.yml](../.github/workflows/interop-gates.yml); [daml-lint](https://github.com/OpenZeppelin/daml-lint), [daml-props](https://github.com/OpenZeppelin/daml-props), [daml-verify](https://github.com/OpenZeppelin/daml-verify) |
-
-### Developer Enablement (included)
-
-| Proposal item | Delivered as | Location |
-| --- | --- | --- |
-| Marketing and community activations | Delivered through the Canton Foundation engagement; not a repository artifact | n/a |
-| Dedicated Technical Account Manager | Assigned to the Canton Foundation; not a repository artifact | n/a |
-
 ## Acceptance criteria: evidence
 
 | Proposal acceptance criterion | Status | Evidence / how to validate |
