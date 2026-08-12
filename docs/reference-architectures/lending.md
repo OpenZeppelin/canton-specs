@@ -297,57 +297,64 @@ sequenceDiagram
 ### Execution Model
 
 In an EVM lending pool every action is one synchronous transaction against
-shared state. The Canton flows decompose into a sequence of ledger commands,
-but almost every flow here is **single-driver**: one party submits each of
-its steps back-to-back, the counterparty authorities (the vault admin's, the
-instrument admin's) are carried by contract signatories rather than requested
-live, and the only cross-party dependency on the critical path is the
-automated attester. A client that submits and waits per command therefore
-experiences each flow as a synchronous sequence completing in seconds.
-Outbound flows (borrow, withdraw, close) are single atomic exercises under
-authority the vault choice already carries; inbound flows (deposits,
-repayments, liquidation payments) add a locking step before their settle.
+shared state. In this Canton design every flow ends in one atomic Daml
+transaction that carries all of its business effects: the settle that also
+creates or updates the vault, the mint that also increments the debt, the
+liquidation that also seizes and burns.
 
-Step-by-step execution, per flow:
+Two mechanics apply to every step uniformly, so the table does not repeat
+them. Each command is submitted asynchronously: the submission returns once
+accepted, and the outcome arrives on the completion stream, correlated by
+command id. And each command commits atomically on its own: all of its
+effects land or none do. What differs per step is its role in the flow and
+what it waits on. The flows are single-driver: the counterparty authorities
+ride the contract signatories (the vault's joint signature supplies the
+admin's executor authority inside the settles), the attester is automated,
+so a live wallet completes each flow back-to-back in seconds. The borrower's
+client orchestrates vault operations; the liquidator's keeper orchestrates
+liquidations.
 
-| Flow | Step | Submitter | Interaction |
-|---|---|---|---|
-| Deposit / origination | 1. lock the collateral for settlement | borrower wallet | sync: borrower alone |
-| Deposit / origination | 2. settle the collateral into the vault's custody account, creating or updating the vault | borrower | sync: borrower drives; automated attestation |
-| Borrow | mint the stablecoin against the vault's collateral | borrower | sync: borrower alone; keyed oracle read, automated attestation |
-| Repay | 1. lock the repayment stablecoin | borrower wallet | sync: borrower alone |
-| Repay | 2. settle the repayment: burn the principal, route the fee | borrower | sync: borrower drives; automated attestation |
-| Withdraw / close | release collateral back to the borrower | borrower | sync: borrower alone; direct transfer, no spine |
-| Liquidation | 1. flag the vault (the margin call) | liquidator keeper | sync: keeper alone; opens the grace period |
-| Liquidation | 2. lock the stablecoin that repays the debt | liquidator keeper | sync: keeper alone, once the grace period lapses uncured |
-| Liquidation | 3. seize collateral and settle the debt | liquidator keeper | sync: keeper drives; automated attestation |
-| Oracle publish | propose, approve, and publish a price | vault admin and committee | async: a multi-party ceremony, N approvals on the committee's cadence |
+Step-by-step execution of the flows:
 
-Three things still make asynchronous machinery necessary:
+| # | Step | Submitter | Role in the flow | Waits on |
+|---|---|---|---|---|
+| 1 | lock the collateral for settlement | borrower wallet | intermediate: parks the locked collateral for step 2 | no one; the borrower signs |
+| 2 | settle the collateral into the vault's custody account, creating or updating the vault | borrower | completes the deposit: settle and vault update in one transaction | no one; the attestation is issued automatically |
+| 3 | mint the stablecoin against the vault's collateral (borrow) | borrower | the whole flow: mint and debt update in one exercise | no one; keyed oracle read, automated attestation |
+| 4 | lock the repayment stablecoin | borrower wallet | intermediate: parks the locked repayment for step 5 | no one; the borrower signs |
+| 5 | settle the repayment: burn the principal, route the fee | borrower | completes the repayment: burn, fee routing, and vault update in one transaction | no one; the attestation is issued automatically |
+| 6 | release collateral back to the borrower (withdraw or close) | borrower | the whole flow: direct transfer, no settlement spine | no one; the borrower signs |
+| 7 | flag the vault (the margin call) | liquidator keeper | intermediate: opens the grace period | no one; keyed oracle read |
+| 8 | lock the stablecoin that repays the debt | liquidator keeper | intermediate: parks the debt repayment for step 9 | the grace period lapsing uncured (time, not a party) |
+| 9 | seize collateral and settle the debt | liquidator keeper | completes the liquidation: repayment, seizure, and vault update in one transaction | no one; automated attestation |
+| 10 | propose, approve, and publish a price (oracle) | vault admin and committee | background cadence: N + 2 commands per update | N committee approvals; the one genuinely multi-party ceremony |
 
-- Custody-held keys turn any synchronous step asynchronous: a signature that
-  routes through an external custodian's approval flow comes back as a
-  prepared transaction, bounded by the 24h window
+Assumptions:
+
+- Steps 1 to 9 wait on no other party, so the driving party completes its
+  flow in one session. The exceptions are time, not people: the liquidation
+  grace period, and custody-held keys, which stretch any signature toward
+  the 24h prepared-transaction window
   ([the time model below](#time-model-and-deadlines)).
-- The oracle publish is a genuine multi-party ceremony on its own cadence,
-  and price-dependent choices that lose the race against a publish retry
-  against the fresh price, resolved by key without client-side rewiring.
-- Between a lock and its settle there is real locked state, so crash recovery
-  still matters: command deduplication (24h) makes re-submitting a mint or a
-  settle safe, and every lock is time-bounded with a unilateral exit
+- While an allocation is committed the funds are locked; the lock is
+  time-bounded and the authorizer always has a unilateral exit
   ([section 5.4](#54-failure-modes-and-recovery)).
+- A stalled flow blocks nothing else on the ledger: the vault is only touched
+  by each flow's completing exercise, so operations against the same vault
+  serialize there while different vaults run in parallel
+  ([section 5.5](#55-throughput-and-contention)).
+- Command deduplication (24h) makes client and keeper crash-restart safe:
+  re-submitting a mint or a settle cannot double-execute.
+- Rejections, including a price-dependent choice losing the race against an
+  oracle publish, arrive on the completion stream; a plain retry resolves the
+  oracle by key and picks up the fresh price without client-side rewiring.
 
-A stalled flow blocks nothing else on the ledger: the vault is only touched
-by each flow's final atomic exercise, so operations against the same vault
-serialize there while different vaults run in parallel
-([section 5.5](#55-throughput-and-contention)).
-
-**Progress tracking.** The borrower client and the keeper still track each
-flow by command id: a step that neither commits nor rejects times out against
-its deadline and marks the workflow stuck, raising an alert with the pending
-step and the deadline after which funds unlock.
-[Section 5.4](#54-failure-modes-and-recovery) enumerates the stuck states and
-their exits.
+**Progress tracking.** The borrower client and the keeper track each flow as
+a state machine keyed by command id: every step either lands on the
+completion stream or times out against its deadline and marks the workflow
+stuck, raising an alert with the pending step and the deadline after which
+funds unlock. [Section 5.4](#54-failure-modes-and-recovery) enumerates the
+stuck states and their exits.
 
 ### Time Model and Deadlines
 
@@ -770,12 +777,17 @@ The adversarial vectors above are complemented by liveness failures: parties
 that crash, stall, or never show up, and the infrastructure they depend on.
 The design handles them under one invariant:
 
-**Bounded custody.** Every locked holding has a unilateral, time-bounded exit
-path for its owner: an in-flight allocation becomes withdrawable after
-`settlementDeadline`, and collateral in the custody account stays reachable
-through the borrower-driven withdraw and close paths whenever the vault is
-healthy. The sole exception is an active D2 seizure with an explicit, finite
-seizure window end and lawful-process reference.
+**Bounded custody, in two strengths.** Every holding locked in an in-flight
+allocation has a unilateral, time-bounded exit: it becomes withdrawable after
+`settlementDeadline`, and no counterparty inaction, attester inaction, or
+pause extends that. Collateral in the custody account is bound by purpose,
+not by time: it secures the debt, so its exits are conditional - withdraw
+while the vault stays healthy, close by repaying in full - and both are
+pause-gated with no deadline forcing release. A held pause therefore strands
+even healthy collateral for its duration, which makes the pause authority a
+custody trust assumption in a way the settlement counterparties are not. The
+sole seizure exception is an active D2 with an explicit, finite window and
+lawful-process reference.
 
 | Failure | Effect while pending | Recovery path | Funds locked at most |
 |---|---|---|---|
@@ -783,7 +795,8 @@ seizure window end and lawful-process reference.
 | Attester never attests, or attestation expires | settle blocked (fail closed) | re-request within the window; else deadline lapse and withdraw | `settlementDeadline` |
 | Oracle goes stale | borrows and liquidations blocked by the staleness guard | committee publishes; the breaker resets | nothing locked; positions frozen |
 | Liquidator never follows up a flag | vault stays flagged through the grace period | the borrower cures, or any other designated liquidator completes | nothing locked |
-| Pause during the margin-call window | liquidation blocked | unpause; the interaction is an open question ([section 7](#7-open-design-questions)) | nothing locked |
+| Pause during the margin-call window | liquidation blocked while the grace clock ticks | unpause; the interaction is an open question ([section 7](#7-open-design-questions)) | nothing locked |
+| Pause held long | withdraw, close, repay, cure, and liquidation all blocked; custody collateral stranded | unpause; no deadline bounds a pause, so this rests on the pause authority's governance | unbounded while paused |
 | Protocol validator out of traffic | oracle publishes stall; the staleness guard then blocks borrows and liquidations | traffic top-up and monitoring ([section 6](#6-network-economics-traffic-costs-and-app-rewards)) | nothing locked |
 | Synchronizer outage | ledger halted: no one can settle, and no one can withdraw | service resumes; if `settlementDeadline` lapsed during the outage the allocation is withdraw-only | outage duration + `settlementDeadline` |
 | D2 marked, never swept | settle, withdraw, and cancel all blocked | admin unmark; lawful-process sweep bounded by the seizure window | seizure window end |
