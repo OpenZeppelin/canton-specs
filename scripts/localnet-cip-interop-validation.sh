@@ -139,6 +139,7 @@ SCRIPTS=(
 	Cip0103Wallet:test_cip0103_privacyScopedToParticipants
 	Cip0104AppRewards:test_cip0104_attributableViaSettlementViewsWithoutMarkers
 	Cip0104AppRewards:test_cip0104_onlyAppProviderExecutorCanSettle
+	Cip0104RewardsWalkthrough:test_cip0104_rewardsAccountingWalkthrough
 	Cip0103Wallet:test_cip0103_failClosedSurfacesToWallet
 )
 

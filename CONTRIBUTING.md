@@ -58,6 +58,7 @@ The interoperability gates run real processes and ledger connections:
 ```sh
 scripts/localnet-cip-interop-validation.sh
 scripts/wallet-gateway-cip0103-interop.sh
+scripts/localnet-cip0104-rewards-walkthrough.sh
 ```
 
 Their domain documentation describes prerequisites, topology assumptions, and

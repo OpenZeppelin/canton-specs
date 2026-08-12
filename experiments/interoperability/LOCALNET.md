@@ -10,7 +10,7 @@ ledger used by `dpm test`.
 |---|---|
 | CIP-0086 | Maps transfer and delegated transfer behavior to settlement, enforces allowance bounds, conserves supply, and keeps balance queries projection-scoped |
 | CIP-0103 | Drives request, instruction, allocation, settlement, events, privacy, and fail-closed wallet behavior |
-| CIP-0104 | Demonstrates app-provider attribution through settlement views without a reward-marker template |
+| CIP-0104 | Shows executor-confirmed app-provider attribution through the settlement views, without a reward-marker template, plus a step-by-step rewards accounting walkthrough |
 
 The executable scripts live in
 [`cip-exemplar/`](cip-exemplar/daml/OpenZeppelin/Experimental/Interop/).
