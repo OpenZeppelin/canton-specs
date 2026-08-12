@@ -7,7 +7,7 @@ Token Standard V2 boundary.
 
 This report specifies the target auction application. The reusable
 access-control, ownership, and pausing components are maintained in
-[`canton-contracts`](https://github.com/OpenZeppelin/canton-contracts). This
+[`OpenZeppelin/canton-contracts`](https://github.com/OpenZeppelin/canton-contracts). This
 repository contains executable settlement and identity experiments. The
 `AuctionLaunchpad`, `BidRequest`, and clearing snippets in this report are
 illustrative application design; an implementation must complete and validate
@@ -61,7 +61,7 @@ mechanics**. The tables below define its boundaries.
 | Escrow | Bid capital locked in a committed [`Allocation`](../../experiments/settlement/cip-0112/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L388) under the bidder's own signature, with a deadline-gated force-refund for liveness. The winner-side settlement commits a separate post-clearing allocation; sequencing the two is an open question ([section 6](#6-open-design-questions)). |
 | Atomic Settlement | Token-for-payment exchange **only** via [`SettlementFactory_SettleBatchWithAttestation`](../../experiments/settlement/cip-0112/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L218) (atomic DvP, single transaction). |
 | Compliance & Control | D1: a settlement does not execute unless an attester has signalled compliance. D2: a privileged party can sweep allocation funds to a preset custodian account. D3: single-synchronizer identity, gated at bid acceptance by trusted-issuer KYC and re-checked at settlement. |
-| Component Integration | Target composition of `openzeppelin-access-control-v1`, `openzeppelin-ownable-v1`, `openzeppelin-pausable-v1`, the CIP-0112 settlement spine, the [`ShapeB`](../../experiments/identity/hook-shape-b/daml/OpenZeppelin/Experimental/Identity/ShapeB.daml#L6) identity experiment, and asset patterns from [`canton-token-template`](https://github.com/OpenZeppelin/canton-token-template). |
+| Component Integration | Target composition of `openzeppelin-access-control-v1`, `openzeppelin-ownable-v1`, `openzeppelin-pausable-v1`, the CIP-0112 settlement spine, the [`ShapeB`](../../experiments/identity/hook-shape-b/daml/OpenZeppelin/Experimental/Identity/ShapeB.daml#L6) identity experiment, and asset patterns from [`OpenZeppelin/canton-token-template`](https://github.com/OpenZeppelin/canton-token-template). |
 
 | Feature Category | Out-of-Scope Architectural Components |
 |---|---|
@@ -112,7 +112,8 @@ The architecture is assembled from reused OpenZeppelin Daml primitives (role man
 The status labels distinguish reusable source and executable research from the
 auction application described only in this report:
 
-- **Library** - reusable component source exists in `canton-contracts`.
+- **Library** - library component source exists in
+  [`OpenZeppelin/canton-contracts`](https://github.com/OpenZeppelin/canton-contracts).
 - **Experiment** - executable research exists in this repository, without a
   production or standards-conformance claim.
 - **Target design** - the report specifies illustrative application-level
@@ -120,9 +121,9 @@ auction application described only in this report:
 
 | Component Suite | Applied Templates and Libraries | Architectural Function |
 |---|---|---|
-| Access Control `[LIBRARY]` | `openzeppelin-access-control-v1`: [`RoleGrant`](https://github.com/OpenZeppelin/canton-contracts/blob/68b7c52ccb2db496a668508101fdb0024c60c713/packages/access/access-control-v1/daml/OpenZeppelin/AccessControlV1.daml#L58), [`RoleAdmin`](https://github.com/OpenZeppelin/canton-contracts/blob/68b7c52ccb2db496a668508101fdb0024c60c713/packages/access/access-control-v1/daml/OpenZeppelin/AccessControlV1.daml#L116), [`DefaultAdminTransferOffer`](https://github.com/OpenZeppelin/canton-contracts/blob/68b7c52ccb2db496a668508101fdb0024c60c713/packages/access/access-control-v1/daml/OpenZeppelin/AccessControlV1.daml#L237), [`requireRole`](https://github.com/OpenZeppelin/canton-contracts/blob/68b7c52ccb2db496a668508101fdb0024c60c713/packages/access/access-control-v1/daml/OpenZeppelin/AccessControlV1.daml#L287) | Role-based permissioning for privileges that must stay swappable, such as the pauser. In the target design, the auctioneer instead uses direct controllership as a launchpad signatory. |
-| Ownership Lifecycle `[LIBRARY]` | `openzeppelin-ownable-v1`: [`Ownership`](https://github.com/OpenZeppelin/canton-contracts/blob/68b7c52ccb2db496a668508101fdb0024c60c713/packages/access/ownable-v1/daml/OpenZeppelin/OwnableV1.daml#L41), [`OwnershipOffer`](https://github.com/OpenZeppelin/canton-contracts/blob/68b7c52ccb2db496a668508101fdb0024c60c713/packages/access/ownable-v1/daml/OpenZeppelin/OwnableV1.daml#L82) | Two-step handover of launchpad administration in the target design. |
-| Launch Constraints `[LIBRARY]` | `openzeppelin-pausable-v1`: [`PauseState`](https://github.com/OpenZeppelin/canton-contracts/blob/68b7c52ccb2db496a668508101fdb0024c60c713/packages/security/pausable-v1/daml/OpenZeppelin/PausableV1.daml#L47), [`whenNotPaused`](https://github.com/OpenZeppelin/canton-contracts/blob/68b7c52ccb2db496a668508101fdb0024c60c713/packages/security/pausable-v1/daml/OpenZeppelin/PausableV1.daml#L77) | Emergency circuit breaker applied to bid intake and clearing in the target design. |
+| Access Control `[LIBRARY]` | `openzeppelin-access-control-v1`: [`RoleGrant`](https://github.com/OpenZeppelin/canton-contracts/blob/cec416d6e3c2118551c761d5598c403ab27ee342/experiments/access/access-control-v1/daml/OpenZeppelin/AccessControlV1.daml#L58), [`RoleAdmin`](https://github.com/OpenZeppelin/canton-contracts/blob/cec416d6e3c2118551c761d5598c403ab27ee342/experiments/access/access-control-v1/daml/OpenZeppelin/AccessControlV1.daml#L116), [`DefaultAdminTransferOffer`](https://github.com/OpenZeppelin/canton-contracts/blob/cec416d6e3c2118551c761d5598c403ab27ee342/experiments/access/access-control-v1/daml/OpenZeppelin/AccessControlV1.daml#L237), [`requireRole`](https://github.com/OpenZeppelin/canton-contracts/blob/cec416d6e3c2118551c761d5598c403ab27ee342/experiments/access/access-control-v1/daml/OpenZeppelin/AccessControlV1.daml#L287) | Role-based permissioning for privileges that must stay swappable, such as the pauser. In the target design, the auctioneer instead uses direct controllership as a launchpad signatory. |
+| Ownership Lifecycle `[LIBRARY]` | `openzeppelin-ownable-v1`: [`Ownership`](https://github.com/OpenZeppelin/canton-contracts/blob/cec416d6e3c2118551c761d5598c403ab27ee342/experiments/access/ownable-v1/daml/OpenZeppelin/OwnableV1.daml#L41), [`OwnershipOffer`](https://github.com/OpenZeppelin/canton-contracts/blob/cec416d6e3c2118551c761d5598c403ab27ee342/experiments/access/ownable-v1/daml/OpenZeppelin/OwnableV1.daml#L82) | Two-step handover of launchpad administration in the target design. |
+| Launch Constraints `[LIBRARY]` | `openzeppelin-pausable-v1`: [`PauseState`](https://github.com/OpenZeppelin/canton-contracts/blob/cec416d6e3c2118551c761d5598c403ab27ee342/experiments/security/pausable-v1/daml/OpenZeppelin/PausableV1.daml#L47), [`whenNotPaused`](https://github.com/OpenZeppelin/canton-contracts/blob/cec416d6e3c2118551c761d5598c403ab27ee342/experiments/security/pausable-v1/daml/OpenZeppelin/PausableV1.daml#L77) | Emergency circuit breaker applied to bid intake and clearing in the target design. |
 | Settlement Spine `[EXPERIMENT]` | `OpenZeppelin.Experimental.Settlement.Cip112`: [`SettlementFactory`](../../experiments/settlement/cip-0112/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L137), [`AllocationRequest`](../../experiments/settlement/cip-0112/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L257), [`AllocationInstruction`](../../experiments/settlement/cip-0112/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L306), [`Allocation`](../../experiments/settlement/cip-0112/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L388), [`SettlementReceipt`](../../experiments/settlement/cip-0112/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L588), [`ToyHolding`](../../experiments/settlement/cip-0112/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L98), [`BurnerCapability`](../../experiments/settlement/cip-0112/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L75) | Executable evidence for allocation, settlement, attestation, and seizure behavior. `ToyHolding` and the local Token Standard model are fixtures, not production assets or conformance evidence. |
 | Identity Verification `[EXPERIMENT]` | `ShapeB`: [`KycClaim`](../../experiments/identity/hook-shape-b/daml/OpenZeppelin/Experimental/Identity/ShapeB.daml#L43), [`TrustedIssuerRegistry`](../../experiments/identity/hook-shape-b/daml/OpenZeppelin/Experimental/Identity/ShapeB.daml#L74) | Executable evidence for a typed trusted-issuer gate. The target design applies the gate at bid acceptance and settlement. |
 | Auction Application `[TARGET DESIGN]` | `AuctionLaunchpad`, `BidRequest`, off-ledger clearing engine, and the illustrative snippets in [section 4](#4-sample-component-structure) | Defines the application composition and unresolved security questions for implementation and validation. |
@@ -520,7 +521,7 @@ The available executable evidence validates these building blocks:
 - typed trusted-issuer behavior in the
   [Shape-B identity tests](../../experiments/identity/test/daml/OpenZeppelin/Test/IdentityHookShapeB.daml); and
 - reusable access-control, ownership, and pausing behavior in the
-  [`canton-contracts`](https://github.com/OpenZeppelin/canton-contracts)
+  [`OpenZeppelin/canton-contracts`](https://github.com/OpenZeppelin/canton-contracts)
   component test suites.
 
 Application-level validation must additionally cover the illustrative

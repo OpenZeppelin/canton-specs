@@ -2,7 +2,7 @@
 
 This directory contains exact DAR inputs consumed by experiments in this
 repository. The artifacts retain the package identity produced by their source
-repository; `canton-specs` consumes them as dependencies under that identity.
+repository; `OpenZeppelin/canton-specs` consumes them as dependencies under that identity.
 
 [`manifest.yaml`](manifest.yaml) records each artifact's package name, version,
 main package ID, SHA-256 digest, source commit, source path, and license. This

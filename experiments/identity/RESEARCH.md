@@ -75,7 +75,7 @@ The [`upgrade/`](upgrade/) experiment separately demonstrates package evolution
 from an opaque hook to a typed claim while preserving the v1 template shape
 required by Smart Contract Upgrade checks.
 
-A reusable identity package belongs in `canton-contracts` only with an
+A reusable identity package belongs in `OpenZeppelin/canton-contracts` only with an
 application-independent interface, accepted issuer and revocation governance,
 privacy analysis, key-rotation behavior, upgrade validation, and a stable
 authorization journey. These packages remain experimental while those
