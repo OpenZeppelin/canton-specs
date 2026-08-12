@@ -8,7 +8,7 @@ interfaces and independently implemented tooling.
 | [`cip-exemplar/`](cip-exemplar/) | Executable CIP-0086, CIP-0103, and CIP-0104 Daml scenarios |
 | [`LOCALNET.md`](LOCALNET.md) | Live-ledger validation procedure for the CIP scenarios |
 | [`wallet-gateway/`](wallet-gateway/) | Canton Wallet Gateway harness, usage guide, and run evidence |
-| [`app-rewards/`](app-rewards/) | Off-chain CIP-0104 rewards walkthrough client that uses the JSON Ledger API |
+| [`app-rewards/`](app-rewards/) | Off-chain client showing app-side beneficiary accounting (CIP-0104-inspired) over the JSON Ledger API |
 
 The LocalNet and Wallet Gateway gates add process-boundary, ledger-connectivity,
 party-authorization, and third-party integration checks to the in-memory Daml
