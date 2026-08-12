@@ -59,3 +59,29 @@ jobs:
           path: .cache/wallet-gateway-interop/
           if-no-files-found: warn
           retention-days: 30
+
+  cip0104-rewards:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Daml
+        uses: ./.github/actions/setup-daml
+
+      - name: Set up Node 24
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+
+      - name: Run CIP-0104 rewards walkthrough interoperability
+        run: scripts/localnet-cip0104-rewards-walkthrough.sh
+
+      - name: Upload rewards walkthrough evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cip0104-rewards-walkthrough-evidence
+          path: .cache/cip0104-rewards-walkthrough/
+          if-no-files-found: warn
+          retention-days: 30
