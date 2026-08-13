@@ -473,7 +473,7 @@ template AuctionLaunchpad
         alloc <- fetch paymentAllocationCid
         assertMsg "escrow not owned by bidder" (alloc.allocation.authorizer.owner == Some bidder)
         assertMsg "escrow deadline != auction settlement deadline"
-          (alloc.allocation.settlement.settlementDeadline == Some settlementDeadline)
+          (alloc.allocation.settlementDeadline == Some settlementDeadline)
         case filter (\s -> s.side == SenderSide) alloc.allocation.transferLegSides of
           [s] | s.instrumentId == paymentInstrumentId.id && s.amount == bidAmount -> pure ()
           _ -> abort "escrow must sign exactly one payment side == (bidAmount, payment instrument)"
