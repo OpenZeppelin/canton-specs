@@ -5,7 +5,7 @@
 # through the v0.2.0 package on Canton LocalNet, over the Ledger API gRPC
 # endpoint of the app-provider participant.
 #
-# `scripts/lib/localnet.sh` documents the network, the authentication, the
+# `scripts/localnet.sh` documents the network, the authentication, the
 # fresh-ledger requirement, and the environment overrides.
 #
 # The v1 driver grants the participant's admin user `CanActAs` for every party
@@ -17,7 +17,7 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-. "$ROOT/scripts/lib/localnet.sh"
+. "$ROOT/scripts/localnet.sh"
 localnet_init identity-hook-upgrade-smoke "$ROOT" \
 	"${IDENTITY_HOOK_UPGRADE_LOG_DIR:-$ROOT/.cache/identity-hook-upgrade}"
 

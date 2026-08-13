@@ -24,7 +24,7 @@ scripts/localnet-cip0104-rewards-walkthrough.sh
 
 The launcher builds the interop exemplar DAR. It starts [Canton LocalNet](https://docs.canton.network/sdks-tools/development-tools/localnet) and uploads the DAR to the app-provider participant. It runs the harness against the JSON Ledger API of that participant. Then it removes the network. The logs go to `.cache/cip0104-rewards-walkthrough/`.
 
-The shared [`scripts/lib/localnet.sh`](../../../scripts/lib/localnet.sh) documents the network, the Ledger API authentication, and the environment overrides. LocalNet authenticates the Ledger API. The launcher mints the token of the participant's admin user, and the harness submits as that user. Party allocation grants no `CanActAs` right, so the harness grants that right for each walkthrough party.
+The shared [`scripts/localnet.sh`](../../../scripts/localnet.sh) documents the network, the Ledger API authentication, and the environment overrides. LocalNet authenticates the Ledger API. The launcher mints the token of the participant's admin user, and the harness submits as that user. Party allocation grants no `CanActAs` right, so the harness grants that right for each walkthrough party.
 
 To use a LocalNet that already runs, set `OZ_USE_EXTERNAL_LEDGER=1` and `OZ_JSON_API_URL`. That participant must have the exemplar DAR uploaded. In this mode the script does not build the DAR and does not start a network, so it needs only Node.js 20+, `curl`, and `openssl`. The harness gives each run a unique party-hint suffix, so repeated runs against the same participant are possible.
 

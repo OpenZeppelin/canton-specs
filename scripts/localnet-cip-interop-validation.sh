@@ -5,7 +5,7 @@
 # API gRPC endpoint of the app-provider participant, instead of the in-memory
 # IDE ledger that `dpm test` uses.
 #
-# `scripts/lib/localnet.sh` documents the network, the authentication, the
+# `scripts/localnet.sh` documents the network, the authentication, the
 # fresh-ledger requirement, and the environment overrides.
 #
 # LocalNet runs on WALLCLOCK time. Every exemplar therefore reads the ledger
@@ -19,7 +19,7 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-. "$ROOT/scripts/lib/localnet.sh"
+. "$ROOT/scripts/localnet.sh"
 localnet_init localnet-cip-interop "$ROOT" \
 	"${OZ_LOCALNET_LOG_DIR:-$ROOT/.cache/localnet-cip-interop}"
 

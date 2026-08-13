@@ -34,7 +34,7 @@ participant on a real synchronizer, and they use no Amulet or wallet service.
 The script fetches the LocalNet Docker Compose files into
 `.cache/splice-localnet/`, pinned to the same Splice release that provides the
 container images. Every live-ledger gate in the repository shares that bring-up
-through [`scripts/lib/localnet.sh`](../../scripts/lib/localnet.sh), which also
+through [`scripts/localnet.sh`](../../scripts/localnet.sh), which also
 documents the variables below.
 
 | Variable | Purpose |

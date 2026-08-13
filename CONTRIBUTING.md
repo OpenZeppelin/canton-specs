@@ -64,7 +64,7 @@ scripts/localnet-cip0104-rewards-walkthrough.sh
 Every gate above runs against
 [Canton LocalNet](https://docs.canton.network/sdks-tools/development-tools/localnet).
 Each gate starts the network and removes it through the shared
-[`scripts/lib/localnet.sh`](scripts/lib/localnet.sh). That file documents the
+[`scripts/localnet.sh`](scripts/localnet.sh). That file documents the
 Docker Compose profiles, the Ledger API authentication, the fresh-ledger
 requirement, and the environment overrides. The domain documentation of each gate
 describes its prerequisites, topology assumptions, and the evidence it produces.

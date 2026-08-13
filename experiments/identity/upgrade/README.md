@@ -73,7 +73,7 @@ version of a package when it resolves a command, so a v1 phase that already saw
 v2 would create the v2 contract instead of the v1 contract that the upgrade
 validation needs.
 
-The shared [`scripts/lib/localnet.sh`](../../../scripts/lib/localnet.sh)
+The shared [`scripts/localnet.sh`](../../../scripts/localnet.sh)
 documents the network, the Ledger API authentication, and the environment
 overrides. LocalNet authenticates the Ledger API, and party allocation grants no
 `CanActAs` right, so the v1 driver grants that right for each fixture party to

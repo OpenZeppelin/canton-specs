@@ -56,7 +56,7 @@ Wallet Gateway package, and runs the wallet, settlement, and verification
 phases. Then it removes the network. Logs and generated evidence are written
 under `.cache/wallet-gateway-interop/`.
 
-The shared [`scripts/lib/localnet.sh`](../../../scripts/lib/localnet.sh)
+The shared [`scripts/localnet.sh`](../../../scripts/localnet.sh)
 documents the network, the Ledger API authentication, and the environment
 overrides. LocalNet authenticates the Ledger API with a shared unsafe HS256
 secret. The `dpm script` phases use the token of the participant's admin user,

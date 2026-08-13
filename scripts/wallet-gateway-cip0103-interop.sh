@@ -24,7 +24,7 @@
 #   5. harness verify-wallet-view   wallet's projection via gateway ledgerApi
 #   6. dpm script verify            admin/executor/receiver projections
 #
-# `scripts/lib/localnet.sh` documents the network, the authentication, the
+# `scripts/localnet.sh` documents the network, the authentication, the
 # fresh-ledger requirement, and the environment overrides.
 #
 # LocalNet runs on WALLCLOCK time (the gateway requires it); the module's
@@ -67,7 +67,7 @@ WORK_ROOT="${OZ_INTEROP_WORK_DIR:-$ROOT/.cache/wallet-gateway-interop}"
 mkdir -p "$WORK_ROOT"
 WORK_DIR="$(mktemp -d "$WORK_ROOT/run.XXXXXX")"
 
-. "$ROOT/scripts/lib/localnet.sh"
+. "$ROOT/scripts/localnet.sh"
 localnet_init wallet-gateway-cip0103 "$ROOT" "$WORK_DIR"
 
 localnet_require_command dpm curl openssl lsof npx

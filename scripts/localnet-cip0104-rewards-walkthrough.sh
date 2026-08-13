@@ -11,7 +11,7 @@
 # specification (Cip0104RewardsWalkthrough.daml, which
 # localnet-cip-interop-validation.sh runs).
 #
-# `scripts/lib/localnet.sh` documents the network, the authentication, the
+# `scripts/localnet.sh` documents the network, the authentication, the
 # fresh-ledger requirement, and the environment overrides.
 #
 # LocalNet operates on WALLCLOCK time. The harness settlements have no deadline,
@@ -27,7 +27,7 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-. "$ROOT/scripts/lib/localnet.sh"
+. "$ROOT/scripts/localnet.sh"
 localnet_init cip0104-walkthrough "$ROOT" \
 	"${OZ_LOCALNET_LOG_DIR:-$ROOT/.cache/cip0104-rewards-walkthrough}"
 
