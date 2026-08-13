@@ -1,10 +1,6 @@
 name: Sync review PR with main
 
 on:
-  push:
-    branches: [main]
-    paths:
-      - "docs/reference-architectures/**"
   workflow_dispatch:
 
 permissions:
