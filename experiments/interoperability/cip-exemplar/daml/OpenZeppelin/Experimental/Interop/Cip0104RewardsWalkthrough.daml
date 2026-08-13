@@ -162,12 +162,11 @@ holdingWithAmount reader account amount = do
 --   between the declared beneficiaries (example calculation, off-ledger).
 test_cip0104_rewardsAccountingWalkthrough : Script ()
 test_cip0104_rewardsAccountingWalkthrough = script do
-  setTime i0
-  admin <- allocateParty "reward-walk-admin"
-  app <- allocateParty "reward-walk-app"
-  alice <- allocateParty "reward-walk-alice"
-  bob <- allocateParty "reward-walk-bob"
-  notApp <- allocateParty "reward-walk-notapp"
+  admin <- allocateInteropParty "reward-walk-admin"
+  app <- allocateInteropParty "reward-walk-app"
+  alice <- allocateInteropParty "reward-walk-alice"
+  bob <- allocateInteropParty "reward-walk-bob"
+  notApp <- allocateInteropParty "reward-walk-notapp"
   let aliceAcct = basicAccount alice
       bobAcct = basicAccount bob
 
@@ -201,8 +200,8 @@ test_cip0104_rewardsAccountingWalkthrough = script do
   -- counters do not change: rewards accrue only on activity that the
   -- app-provider confirmed.
   (factory, factoryDisc) <- mkFactory admin
-  let settlement = mkSettlementInfo "reward-walk-3" app
-      leg = mkUsdLeg "reward-walk-3" aliceAcct bobAcct 20.0
+  settlement <- mkSettlementInfo "reward-walk-3" app
+  let leg = mkUsdLeg "reward-walk-3" aliceAcct bobAcct 20.0
   aliceInput <- holdingWithAmount admin aliceAcct 70.0
   aliceAlloc <- createAndAcceptAllocation admin factory factoryDisc settlement aliceAcct [senderSide leg] [aliceInput]
   bobAlloc <- createAndAcceptAllocation admin factory factoryDisc settlement bobAcct [receiverSide leg] []

@@ -15,7 +15,9 @@ concurrency:
 jobs:
   localnet:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    # The gate starts the Splice LocalNet Docker Compose network, so it also
+    # pays for the image pull and the network bootstrap.
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
 
