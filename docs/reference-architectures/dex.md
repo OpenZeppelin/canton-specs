@@ -374,7 +374,7 @@ are never locked without a resolution path and that execution is atomic.
 
 Demonstrates per-authorizer allocation requests and atomic co-settlement via
 `SettlementFactory_SettleBatch`. The privacy boundary: the trader sees their
-allocation and receipt, not the backend pool routing.
+allocation and settlement events, not the backend pool routing.
 
 ```mermaid
 sequenceDiagram
@@ -630,7 +630,7 @@ Institutional DeFi requires administrative power to be explicit and accountable:
 
 A trader-facing wallet must support, per CIP-0112:
 
-- creating and accepting allocation instructions, showing the exact legs and
+- creating allocations from an allocation request, showing the exact legs and
   `settlementDeadline` before signing;
 - exercising the unilateral withdraw once the deadline lapses;
 - accepting disclosed contracts (quotes, `Pool` reserve verification);

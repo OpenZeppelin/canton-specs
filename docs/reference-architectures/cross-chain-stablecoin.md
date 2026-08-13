@@ -14,16 +14,16 @@ collects the open questions.
 
 For such a payment rail to work, the inbound credit must settle atomically: the recipient is credited exactly the attested amount or nothing at all, and no intermediary holds the assets along the way. Therefore the settlement architecture centers on [CIP-0112 - Canton Network Token Standard V2](https://github.com/canton-foundation/cips/blob/main/cip-0112/cip-0112.md), specifically its support for [atomic settlement](https://github.com/canton-foundation/cips/blob/main/cip-0112/cip-0112.md#416-committed-allocations-for-prefunded-trading-and-iterated-settlement). The core building block is the **atomic delivery-versus-payment (DvP) settlement**: committed allocations are settled in one all-or-nothing transaction, with each leg's amount fixed on-ledger by the allocation sides their authorizers signed. A signed side is what makes the amount non-repudiable, not what makes it *correct*: tying the inbound amount, recipient, and instrument to the attesters' `LockAttestation` `[FUTURE]` is the job of the explicit binding checks in [section 3](#3-how-we-implement-it), without which a signed side is only the submitter's own declaration.
 
-This repository contains an [experimental implementation of atomic settlement](https://github.com/OpenZeppelin/canton-contracts/tree/7696749737885e25cd88422847105f890f03b00d/experiments/token/tokenCIP112-v1/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml). The implementation has built-in capabilities for:
+This repository contains an [experimental implementation of atomic settlement](https://github.com/OpenZeppelin/canton-contracts/tree/7696749737885e25cd88422847105f890f03b00d/experiments/token/tokenCIP112-v1). The implementation has built-in capabilities for:
 
-1. Privacy through per-party projection: a *counterparty* sees only the legs on which they are the sender or receiver, so one recipient's payment is never visible to another. The issuing admin of the settled instrument is the deliberate exception: it signs that instrument's holdings, allocations, and receipts, so it sits *inside* the trust boundary rather than outside it ([Privacy and Visibility Model](#privacy-and-visibility-model)).
+1. Privacy through per-party projection: a *counterparty* sees only the legs on which they are the sender or receiver, so one recipient's payment is never visible to another. The issuing admin of the settled instrument is the deliberate exception: it signs that instrument's holdings, allocations, and settlement events, so it sits *inside* the trust boundary rather than outside it ([Privacy and Visibility Model](#privacy-and-visibility-model)).
 2. D1: Compliance through Party-Applied Attestation - compliance is checked per settlement, with no caching. Failure to adhere to compliance results in no credit.
 3. D2: Seizure through Preset Custodian Lock-and-Sweep - a privileged party can sweep the funds in a locked allocation to a preset custodian account.
 4. D3: Identity through Trusted-Issuer KYC - a recipient must hold a `KycClaim` from an issuer in the `TrustedIssuerRegistry` to receive a compliance-gated inflow.
 
 One further compliance capability comes from [`openzeppelin-access-control-v1`](https://github.com/OpenZeppelin/canton-contracts/tree/cec416d6e3c2118551c761d5598c403ab27ee342/experiments/access/access-control-v1) `[LIBRARY]`: **D4: Authority through Per-Role Privilege Transfer** - each privileged action sits with a named role rather than a single admin. Privileges can be transferred, granted or revoked.
 
-**Privacy scope (explicit non-goal).** The privacy guarantee covers the **Canton side only**. The source-chain lock is a public transaction on its own chain, and it necessarily encodes enough routing data (e.g. a Canton-recipient reference) for the attesters to produce the `LockAttestation`. An external observer who reads the source chain can therefore link a public lock of amount *N* to the fact that some identified Canton recipient will be credited *N*. What Canton's per-party projection hides is everything downstream: the settled holding, the receipt, compliance markers, and all subsequent private transfers. Decoupling or hiding the source-chain linkage itself (hashed commitments, shielded payloads, relayer-side blinding) is out of scope for this RI.
+**Privacy scope (explicit non-goal).** The privacy guarantee covers the **Canton side only**. The source-chain lock is a public transaction on its own chain, and it necessarily encodes enough routing data (e.g. a Canton-recipient reference) for the attesters to produce the `LockAttestation`. An external observer who reads the source chain can therefore link a public lock of amount *N* to the fact that some identified Canton recipient will be credited *N*. What Canton's per-party projection hides is everything downstream: the settled holding, the settlement events, compliance markers, and all subsequent private transfers. Decoupling or hiding the source-chain linkage itself (hashed commitments, shielded payloads, relayer-side blinding) is out of scope for this RI.
 
 ### Operational Scope and Boundaries
 
@@ -100,7 +100,7 @@ Duties are segregated and mapped to discrete Daml parties, with in-code role nam
 - **Stablecoin Admin (`STABLECOIN_ADMIN`)** - issuing admin of the gateway-minted wrapped instrument (`wTOK`); authors the mint leg of an inbound settlement. It has **no** authority over an externally-issued instrument like USDCx: in the settled-native case there is no RI-side issuer role.
 - **Recipient** - the treasury or end-user receiving funds. May pre-establish a `TransferPreapproval` to accept compliance-gated inflows without a live signature.
 
-Because Canton settles on per-party projection, the settlement is fractured into bilateral requests: the bridge relayer and recipient are the only initial observers of the inbound `TokenAllocationRequest`, and no other recipient ever sees that traffic. The Stablecoin Admin is not on the outside of that boundary: from the moment the recipient's `TokenAllocation` exists it is a signatory of every `wTOK` allocation and receipt, and therefore reads the amount, the accounts, and the payload memo of its own instrument. That is the ordinary position of a regulated issuer on Canton and the position CIP-0112 assumes; it is stated as a trust assumption, not claimed away ([Privacy and Visibility Model](#privacy-and-visibility-model)). A committed allocation locks the bridging funds until the settlement deadline, so the recipient knows the liquidity is reserved and cannot be double-spent or withdrawn before the DvP concludes.
+Because Canton settles on per-party projection, the settlement is fractured into bilateral requests: the bridge relayer and recipient are the only initial observers of the inbound `TokenAllocationRequest`, and no other recipient ever sees that traffic. The Stablecoin Admin is not on the outside of that boundary: from the moment the recipient's `TokenAllocation` exists it is a signatory of every `wTOK` allocation and settlement event, and therefore reads the amount, the accounts, and the payload memo of its own instrument. That is the ordinary position of a regulated issuer on Canton and the position CIP-0112 assumes; it is stated as a trust assumption, not claimed away ([Privacy and Visibility Model](#privacy-and-visibility-model)). A committed allocation locks the bridging funds until the settlement deadline, so the recipient knows the liquidity is reserved and cannot be double-spent or withdrawn before the DvP concludes.
 
 ### Decentralization and Trust Topology
 
@@ -253,7 +253,7 @@ sequenceDiagram
     SettleFactory-->>Recipient: committed Allocation (receive wTOK)
     Relayer->>SettleFactory: SettleBatch (issuer mint leg + recipient leg)
     SettleFactory-->>Recipient: settlement events + wTOK holding
-    Note over SettleFactory,Recipient: payload visible ONLY to relayer + recipient + verifier<br/>+ Stablecoin Admin (it signs the wTOK legs and the receipt);
+    Note over SettleFactory,Recipient: payload visible ONLY to relayer + recipient + verifier<br/>+ Stablecoin Admin (it signs the wTOK legs and the settlement events);
 ```
 
 ### Execution Model
@@ -350,7 +350,7 @@ data LockAttestation = LockAttestation with
 
 **The binding (fail-closed).** The inbound [`AllocationFactory_Allocate`](https://github.com/OpenZeppelin/canton-contracts/blob/7696749737885e25cd88422847105f890f03b00d/experiments/token/tokenCIP112-v1/daml/OpenZeppelin/TokenCIP112V1/Registry.daml#L280) references a `LockAttestation`, and the mint asserts:
 
-- `instructionAmount == attestation.lockedAmount` (no over-mint);
+- `allocatedAmount == attestation.lockedAmount` (no over-mint);
 - `recipient == attestation.cantonRecipient` and the instrument matches;
 - the attestation is registry-trusted, unexpired, and its `nonce` has not been consumed.
 
@@ -625,7 +625,7 @@ The RI prioritizes verifiable security. Security rests on Daml's authorization m
   - One source-chain lock can credit Canton at most once: the attested carrier is consumed one-time, and the consumed-nonce registry fails closed on a duplicate `(sourceChainId, nonce)`.
 - **Privacy partitioning `[EXPERIMENT]`**:
   - Amount, payer, and payload memo of a settled leg are projected only to that leg's counterparties, the executing relayer, the designated compliance verifier, and the issuing admin of the instrument being settled. If any *other* party — a recipient of a different leg in the same batch above all — could observe them, the invariant is broken; the enforcing structure is the per-authorizer [`TokenAllocation`](https://github.com/OpenZeppelin/canton-contracts/blob/7696749737885e25cd88422847105f890f03b00d/experiments/token/tokenCIP112-v1/daml/OpenZeppelin/TokenCIP112V1/Allocation.daml#L67).
-  - The issuing admin's visibility is a stated trust assumption, not a violation: it signs the instrument's holdings, allocations, and receipts, so it reads them by construction ([Privacy and Visibility Model](#privacy-and-visibility-model)). Hiding the memo from the issuer would require a spine that does not make the admin a signatory of the receipt, which CIP-0112 does not offer and this RI does not attempt.
+  - The issuing admin's visibility is a stated trust assumption, not a violation: it signs the instrument's holdings, allocations, and settlement events, so it reads them by construction ([Privacy and Visibility Model](#privacy-and-visibility-model)). Hiding the memo from the issuer would require a spine that does not make the admin a signatory of those events, which CIP-0112 does not offer and this RI does not attempt.
 - **Non-custodial recipient binding**:
   - No allocation binds a recipient without their signature `[EXPERIMENT]` supplied live, or through their standing `TransferPreapproval` `[EVIDENCE]` via a delegated choice that is `[FUTURE]`.
   - Stalled committed value is recoverable after the settlement deadline `[EXPERIMENT]`; the RI's mandate that every committed inbound allocation carry a finite `settlementDeadline` is `[FUTURE]` policy, not a check the spine enforces.
@@ -727,7 +727,7 @@ Implications:
 - Failed transactions burn traffic too and earn no rewards: CIP-0104 credits
   only successful confirmation requests ([section 6.2](#62-app-rewards)).
   Inbound settlements serialize on the per-rail `ConsumedNonceRegistry`
-  ([section 5.4](#55-throughput-and-contention-future)), so the loser of two
+  ([section 5.5](#55-throughput-and-contention-future)), so the loser of two
   concurrent inbound mints retries and pays twice; sharding the registry
   bounds that waste as well as the contention.
 - Batching amortizes: several allocations can ride one
@@ -749,8 +749,8 @@ ultimately be permissionless ([section 2](#2-architecture-overview)): a
 `FeaturedAppRight` names one provider party, so a permissionless relay set
 either shares one party or leaves most relayers unrewarded. Second, the earn
 rule pays signers, not submitters: the relayer signs only the
-`AllocationRequest`, while the Stablecoin Admin signs the instructions,
-allocations, receipts, and holdings, so most of the credit for
+`AllocationRequest`, while the Stablecoin Admin signs the allocations,
+settlement events, and holdings, so most of the credit for
 relayer-funded transactions accrues to the admin if the admin is the featured
 party, and to nobody if only the relayer is.
 
@@ -790,8 +790,8 @@ Applying the earn rule to the inbound flow
 | --- | --- | --- |
 | Inbound carrier and attestation | attester | attester (signs the `InboundMessage` and `ComplianceAttestation`) |
 | `Gateway_ProcessInbound` | bridge relayer | relayer (signs the executor-side `AllocationRequest`); the gateway's admin and operator on the gateway views |
-| Delegated allocate and accept | bridge relayer | Stablecoin Admin and the recipient (sign the instruction and allocation); the relayer only observes and earns nothing |
-| `SettlementFactory_SettleBatch` | bridge relayer | Stablecoin Admin (signs the receipt and holdings); the relayer as the acting executor |
+| Delegated allocate and accept | bridge relayer | Stablecoin Admin and the recipient (sign the holding and allocation); the relayer only observes and earns nothing |
+| `SettlementFactory_SettleBatch` | bridge relayer | Stablecoin Admin (signs the settlement events and holdings); the relayer as the acting executor |
 
 The report defines no fee model, so there is no revenue for rewards to
 rebate: the credit is an issuance-scaled fraction of each transaction's own

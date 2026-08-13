@@ -290,7 +290,7 @@ sequenceDiagram
     deactivate SF
     V->>L: release collateralToSeize (direct transfer, joint authority)
     V->>V: archive old Vault, create new (debt-repaid, collateral-seized)
-    V-->>L: (newVaultCid, receiptCid)
+    V-->>L: (newVaultCid, eventLogCid)
     deactivate V
 ```
 
