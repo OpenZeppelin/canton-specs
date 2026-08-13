@@ -10,6 +10,7 @@ interfaces and independently implemented tooling.
 | [`wallet-gateway/`](wallet-gateway/) | Canton Wallet Gateway harness, usage guide, and run evidence |
 | [`app-rewards/`](app-rewards/) | Off-chain client showing app-side beneficiary accounting (CIP-0104-inspired) over the JSON Ledger API |
 
-Every gate in this area runs against Canton LocalNet. The gates add
-process-boundary, ledger-connectivity, party-authorization, and third-party
-integration checks to the in-memory Daml Script scenarios.
+Every gate in this area runs against `dpm sandbox` by default and against Canton
+LocalNet with `--localnet`. The gates add process-boundary,
+ledger-connectivity, party-authorization, and third-party integration checks to
+the in-memory Daml Script scenarios.

@@ -16,17 +16,23 @@ The harness does the same seven steps as the on-ledger executable specification 
 
 ## Procedure
 
-Start from the repository root. Make sure that DPM, Java 21+, Node.js 20+, Docker Compose v2, `git`, `curl`, and `openssl` are installed. Then run:
+Start from the repository root. Make sure that DPM, Java 21+, Node.js 20+, `curl`, and `lsof` are installed. Then run:
 
 ```sh
 scripts/localnet-cip0104-rewards-walkthrough.sh
 ```
 
-The launcher builds the interop exemplar DAR. It starts [Canton LocalNet](https://docs.canton.network/sdks-tools/development-tools/localnet) and uploads the DAR to the app-provider participant. It runs the harness against the JSON Ledger API of that participant. Then it removes the network. The logs go to `.cache/cip0104-rewards-walkthrough/`.
+That starts `dpm sandbox`, which needs no container images. Add Docker Compose v2, `git`, and `openssl`, and pass `--localnet` to run the harness against [Canton LocalNet](https://docs.canton.network/sdks-tools/development-tools/localnet) instead:
 
-The shared [`scripts/localnet.sh`](../../../scripts/localnet.sh) documents the network, the Ledger API authentication, and the environment overrides. LocalNet authenticates the Ledger API. The launcher mints the token of the participant's admin user, and the harness submits as that user. Party allocation grants no `CanActAs` right, so the harness grants that right for each walkthrough party.
+```sh
+scripts/localnet-cip0104-rewards-walkthrough.sh --localnet
+```
 
-To use a LocalNet that already runs, set `OZ_USE_EXTERNAL_LEDGER=1` and `OZ_JSON_API_URL`. That participant must have the exemplar DAR uploaded. In this mode the script does not build the DAR and does not start a network, so it needs only Node.js 20+, `curl`, and `openssl`. The harness gives each run a unique party-hint suffix, so repeated runs against the same participant are possible.
+The launcher builds the interop exemplar DAR. It starts the selected ledger and uploads the DAR over the JSON Ledger API. It runs the harness against the same JSON Ledger API. Then it stops the ledger. The logs go to `.cache/cip0104-rewards-walkthrough/`.
+
+The shared [`scripts/ledger.sh`](../../../scripts/ledger.sh) documents both backends, the Ledger API authentication, and the environment overrides. LocalNet authenticates the Ledger API. The launcher mints the token of the participant's admin user, and the harness submits as that user. Party allocation grants no `CanActAs` right, so the harness grants that right for each walkthrough party. The sandbox authenticates nothing, so the harness creates a ledger user of its own there.
+
+To use a ledger that already runs, set `OZ_USE_EXTERNAL_LEDGER=1` and `OZ_JSON_API_URL`. That participant must have the exemplar DAR uploaded. In this mode the script does not build the DAR and does not start a ledger, so it needs only Node.js 20+ and `curl`. The harness gives each run a unique party-hint suffix, so repeated runs against the same participant are possible.
 
 The harness settlements have no deadline. Thus the participant operates on wallclock time, and `setTime` is not necessary. (The Daml walkthrough uses a deadline that starts at the current ledger time, so it also runs on wallclock time.)
 

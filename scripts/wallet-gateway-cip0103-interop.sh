@@ -4,10 +4,13 @@
 # implementation distributed through the published npm package), running as a
 # separate process from the experiment harness.
 #
+#   scripts/wallet-gateway-cip0103-interop.sh              # dpm sandbox
+#   scripts/wallet-gateway-cip0103-interop.sh --localnet   # Canton LocalNet
+#
 # Topology:
-#   Canton LocalNet app-provider participant
-#        ^ Ledger API gRPC 3901 ---- dpm script (admin/app/receiver phases)
-#        ^ JSON Ledger API 3975
+#   the participant (sandbox 6865/7575, LocalNet app-provider 3901/3975)
+#        ^ Ledger API gRPC ---------- dpm script (admin/app/receiver phases)
+#        ^ JSON Ledger API
 #        |
 #   Wallet Gateway (npx @canton-network/wallet-gateway-remote)
 #        ^ CIP-0103 dApp + user JSON-RPC on 3030
@@ -24,26 +27,27 @@
 #   5. harness verify-wallet-view   wallet's projection via gateway ledgerApi
 #   6. dpm script verify            admin/executor/receiver projections
 #
-# `scripts/localnet.sh` documents the network, the authentication, the
+# `scripts/ledger.sh` documents both backends, the authentication, the
 # fresh-ledger requirement, and the environment overrides.
 #
-# LocalNet runs on WALLCLOCK time (the gateway requires it); the module's
+# Both backends run on WALLCLOCK time (the gateway requires it); the module's
 # settlement carries no deadline, so no script here sets the clock.
 #
-# LocalNet authenticates the Ledger API with an unsafe HS256 secret. The gate
-# gives the participant's admin token to its `dpm script` phases and to the
-# harness's ledger-user provisioning, and it configures the gateway to mint its
-# own token for the same secret and audience through the `self_signed` method.
+# The gateway mints its own Ledger API token through its `self_signed` method.
+# The sandbox validates no token; LocalNet accepts the token because the gate
+# configures the gateway with the participant's unsafe HS256 secret and its
+# audience, and it gives the same participant's admin token to the `dpm script`
+# phases and to the harness's ledger-user provisioning.
 #
-# Requirements: DPM, Java 21+, Docker Compose v2, `git`, `curl`, `openssl`,
-# `lsof`, and Node.js 20+ with npx.
+# Requirements: DPM, Java 21+, `curl`, `lsof`, and Node.js 20+ with npx. The
+# `--localnet` backend also needs Docker Compose v2, `git`, and `openssl`.
 # Env overrides: OZ_GATEWAY_PORT (3030), OZ_INTEROP_WORK_DIR, OZ_GATEWAY_PKG
 # (pin/override the gateway npm package spec).
 #
 # External-ledger mode (devnet/testnet): set OZ_USE_EXTERNAL_LEDGER=1 plus the
 # connection variables below in an env file OUTSIDE the repo (e.g.
 # ~/.config/oz-canton/devnet.env, chmod 600) and source it before running. That
-# mode starts no LocalNet and uses OIDC instead of the unsafe LocalNet secret.
+# mode starts no ledger of its own and uses OIDC instead of a shared secret.
 # Secrets must never enter the repo tree; point OZ_INTEROP_WORK_DIR outside it
 # when external-ledger run evidence must also remain outside the checkout.
 #   OZ_LEDGER_HOST / OZ_LEDGER_PORT   gRPC Ledger API (TLS assumed)
@@ -62,18 +66,19 @@ umask 077
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
-EXTERNAL="${OZ_USE_EXTERNAL_LEDGER:-0}"
 WORK_ROOT="${OZ_INTEROP_WORK_DIR:-$ROOT/.cache/wallet-gateway-interop}"
 mkdir -p "$WORK_ROOT"
 WORK_DIR="$(mktemp -d "$WORK_ROOT/run.XXXXXX")"
 
-. "$ROOT/scripts/localnet.sh"
-localnet_init wallet-gateway-cip0103 "$ROOT" "$WORK_DIR"
+. "$ROOT/scripts/ledger.sh"
+ledger_parse_args "$@"
+ledger_init wallet-gateway-cip0103 "$ROOT" "$WORK_DIR"
+EXTERNAL="$LEDGER_EXTERNAL"
 
-localnet_require_command dpm curl openssl lsof npx
-localnet_require_java
-localnet_require_node
-[ "$EXTERNAL" = 1 ] || localnet_require_docker
+ledger_require_command dpm lsof npx
+ledger_require_java
+ledger_require_node
+ledger_require_tools
 
 PKG_DIR="$ROOT/experiments/interoperability/cip-exemplar"
 DAR="$PKG_DIR/.daml/dist/openzeppelin-experimental-cip-interop-exemplar-0.1.0.dar"
@@ -85,13 +90,32 @@ GATEWAY_PORT="${OZ_GATEWAY_PORT:-3030}"
 # the current versions of its own dependency ranges: its `addSession` sends no
 # session origin, and `@canton-network/core-wallet-store-sql` 1.11 requires one.
 GATEWAY_PKG="${OZ_GATEWAY_PKG:-@canton-network/wallet-gateway-remote@1.8.1}"
-NETWORK_ID="${OZ_GATEWAY_NETWORK_ID:-canton:localnet}"
-# The ledger user of the gateway session. It is the participant's admin user:
-# the gateway reads participant-level endpoints (`/v2/parties/participant-id`)
-# with the session token when it adopts or allocates a wallet party, and it
-# grants that party's rights to the same user. A production deployment separates
-# the operator's admin user from a dApp session user.
-GATEWAY_LEDGER_USER="${OZ_GATEWAY_LEDGER_USER:-$LOCALNET_USER_ID}"
+
+# The self-signed credentials of the gateway's network entry. `auth` carries the
+# ledger user of the dApp session; `adminAuth` carries the user that allocates
+# the wallet party and grants its rights.
+#
+# On LocalNet both are the participant's admin user: the gateway reads
+# participant-level endpoints (`/v2/parties/participant-id`) with the session
+# token when it adopts or allocates a wallet party. A production deployment
+# separates the operator's admin user from a dApp session user.
+if [ "$LEDGER_MODE" = localnet ]; then
+  KERNEL_ID=oz-interop-localnet
+  NETWORK_NAME="Canton LocalNet app-provider"
+  NETWORK_ID="${OZ_GATEWAY_NETWORK_ID:-canton:localnet}"
+  AUTH_AUDIENCE="$LEDGER_AUTH_AUDIENCE"
+  AUTH_SECRET="$LEDGER_AUTH_SECRET"
+  GATEWAY_LEDGER_USER="${OZ_GATEWAY_LEDGER_USER:-$LEDGER_USER_ID}"
+  GATEWAY_ADMIN_USER="$LEDGER_USER_ID"
+else
+  KERNEL_ID=oz-interop-sandbox
+  NETWORK_NAME="Local dpm sandbox"
+  NETWORK_ID="${OZ_GATEWAY_NETWORK_ID:-canton:local-sandbox}"
+  AUTH_AUDIENCE="https://daml.com/jwt/aud/participant/sandbox"
+  AUTH_SECRET=unsafe
+  GATEWAY_LEDGER_USER="${OZ_GATEWAY_LEDGER_USER:-oz-cip0103-interop}"
+  GATEWAY_ADMIN_USER=participant_admin
+fi
 
 export OZ_GATEWAY_URL="http://127.0.0.1:$GATEWAY_PORT"
 export OZ_GATEWAY_NETWORK_ID="$NETWORK_ID"
@@ -103,89 +127,57 @@ if [ "$EXTERNAL" = 1 ]; then
   : "${OZ_LEDGER_PARTY:?}" "${OZ_LEDGER_OPERATOR_PARTY:?}"
   export OZ_JSON_API_URL
 else
-  export OZ_JSON_API_URL="$LOCALNET_JSON_API_URL"
-  export OZ_LEDGER_TOKEN_FILE="$LOCALNET_TOKEN_FILE"
+  export OZ_JSON_API_URL="$LEDGER_JSON_API_URL"
+  # The sandbox has no admin token; the harness then provisions its ledger user
+  # without an Authorization header.
+  [ -z "$LEDGER_TOKEN_FILE" ] || export OZ_LEDGER_TOKEN_FILE="$LEDGER_TOKEN_FILE"
 fi
 
 GATEWAY_PID=""
 GATEWAY_PGID=""
 UPLOAD_HEADER_FILE=""
 
-process_group_alive() {
-  [ -n "$1" ] && kill -0 "-$1" >/dev/null 2>&1
-}
-
-stop_process_group() {
-  local pid="$1"
-  local pgid="$2"
-  local label="$3"
-  [ -n "$pgid" ] || return 0
-
-  if process_group_alive "$pgid"; then
-    echo "== Stopping $label (pid $pid)"
-    kill -TERM -- "-$pgid" >/dev/null 2>&1 || true
+stop_gateway() {
+  [ -n "$GATEWAY_PGID" ] || return 0
+  if ledger_process_group_alive "$GATEWAY_PGID"; then
+    echo "== Stopping the Wallet Gateway (pid $GATEWAY_PID)"
+    kill -TERM -- "-$GATEWAY_PGID" >/dev/null 2>&1 || true
     local i=0
-    while [ "$i" -lt 15 ] && process_group_alive "$pgid"; do
+    while [ "$i" -lt 15 ] && ledger_process_group_alive "$GATEWAY_PGID"; do
       i=$((i + 1))
       sleep 1
     done
-    if process_group_alive "$pgid"; then
-      kill -KILL -- "-$pgid" >/dev/null 2>&1 || true
+    if ledger_process_group_alive "$GATEWAY_PGID"; then
+      kill -KILL -- "-$GATEWAY_PGID" >/dev/null 2>&1 || true
     fi
   fi
-  [ -n "$pid" ] && wait "$pid" >/dev/null 2>&1 || true
-}
-
-wait_for_port_release() {
-  local port="$1"
-  local label="$2"
-  local i=0
-  while [ "$i" -lt 20 ]; do
-    if ! lsof -nP -iTCP:"$port" -sTCP:LISTEN >/dev/null 2>&1; then
-      return 0
-    fi
-    i=$((i + 1))
-    sleep 1
-  done
-  echo "ERROR: $label port $port remains in use after cleanup" >&2
-  return 1
+  wait "$GATEWAY_PID" >/dev/null 2>&1 || true
 }
 
 cleanup() {
   local code=$?
   local cleanup_failed=0
   trap - EXIT
-  set +m >/dev/null 2>&1 || true
-  stop_process_group "$GATEWAY_PID" "$GATEWAY_PGID" "Wallet Gateway"
+  stop_gateway
   if [ -n "$GATEWAY_PGID" ]; then
-    wait_for_port_release "$GATEWAY_PORT" "Wallet Gateway" || cleanup_failed=1
+    ledger_wait_for_port_release "$GATEWAY_PORT" || cleanup_failed=1
   fi
-  localnet_stop || cleanup_failed=1
+  ledger_stop || cleanup_failed=1
   [ -n "$UPLOAD_HEADER_FILE" ] && rm -f "$UPLOAD_HEADER_FILE"
   [ "$cleanup_failed" -eq 0 ] || code=1
   exit "$code"
 }
 trap cleanup EXIT
 
-require_port_free() {
-  local port="$1"
-  local label="$2"
-  if lsof -nP -iTCP:"$port" -sTCP:LISTEN >/dev/null 2>&1; then
-    echo "ERROR: $label port $port is already in use" >&2
-    exit 1
-  fi
-}
-
-require_port_free "$GATEWAY_PORT" "Wallet Gateway"
-
-set -m
+ledger_require_port_free "$GATEWAY_PORT"
+ledger_preflight
 
 echo "== Building $PKG_DIR"
 (cd "$PKG_DIR" && dpm build)
 [ -f "$DAR" ] || { echo "ERROR: DAR not found at $DAR" >&2; exit 1; }
 
 if [ "$EXTERNAL" = 1 ]; then
-  echo "== External ledger mode: $LOCALNET_LEDGER_HOST:$LOCALNET_LEDGER_PORT (gRPC/TLS), $OZ_JSON_API_URL (JSON API)"
+  echo "== External ledger mode: $LEDGER_HOST:$LEDGER_PORT (gRPC/TLS), $OZ_JSON_API_URL (JSON API)"
 
   if [ -n "${OZ_DAR_UPLOAD_URL:-}" ]; then
     echo "== Uploading DAR via $OZ_DAR_UPLOAD_URL/v1/dars"
@@ -207,10 +199,11 @@ if [ "$EXTERNAL" = 1 ]; then
     esac
   fi
 else
-  localnet_start
-  localnet_wait_ready
-  localnet_upload_dar "$DAR"
+  ledger_start
+  ledger_wait_ready
+  ledger_upload_dar "$DAR"
 fi
+ledger_script_args
 
 echo "== Writing gateway config"
 if [ "$EXTERNAL" = 1 ]; then
@@ -265,14 +258,12 @@ cat >"$WORK_DIR/gateway-config.json" <<EOF
 }
 EOF
 else
-# The gateway mints its own LocalNet token: `self_signed` signs
-# { sub: clientId, aud: audience, scope, iss } with HS256 and the shared
-# secret, which is what the participant's `unsafe-jwt-hmac-256` service
-# accepts. `auth` carries the gateway's ledger user; `adminAuth` carries the
-# participant's admin user, which grants the wallet party's rights.
+# `self_signed` signs { sub: clientId, aud: audience, scope, iss } with HS256 and
+# the shared secret. That is what a LocalNet participant's `unsafe-jwt-hmac-256`
+# service accepts, and the sandbox accepts any token.
 cat >"$WORK_DIR/gateway-config.json" <<EOF
 {
-  "kernel": { "id": "oz-interop-localnet", "clientType": "remote" },
+  "kernel": { "id": "$KERNEL_ID", "clientType": "remote" },
   "logging": { "level": "info", "format": "json" },
   "server": {
     "host": "localhost",
@@ -292,26 +283,26 @@ cat >"$WORK_DIR/gateway-config.json" <<EOF
     "networks": [
       {
         "id": "$NETWORK_ID",
-        "name": "Canton LocalNet app-provider",
-        "description": "OpenZeppelin CIP-0103 interop gate on Canton LocalNet",
+        "name": "$NETWORK_NAME",
+        "description": "OpenZeppelin CIP-0103 interop gate",
         "identityProviderId": "idp-self-signed",
         "auth": {
           "method": "self_signed",
           "issuer": "unsafe-auth",
-          "audience": "$LOCALNET_AUTH_AUDIENCE",
+          "audience": "$AUTH_AUDIENCE",
           "scope": "daml_ledger_api",
           "clientId": "$GATEWAY_LEDGER_USER",
-          "clientSecret": "$LOCALNET_AUTH_SECRET"
+          "clientSecret": "$AUTH_SECRET"
         },
         "adminAuth": {
           "method": "self_signed",
           "issuer": "unsafe-auth",
-          "audience": "$LOCALNET_AUTH_AUDIENCE",
+          "audience": "$AUTH_AUDIENCE",
           "scope": "daml_ledger_api",
-          "clientId": "$LOCALNET_USER_ID",
-          "clientSecret": "$LOCALNET_AUTH_SECRET"
+          "clientId": "$GATEWAY_ADMIN_USER",
+          "clientSecret": "$AUTH_SECRET"
         },
-        "ledgerApi": { "baseUrl": "$LOCALNET_JSON_API_URL" }
+        "ledgerApi": { "baseUrl": "$LEDGER_JSON_API_URL" }
       }
     ]
   }
@@ -320,6 +311,7 @@ EOF
 fi
 
 echo "== Booting Wallet Gateway ($GATEWAY_PKG on port $GATEWAY_PORT)"
+set -m
 (
   cd "$WORK_DIR"
   npx -y "$GATEWAY_PKG" -c "$WORK_DIR/gateway-config.json" \
@@ -327,6 +319,7 @@ echo "== Booting Wallet Gateway ($GATEWAY_PKG on port $GATEWAY_PORT)"
 ) &
 GATEWAY_PID=$!
 GATEWAY_PGID=$GATEWAY_PID
+disown "$GATEWAY_PID" >/dev/null 2>&1 || true
 
 for _ in $(seq 1 120); do
   if curl -sf -X POST "http://127.0.0.1:$GATEWAY_PORT/api/v0/user" \
@@ -355,11 +348,7 @@ run_script() {
     dpm script \
       --dar "$DAR" \
       --script-name "$MODULE:$name" \
-      --ledger-host "$LOCALNET_LEDGER_HOST" \
-      --ledger-port "$LOCALNET_LEDGER_PORT" \
-      --access-token-file "$LOCALNET_TOKEN_FILE" \
-      --user-id "$LOCALNET_USER_ID" \
-      --wall-clock-time \
+      "${LEDGER_SCRIPT_ARGS[@]}" \
       "$@"
   ) >"$WORK_DIR/script-$name.log" 2>&1 \
     || { echo "ERROR: $name failed; see $WORK_DIR/script-$name.log" >&2; exit 1; }
@@ -403,4 +392,4 @@ else
 fi
 
 echo
-echo "PASS: CIP-0103 interop against Wallet Gateway ($GATEWAY_PKG) - all phases green"
+echo "PASS: CIP-0103 interop against Wallet Gateway ($GATEWAY_PKG) on the $LEDGER_MODE ledger - all phases green"
