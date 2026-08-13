@@ -1,0 +1,48 @@
+name: Sync review PR with main
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "docs/reference-architectures/**"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Rebuild the review branches from main
+        run: |
+          set -euo pipefail
+
+          HEAD_BRANCH="review/ri-reports-r3"
+          BASE_BRANCH="review-base/ri-reports-r3"
+          FILES="docs/reference-architectures/dex.md \
+                 docs/reference-architectures/lending.md \
+                 docs/reference-architectures/cross-chain-stablecoin.md \
+                 docs/reference-architectures/confidential-auction.md"
+
+          if ! git ls-remote --exit-code origin "refs/heads/${HEAD_BRANCH}" > /dev/null; then
+            echo "The review branch ${HEAD_BRANCH} does not exist. The review round is closed. Nothing to sync."
+            exit 0
+          fi
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          git checkout -B "${BASE_BRANCH}" origin/main
+          git rm -q ${FILES}
+          git commit -q -m "chore: temporary review base without the four RI reports"
+
+          git checkout -B "${HEAD_BRANCH}"
+          git checkout origin/main -- ${FILES}
+          git commit -q -m "docs: re-add the four RI reports for review"
+
+          git push -f origin "${BASE_BRANCH}" "${HEAD_BRANCH}"
