@@ -5,8 +5,9 @@
 # separate process from the experiment harness.
 #
 # Topology:
-#   dpm sandbox (wallclock)  <-- gRPC 6865 ---- dpm script (admin/app/receiver phases)
-#        ^ JSON Ledger API 7575
+#   Canton LocalNet app-provider participant
+#        ^ Ledger API gRPC 3901 ---- dpm script (admin/app/receiver phases)
+#        ^ JSON Ledger API 3975
 #        |
 #   Wallet Gateway (npx @canton-network/wallet-gateway-remote)
 #        ^ CIP-0103 dApp + user JSON-RPC on 3030
@@ -23,17 +24,26 @@
 #   5. harness verify-wallet-view   wallet's projection via gateway ledgerApi
 #   6. dpm script verify            admin/executor/receiver projections
 #
-# The sandbox runs on WALLCLOCK time (the gateway requires it); the module's
-# settlement carries no deadline, so nothing here needs `setTime`.
+# `scripts/lib/localnet.sh` documents the network, the authentication, the
+# fresh-ledger requirement, and the environment overrides.
 #
-# Requirements: DPM, Java 21+, and Node.js 20+ with npx.
-# Env overrides: OZ_LEDGER_PORT (6865), OZ_JSON_API_PORT (7575),
-# OZ_GATEWAY_PORT (3030), OZ_INTEROP_WORK_DIR, OZ_GATEWAY_PKG (pin/override the
-# gateway npm package spec).
+# LocalNet runs on WALLCLOCK time (the gateway requires it); the module's
+# settlement carries no deadline, so no script here sets the clock.
+#
+# LocalNet authenticates the Ledger API with an unsafe HS256 secret. The gate
+# gives the participant's admin token to its `dpm script` phases and to the
+# harness's ledger-user provisioning, and it configures the gateway to mint its
+# own token for the same secret and audience through the `self_signed` method.
+#
+# Requirements: DPM, Java 21+, Docker Compose v2, `git`, `curl`, `openssl`,
+# `lsof`, and Node.js 20+ with npx.
+# Env overrides: OZ_GATEWAY_PORT (3030), OZ_INTEROP_WORK_DIR, OZ_GATEWAY_PKG
+# (pin/override the gateway npm package spec).
 #
 # External-ledger mode (devnet/testnet): set OZ_USE_EXTERNAL_LEDGER=1 plus the
 # connection variables below in an env file OUTSIDE the repo (e.g.
-# ~/.config/oz-canton/devnet.env, chmod 600) and source it before running.
+# ~/.config/oz-canton/devnet.env, chmod 600) and source it before running. That
+# mode starts no LocalNet and uses OIDC instead of the unsafe LocalNet secret.
 # Secrets must never enter the repo tree; point OZ_INTEROP_WORK_DIR outside it
 # when external-ledger run evidence must also remain outside the checkout.
 #   OZ_LEDGER_HOST / OZ_LEDGER_PORT   gRPC Ledger API (TLS assumed)
@@ -51,43 +61,41 @@ set -euo pipefail
 umask 077
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-command -v dpm >/dev/null 2>&1 || { echo "ERROR: dpm not found" >&2; exit 1; }
-command -v java >/dev/null 2>&1 || { echo "ERROR: Java not found" >&2; exit 1; }
-command -v node >/dev/null 2>&1 || { echo "ERROR: node not found (Node.js >= 20 required)" >&2; exit 1; }
-command -v npx >/dev/null 2>&1 || { echo "ERROR: npx not found (Node.js >= 20 required)" >&2; exit 1; }
-command -v lsof >/dev/null 2>&1 || { echo "ERROR: lsof not found" >&2; exit 1; }
-command -v curl >/dev/null 2>&1 || { echo "ERROR: curl not found" >&2; exit 1; }
 
-java_version="$(java -version 2>&1 | sed -n '1s/.*version "\([0-9][0-9]*\).*/\1/p')"
-[ -n "$java_version" ] && [ "$java_version" -ge 21 ] || {
-  echo "ERROR: Java 21 or newer is required" >&2
-  exit 1
-}
-node_version="$(node -p 'process.versions.node.split(".")[0]')"
-[ "$node_version" -ge 20 ] || {
-  echo "ERROR: Node.js 20 or newer is required" >&2
-  exit 1
-}
+EXTERNAL="${OZ_USE_EXTERNAL_LEDGER:-0}"
+WORK_ROOT="${OZ_INTEROP_WORK_DIR:-$ROOT/.cache/wallet-gateway-interop}"
+mkdir -p "$WORK_ROOT"
+WORK_DIR="$(mktemp -d "$WORK_ROOT/run.XXXXXX")"
+
+. "$ROOT/scripts/lib/localnet.sh"
+localnet_init wallet-gateway-cip0103 "$ROOT" "$WORK_DIR"
+
+localnet_require_command dpm curl openssl lsof npx
+localnet_require_java
+localnet_require_node
+[ "$EXTERNAL" = 1 ] || localnet_require_docker
 
 PKG_DIR="$ROOT/experiments/interoperability/cip-exemplar"
 DAR="$PKG_DIR/.daml/dist/openzeppelin-experimental-cip-interop-exemplar-0.1.0.dar"
 MODULE="OpenZeppelin.Experimental.Interop.WalletGateway"
 HARNESS="$ROOT/experiments/interoperability/wallet-gateway/harness.mjs"
 
-LEDGER_HOST="${OZ_LEDGER_HOST:-localhost}"
-LEDGER_PORT="${OZ_LEDGER_PORT:-6865}"
-JSON_API_PORT="${OZ_JSON_API_PORT:-7575}"
 GATEWAY_PORT="${OZ_GATEWAY_PORT:-3030}"
-GATEWAY_PKG="${OZ_GATEWAY_PKG:-@canton-network/wallet-gateway-remote@1.6.0}"
-EXTERNAL="${OZ_USE_EXTERNAL_LEDGER:-0}"
-WORK_ROOT="${OZ_INTEROP_WORK_DIR:-$ROOT/.cache/wallet-gateway-interop}"
-NETWORK_ID="${OZ_GATEWAY_NETWORK_ID:-canton:local-sandbox}"
-
-mkdir -p "$WORK_ROOT"
-WORK_DIR="$(mktemp -d "$WORK_ROOT/run.XXXXXX")"
+# The gateway release under test. Version 1.6.0 no longer starts a session with
+# the current versions of its own dependency ranges: its `addSession` sends no
+# session origin, and `@canton-network/core-wallet-store-sql` 1.11 requires one.
+GATEWAY_PKG="${OZ_GATEWAY_PKG:-@canton-network/wallet-gateway-remote@1.8.1}"
+NETWORK_ID="${OZ_GATEWAY_NETWORK_ID:-canton:localnet}"
+# The ledger user of the gateway session. It is the participant's admin user:
+# the gateway reads participant-level endpoints (`/v2/parties/participant-id`)
+# with the session token when it adopts or allocates a wallet party, and it
+# grants that party's rights to the same user. A production deployment separates
+# the operator's admin user from a dApp session user.
+GATEWAY_LEDGER_USER="${OZ_GATEWAY_LEDGER_USER:-$LOCALNET_USER_ID}"
 
 export OZ_GATEWAY_URL="http://127.0.0.1:$GATEWAY_PORT"
 export OZ_GATEWAY_NETWORK_ID="$NETWORK_ID"
+export OZ_GATEWAY_LEDGER_USER="$GATEWAY_LEDGER_USER"
 export OZ_INTEROP_WORK_DIR="$WORK_DIR"
 if [ "$EXTERNAL" = 1 ]; then
   : "${OZ_JSON_API_URL:?external mode requires OZ_JSON_API_URL}"
@@ -95,12 +103,10 @@ if [ "$EXTERNAL" = 1 ]; then
   : "${OZ_LEDGER_PARTY:?}" "${OZ_LEDGER_OPERATOR_PARTY:?}"
   export OZ_JSON_API_URL
 else
-  export OZ_JSON_API_URL="http://127.0.0.1:$JSON_API_PORT"
+  export OZ_JSON_API_URL="$LOCALNET_JSON_API_URL"
+  export OZ_LEDGER_TOKEN_FILE="$LOCALNET_TOKEN_FILE"
 fi
-export OZ_GATEWAY_NETWORK_ID="$NETWORK_ID"
 
-SANDBOX_PID=""
-SANDBOX_PGID=""
 GATEWAY_PID=""
 GATEWAY_PGID=""
 UPLOAD_HEADER_FILE=""
@@ -151,14 +157,10 @@ cleanup() {
   trap - EXIT
   set +m >/dev/null 2>&1 || true
   stop_process_group "$GATEWAY_PID" "$GATEWAY_PGID" "Wallet Gateway"
-  stop_process_group "$SANDBOX_PID" "$SANDBOX_PGID" "sandbox"
   if [ -n "$GATEWAY_PGID" ]; then
     wait_for_port_release "$GATEWAY_PORT" "Wallet Gateway" || cleanup_failed=1
   fi
-  if [ -n "$SANDBOX_PGID" ]; then
-    wait_for_port_release "$LEDGER_PORT" "Ledger API" || cleanup_failed=1
-    wait_for_port_release "$JSON_API_PORT" "JSON API" || cleanup_failed=1
-  fi
+  localnet_stop || cleanup_failed=1
   [ -n "$UPLOAD_HEADER_FILE" ] && rm -f "$UPLOAD_HEADER_FILE"
   [ "$cleanup_failed" -eq 0 ] || code=1
   exit "$code"
@@ -175,10 +177,6 @@ require_port_free() {
 }
 
 require_port_free "$GATEWAY_PORT" "Wallet Gateway"
-if [ "$EXTERNAL" != 1 ]; then
-  require_port_free "$LEDGER_PORT" "Ledger API"
-  require_port_free "$JSON_API_PORT" "JSON API"
-fi
 
 set -m
 
@@ -187,7 +185,7 @@ echo "== Building $PKG_DIR"
 [ -f "$DAR" ] || { echo "ERROR: DAR not found at $DAR" >&2; exit 1; }
 
 if [ "$EXTERNAL" = 1 ]; then
-  echo "== External ledger mode: $LEDGER_HOST:$LEDGER_PORT (gRPC/TLS), $OZ_JSON_API_URL (JSON API)"
+  echo "== External ledger mode: $LOCALNET_LEDGER_HOST:$LOCALNET_LEDGER_PORT (gRPC/TLS), $OZ_JSON_API_URL (JSON API)"
 
   if [ -n "${OZ_DAR_UPLOAD_URL:-}" ]; then
     echo "== Uploading DAR via $OZ_DAR_UPLOAD_URL/v1/dars"
@@ -209,25 +207,9 @@ if [ "$EXTERNAL" = 1 ]; then
     esac
   fi
 else
-  echo "== Booting sandbox (wallclock, ledger $LEDGER_PORT, JSON API $JSON_API_PORT)"
-  (
-    cd "$WORK_DIR"
-    dpm sandbox \
-      --ledger-api-port "$LEDGER_PORT" \
-      --json-api-port "$JSON_API_PORT" \
-      --dar "$DAR" \
-      >"$WORK_DIR/sandbox.log" 2>&1
-  ) &
-  SANDBOX_PID=$!
-  SANDBOX_PGID=$SANDBOX_PID
-
-  for _ in $(seq 1 120); do
-    grep -q 'Canton sandbox is ready' "$WORK_DIR/sandbox.log" 2>/dev/null && break
-    kill -0 "$SANDBOX_PID" 2>/dev/null || { echo "ERROR: sandbox died; see $WORK_DIR/sandbox.log" >&2; exit 1; }
-    sleep 1
-  done
-  grep -q 'Canton sandbox is ready' "$WORK_DIR/sandbox.log" || { echo "ERROR: sandbox not ready; see $WORK_DIR/sandbox.log" >&2; exit 1; }
-  echo "   sandbox ready"
+  localnet_start
+  localnet_wait_ready
+  localnet_upload_dar "$DAR"
 fi
 
 echo "== Writing gateway config"
@@ -283,9 +265,14 @@ cat >"$WORK_DIR/gateway-config.json" <<EOF
 }
 EOF
 else
+# The gateway mints its own LocalNet token: `self_signed` signs
+# { sub: clientId, aud: audience, scope, iss } with HS256 and the shared
+# secret, which is what the participant's `unsafe-jwt-hmac-256` service
+# accepts. `auth` carries the gateway's ledger user; `adminAuth` carries the
+# participant's admin user, which grants the wallet party's rights.
 cat >"$WORK_DIR/gateway-config.json" <<EOF
 {
-  "kernel": { "id": "oz-interop-local", "clientType": "remote" },
+  "kernel": { "id": "oz-interop-localnet", "clientType": "remote" },
   "logging": { "level": "info", "format": "json" },
   "server": {
     "host": "localhost",
@@ -305,26 +292,26 @@ cat >"$WORK_DIR/gateway-config.json" <<EOF
     "networks": [
       {
         "id": "$NETWORK_ID",
-        "name": "Local dpm sandbox",
-        "description": "OpenZeppelin CIP-0103 interop gate sandbox",
+        "name": "Canton LocalNet app-provider",
+        "description": "OpenZeppelin CIP-0103 interop gate on Canton LocalNet",
         "identityProviderId": "idp-self-signed",
         "auth": {
           "method": "self_signed",
           "issuer": "unsafe-auth",
-          "audience": "https://daml.com/jwt/aud/participant/sandbox",
+          "audience": "$LOCALNET_AUTH_AUDIENCE",
           "scope": "daml_ledger_api",
-          "clientId": "operator",
-          "clientSecret": "unsafe"
+          "clientId": "$GATEWAY_LEDGER_USER",
+          "clientSecret": "$LOCALNET_AUTH_SECRET"
         },
         "adminAuth": {
           "method": "self_signed",
           "issuer": "unsafe-auth",
-          "audience": "https://daml.com/jwt/aud/participant/sandbox",
+          "audience": "$LOCALNET_AUTH_AUDIENCE",
           "scope": "daml_ledger_api",
-          "clientId": "participant_admin",
-          "clientSecret": "unsafe"
+          "clientId": "$LOCALNET_USER_ID",
+          "clientSecret": "$LOCALNET_AUTH_SECRET"
         },
-        "ledgerApi": { "baseUrl": "http://127.0.0.1:$JSON_API_PORT" }
+        "ledgerApi": { "baseUrl": "$LOCALNET_JSON_API_URL" }
       }
     ]
   }
@@ -368,8 +355,11 @@ run_script() {
     dpm script \
       --dar "$DAR" \
       --script-name "$MODULE:$name" \
-      --ledger-host "$LEDGER_HOST" \
-      --ledger-port "$LEDGER_PORT" \
+      --ledger-host "$LOCALNET_LEDGER_HOST" \
+      --ledger-port "$LOCALNET_LEDGER_PORT" \
+      --access-token-file "$LOCALNET_TOKEN_FILE" \
+      --user-id "$LOCALNET_USER_ID" \
+      --wall-clock-time \
       "$@"
   ) >"$WORK_DIR/script-$name.log" 2>&1 \
     || { echo "ERROR: $name failed; see $WORK_DIR/script-$name.log" >&2; exit 1; }

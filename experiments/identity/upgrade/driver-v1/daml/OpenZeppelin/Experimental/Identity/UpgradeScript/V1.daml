@@ -1,7 +1,9 @@
 -- | Daml Script driver for the experimental identity hook upgrade v0.1.0 DAR.
 module OpenZeppelin.Experimental.Identity.UpgradeScript.V1 where
 
+import DA.Action (when)
 import DA.Assert ((===))
+import DA.Foldable (forA_)
 import Daml.Script
 
 import OpenZeppelin.Experimental.Identity.Upgrade
@@ -24,6 +26,25 @@ baselineAttestation = OpaqueIdentityAttestation with
 scriptPartyHint : Text -> Text -> Text
 scriptPartyHint runId role = "identity-hook-upgrade-script-v1-" <> role <> "-" <> runId
 
+-- | Allocate a fixture party and let the Ledger API admin users act as it.
+--
+-- A Canton LocalNet participant authenticates the Ledger API. A user may then
+-- submit for a party only if a `CanActAs` right names that party, and party
+-- allocation grants no such right. The v2 driver submits for the same parties
+-- in the second phase of the smoke gate, so the grant must outlive this script.
+-- The in-memory ledger of `dpm test` needs no grant, and it reports no admin
+-- user, so the grant does nothing there.
+allocateDriverParty : Text -> Script Party
+allocateDriverParty requestedName = do
+  party <- allocateParty requestedName
+  users <- listAllUsers
+  forA_ users $ \user -> do
+    rights <- listUserRights user.userId
+    when (ParticipantAdmin `elem` rights) do
+      _ <- grantUserRights user.userId [CanActAs party]
+      pure ()
+  pure party
+
 -- | Creates a v0.1.0 holding and returns the parties/contract id for a v0.2.0
 -- migration script running on the same ledger.
 createV1HoldingFixture : Script MigrationFixture
@@ -37,9 +58,9 @@ createV1HoldingFixtureForRun run = createV1HoldingFixtureWithRunId run.runId
 
 createV1HoldingFixtureWithRunId : Text -> Script MigrationFixture
 createV1HoldingFixtureWithRunId runId = script do
-  issuer <- allocateParty (scriptPartyHint runId "issuer")
-  alice <- allocateParty (scriptPartyHint runId "alice")
-  bob <- allocateParty (scriptPartyHint runId "bob")
+  issuer <- allocateDriverParty (scriptPartyHint runId "issuer")
+  alice <- allocateDriverParty (scriptPartyHint runId "alice")
+  bob <- allocateDriverParty (scriptPartyHint runId "bob")
 
   registry <- submit issuer do
     createCmd ToyRegistry with

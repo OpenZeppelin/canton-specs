@@ -16,17 +16,19 @@ The harness does the same seven steps as the on-ledger executable specification 
 
 ## Procedure
 
-Start from the repository root. Make sure that DPM, Java 21+, Node.js 20+, `lsof`, and `curl` are installed. Then run:
+Start from the repository root. Make sure that DPM, Java 21+, Node.js 20+, Docker Compose v2, `git`, `curl`, and `openssl` are installed. Then run:
 
 ```sh
 scripts/localnet-cip0104-rewards-walkthrough.sh
 ```
 
-The launcher builds the interop exemplar DAR. It starts a wallclock Canton sandbox with the JSON Ledger API on. It runs the harness. Then it stops the sandbox. The logs go to `.cache/cip0104-rewards-walkthrough/`.
+The launcher builds the interop exemplar DAR. It starts [Canton LocalNet](https://docs.canton.network/sdks-tools/development-tools/localnet) and uploads the DAR to the app-provider participant. It runs the harness against the JSON Ledger API of that participant. Then it removes the network. The logs go to `.cache/cip0104-rewards-walkthrough/`.
 
-To use a participant that already operates, set `OZ_USE_EXTERNAL_LEDGER=1` and `OZ_JSON_API_URL`. That participant must have no authentication and must have the exemplar DAR uploaded. In this mode the script needs only Node.js 20+: it does not build the DAR and does not start a sandbox. The harness gives each run a unique party-hint suffix, so repeated runs against the same participant are possible.
+The shared [`scripts/lib/localnet.sh`](../../../scripts/lib/localnet.sh) documents the network, the Ledger API authentication, and the environment overrides. LocalNet authenticates the Ledger API. The launcher mints the token of the participant's admin user, and the harness submits as that user. Party allocation grants no `CanActAs` right, so the harness grants that right for each walkthrough party.
 
-The harness settlements have no deadline. Thus the sandbox operates on wallclock time, and `setTime` is not necessary. (The Daml walkthrough uses a deadline that starts at the current ledger time, so it also runs on wallclock time.)
+To use a LocalNet that already runs, set `OZ_USE_EXTERNAL_LEDGER=1` and `OZ_JSON_API_URL`. That participant must have the exemplar DAR uploaded. In this mode the script does not build the DAR and does not start a network, so it needs only Node.js 20+, `curl`, and `openssl`. The harness gives each run a unique party-hint suffix, so repeated runs against the same participant are possible.
+
+The harness settlements have no deadline. Thus the participant operates on wallclock time, and `setTime` is not necessary. (The Daml walkthrough uses a deadline that starts at the current ledger time, so it also runs on wallclock time.)
 
 ## Scope
 

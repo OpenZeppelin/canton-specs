@@ -12,9 +12,9 @@
 --
 -- This experiment validates the integration boundary and makes no public-API,
 -- conformance, audit, or production claim. Wallclock-safe by design:
--- `gatewaySettlement` carries no
--- settlement deadline, so no script here calls `setTime` and the gate can run
--- against a wallclock sandbox (which the gateway requires).
+-- `gatewaySettlement` carries no settlement deadline, so no script here calls
+-- `setTime` and the gate can run against the wallclock LocalNet participant
+-- (which the gateway requires).
 module OpenZeppelin.Experimental.Interop.WalletGateway where
 
 import DA.Assert ((===))
@@ -187,9 +187,9 @@ data GatewaySetupOutput = GatewaySetupOutput with
 -- is allocated externally by the Wallet Gateway and passed in.
 setup_gatewayInterop : Party -> Script GatewaySetupOutput
 setup_gatewayInterop wallet = do
-  admin <- allocateParty "gateway-admin"
-  app <- allocateParty "gateway-app"
-  receiver <- allocateParty "gateway-receiver"
+  admin <- allocateInteropParty "gateway-admin"
+  app <- allocateInteropParty "gateway-app"
+  receiver <- allocateInteropParty "gateway-receiver"
   setupGatewayInteropWith wallet admin app receiver
 
 data GatewayExternalSetupInput = GatewayExternalSetupInput with

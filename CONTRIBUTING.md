@@ -47,7 +47,7 @@ data is temporary and is removed after the gate finishes.
 ## Integration evidence
 
 The identity upgrade smoke test exercises contracts created with the v1 package
-through the v2 package on a live sandbox:
+through the v2 package on a live ledger:
 
 ```sh
 scripts/identity-hook-upgrade-smoke.sh
@@ -61,8 +61,13 @@ scripts/wallet-gateway-cip0103-interop.sh
 scripts/localnet-cip0104-rewards-walkthrough.sh
 ```
 
-Their domain documentation describes prerequisites, topology assumptions, and
-the evidence they produce.
+Every gate above runs against
+[Canton LocalNet](https://docs.canton.network/sdks-tools/development-tools/localnet).
+Each gate starts the network and removes it through the shared
+[`scripts/lib/localnet.sh`](scripts/lib/localnet.sh). That file documents the
+Docker Compose profiles, the Ledger API authentication, the fresh-ledger
+requirement, and the environment overrides. The domain documentation of each gate
+describes its prerequisites, topology assumptions, and the evidence it produces.
 
 ## Adding or changing an experiment
 

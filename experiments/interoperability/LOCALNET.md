@@ -33,7 +33,9 @@ LocalNet starts with the `sv` and `app-provider` profiles. The scenarios need a
 participant on a real synchronizer, and they use no Amulet or wallet service.
 The script fetches the LocalNet Docker Compose files into
 `.cache/splice-localnet/`, pinned to the same Splice release that provides the
-container images.
+container images. Every live-ledger gate in the repository shares that bring-up
+through [`scripts/lib/localnet.sh`](../../scripts/lib/localnet.sh), which also
+documents the variables below.
 
 | Variable | Purpose |
 |---|---|

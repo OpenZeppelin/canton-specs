@@ -38,6 +38,7 @@ jobs:
 
   wallet-gateway:
     runs-on: ubuntu-latest
+    # This gate also starts LocalNet, so it pays for the image pull too.
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
@@ -64,7 +65,8 @@ jobs:
 
   cip0104-rewards:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    # This gate also starts LocalNet, so it pays for the image pull too.
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
 

@@ -15,7 +15,10 @@ concurrency:
 jobs:
   validate:
     runs-on: ubuntu-latest
-    timeout-minutes: 40
+    # The identity SCU smoke test starts the Splice LocalNet Docker Compose
+    # network, so this job also pays for the image pull and the network
+    # bootstrap.
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
 

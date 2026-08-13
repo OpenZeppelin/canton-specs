@@ -24,7 +24,7 @@ allocation through `SettlementFactory_SettleBatch`.
 ## Components
 
 ```text
-dpm sandbox
+Canton LocalNet app-provider participant
   |-- Ledger API gRPC -------- Daml Script setup and settlement phases
   |-- JSON Ledger API -------- Canton Wallet Gateway
                                   |-- CIP-0103 dApp and user APIs
@@ -42,20 +42,30 @@ dpm sandbox
 
 ## Run locally
 
-Requirements are DPM, Java 21+, Node.js 20+, and `npx`. From the repository
-root:
+Requirements are DPM, Java 21+, Docker Compose v2, `git`, `curl`, `openssl`,
+`lsof`, and Node.js 20+ with `npx`. From the repository root:
 
 ```sh
 scripts/wallet-gateway-cip0103-interop.sh
 ```
 
-The script builds the interop package, starts a wallclock sandbox with the JSON
-Ledger API enabled, configures and starts the pinned Wallet Gateway package, and
-runs the wallet, settlement, and verification phases. Logs and generated
-evidence are written under `.cache/wallet-gateway-interop/`.
+The script builds the interop package, starts
+[Canton LocalNet](https://docs.canton.network/sdks-tools/development-tools/localnet),
+uploads the DAR to the app-provider participant, configures and starts the pinned
+Wallet Gateway package, and runs the wallet, settlement, and verification
+phases. Then it removes the network. Logs and generated evidence are written
+under `.cache/wallet-gateway-interop/`.
 
-Ports and the gateway package pin are configurable through `OZ_LEDGER_PORT`,
-`OZ_JSON_API_PORT`, `OZ_GATEWAY_PORT`, and `OZ_GATEWAY_PKG`.
+The shared [`scripts/lib/localnet.sh`](../../../scripts/lib/localnet.sh)
+documents the network, the Ledger API authentication, and the environment
+overrides. LocalNet authenticates the Ledger API with a shared unsafe HS256
+secret. The `dpm script` phases use the token of the participant's admin user,
+and the gateway mints its own token for the same secret and audience through its
+`self_signed` authentication method. The gateway holds the wallet party's ledger
+rights on its own ledger user.
+
+The gateway port and the gateway package pin are configurable through
+`OZ_GATEWAY_PORT` and `OZ_GATEWAY_PKG`.
 
 ## External ledger mode
 
