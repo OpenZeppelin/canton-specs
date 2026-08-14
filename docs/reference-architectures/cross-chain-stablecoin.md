@@ -530,7 +530,7 @@ template StandardizedMessagingGateway
           settlement = inboundSettlement
           allocations = [ mintAllocation recipient att.lockedAmount att.cantonInstrumentId ]
           requestedAt = now
-          settlementDeadline = Some att.expiry
+          settleAt = Some att.expiry
           actors = inboundSettlement.executors
 ```
 

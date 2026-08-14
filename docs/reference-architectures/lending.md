@@ -331,10 +331,13 @@ Step-by-step execution of the flows:
 
 Assumptions:
 
-- Steps 1 to 9 wait on no other party, so the driving party completes its
-  flow in one session. The exceptions are time, not people: the liquidation
-  grace period, and custody-held keys, which stretch any signature toward
-  the 24h prepared-transaction window
+- Steps 1 to 9 wait on no counterparty signature, so the driving party
+  completes its flow in one session. Two automated inputs do gate them: the
+  D1 attestation on steps 2, 5, and 9, and a fresh oracle price on steps 3,
+  7, and 9. Neither stalls a command; both fail it closed
+  ([section 5.4](#54-failure-modes-and-recovery)). The rest is time, not
+  people: the liquidation grace period, and custody-held keys, which stretch
+  any signature toward the 24h prepared-transaction window
   ([the time model below](#time-model-and-deadlines)).
 - While an allocation is committed the funds are locked; the lock is
   time-bounded and the authorizer always has a unilateral exit
@@ -781,13 +784,15 @@ The design handles them under one invariant:
 allocation has a unilateral, time-bounded exit: it becomes withdrawable after
 `settlementDeadline`, and no counterparty inaction, attester inaction, or
 pause extends that. Collateral in the custody account is bound by purpose,
-not by time: it secures the debt, so its exits are conditional - withdraw
-while the vault stays healthy, close by repaying in full - and both are
-pause-gated with no deadline forcing release. A held pause therefore strands
-even healthy collateral for its duration, which makes the pause authority a
-custody trust assumption in a way the settlement counterparties are not. The
-sole seizure exception is an active D2 with an explicit, finite window and
-lawful-process reference.
+not by time: it secures the debt, so no deadline forces its release and its
+exits are conditional - withdraw while the vault stays healthy, close by
+repaying in full. Deliberately so: an unconditional exit would make the loan
+unsecured. The condition is not a trap, because the wind-down path never
+gates on the borrower's own standing - repay, close, and liquidation stay
+open even for a borrower who has lost their credential
+([section 3](#compliance-is-re-checked-on-every-operation)). The sole seizure
+exception is an active D2 with an explicit, finite window and lawful-process
+reference.
 
 | Failure | Effect while pending | Recovery path | Funds locked at most |
 |---|---|---|---|
@@ -796,7 +801,7 @@ lawful-process reference.
 | Oracle goes stale | borrows and liquidations blocked by the staleness guard | committee publishes; the breaker resets | nothing locked; positions frozen |
 | Liquidator never follows up a flag | vault stays flagged through the grace period | the borrower cures, or any other designated liquidator completes | nothing locked |
 | Pause during the margin-call window | liquidation blocked while the grace clock ticks | unpause; the interaction is an open question ([section 7](#7-open-design-questions)) | nothing locked |
-| Pause held long | withdraw, close, repay, cure, and liquidation all blocked; custody collateral stranded | unpause; no deadline bounds a pause, so this rests on the pause authority's governance | unbounded while paused |
+| Pause held long | borrow, deposit, repay, cure, and liquidation blocked; an indebted vault cannot close, and its stability fee accrues | unpause; no deadline bounds a pause, so this rests on pauser governance | in-flight allocations: `settlementDeadline`; custody collateral withdrawable while healthy |
 | Protocol validator out of traffic | oracle publishes stall; the staleness guard then blocks borrows and liquidations | traffic top-up and monitoring ([section 6](#6-network-economics-traffic-costs-and-app-rewards)) | nothing locked |
 | Synchronizer outage | ledger halted: no one can settle, and no one can withdraw | service resumes; if `settlementDeadline` lapsed during the outage the allocation is withdraw-only | outage duration + `settlementDeadline` |
 | D2 marked, never swept | settle, withdraw, and cancel all blocked | admin unmark; lawful-process sweep bounded by the seizure window | seizure window end |
