@@ -40,7 +40,7 @@ with v2 can opt into the typed path through `Some IdentityExtensionConfig`.
 
 The `upgrades` field in [`v2/daml.yaml`](v2/daml.yaml) points to the v1 DAR, so
 `dpm build` performs compiler-side upgrade validation. The smoke harness also
-validates participant-style behavior on a live sandbox.
+validates participant behavior on a live ledger.
 
 ## Validate the upgrade
 
@@ -53,16 +53,39 @@ dpm upgrade-check --both \
   experiments/identity/upgrade/v2/.daml/dist/openzeppelin-experimental-identity-hook-upgrade-0.2.0.dar
 ```
 
-Run the live-ledger validation from the repository root:
+Run the live-ledger validation from the repository root with DPM, Java 21+,
+`curl`, and `lsof`:
 
 ```sh
 scripts/identity-hook-upgrade-smoke.sh
 ```
 
-The harness builds both versions and driver packages, starts an isolated
-sandbox, creates a holding through v1, and exercises the unchanged baseline
-transfer through v2. It asserts that the successor owner and amount are
-preserved and that `identityExtension` is `None`.
+That starts `dpm sandbox`, which needs no container images. Add Docker Compose
+v2, `git`, and `openssl`, and pass `--localnet` to run the same validation on
+[Canton LocalNet](https://docs.canton.network/sdks-tools/development-tools/localnet):
+
+```sh
+scripts/identity-hook-upgrade-smoke.sh --localnet
+```
+
+The harness builds both implementation and driver packages, starts the selected
+ledger, uploads the v1 driver DAR, creates a holding through v1, uploads the v2
+driver DAR, and exercises the unchanged baseline transfer through v2. It asserts
+that the successor owner and amount are preserved and that `identityExtension` is
+`None`. Then it stops the ledger. Logs and the run fixture are written under
+`.cache/identity-hook-upgrade/`, in one subdirectory for each backend.
+
+Each phase uploads only its own version. A participant prefers the highest vetted
+version of a package when it resolves a command, so a v1 phase that already saw
+v2 would create the v2 contract instead of the v1 contract that the upgrade
+validation needs.
+
+The shared [`scripts/ledger.sh`](../../../scripts/ledger.sh) documents both
+backends, the Ledger API authentication, and the environment overrides. LocalNet
+authenticates the Ledger API, and party allocation grants no `CanActAs` right, so
+the v1 driver grants that right for each fixture party to the participant's admin
+user. The v2 driver then submits for the same parties. The sandbox authenticates
+nothing and reports no admin user, so the grant does nothing there.
 
 The [Canton package-selection guide](https://docs.canton.network/appdev/modules/m6-package-selection)
 describes how compatible package versions coexist and how an application selects

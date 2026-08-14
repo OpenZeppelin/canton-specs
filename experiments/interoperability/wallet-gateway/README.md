@@ -24,7 +24,7 @@ allocation through `SettlementFactory_SettleBatch`.
 ## Components
 
 ```text
-dpm sandbox
+the participant (dpm sandbox, or the LocalNet app-provider)
   |-- Ledger API gRPC -------- Daml Script setup and settlement phases
   |-- JSON Ledger API -------- Canton Wallet Gateway
                                   |-- CIP-0103 dApp and user APIs
@@ -42,20 +42,43 @@ dpm sandbox
 
 ## Run locally
 
-Requirements are DPM, Java 21+, Node.js 20+, and `npx`. From the repository
-root:
+Requirements are DPM, Java 21+, `curl`, `lsof`, and Node.js 20+ with `npx`. From
+the repository root:
 
 ```sh
 scripts/wallet-gateway-cip0103-interop.sh
 ```
 
-The script builds the interop package, starts a wallclock sandbox with the JSON
-Ledger API enabled, configures and starts the pinned Wallet Gateway package, and
-runs the wallet, settlement, and verification phases. Logs and generated
-evidence are written under `.cache/wallet-gateway-interop/`.
+That starts `dpm sandbox`, which needs no container images. Add Docker Compose
+v2, `git`, and `openssl`, and pass `--localnet` to run the gate against
+[Canton LocalNet](https://docs.canton.network/sdks-tools/development-tools/localnet)
+instead:
 
-Ports and the gateway package pin are configurable through `OZ_LEDGER_PORT`,
-`OZ_JSON_API_PORT`, `OZ_GATEWAY_PORT`, and `OZ_GATEWAY_PKG`.
+```sh
+scripts/wallet-gateway-cip0103-interop.sh --localnet
+```
+
+The script builds the interop package, starts the selected ledger, uploads the
+DAR over the JSON Ledger API, configures and starts the pinned Wallet Gateway
+package, and runs the wallet, settlement, and verification phases. Then it stops
+the ledger. Logs and generated evidence are written under
+`.cache/wallet-gateway-interop/`.
+
+The shared [`scripts/ledger.sh`](../../../scripts/ledger.sh) documents both
+backends, the Ledger API authentication, and the environment overrides. The
+gateway mints its own Ledger API token through its `self_signed` authentication
+method. LocalNet accepts that token because the gate configures the gateway with
+the participant's unsafe HS256 secret and its audience; the `dpm script` phases
+use the token of the same admin user. The sandbox validates no token. The gateway
+holds the wallet party's ledger rights on the user of its session.
+
+The gateway reads participant-level endpoints with the session token when it
+allocates the wallet party, so on LocalNet that session runs as the participant's
+admin user. A production deployment separates the operator's admin user from a
+dApp session user.
+
+The gateway port and the gateway package pin are configurable through
+`OZ_GATEWAY_PORT` and `OZ_GATEWAY_PKG`.
 
 ## External ledger mode
 
@@ -75,5 +98,5 @@ environment.
   establish Token Standard V2 conformance.
 
 The scheduled and manual
-[`interop-gates` workflow](../../../.github/workflows/interop-gates.yml) runs the
-gate and publishes its generated evidence as CI artifacts.
+[`live-ledger-gates` workflow](../../../.github/workflows/live-ledger-gates.yml)
+runs the gate and publishes its generated evidence as CI artifacts.

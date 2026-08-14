@@ -1,0 +1,114 @@
+name: live-ledger-gates
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "17 3 * * *"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: live-ledger-gates-${{ github.ref }}
+  cancel-in-progress: true
+
+# Every job runs its gate with `--localnet`. Each one therefore starts the Splice
+# LocalNet Docker Compose network and pays for the image pull and the network
+# bootstrap, which is why this workflow is scheduled instead of per pull request.
+jobs:
+  cip-interop:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Daml
+        uses: ./.github/actions/setup-daml
+
+      - name: Run the CIP interoperability gate
+        run: scripts/cip-interop-validation.sh --localnet
+
+      - name: Upload CIP interoperability evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cip-interop-evidence
+          path: .cache/cip-interop-validation/
+          if-no-files-found: warn
+          retention-days: 30
+
+  wallet-gateway:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Daml
+        uses: ./.github/actions/setup-daml
+
+      - name: Set up Node 24
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+
+      - name: Run Canton Wallet Gateway interoperability
+        run: scripts/wallet-gateway-cip0103-interop.sh --localnet
+
+      - name: Upload Wallet Gateway evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: wallet-gateway-interop-evidence
+          path: .cache/wallet-gateway-interop/
+          if-no-files-found: warn
+          retention-days: 30
+
+  cip0104-rewards:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Daml
+        uses: ./.github/actions/setup-daml
+
+      - name: Set up Node 24
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+
+      - name: Run CIP-0104 rewards walkthrough interoperability
+        run: scripts/cip0104-rewards-walkthrough.sh --localnet
+
+      - name: Upload rewards walkthrough evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cip0104-rewards-walkthrough-evidence
+          path: .cache/cip0104-rewards-walkthrough/
+          if-no-files-found: warn
+          retention-days: 30
+
+  identity-upgrade:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Daml
+        uses: ./.github/actions/setup-daml
+
+      # The ci workflow runs the same gate against the sandbox on every pull
+      # request. This run adds the participant behavior that only an
+      # authenticated ledger shows: party rights and package vetting.
+      - name: Run the identity SCU smoke test on LocalNet
+        run: scripts/identity-hook-upgrade-smoke.sh --localnet
+
+      - name: Upload identity upgrade evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: identity-hook-upgrade-evidence
+          path: .cache/identity-hook-upgrade/
+          if-no-files-found: warn
+          retention-days: 30
