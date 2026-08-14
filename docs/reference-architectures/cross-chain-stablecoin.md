@@ -819,3 +819,63 @@ Decisions to settle with the internal team before implementation, not M1 build i
 - **Synchrony and time assumptions.** The boundary is asynchronous by construction: the gateway consumes finalized source-chain events, and Canton settlement is a separate, later transaction, while the on-Canton windows (the attestation `expiry`, the mandatory finite `settlementDeadline`) are checked against ledger time. Open: concrete window sizes (the margin between source-chain finality and Canton ledger time, attester turnaround ceilings) and the operational SLAs around them. Also open: whether the nonce should be recorded at settlement rather than at the gateway, since no window size makes a consumed-but-unsettled nonce retryable.
 - **Cross-domain identity proof injection (D3, deferred).** When ONCHAINID / ERC-3643 equivalents are supported, does the `TrustedIssuerRegistry` ingest external state proofs via an oracle, or rely on a CCID protocol synchronized across the global synchronizer? The cross-domain proof-injection trust model must be audited.
 - **Composability with the other RIs** (forward-compatibility): recipients holding instruments settled here (`wTOK`, or native USDCx) can provide liquidity to the DEX RI ([`01`](./dex.md)) pools or collateralize a Lending RI ([`02`](./lending.md)) vault - all over the same `SettlementFactory_SettleBatch` spine, with no parallel settlement path.
+
+### Field notes toward the questions above, from a UTXO-chain instance of this architecture
+
+Contributed from a wrapped-Litecoin (cLTC) bridge design for Canton — the case where the source
+chain has no contracts, which stresses several assumptions above from a different angle than an
+EVM source does. Offered as input to the decisions this section collects, not as settled answers.
+
+- **Quorum-verifying choice shape (attester trust model).** Between "aggregated attestation vs M
+  attestations": make each attestation a contract **signed by its own attester** (`signatory
+  attester`, admin as observer), and have the quorum-consuming choice require `N` distinct attester
+  signatories checked against the registry roster — count-and-roster at consumption. The artifact
+  consumers accept then carries the attesters' own ledger signatures, so no admin or relayer can
+  forge a quorum even with full transport control; with each attester party hosted only on its own
+  operator's validator, the hosting topology backs the authorization topology. An aggregated
+  off-ledger signature moves that verification into whoever checks the aggregate; per-attester
+  signatories keep it inside Daml's authorization model, where an audit can read it. The cost is
+  stated rather than hidden: the attesters' validators join the consuming transaction's
+  confirmation path, so quorum liveness couples to attester hosting — bounded by N-of-M exactly as
+  the registry posture intends.
+
+- **Attester-set governance (the same question, one level up).** A registry the admin can rewrite
+  is a single-party trust root wearing a quorum's clothes. Shape that removed it for us: the trust
+  registry as an **on-ledger succession chain** — genesis published once out of band, and every
+  roster change *consumes* the live registry into its successor under the **outgoing** quorum's
+  authority, each member's own pin self-witnessed. A consumer resolves the current roster by
+  walking from the genesis it pinned, so a planted parallel registry fails against the anchor
+  rather than against vigilance. The capability-lifecycle question above (revoke/rotate) fits the
+  same shape: a capability registry whose successor supersedes, rather than per-contract archival
+  races.
+
+- **Slashing: defer it entirely.** The remedy that needs no new machinery is **detection plus
+  roster replacement**: each attester independently compares its own source-chain view against the
+  published on-ledger state and can halt on mismatch, and a misbehaving seat is rotated out through
+  the succession chain — up to replacing the whole federation. A bonded-slashing mechanism needs a
+  stake, a misbehaviour adjudicator, and an enforcement path, each a trust surface larger than the
+  one it polices; where attesters are contracted, identified legal entities, recourse is
+  contractual and reputational. Slashing earns its complexity only if the attester set ever becomes
+  permissionless — which is a different design than this RI's registry posture.
+
+- **Outbound ordering on chains without contracts.** Burn-first / attested-release is sound where
+  a source-chain escrow *contract* releases against the signed burn attestation. On a UTXO chain
+  with no contracts (Litecoin; Bitcoin without covenant assumptions) no such gate exists: the
+  release is a plain threshold-signed transaction that can stall, be evicted, or never confirm, and
+  a burn-first design leaves the redeemer holding neither asset against an unbounded window. There
+  the sound ordering inverts to **burn-last**: lock the wrapped holding → authorize on-ledger,
+  pinning the exact input *and output* sets of the payout → sign against the pinned sets → broadcast
+  → confirm → burn; the supply invariant then carries a settling term for the in-flight window so an
+  honest redemption does not trip 1:1 monitoring. Suggest the report scope its ordering claim to
+  contract-bearing source chains and name the UTXO case, so an implementer bridging one does not
+  inherit an assumption their chain cannot honor.
+
+- **One threat-model row worth adding: unattributable inbound origin.** The toxic-inflow row covers
+  an unwilling recipient; the harder case is inbound value whose *origin* cannot be attributed —
+  privacy-pool exits on EVM chains, shielded-provenance funds (e.g. MWEB) on UTXO chains. The
+  fail-closed pattern consistent with this report's own rejection of heuristic scoring: **quarantine
+  at the boundary** — the deposit never mints, is structurally excluded from any consolidation or
+  sweep, and release requires either a positive origin resolution checked by the attesters against
+  their own nodes, or an explicitly admin-gated, quorum-approved manual class behind a public
+  on-ledger notice window. The notice window is the control: a quiet release path is the theft
+  path, whoever holds the key.
