@@ -33,7 +33,10 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: cip-interop-evidence
-          path: .cache/cip-interop-validation/
+          # The minted Ledger API token stays out of the artifact.
+          path: |
+            .cache/cip-interop-validation/
+            !.cache/cip-interop-validation/**/*.token
           if-no-files-found: warn
           retention-days: 30
 
@@ -59,7 +62,16 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: wallet-gateway-interop-evidence
-          path: .cache/wallet-gateway-interop/
+          # The minted Ledger API token, the gateway config that carries the
+          # participant secret, and the wallet's signing store stay out of the
+          # artifact. On the LocalNet backend the secret is the public literal
+          # `unsafe`, but this gate also accepts OZ_LEDGER_AUTH_SECRET and
+          # OZ_OIDC_CLIENT_SECRET.
+          path: |
+            .cache/wallet-gateway-interop/
+            !.cache/wallet-gateway-interop/**/*.token
+            !.cache/wallet-gateway-interop/**/*.sqlite
+            !.cache/wallet-gateway-interop/**/gateway-config.json
           if-no-files-found: warn
           retention-days: 30
 
@@ -85,7 +97,10 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: cip0104-rewards-walkthrough-evidence
-          path: .cache/cip0104-rewards-walkthrough/
+          # The minted Ledger API token stays out of the artifact.
+          path: |
+            .cache/cip0104-rewards-walkthrough/
+            !.cache/cip0104-rewards-walkthrough/**/*.token
           if-no-files-found: warn
           retention-days: 30
 
@@ -109,6 +124,9 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: identity-hook-upgrade-evidence
-          path: .cache/identity-hook-upgrade/
+          # The minted Ledger API token stays out of the artifact.
+          path: |
+            .cache/identity-hook-upgrade/
+            !.cache/identity-hook-upgrade/**/*.token
           if-no-files-found: warn
           retention-days: 30
