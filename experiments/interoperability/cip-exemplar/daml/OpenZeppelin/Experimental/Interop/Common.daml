@@ -41,6 +41,10 @@ expiringSettlementWindow = seconds 30
 -- A `dpm sandbox` still reports the admin user `participant_admin`, so the
 -- grant runs there too and adds one right for each party that the run
 -- allocates.
+--
+-- `listAllUsers` needs admin rights of its own. A gate that submits as a user
+-- without them fails on that call, and the error names the user management
+-- service instead of the party allocation that the caller asked for.
 allocateInteropParty : Text -> Script Party
 allocateInteropParty requestedName = do
   party <- allocateParty requestedName

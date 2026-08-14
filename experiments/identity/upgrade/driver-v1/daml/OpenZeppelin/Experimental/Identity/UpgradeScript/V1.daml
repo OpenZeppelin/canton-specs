@@ -35,6 +35,10 @@ scriptPartyHint runId role = "identity-hook-upgrade-script-v1-" <> role <> "-" <
 -- Neither the in-memory ledger of `dpm test` nor a `dpm sandbox` needs the
 -- grant, because neither authenticates the Ledger API. A `dpm sandbox` still
 -- reports the admin user `participant_admin`, so the grant runs there too.
+--
+-- `listAllUsers` needs admin rights of its own. A gate that submits as a user
+-- without them fails on that call, and the error names the user management
+-- service instead of the party allocation that the caller asked for.
 allocateDriverParty : Text -> Script Party
 allocateDriverParty requestedName = do
   party <- allocateParty requestedName
