@@ -12,32 +12,21 @@
 // does the same seven steps and asserts the same numbers as the on-ledger
 // executable specification (`Cip0104RewardsWalkthrough.daml`).
 //
-// The participant operates on WALLCLOCK time. The client settlements have no
-// deadline. Thus this client does not need `setTime`.
+// The sandbox operates on WALLCLOCK time. The client settlements have no
+// deadline. Thus this client does not need `setTime`. (The Daml walkthrough
+// uses a deadline and static time.)
 //
 // Scope: experimental interoperability validation. The reward rate and the
 // beneficiary split are examples. They are not the traffic-proportional CC
 // calculation of CIP-0104. This harness makes no CIP-0104 reward, SV, or
 // Scan production claim.
 //
-// The script scripts/cip0104-rewards-walkthrough.sh starts this harness and sets
-// the variables below for the backend that it selected. A standalone run needs a
-// participant with the exemplar DAR uploaded and with the JSON Ledger API at
-// OZ_JSON_API_URL; the built-in default, http://127.0.0.1:3975, is the
-// app-provider participant of Canton LocalNet, and a `dpm sandbox` answers at
-// 7575 instead. A participant that authenticates the Ledger API also needs
-// OZ_LEDGER_TOKEN_FILE (or OZ_LEDGER_TOKEN) with the token of an admin user, and
-// OZ_LEDGER_USER_ID with the user id of that token.
+// The script scripts/localnet-cip0104-rewards-walkthrough.sh starts this
+// harness. The harness needs a local participant without authentication, with
+// the exemplar DAR uploaded, and with the JSON Ledger API at OZ_JSON_API_URL
+// (default http://127.0.0.1:7575).
 
-import { readFileSync } from 'node:fs'
-
-const JSON_API = (process.env.OZ_JSON_API_URL ?? 'http://127.0.0.1:3975').replace(/\/+$/, '')
-
-// The bearer token of the Ledger API user. An unauthenticated participant needs
-// no token, so an absent token leaves the Authorization header out.
-const TOKEN =
-  process.env.OZ_LEDGER_TOKEN ??
-  (process.env.OZ_LEDGER_TOKEN_FILE ? readFileSync(process.env.OZ_LEDGER_TOKEN_FILE, 'utf8').trim() : null)
+const JSON_API = (process.env.OZ_JSON_API_URL ?? 'http://127.0.0.1:7575').replace(/\/+$/, '')
 
 const PKG_SETTLEMENT = '#openzeppelin-experimental-cip112-settlement'
 const MOD_ENGINE = 'OpenZeppelin.Experimental.Settlement.Cip112'
@@ -91,10 +80,7 @@ const assertEq = (label, actual, expected) => {
 async function api(method, path, body) {
   const res = await fetch(`${JSON_API}${path}`, {
     method,
-    headers: {
-      'content-type': 'application/json',
-      ...(TOKEN ? { authorization: `Bearer ${TOKEN}` } : {}),
-    },
+    headers: { 'content-type': 'application/json' },
     body: body ? JSON.stringify(body) : undefined,
   })
   const text = await res.text()
@@ -114,14 +100,11 @@ async function allocateParty(hint) {
   return party
 }
 
-// Ledger-user setup: each submission must give a user id, and the user may
-// submit for a party only if a `CanActAs` right names that party. Party
-// allocation grants no such right. Thus the harness grants the right for each
-// walkthrough party to the user that it submits as. That user is the admin user
-// of the token on an authenticated participant, and a user that the harness
-// creates otherwise. On a real network, the validator operator does this setup
-// through its IAM.
-const LEDGER_USER = process.env.OZ_LEDGER_USER_ID ?? 'oz-cip0104-walkthrough'
+// Ledger-user setup on the sandbox without authentication: each submission
+// must give a user id, also when authentication is off. Thus the harness
+// creates one user with actAs rights for the walkthrough parties. On a real
+// network, the validator operator does this setup through its IAM.
+const LEDGER_USER = 'oz-cip0104-walkthrough'
 async function provisionLedgerUser(parties) {
   const rights = parties.map((party) => ({ kind: { CanActAs: { value: { party } } } }))
   try {
