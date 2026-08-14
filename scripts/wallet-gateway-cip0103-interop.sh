@@ -70,6 +70,11 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 WORK_ROOT="${OZ_INTEROP_WORK_DIR:-$ROOT/.cache/wallet-gateway-interop}"
 mkdir -p "$WORK_ROOT"
+# Keep one run directory. This gate writes its evidence here and the workflow
+# uploads it after the run, so the directory must outlive the gate; removing the
+# earlier runs at the start bounds the growth instead. The other gates overwrite
+# their logs in place, which comes to the same thing.
+rm -rf "${WORK_ROOT:?}"/run.*
 WORK_DIR="$(mktemp -d "$WORK_ROOT/run.XXXXXX")"
 
 . "$ROOT/scripts/ledger.sh"

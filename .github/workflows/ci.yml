@@ -31,6 +31,9 @@ jobs:
       - name: Lint all packages
         run: scripts/check-lint.sh
 
+      - name: Run the Daml Script tests and the coverage gate
+        run: scripts/check-tests.sh
+
       - name: Run the identity SCU smoke test
         run: scripts/identity-hook-upgrade-smoke.sh
 
