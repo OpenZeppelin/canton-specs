@@ -39,6 +39,11 @@
 # there, so that combination serves a participant which authenticates the Ledger
 # API with the LocalNet secret.
 #
+# That mode leaves state behind. The scenarios grant `CanActAs` to every admin
+# user of the participant, and they revoke nothing, so the rights outlive a run
+# which does not take its ledger down with it. They also allocate stable party
+# ids. Point the mode at a disposable participant.
+#
 # Set OZ_KEEP_LOCALNET=1 to keep the network after the run, for inspection. The
 # switch serves the LocalNet backend alone, because its containers outlive the
 # run on their own. A sandbox always stops: its JVM is a child process of the
@@ -439,6 +444,7 @@ ledger_start() {
 	fi
 	if [ "$LEDGER_EXTERNAL" = 1 ]; then
 		ledger_log "using the ledger that already runs at $LEDGER_JSON_API_URL (must be fresh)"
+		ledger_log "WARNING: this run grants CanActAs to every admin user of that participant, for every party it allocates, and revokes none of them. Use a disposable participant."
 		return 0
 	fi
 	if [ "$LEDGER_MODE" = localnet ]; then
