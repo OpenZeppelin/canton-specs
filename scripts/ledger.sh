@@ -31,8 +31,17 @@
 # A LocalNet run needs a FRESH ledger, because the scenarios allocate stable
 # party ids and a participant vets one version of each package. `ledger_start`
 # therefore recreates the network of its own Docker Compose project, and
-# `ledger_stop` removes it. Set OZ_KEEP_LOCALNET=1 to keep the network for
-# inspection.
+# `ledger_stop` removes it.
+#
+# OZ_USE_EXTERNAL_LEDGER=1 targets a ledger that already runs: the gate skips
+# both the start and the teardown. The localnet backend still mints its token
+# there, so that combination serves a participant which authenticates the Ledger
+# API with the LocalNet secret.
+#
+# Set OZ_KEEP_LOCALNET=1 to keep the network after the run, for inspection. The
+# switch serves the LocalNet backend alone, because its containers outlive the
+# run on their own. A sandbox always stops: its JVM is a child process of the
+# gate, so a gate that kept it would never return.
 #
 # Environment overrides:
 #   OZ_LEDGER_MODE           sandbox (default) or localnet, as `--localnet` does
@@ -87,10 +96,12 @@ ledger_parse_args() {
 # Set the label of the messages, the repository root, the log directory, and the
 # defaults of the selected backend.
 ledger_init() {
+	: "${LEDGER_MODE:?ledger_parse_args must run before ledger_init}"
 	LEDGER_LABEL="${1:?label required}"
 	LEDGER_ROOT="${2:?repository root required}"
-	LEDGER_LOG_DIR="${3:?log directory required}"
-	: "${LEDGER_MODE:?ledger_parse_args must run before ledger_init}"
+	# One subdirectory per backend: the two backends write logs of the same name,
+	# so a shared directory would leave a mixture of two runs behind.
+	LEDGER_LOG_DIR="${3:?log directory required}/$LEDGER_MODE"
 
 	LEDGER_EXTERNAL="${OZ_USE_EXTERNAL_LEDGER:-0}"
 	LEDGER_HOST="${OZ_LEDGER_HOST:-localhost}"
@@ -132,7 +143,8 @@ ledger_init() {
 	SANDBOX_PGID=""
 
 	mkdir -p "$LEDGER_LOG_DIR"
-	LEDGER_START_LOG="$LEDGER_LOG_DIR/$LEDGER_MODE.log"
+	LEDGER_START_LOG="$LEDGER_LOG_DIR/start.log"
+	LEDGER_BUILD_LOG="$LEDGER_LOG_DIR/build.log"
 }
 
 ledger_log() {
@@ -172,17 +184,35 @@ ledger_require_node() {
 # The tools that the selected backend needs. A gate adds its own.
 ledger_require_tools() {
 	ledger_require_command curl
+	# The LocalNet token carries the run even when the ledger already runs, so
+	# `openssl` belongs to the backend and not to the network that this gate
+	# starts.
+	if [ "$LEDGER_MODE" = localnet ]; then
+		ledger_require_command openssl
+	fi
 	if [ "$LEDGER_EXTERNAL" = 1 ]; then
 		return 0
 	fi
 	if [ "$LEDGER_MODE" = localnet ]; then
-		ledger_require_command openssl docker
+		ledger_require_command docker
 		docker compose version >/dev/null 2>&1 ||
 			ledger_die "docker compose v2 is not available"
 	else
 		ledger_require_command lsof
 		ledger_require_java
 	fi
+}
+
+# Build the packages of a gate, with the build output in a log instead of on the
+# terminal: a gate narrates its own steps, and the `dpm build` output of three or
+# four packages buries that narration. The caller passes the build commands.
+ledger_build() {
+	local what="${1:?description required}"
+	shift
+	ledger_log "building $what (log: $LEDGER_BUILD_LOG)"
+	: >"$LEDGER_BUILD_LOG"
+	"$@" >>"$LEDGER_BUILD_LOG" 2>&1 ||
+		ledger_die "the build of $what failed; see $LEDGER_BUILD_LOG"
 }
 
 # Refuse a run that the ledger cannot serve, before the gate spends time on its

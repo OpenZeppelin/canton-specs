@@ -35,8 +35,9 @@ ledger_require_java
 ledger_require_tools
 ledger_preflight
 
-ledger_log "building the interop exemplar package"
-(cd "$PKG_DIR" && dpm build)
+build_exemplar() { (cd "$PKG_DIR" && dpm build); }
+
+ledger_build "the interop exemplar package" build_exemplar
 [ -f "$DAR" ] || ledger_die "expected DAR not found: $DAR"
 
 cleanup() {

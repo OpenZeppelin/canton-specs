@@ -34,7 +34,7 @@ scripts/cip-interop-validation.sh --localnet
 The orchestration script builds the exemplar, starts the selected ledger, uploads
 the DAR over the JSON Ledger API, runs every scenario over gRPC with `dpm
 script`, and stops the ledger on exit. Logs are written under
-`.cache/cip-interop-validation/`.
+`.cache/cip-interop-validation/`, in one subdirectory for each backend.
 
 LocalNet is the backend that proves participant behavior: it runs a participant
 on a real synchronizer and it authenticates the Ledger API. It starts with the

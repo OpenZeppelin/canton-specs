@@ -40,11 +40,14 @@ ledger_require_java
 ledger_require_tools
 ledger_preflight
 
-ledger_log "building v1/v2 experiment packages"
-(cd "$ROOT" && DAML_PACKAGE=experiments/identity/upgrade/v1 dpm build)
-(cd "$ROOT" && DAML_PACKAGE=experiments/identity/upgrade/v2 dpm build)
-(cd "$ROOT" && DAML_PACKAGE=experiments/identity/upgrade/driver-v1 dpm build)
-(cd "$ROOT" && DAML_PACKAGE=experiments/identity/upgrade/driver-v2 dpm build)
+build_packages() {
+	local package
+	for package in v1 v2 driver-v1 driver-v2; do
+		(cd "$ROOT" && DAML_PACKAGE="experiments/identity/upgrade/$package" dpm build) || return 1
+	done
+}
+
+ledger_build "the v1/v2 implementation and driver packages" build_packages
 for dar in "$DRIVER_V1_DAR" "$DRIVER_V2_DAR"; do
 	[ -f "$dar" ] || ledger_die "expected DAR not found: $dar"
 done
@@ -61,14 +64,17 @@ ledger_start
 ledger_wait_ready
 ledger_script_args
 
+# The output of the Daml Script runner goes to a log of its own: the gate
+# narrates its own phases, and the JVM warnings of the runner bury them.
 run_driver_script() {
-	local dir="$1" dar="$2" name="$3"
-	shift 3
+	local dir="$1" dar="$2" name="$3" log="$LEDGER_LOG_DIR/$4"
+	shift 4
 	(cd "$dir" && dpm script \
 		--dar "$dar" \
 		--script-name "$name" \
 		"${LEDGER_SCRIPT_ARGS[@]}" \
-		"$@")
+		"$@") >"$log" 2>&1 ||
+		ledger_die "${name##*:} failed; see $log"
 }
 
 printf '{ "runId": "%s" }\n' "$RUN_ID" >"$RUN_INPUT"
@@ -82,6 +88,7 @@ ledger_upload_dar "$DRIVER_V1_DAR"
 ledger_log "creating v1 fixture with run id $RUN_ID"
 run_driver_script "$DRIVER_V1_DIR" "$DRIVER_V1_DAR" \
 	OpenZeppelin.Experimental.Identity.UpgradeScript.V1:createV1HoldingFixtureForRun \
+	v1-fixture.log \
 	--input-file "$RUN_INPUT" \
 	--output-file "$FIXTURE_FILE"
 
@@ -89,6 +96,7 @@ ledger_upload_dar "$DRIVER_V2_DAR"
 ledger_log "exercising v1-created holding through v2"
 run_driver_script "$DRIVER_V2_DIR" "$DRIVER_V2_DAR" \
 	OpenZeppelin.Experimental.Identity.UpgradeScript.V2:migrateV1HoldingTransferUnderV2 \
+	v2-migration.log \
 	--input-file "$FIXTURE_FILE"
 
 ledger_log "asserted migrated holding owner=bob amount=125 identityExtension=None"

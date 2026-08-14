@@ -42,7 +42,9 @@
 # Requirements: DPM, Java 21+, `curl`, `lsof`, and Node.js 20+ with npx. The
 # `--localnet` backend also needs Docker Compose v2, `git`, and `openssl`.
 # Env overrides: OZ_GATEWAY_PORT (3030), OZ_INTEROP_WORK_DIR, OZ_GATEWAY_PKG
-# (pin/override the gateway npm package spec).
+# (pin/override the gateway npm package spec), OZ_GATEWAY_NETWORK_ID,
+# OZ_GATEWAY_LEDGER_USER (the ledger user of the gateway session), and
+# OZ_DAPP_ORIGIN (the origin that the dApp declares to the gateway).
 #
 # External-ledger mode (devnet/testnet): set OZ_USE_EXTERNAL_LEDGER=1 plus the
 # connection variables below in an env file OUTSIDE the repo (e.g.
@@ -172,8 +174,9 @@ trap cleanup EXIT
 ledger_require_port_free "$GATEWAY_PORT"
 ledger_preflight
 
-echo "== Building $PKG_DIR"
-(cd "$PKG_DIR" && dpm build)
+build_exemplar() { (cd "$PKG_DIR" && dpm build); }
+
+ledger_build "the interop exemplar package" build_exemplar
 [ -f "$DAR" ] || { echo "ERROR: DAR not found at $DAR" >&2; exit 1; }
 
 if [ "$EXTERNAL" = 1 ]; then

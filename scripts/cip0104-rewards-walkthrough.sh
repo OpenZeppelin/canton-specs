@@ -57,9 +57,8 @@ trap cleanup EXIT
 if [ "$LEDGER_EXTERNAL" != 1 ]; then
 	ledger_require_command dpm
 	ledger_require_java
-	ledger_log "building the interop exemplar package (log: $LEDGER_LOG_DIR/build.log)"
-	(cd "$PKG_DIR" && dpm build) >"$LEDGER_LOG_DIR/build.log" 2>&1 ||
-		ledger_die "build failed; see $LEDGER_LOG_DIR/build.log"
+	build_exemplar() { (cd "$PKG_DIR" && dpm build); }
+	ledger_build "the interop exemplar package" build_exemplar
 	[ -f "$DAR" ] || ledger_die "expected DAR not found: $DAR"
 fi
 

@@ -73,7 +73,7 @@ ledger, uploads the v1 driver DAR, creates a holding through v1, uploads the v2
 driver DAR, and exercises the unchanged baseline transfer through v2. It asserts
 that the successor owner and amount are preserved and that `identityExtension` is
 `None`. Then it stops the ledger. Logs and the run fixture are written under
-`.cache/identity-hook-upgrade/`.
+`.cache/identity-hook-upgrade/`, in one subdirectory for each backend.
 
 Each phase uploads only its own version. A participant prefers the highest vetted
 version of a package when it resolves a command, so a v1 phase that already saw
