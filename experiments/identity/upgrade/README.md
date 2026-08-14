@@ -84,8 +84,9 @@ The shared [`scripts/ledger.sh`](../../../scripts/ledger.sh) documents both
 backends, the Ledger API authentication, and the environment overrides. LocalNet
 authenticates the Ledger API, and party allocation grants no `CanActAs` right, so
 the v1 driver grants that right for each fixture party to the participant's admin
-user. The v2 driver then submits for the same parties. The sandbox authenticates
-nothing and reports no admin user, so the grant does nothing there.
+user. The v2 driver then submits for the same parties. The sandbox needs no
+grant, because it authenticates nothing, but it reports the admin user
+`participant_admin` and the grant runs there too.
 
 The [Canton package-selection guide](https://docs.canton.network/appdev/modules/m6-package-selection)
 describes how compatible package versions coexist and how an application selects

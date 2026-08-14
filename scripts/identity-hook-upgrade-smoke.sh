@@ -12,8 +12,9 @@
 #
 # The v1 driver grants the participant's admin user `CanActAs` for every party it
 # allocates (UpgradeScript/V1.daml, `allocateDriverParty`), so the v2 driver
-# submits for the same parties in the second phase. The sandbox reports no admin
-# user, so the grant does nothing there.
+# submits for the same parties in the second phase. The sandbox needs no grant,
+# because it authenticates nothing, but it reports the admin user
+# `participant_admin` and the grant runs there too.
 #
 # Environment overrides: IDENTITY_HOOK_UPGRADE_RUN_ID pins the party-hint suffix
 # of the run, and OZ_LEDGER_LOG_DIR moves the evidence directory.

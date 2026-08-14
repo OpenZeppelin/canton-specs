@@ -36,9 +36,11 @@ expiringSettlementWindow = seconds 30
 --
 -- A LocalNet participant authenticates the Ledger API. A user may then submit
 -- for a party only if a `CanActAs` right names that party, and party allocation
--- grants no such right. The in-memory ledger of `dpm test` and an
--- unauthenticated sandbox need no grant, and they report no admin user, so the
--- grant does nothing there.
+-- grants no such right. Neither the in-memory ledger of `dpm test` nor a
+-- `dpm sandbox` needs the grant, because neither authenticates the Ledger API.
+-- A `dpm sandbox` still reports the admin user `participant_admin`, so the
+-- grant runs there too and adds one right for each party that the run
+-- allocates.
 allocateInteropParty : Text -> Script Party
 allocateInteropParty requestedName = do
   party <- allocateParty requestedName

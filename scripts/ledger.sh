@@ -19,8 +19,9 @@
 #
 # Both backends run on WALLCLOCK time, and both take their DARs over the JSON
 # Ledger API. The scenarios therefore need no per-backend branch: they read the
-# ledger clock, and they grant `CanActAs` for the parties they allocate, which
-# does nothing on the unauthenticated sandbox.
+# ledger clock, and they grant `CanActAs` for the parties they allocate. The
+# sandbox needs no grant, because it authenticates nothing, but it reports the
+# admin user `participant_admin` and the grant runs there too.
 #
 # LocalNet starts with the `sv` and `app-provider` profiles only: the gates need
 # a participant on a real synchronizer, and they use no Amulet or wallet

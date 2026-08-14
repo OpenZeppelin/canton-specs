@@ -64,8 +64,8 @@ variables below.
 - LocalNet authenticates the Ledger API. The gate mints the LocalNet unsafe
   token for the participant's admin user. Party allocation grants no `CanActAs`
   right, so the scenarios grant that right for every party they allocate. The
-  sandbox authenticates nothing and reports no admin user, so the grant does
-  nothing there.
+  sandbox needs no grant, because it authenticates nothing, but it reports the
+  admin user `participant_admin` and the grant runs there too.
 - A clean evidence run starts with a fresh ledger. The scenarios allocate stable
   party ids, and a participant vets one version of the exemplar package, so the
   script recreates its own ledger for each run. An external ledger must be fresh

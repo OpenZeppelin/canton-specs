@@ -32,8 +32,9 @@ scriptPartyHint runId role = "identity-hook-upgrade-script-v1-" <> role <> "-" <
 -- submit for a party only if a `CanActAs` right names that party, and party
 -- allocation grants no such right. The v2 driver submits for the same parties
 -- in the second phase of the smoke gate, so the grant must outlive this script.
--- The in-memory ledger of `dpm test` needs no grant, and it reports no admin
--- user, so the grant does nothing there.
+-- Neither the in-memory ledger of `dpm test` nor a `dpm sandbox` needs the
+-- grant, because neither authenticates the Ledger API. A `dpm sandbox` still
+-- reports the admin user `participant_admin`, so the grant runs there too.
 allocateDriverParty : Text -> Script Party
 allocateDriverParty requestedName = do
   party <- allocateParty requestedName
