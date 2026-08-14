@@ -35,6 +35,8 @@ the participant (dpm sandbox, or the LocalNet app-provider)
   defines offer templates and the setup, settlement, verification, and in-memory
   rehearsal scripts.
 - [`harness.mjs`](harness.mjs) drives the gateway APIs as the dApp.
+- [`package.json`](package.json) and [`package-lock.json`](package-lock.json)
+  pin the gateway release and its complete dependency tree.
 - [`evidence/`](evidence/) contains redacted local and external-ledger run
   transcripts.
 - [`scripts/wallet-gateway-cip0103-interop.sh`](../../../scripts/wallet-gateway-cip0103-interop.sh)
@@ -42,7 +44,7 @@ the participant (dpm sandbox, or the LocalNet app-provider)
 
 ## Run locally
 
-Requirements are DPM, Java 21+, `curl`, `lsof`, and Node.js 20+ with `npx`. From
+Requirements are DPM, Java 21+, `curl`, `lsof`, and Node.js 20+ with `npm`. From
 the repository root:
 
 ```sh
@@ -59,10 +61,16 @@ scripts/wallet-gateway-cip0103-interop.sh --localnet
 ```
 
 The script builds the interop package, starts the selected ledger, uploads the
-DAR over the JSON Ledger API, configures and starts the pinned Wallet Gateway
+DAR over the JSON Ledger API, installs and starts the pinned Wallet Gateway
 package, and runs the wallet, settlement, and verification phases. Then it stops
 the ledger. Logs and generated evidence are written under
 `.cache/wallet-gateway-interop/`.
+
+The gateway install runs `npm ci` against `package-lock.json`, which pins the
+release and every package below it to an exact version and a content hash. A run
+resolves no version range, so the same commit installs the same tree. To move to
+a new gateway release, change the version in `package.json`, run `npm install
+--package-lock-only` in this directory, and commit both files.
 
 The shared [`scripts/ledger.sh`](../../../scripts/ledger.sh) documents both
 backends, the Ledger API authentication, and the environment overrides. The
@@ -77,8 +85,7 @@ allocates the wallet party, so on LocalNet that session runs as the participant'
 admin user. A production deployment separates the operator's admin user from a
 dApp session user.
 
-The gateway port and the gateway package pin are configurable through
-`OZ_GATEWAY_PORT` and `OZ_GATEWAY_PKG`.
+The gateway port is configurable through `OZ_GATEWAY_PORT`.
 
 ## External ledger mode
 

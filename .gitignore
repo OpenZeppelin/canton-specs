@@ -26,3 +26,7 @@ CLAUDE.local.md
 # Daml build state
 .daml/
 .cache/
+
+# Node build state. The gate installs the pinned Wallet Gateway from the
+# lockfile that the repository tracks.
+node_modules/
