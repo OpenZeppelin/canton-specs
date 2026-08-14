@@ -4,8 +4,8 @@
 # every exemplar script against a live ledger over the Ledger API gRPC endpoint,
 # instead of the in-memory IDE ledger that `dpm test` uses.
 #
-#   scripts/localnet-cip-interop-validation.sh              # dpm sandbox
-#   scripts/localnet-cip-interop-validation.sh --localnet   # Canton LocalNet
+#   scripts/cip-interop-validation.sh              # dpm sandbox
+#   scripts/cip-interop-validation.sh --localnet   # Canton LocalNet
 #
 # `scripts/ledger.sh` documents both backends, the authentication, the
 # fresh-ledger requirement, and the environment overrides.
@@ -24,8 +24,8 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 . "$ROOT/scripts/ledger.sh"
 ledger_parse_args "$@"
-ledger_init localnet-cip-interop "$ROOT" \
-	"${OZ_LEDGER_LOG_DIR:-$ROOT/.cache/localnet-cip-interop}"
+ledger_init cip-interop "$ROOT" \
+	"${OZ_LEDGER_LOG_DIR:-$ROOT/.cache/cip-interop-validation}"
 
 PKG_DIR="$ROOT/experiments/interoperability/cip-exemplar"
 DAR="$PKG_DIR/.daml/dist/openzeppelin-experimental-cip-interop-exemplar-0.1.0.dar"
@@ -75,7 +75,7 @@ for s in "${SCRIPTS[@]}"; do
 		"${LEDGER_SCRIPT_ARGS[@]}" > "$log" 2>&1); then
 		ledger_log "PASS $s"
 	else
-		printf 'localnet-cip-interop: FAIL %s (see %s)\n' "$s" "$log" >&2
+		printf 'cip-interop: FAIL %s (see %s)\n' "$s" "$log" >&2
 		fail=1
 	fi
 done

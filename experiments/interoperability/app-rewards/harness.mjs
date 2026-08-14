@@ -20,13 +20,13 @@
 // calculation of CIP-0104. This harness makes no CIP-0104 reward, SV, or
 // Scan production claim.
 //
-// The script scripts/localnet-cip0104-rewards-walkthrough.sh starts this
-// harness. The harness needs a participant with the exemplar DAR uploaded and
-// with the JSON Ledger API at OZ_JSON_API_URL (default
-// http://127.0.0.1:3975, the app-provider participant of Canton LocalNet).
-// A participant that authenticates the Ledger API also needs
-// OZ_LEDGER_TOKEN_FILE (or OZ_LEDGER_TOKEN) with the token of an admin user,
-// and OZ_LEDGER_USER_ID with the user id of that token.
+// The script scripts/cip0104-rewards-walkthrough.sh starts this harness. The
+// harness needs a participant with the exemplar DAR uploaded and with the JSON
+// Ledger API at OZ_JSON_API_URL (default http://127.0.0.1:3975, the
+// app-provider participant of Canton LocalNet). A participant that
+// authenticates the Ledger API also needs OZ_LEDGER_TOKEN_FILE (or
+// OZ_LEDGER_TOKEN) with the token of an admin user, and OZ_LEDGER_USER_ID with
+// the user id of that token.
 
 import { readFileSync } from 'node:fs'
 

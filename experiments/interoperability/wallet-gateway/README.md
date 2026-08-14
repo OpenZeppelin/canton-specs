@@ -98,5 +98,5 @@ environment.
   establish Token Standard V2 conformance.
 
 The scheduled and manual
-[`interop-gates` workflow](../../../.github/workflows/interop-gates.yml) runs the
-gate and publishes its generated evidence as CI artifacts.
+[`live-ledger-gates` workflow](../../../.github/workflows/live-ledger-gates.yml)
+runs the gate and publishes its generated evidence as CI artifacts.

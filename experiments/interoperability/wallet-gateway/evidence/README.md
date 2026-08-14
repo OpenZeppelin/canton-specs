@@ -16,5 +16,5 @@ gate, Daml surface, topology assumptions, or pinned Wallet Gateway version
 changes.
 
 The scheduled and manual
-[`interop-gates` workflow](../../../../.github/workflows/interop-gates.yml)
+[`live-ledger-gates` workflow](../../../../.github/workflows/live-ledger-gates.yml)
 publishes complete generated run data as temporary CI artifacts.

@@ -8,10 +8,10 @@
 # the example accrued rewards only from Ledger API reads. It does the same steps
 # and makes assertions on the same numbers as the on-ledger executable
 # specification (Cip0104RewardsWalkthrough.daml, which
-# localnet-cip-interop-validation.sh runs).
+# cip-interop-validation.sh runs).
 #
-#   scripts/localnet-cip0104-rewards-walkthrough.sh              # dpm sandbox
-#   scripts/localnet-cip0104-rewards-walkthrough.sh --localnet   # Canton LocalNet
+#   scripts/cip0104-rewards-walkthrough.sh              # dpm sandbox
+#   scripts/cip0104-rewards-walkthrough.sh --localnet   # Canton LocalNet
 #
 # `scripts/ledger.sh` documents both backends, the authentication, the
 # fresh-ledger requirement, and the environment overrides.

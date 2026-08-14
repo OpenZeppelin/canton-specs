@@ -56,9 +56,9 @@ scripts/identity-hook-upgrade-smoke.sh
 The interoperability gates run real processes and ledger connections:
 
 ```sh
-scripts/localnet-cip-interop-validation.sh
+scripts/cip-interop-validation.sh
 scripts/wallet-gateway-cip0103-interop.sh
-scripts/localnet-cip0104-rewards-walkthrough.sh
+scripts/cip0104-rewards-walkthrough.sh
 ```
 
 Every gate above takes one of two ledger backends through the shared
@@ -67,7 +67,7 @@ Every gate above takes one of two ledger backends through the shared
 [Canton LocalNet](https://docs.canton.network/sdks-tools/development-tools/localnet):
 
 ```sh
-scripts/localnet-cip-interop-validation.sh --localnet
+scripts/cip-interop-validation.sh --localnet
 ```
 
 Each gate starts its ledger and removes it again. `scripts/ledger.sh` documents
@@ -75,7 +75,7 @@ both backends, the Docker Compose profiles, the Ledger API authentication, the
 fresh-ledger requirement, and the environment overrides.
 
 The `ci` workflow runs the sandbox backend, so a pull request pays no container
-image pull. The scheduled `interop-gates` workflow runs every gate with
+image pull. The scheduled `live-ledger-gates` workflow runs every gate with
 `--localnet`, which is where authorization, party rights, and package vetting on
 a real synchronizer are validated. Run `--localnet` locally before you change a
 gate, a harness, or a participant assumption. The domain documentation of each

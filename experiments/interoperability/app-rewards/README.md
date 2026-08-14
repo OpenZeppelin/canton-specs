@@ -19,13 +19,13 @@ The harness does the same seven steps as the on-ledger executable specification 
 Start from the repository root. Make sure that DPM, Java 21+, Node.js 20+, `curl`, and `lsof` are installed. Then run:
 
 ```sh
-scripts/localnet-cip0104-rewards-walkthrough.sh
+scripts/cip0104-rewards-walkthrough.sh
 ```
 
 That starts `dpm sandbox`, which needs no container images. Add Docker Compose v2, `git`, and `openssl`, and pass `--localnet` to run the harness against [Canton LocalNet](https://docs.canton.network/sdks-tools/development-tools/localnet) instead:
 
 ```sh
-scripts/localnet-cip0104-rewards-walkthrough.sh --localnet
+scripts/cip0104-rewards-walkthrough.sh --localnet
 ```
 
 The launcher builds the interop exemplar DAR. It starts the selected ledger and uploads the DAR over the JSON Ledger API. It runs the harness against the same JSON Ledger API. Then it stops the ledger. The logs go to `.cache/cip0104-rewards-walkthrough/`.

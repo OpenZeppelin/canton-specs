@@ -20,7 +20,7 @@ The executable scripts live in
 From the repository root with DPM, Java 21+, `curl`, and `lsof`:
 
 ```sh
-scripts/localnet-cip-interop-validation.sh
+scripts/cip-interop-validation.sh
 ```
 
 That starts `dpm sandbox`, which needs no container images. Add Docker Compose
@@ -28,13 +28,13 @@ v2, `git`, and `openssl`, and pass `--localnet` to run the same scenarios on
 [Canton LocalNet](https://docs.canton.network/sdks-tools/development-tools/localnet):
 
 ```sh
-scripts/localnet-cip-interop-validation.sh --localnet
+scripts/cip-interop-validation.sh --localnet
 ```
 
 The orchestration script builds the exemplar, starts the selected ledger, uploads
 the DAR over the JSON Ledger API, runs every scenario over gRPC with `dpm
 script`, and stops the ledger on exit. Logs are written under
-`.cache/localnet-cip-interop/`.
+`.cache/cip-interop-validation/`.
 
 LocalNet is the backend that proves participant behavior: it runs a participant
 on a real synchronizer and it authenticates the Ledger API. It starts with the
