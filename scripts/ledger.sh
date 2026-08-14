@@ -328,6 +328,11 @@ sandbox_stop() {
 
 # The token of the participant's admin user. The LocalNet containers must read
 # their own mounted files, so only the token file is owner-only.
+#
+# The token carries no `exp` claim, so it stays valid for as long as the
+# participant accepts the secret. That suits a network which this gate removes
+# at the end of the run. Do not reuse this function for a participant that
+# outlives its gate.
 localnet_mint_token() {
 	local header payload signature
 	b64url() { openssl base64 -A | tr '+/' '-_' | tr -d '='; }
