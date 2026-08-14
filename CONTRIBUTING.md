@@ -74,13 +74,15 @@ Each gate starts its ledger and removes it again. `scripts/ledger.sh` documents
 both backends, the Docker Compose profiles, the Ledger API authentication, the
 fresh-ledger requirement, and the environment overrides.
 
-The `ci` workflow runs the sandbox backend, so a pull request pays no container
-image pull. The scheduled `live-ledger-gates` workflow runs every gate with
-`--localnet`, which is where authorization, party rights, and package vetting on
-a real synchronizer are validated. Run `--localnet` locally before you change a
-gate, a harness, or a participant assumption. The domain documentation of each
-gate describes its prerequisites, topology assumptions, and the evidence it
-produces.
+The `ci` workflow runs the identity upgrade, CIP interoperability, and CIP-0104
+rewards gates against the sandbox on every pull request, so a pull request pays
+no container image pull. The Wallet Gateway gate fetches its npm package at run
+time, so it stays out of `ci` and runs on the schedule alone. The scheduled
+`live-ledger-gates` workflow runs every gate with `--localnet`, which is where
+authorization, party rights, and package vetting on a real synchronizer are
+validated. Run `--localnet` locally before you change a gate, a harness, or a
+participant assumption. The domain documentation of each gate describes its
+prerequisites, topology assumptions, and the evidence it produces.
 
 ## Adding or changing an experiment
 

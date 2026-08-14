@@ -34,5 +34,20 @@ jobs:
       - name: Run the identity SCU smoke test
         run: scripts/identity-hook-upgrade-smoke.sh
 
+      - name: Set up Node 24
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+
+      # Both gates take the sandbox backend, so a pull request pays no container
+      # image pull. The scheduled live-ledger-gates workflow runs the same two
+      # with `--localnet`. The Wallet Gateway gate fetches its npm package at run
+      # time, so it stays on the schedule alone.
+      - name: Run the CIP interoperability gate
+        run: scripts/cip-interop-validation.sh
+
+      - name: Run the CIP-0104 rewards walkthrough
+        run: scripts/cip0104-rewards-walkthrough.sh
+
       - name: Check documentation links
         run: scripts/check-docs.sh
