@@ -5,42 +5,19 @@ token on Canton. Bidders authorize a maximum payment before the round closes.
 The auctioneer computes one clearing price off-ledger, and the application
 settles payment and token delivery atomically on-ledger.
 
-The auction application described here is a **target design**, not an
-end-to-end implementation in this repository. Reusable sources and executable
-experiments support individual controls, but production deployments must
-implement and test the composition described below.
-
-Protocol engineers, venue operators, wallet integrators, and security reviewers
-can use the guide to trace product promises to parties, choices, settlement
-calls, recovery paths, and production acceptance conditions.
-
-| Label | Meaning in this document |
-|---|---|
-| **Experiment** | Executable evidence exists, without a production or standards-conformance claim. |
-| **Target** | Required application behavior that still needs an implementation and end-to-end validation. |
-
-Four terms keep the lifecycle precise:
-
-- **Round terms identity** is the immutable `AuctionTerms` contract ID and its
-  terms hash. Every bid binds both values.
-- **Parking allocation** is a bidder-to-bidder payment allocation whose only
-  purpose is to lock the rounded maximum payment until clear or recovery.
-- **Allocation root** is the first parking-allocation CID. D2 choices can create
-  successor CIDs, so recovery authenticates the current member of that root
-  chain rather than assuming the first CID remains active.
-- **D2-clear** means that the authenticated current allocation has no active D2
-  seizure mark.
-
-The control labels are D1 settlement attestation, D2 allocation seizure, D3
-bidder identity, and D4 application authority.
+This architecture specifies target application behavior and production
+requirements. Linked experiments provide executable evidence for selected
+mechanisms. Production readiness and standards conformance depend on
+implementing and validating the complete composition described here.
 
 ## 1. Product Definition
 
 The launchpad accepts confidential quantity bids. Each bid specifies a requested
-token quantity and a maximum unit price, and locks the corresponding maximum
-payment in a committed parking allocation. Bids at or above the reserve price
-are ranked by price. All winners pay the same clearing price; a marginal price
-band may be allocated pro rata using the token's configured lot size and
+token quantity and maximum unit price, then locks the rounded maximum payment in
+a committed payment allocation. This parking allocation reserves funds without
+authorizing payment to the issuer before clearing. Bids at or above the reserve
+price are ranked by price. All winners pay the same clearing price; a marginal
+price band may be allocated pro rata using the token's configured lot size and
 deterministic remainder rule.
 
 The target workflow is one primary distribution. It runs one bidding period,
@@ -75,7 +52,7 @@ settlement:
   party projections and the transaction tree; neither form implies visibility
   of sibling bids or allocations. See the [detailed ledger model](https://docs.canton.network/overview/reference/ledger-model-detailed).
 
-### 1.2 What Bidders Must Trust
+### 1.2 Bidder Trust Assumptions
 
 The auctioneer is trusted for price discovery and allocation. It can omit a bid,
 publish an unfair result, leak bid information, or favor a bidder. The ledger
@@ -109,10 +86,11 @@ move only one side of the trade. This is **non-custodial settlement**, not
 holder-only control: an instrument's admin may still have powers over that
 instrument.
 
-In particular, the cited Token Standard V2 experiment exposes D2 mark and sweep
-choices on every `TokenAllocation`. It has no immutable creation-time D2 opt-out.
-The allocation admin chooses the custodian destination when it marks an
-allocation; the bidder does not approve that mark or destination.
+D2 is the instrument-level allocation-seizure control. The cited Token Standard
+V2 experiment exposes its mark and sweep choices on every `TokenAllocation`. It
+has no immutable creation-time D2 opt-out. The allocation admin chooses the
+custodian destination when it marks an allocation; the bidder does not approve
+that mark or destination.
 
 Time limits, burner capabilities, destination-account authority from a principal
 distinct from the admin, and the lawful-process path reduce misuse, but they do
@@ -149,7 +127,7 @@ authority.
 | Uniform-price allocation | The configured algorithm and rounding rule are fixed before intake opens. |
 | Marginal partial fills | The parked maximum payment is reshaped into an exact final allocation during clearing; the bidder does not sign again. |
 | Atomic delivery-versus-payment | One outer Daml transaction contains one batch per compatible `(admin, settlementFactoryCid)` group. |
-| KYC and compliance | D3 identity eligibility and D1 settlement attestation are independent checks. |
+| KYC and compliance | D3 bidder-identity eligibility and D1 settlement attestation are independent checks. |
 | Recovery | Executors cancel losing escrows; bidders withdraw after the agreed deadline. Active D2 seizure is an explicit exception. |
 
 ## 2. Architecture Overview
@@ -168,22 +146,26 @@ signatory of the corresponding authorization contract.
 
 ### 2.1 Core Components and Evidence
 
+**Experiment** marks executable component evidence; production readiness and
+standards conformance require separate validation. **Target** marks application
+behavior that production implementations must provide and validate end to end.
+
 | Component | Status | Responsibility | Evidence or required implementation |
 |---|---|---|---|
 | Access control, ownership, pause guards | **Experiment** | Separate pause, administration, and handover powers. | [`canton-contracts` access experiments](https://github.com/OpenZeppelin/canton-contracts/tree/cec416d6e3c2118551c761d5598c403ab27ee342/experiments/access) and [`PausableV1.daml`](https://github.com/OpenZeppelin/canton-contracts/blob/cec416d6e3c2118551c761d5598c403ab27ee342/experiments/security/pausable-v1/daml/OpenZeppelin/PausableV1.daml). |
 | Token Standard V2 allocation and settlement | **Experiment** | Lock holdings, create receiver authority, settle an admin-scoped batch, emit holding-change events, and recover allocations. | Pinned [`TokenRules`](https://github.com/OpenZeppelin/canton-contracts/blob/7696749737885e25cd88422847105f890f03b00d/experiments/token/tokenCIP112-v1/daml/OpenZeppelin/TokenCIP112V1/Registry.daml) and [`TokenAllocation`](https://github.com/OpenZeppelin/canton-contracts/blob/7696749737885e25cd88422847105f890f03b00d/experiments/token/tokenCIP112-v1/daml/OpenZeppelin/TokenCIP112V1/Allocation.daml). |
 | D1 settlement attestation | **Experiment** | Bind one attestation to one settlement, executor set, and exact transfer-leg set. | [`D1.daml`](https://github.com/OpenZeppelin/canton-contracts/blob/7696749737885e25cd88422847105f890f03b00d/experiments/token/tokenCIP112-v1/daml/OpenZeppelin/TokenCIP112V1/D1.daml). |
-| D2 allocation seizure | **Experiment** | Mark an allocation, block its normal lifecycle, and sweep under bounded authority. | [`Allocation.daml`](https://github.com/OpenZeppelin/canton-contracts/blob/7696749737885e25cd88422847105f890f03b00d/experiments/token/tokenCIP112-v1/daml/OpenZeppelin/TokenCIP112V1/Allocation.daml#L152-L234). The production policy above is not implemented. |
-| D3 KYC claim | **Experiment** | Demonstrate a typed claim, expiry, and trusted-issuer membership check. | Local [`ShapeB.daml`](../../experiments/identity/hook-shape-b/daml/OpenZeppelin/Experimental/Identity/ShapeB.daml). It does not provide a production revocation service. |
+| D2 allocation seizure | **Experiment** | Mark an allocation, block its normal lifecycle, and sweep under bounded authority. | [`Allocation.daml`](https://github.com/OpenZeppelin/canton-contracts/blob/7696749737885e25cd88422847105f890f03b00d/experiments/token/tokenCIP112-v1/daml/OpenZeppelin/TokenCIP112V1/Allocation.daml#L152-L234). Production requires the target policy in section 1.3. |
+| D3 KYC claim | **Experiment** | Demonstrate a typed claim, expiry, and trusted-issuer membership check. | Local [`ShapeB.daml`](../../experiments/identity/hook-shape-b/daml/OpenZeppelin/Experimental/Identity/ShapeB.daml). Production additionally requires current-status and revocation handling. |
 | `AuctionTerms`, `AuctionRegistration`, `AuctionDirectoryEntry` | **Target** | Keep terms immutable, pin the canonical phase chain, and publish the single terminal result or closure. | Must be implemented and validated as one application workflow. |
 | `BidAuthorization`, clear/loser permits, `IssuerAuthorization`, outcomes | **Target** | Admit one escrow-backed bid, carry account authority into clear, and expose only each bidder's result. | Must be implemented and validated as one application workflow. |
 | Clearing service and wallet integration | **Target** | Compute results, prepare commands, collect required attestations/signatures, submit, retry, and disclose outcomes. | Must use the configured deterministic algorithm and the exact ledger state. |
 
-The pinned settlement code is useful implementation evidence, but it is not a
-complete auction and does not establish CIP-0112 conformance. It rejects
-iterated settlement and uses a local `TokenHolding` implementation. Production
-assets must be discovered and assessed through their accepted Token Standard
-interfaces and registry policies.
+The pinned settlement code provides component-level evidence for the allocation,
+settlement, D1, and D2 mechanisms above. Its evidence boundary includes a local
+`TokenHolding` implementation and non-iterated settlement. Production assets
+must be discovered and assessed through their accepted Token Standard interfaces
+and registry policies.
 
 ### 2.2 Party and Role Model
 
@@ -218,6 +200,9 @@ normal choices and sweep also requires the configured burner and destination
 authority; the holder does not approve either action.
 
 ### 2.4 D1-D4 Control Profile
+
+This architecture uses four control labels: D1 settlement attestation, D2
+allocation seizure, D3 bidder identity, and D4 application authority.
 
 | Control | Actor and scope | Ledger behavior | Production requirement |
 |---|---|---|---|
@@ -255,8 +240,9 @@ A bidder-facing wallet must:
   clearly disclosed venue-trust fallback;
 - show the complete bid authorization, rounded maximum payment, parking leg,
   deadline, account providers, and each instrument's D2 policy before signing;
-- track the allocation root and its authenticated current successor rather than
-  assuming the first allocation CID remains active; and
+- track the allocation root, which is the first parking-allocation CID; accept a
+  current allocation only if it is that root or an authenticated successor whose
+  `originalAllocationCid` and immutable fields match the stored record; and
 - show the private outcome and the currently authorized cancel, withdraw, D2
   release, or terminal-reconciliation path from completion-stream and ledger
   state.
@@ -304,10 +290,11 @@ Before opening, operators verify:
 ## 3. Target Design
 
 The lifecycle separates immutable economic terms from mutable phase state.
-`AuctionTerms` never changes. Setup creates the first `AuctionDirectoryEntry`
-and an `AuctionRegistration` that pins its CID and the terms. Every phase
-successor records the registration CID, first-entry CID, predecessor CID,
-monotonic revision, terms CID, and terms hash.
+`AuctionTerms` is immutable: its contract ID and terms hash identify the signed
+round terms, and every admitted bid binds both. Setup creates the first
+`AuctionDirectoryEntry` and an `AuctionRegistration` that pins its CID and the
+terms. Every phase successor records the registration CID, first-entry CID,
+predecessor CID, monotonic revision, terms CID, and terms hash.
 
 A wallet establishes canonicality by verifying those successor transactions
 from an authorized stakeholder's transaction stream or a separately signed
@@ -315,10 +302,10 @@ phase-chain proof. Explicit disclosure of the current contract proves its
 payload, not its ancestry; a wallet that cannot verify the chain trusts the
 venue's assertion. Directly created lookalike entries and results are ignored.
 
-Every admitted bid binds the terms CID/hash, registration CID, first-entry CID,
-admission-entry CID/revision, and its own parking-allocation root. A failed clear
-rolls back all nested cancellation, allocation, settlement, result, and phase
-actions, leaving the closed round and inputs available for a state-aware retry.
+Every admitted bid also binds the registration CID, first-entry CID,
+admission-entry CID/revision, and its own allocation root. A failed clear rolls
+back all nested cancellation, allocation, settlement, result, and phase actions,
+leaving the closed round and inputs available for a state-aware retry.
 
 Sections 3.1 through 3.6 describe the settlement critical path: configure the
 round, admit and park each bid, close intake, validate one result, materialize
@@ -384,7 +371,8 @@ maxPayment = paymentRound(requestedQuantity * maximumUnitPrice)
 `maxPayment` must be positive. In the same transaction, `PlaceBid`:
 
 1. asks the payment allocation factory to create a committed, single-instrument
-   bidder-to-bidder parking allocation for exactly `maxPayment`;
+   sender-side parking allocation for exactly `maxPayment`, with the bidder
+   payment account as both the authorizer and `otherside`;
 2. requires `AllocationInstructionResult_Completed`, records the returned
    allocation CID as the allocation root, and records any returned change;
 3. creates `BidAuthorization` with the bidder account parties **and** the issuer
@@ -474,8 +462,8 @@ consumes the matching permit and accepts a current allocation CID only when:
   executor list, and `numIterations = 0` match the recorded fingerprint; only
   `originalAllocationCid`, vetted D2 metadata, and time-derived
   `availableActions` may differ; and
-- it is D2-clear. An active mark fails; an authenticated unmarked or
-  lapse-released successor may continue. A swept chain is terminal.
+- it has no active D2 seizure mark. An authenticated unmarked or lapse-released
+  successor may continue; a swept chain is terminal.
 
 Inside that bidder-authorized choice body, the application:
 
