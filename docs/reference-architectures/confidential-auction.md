@@ -1,4 +1,4 @@
-# Confidential auction launchpad reference architecture
+# Confidential Auction Launchpad reference architecture
 
 This architecture defines a single-round sealed-bid auction for distributing a
 token on Canton. Bidders authorize a maximum payment before the round closes.
@@ -16,9 +16,12 @@ The launchpad accepts confidential quantity bids. Each bid specifies a requested
 token quantity and maximum unit price, then locks the rounded maximum payment in
 a committed payment allocation. This parking allocation reserves funds without
 authorizing payment to the issuer before clearing. Bids at or above the reserve
-price are ranked by price. All winners pay the same clearing price; a marginal
-price band may be allocated pro rata using the token's configured lot size and
-deterministic remainder rule.
+price are ranked by price. Every winner pays the same clearing price per token,
+even if that bidder offered a higher maximum price. If several bids at the
+cutoff price compete for the remaining supply, the available tokens are divided
+among them in proportion to their requested quantities. Each fill is rounded to
+the token's configured lot size, and a predefined deterministic rule assigns any
+whole lots left after rounding.
 
 The target workflow is one primary distribution. It runs one bidding period,
 produces one result, and either atomically settles that result or leaves the
@@ -28,29 +31,29 @@ settlement belong to adjacent architectures.
 
 ### 1.1 Privacy and Visibility Model
 
-Sealed bidding relies on Canton projection rather than commit-reveal. A bidder
-does not receive competitors' `BidAuthorization` contracts or bid transaction
-views. The auctioneer sees every bid because it clears the round. In the baseline
-topology, the token issuer also sees bids because the issuer co-signs the round;
-a deployment that separates issuer and auctioneer visibility needs a different
-contract topology and must test the resulting transaction projections.
+Each bidder submits the actual bid once. Canton transaction projection discloses
+it to the bidder's account parties, the auctioneer, and, in the baseline
+topology, the issuer. Competing bidders do not receive the `BidAuthorization`
+contract or its transaction view. This design therefore needs no separate hash
+commitment and reveal phase. Here, sealed bidding means confidentiality from
+competitors, not from the auctioneer or issuer. A deployment that separates
+issuer and auctioneer visibility requires a different contract topology and
+tests of the resulting transaction projections.
 
 Confidential does not mean encrypted from every participant involved in
 settlement:
 
 - The auctioneer, as settlement executor, sees the complete clearing result.
 - Each instrument admin sees the transfer legs for instruments it administers.
-- Every owner or provider that signs a `BidAuthorization` sees the complete bid,
-  both bidder accounts, and the pinned factory references. Each instrument admin
-  also sees the legs and asset changes that it validates.
+- The owners and providers of the bidder's payment and token delivery accounts
+  sign the `BidAuthorization`. Each sees the complete bid, both account records,
+  and the pinned factory references.
 - The synchronizer orders encrypted transaction views and does not receive bid
   plaintext.
-- Immediate divulgence can expose a created contract to non-stakeholder
-  witnesses of an action. Retroactive divulgence supplies input-contract data
-  needed to validate witnessed nodes, but the Ledger API does not currently
-  provide a lookup for such retroactively divulged contracts. Test concrete
-  party projections and the transaction tree; neither form implies visibility
-  of sibling bids or allocations. See the [detailed ledger model](https://docs.canton.network/overview/reference/ledger-model-detailed).
+- Transaction projections may include contract data for parties beyond the
+  contract's stakeholders. The auction topology limits bidder and account
+  provider visibility to bids and settlement branches associated with their
+  accounts. See the [detailed ledger model](https://docs.canton.network/overview/reference/ledger-model-detailed).
 
 ### 1.2 Bidder Trust Assumptions
 
