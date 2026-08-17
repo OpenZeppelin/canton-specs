@@ -1,37 +1,29 @@
--- | CIP-0104 rewards accounting walkthrough.
+-- | Settlement attribution: which settlements an app-provider may claim.
 --
--- The module `Cip0104AppRewards` shows two structural properties: the
--- settlement views alone give attribution, and only the app-provider executor
--- can settle. This module shows app-side beneficiary accounting on top of
--- those properties: the bookkeeping that CIP-0104 leaves to app providers.
--- Real CIP-0104 attribution measures sequencer and mediator traffic per
--- confirming party (`FeaturedAppRight` holders, ingested through Scan) and
--- never reads app-level settlement contracts. The walkthrough applies the
--- same principle at the app level: it credits the app-provider only for the
--- settlements that the app-provider confirmed as executor. It shows:
+-- CIP-0104 pays a featured app-provider for the sequencer and mediator traffic
+-- that its transactions cause. The network measures that traffic, attributes it
+-- to the `FeaturedAppRight` holders in the transaction, and mints the reward from
+-- it, without any app-level record of a reward. The gate
+-- `scripts/localnet-cip0104-traffic-rewards.sh` drives that reward path on a
+-- LocalNet which runs Amulet, Scan, and an SV.
+--
+-- An app-provider may claim the settlements that it confirmed as executor, and
+-- only those. This module shows that the settlement views alone carry that
+-- distinction:
 --
 -- * the ledger functions that an integrator calls
 -- * the balances before and after each action
 -- * how the executor-confirmed activity of the app-provider increases
--- * how the pipeline divides an accrued reward between the beneficiaries when
---   a round closes.
+-- * why the receipts that the app-provider merely observes do not count.
 --
--- All reward calculations are off-ledger. The function `attributedActivity`
--- gets the executor-confirmed activity of the app-provider only from `query`
--- results over `SettlementReceipt` and `SettlementEventLogEntry`. The
--- functions `accruedReward` and `distributeReward` apply an example reward
--- formula to that activity. The walkthrough does not create reward-marker
--- templates.
+-- The function `attributedActivity` reads only `query` results over
+-- `SettlementReceipt` and `SettlementEventLogEntry`. It creates no contract.
 --
--- Scope: experimental interoperability behavior. The reward rate and the
--- beneficiary split are examples. They are not the traffic-proportional CC
--- calculation that CIP-0104 defines off-ledger (that calculation is deferred
--- to M2). These scenarios make no CIP-0104 reward, SV, or Scan production
--- claim.
-module OpenZeppelin.Experimental.Interop.Cip0104RewardsWalkthrough where
+-- Scope: experimental interoperability behavior. These scenarios make no
+-- CIP-0104 reward, SV, or Scan production claim.
+module OpenZeppelin.Experimental.Interop.SettlementAttribution where
 
 import DA.Assert ((===))
-import DA.Foldable (forA_)
 import DA.List (dedup)
 import DA.Optional (isNone)
 import Daml.Script
@@ -40,24 +32,6 @@ import OpenZeppelin.Experimental.Settlement.Cip112
 import OpenZeppelin.Experimental.Interop.Common
 import OpenZeppelin.Experimental.TokenStandardFixture.V2.Allocation (TransferSide(..))
 import OpenZeppelin.Experimental.TokenStandardFixture.V2.Holding
-
--- * Off-ledger reward model (example values)
-
--- | Example reward rate: the CC that accrues to the app-provider, as the
--- confirming executor, for each USD of confirmed settled volume. This value
--- is not the CIP-0104 traffic-proportional rate.
-rewardRatePerUsd : Decimal
-rewardRatePerUsd = 0.01
-
--- | Example beneficiary split that the pipeline applies when a round closes.
--- The weights have a sum of 1.0. Upstream, a featured app can declare a
--- maximum of 20 beneficiaries.
-beneficiarySplit : [(Text, Decimal)]
-beneficiarySplit =
-  [ ("venue (app-provider)", 0.7)
-  , ("instrument registrar", 0.2)
-  , ("validator operator", 0.1)
-  ]
 
 -- | The activity of the app-provider as the confirming executor. The data
 -- comes only from the two settlement views that the executor observes. No
@@ -102,21 +76,11 @@ attributedActivity app = do
     settledVolume = sum senderAmounts
     holdingsChangeEvents = length confirmedEvents
 
--- | Example accrual: the reward is proportional to the confirmed settled
--- volume.
-accruedReward : AttributedActivity -> Decimal
-accruedReward activity = activity.settledVolume * rewardRatePerUsd
-
--- | Example distribution: divide the accrued reward of a round between the
--- declared beneficiaries.
-distributeReward : Decimal -> [(Text, Decimal)]
-distributeReward total = [(who, total * weight) | (who, weight) <- beneficiarySplit]
-
 -- * Walkthrough helpers
 
--- | Write one snapshot to the log: the issuer-view balances, the attributed
--- activity of the app-provider, and the example accrued reward. The function
--- returns the activity, and the walkthrough makes assertions on it.
+-- | Write one snapshot to the log: the issuer-view balances and the attributed
+-- activity of the app-provider. The function returns the activity, and the
+-- walkthrough makes assertions on it.
 logSnapshot : Text -> Party -> Party -> Account -> Account -> Script AttributedActivity
 logSnapshot label admin app aliceAcct bobAcct = do
   aliceBal <- erc20BalanceOf admin aliceAcct
@@ -130,7 +94,6 @@ logSnapshot label admin app aliceAcct bobAcct = do
   debug $ "attribution (app view): settlements=" <> show activity.settlements
     <> ", settledVolume=" <> show activity.settledVolume
     <> " USD, holdingsChangeEvents=" <> show activity.holdingsChangeEvents
-  debug $ "accrued reward (illustrative): " <> show (accruedReward activity) <> " CC"
   pure activity
 
 -- | Find the unlocked USD holding of `account` that has the given amount, as
@@ -144,34 +107,32 @@ holdingWithAmount reader account amount = do
 
 -- * Walkthrough
 
--- | Rewards accounting walkthrough, end to end:
+-- | Attribution walkthrough, end to end:
 --
 -- * Step 0 - the issuer mints; no activity is attributable.
--- * Step 1 - the app-provider settles alice -> bob 30 USD; the views alone
---   give the attribution and the accrual.
+-- * Step 1 - the app-provider settles alice -> bob 30 USD; the settle result
+--   and the views alone give the attribution.
 -- * Step 2 - a second settlement (bob -> alice 10 USD) increases the
 --   counters.
 -- * Step 3 - a party that is not the executor tries to settle a pending
---   batch; the attempt fails; no reward accrues, because only confirmed
---   executor activity is attributable.
--- * Step 4 - the app-provider settles that batch; the accrual increases.
+--   batch; the attempt fails; the counters do not move, because only
+--   confirmed executor activity is attributable.
+-- * Step 4 - the app-provider settles that batch; the counters increase.
 -- * Step 5 - an other executor settles a transfer where the app-provider is
 --   only the receiver; the app-provider sees the receipt, but the attribution
 --   does not change, because visibility alone does not attribute.
--- * Step 6 - the round closes; the walkthrough divides the accrued reward
---   between the declared beneficiaries (example calculation, off-ledger).
-test_cip0104_rewardsAccountingWalkthrough : Script ()
-test_cip0104_rewardsAccountingWalkthrough = script do
-  admin <- allocateInteropParty "reward-walk-admin"
-  app <- allocateInteropParty "reward-walk-app"
-  alice <- allocateInteropParty "reward-walk-alice"
-  bob <- allocateInteropParty "reward-walk-bob"
-  notApp <- allocateInteropParty "reward-walk-notapp"
+test_attribution_walkthrough : Script ()
+test_attribution_walkthrough = script do
+  admin <- allocateInteropParty "attribution-admin"
+  app <- allocateInteropParty "attribution-app"
+  alice <- allocateInteropParty "attribution-alice"
+  bob <- allocateInteropParty "attribution-bob"
+  notApp <- allocateInteropParty "attribution-notapp"
   let aliceAcct = basicAccount alice
       bobAcct = basicAccount bob
 
   -- Step 0: the issuer mints 100 USD to alice. No settlement occurred. Thus
-  -- the app-provider has no attributable activity and no accrual.
+  -- the app-provider has no attributable activity.
   aliceHolding <- mintUsd [admin, alice] admin aliceAcct 100.0
   activity0 <- logSnapshot "step 0: minted, nothing settled" admin app aliceAcct bobAcct
   activity0 === AttributedActivity 0 0.0 0
@@ -180,28 +141,38 @@ test_cip0104_rewardsAccountingWalkthrough = script do
   -- alice to bob (allocate the two sides, then `SettlementFactory_SettleBatch`).
   -- The balances change. The app-provider now observes 1 settlement, 30 USD
   -- volume, and 2 holdings-change events. That is its attribution surface.
-  _ <- settleUsdTransfer admin app aliceAcct bobAcct aliceHolding 30.0 "reward-walk-1"
+  --
+  -- The settle result carries one receipt for each authorizer, and each
+  -- receipt names the app-provider as the only executor. That field is what
+  -- `attributedActivity` filters on, so the walkthrough asserts it directly
+  -- here, on the result of the choice itself, before it reads anything back
+  -- from the active-contract set.
+  receipts1 <- settleUsdTransfer admin app aliceAcct bobAcct aliceHolding 30.0 "attribution-1"
+  length receipts1 === 2
+  case receipts1 of
+    receiptCid :: _ -> do
+      Some receipt <- queryContractId app receiptCid
+      receipt.settlement.executors === [app]
+    [] -> fail "expected a settlement receipt"
   activity1 <- logSnapshot "step 1: app settled alice -> bob 30 USD" admin app aliceAcct bobAcct
   activity1 === AttributedActivity 1 30.0 2
-  accruedReward activity1 === 0.30
 
   -- Step 2: a second settlement (bob -> alice 10 USD) increases the same
   -- off-ledger counters. Each confirmed batch adds to the attributable volume
   -- of the app-provider.
   bobHolding <- holdingWithAmount admin bobAcct 30.0
-  _ <- settleUsdTransfer admin app bobAcct aliceAcct bobHolding 10.0 "reward-walk-2"
+  _ <- settleUsdTransfer admin app bobAcct aliceAcct bobHolding 10.0 "attribution-2"
   activity2 <- logSnapshot "step 2: app settled bob -> alice 10 USD" admin app aliceAcct bobAcct
   activity2 === AttributedActivity 2 40.0 4
-  accruedReward activity2 === 0.40
 
   -- Step 3: the walkthrough allocates a third batch (alice -> bob 20 USD).
   -- The allocation locks the 70 USD holding of alice. A party that is not the
   -- executor tries to settle the batch. The attempt fails. The attribution
-  -- counters do not change: rewards accrue only on activity that the
-  -- app-provider confirmed.
+  -- counters do not change: an app-provider may claim only the activity that
+  -- it confirmed.
   (factory, factoryDisc) <- mkFactory admin
-  settlement <- mkSettlementInfo "reward-walk-3" app
-  let leg = mkUsdLeg "reward-walk-3" aliceAcct bobAcct 20.0
+  settlement <- mkSettlementInfo "attribution-3" app
+  let leg = mkUsdLeg "attribution-3" aliceAcct bobAcct 20.0
   aliceInput <- holdingWithAmount admin aliceAcct 70.0
   aliceAlloc <- createAndAcceptAllocation admin factory factoryDisc settlement aliceAcct [senderSide leg] [aliceInput]
   bobAlloc <- createAndAcceptAllocation admin factory factoryDisc settlement bobAcct [receiverSide leg] []
@@ -220,30 +191,20 @@ test_cip0104_rewardsAccountingWalkthrough = script do
       actors = [app]; d1ComplianceRef = None
   activity4 <- logSnapshot "step 4: app settled the pending alice -> bob 20 USD batch" admin app aliceAcct bobAcct
   activity4 === AttributedActivity 3 60.0 6
-  accruedReward activity4 === 0.60
 
   -- Step 5: an other executor (notApp) settles a transfer where the
   -- app-provider is only the receiver (bob -> app 5 USD). The app-provider
   -- observes its own receipt and holdings-change event as an account party.
   -- The attribution does not credit them: only the settlements that the
-  -- app-provider confirmed as executor count.
+  -- app-provider confirmed as executor count. The raw receipt count rises to
+  -- 7 while the attribution stays at 3 settlements and 60 USD.
   let appAcct = basicAccount app
   bobHolding2 <- holdingWithAmount admin bobAcct 20.0
-  _ <- settleUsdTransfer admin notApp bobAcct appAcct bobHolding2 5.0 "reward-walk-4"
+  _ <- settleUsdTransfer admin notApp bobAcct appAcct bobHolding2 5.0 "attribution-4"
   rawReceipts <- query @SettlementReceipt app
   length rawReceipts === 7
   activity5 <- logSnapshot "step 5: notApp settled bob -> app 5 USD; app attribution unchanged" admin app aliceAcct bobAcct
   activity5 === activity4
-
-  -- Step 6: the round closes. The walkthrough divides the accrued reward
-  -- between the declared beneficiaries. The sum of the shares is always equal
-  -- to the accrual (conservation of the distributed reward).
-  let total = accruedReward activity4
-      shares = distributeReward total
-  debug "== step 6: round closes, reward distributed (illustrative) =="
-  forA_ shares \(who, amt) -> debug $ who <> ": " <> show amt <> " CC"
-  sum (map snd shares) === total
-  shares === [("venue (app-provider)", 0.42), ("instrument registrar", 0.12), ("validator operator", 0.06)]
 
   -- Final balance check: settlement kept the supply constant at each step.
   aliceBal <- erc20BalanceOf admin aliceAcct

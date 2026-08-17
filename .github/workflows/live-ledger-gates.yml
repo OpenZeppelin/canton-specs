@@ -12,7 +12,7 @@ concurrency:
   group: live-ledger-gates-${{ github.ref }}
   cancel-in-progress: true
 
-# Every job runs its gate with `--localnet`. Each one therefore starts the Splice
+# Every job runs its gate on Canton LocalNet. Each one therefore starts the Splice
 # LocalNet Docker Compose network and pays for the image pull and the network
 # bootstrap, which is why this workflow is scheduled instead of per pull request.
 jobs:
@@ -77,7 +77,7 @@ jobs:
           if-no-files-found: warn
           retention-days: 30
 
-  cip0104-rewards:
+  cip0104-traffic-rewards:
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
@@ -91,18 +91,27 @@ jobs:
         with:
           node-version: "24"
 
-      - name: Run CIP-0104 rewards walkthrough interoperability
-        run: scripts/cip0104-rewards-walkthrough.sh --localnet
+      # LocalNet publishes the SV app, Scan, and the wallet API behind one nginx
+      # that routes on the `Host` header, so those names must resolve.
+      - name: Resolve the LocalNet service names
+        run: |
+          printf '127.0.0.1 wallet.localhost sv.localhost scan.localhost\n' | sudo tee -a /etc/hosts
 
-      - name: Upload rewards walkthrough evidence
+      # This gate drives the Amulet reward path: it features the app-provider,
+      # votes the network onto traffic-based app rewards, settles as the featured
+      # app-provider, and waits for the mining round that pays for that traffic.
+      - name: Run CIP-0104 traffic-based app rewards on LocalNet
+        run: scripts/localnet-cip0104-traffic-rewards.sh
+
+      - name: Upload traffic-rewards evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: cip0104-rewards-walkthrough-evidence
+          name: cip0104-traffic-rewards-evidence
           # The minted Ledger API token stays out of the artifact.
           path: |
-            .cache/cip0104-rewards-walkthrough/
-            !.cache/cip0104-rewards-walkthrough/**/*.token
+            .cache/cip0104-traffic-rewards/
+            !.cache/cip0104-traffic-rewards/**/*.token
           if-no-files-found: warn
           retention-days: 30
 

@@ -37,7 +37,7 @@ repository.
 | [`fixtures/token-standard-v2/`](fixtures/token-standard-v2/) | Narrow input types modeled after Token Standard V2 |
 | [`test/`](test/) | Isolated Daml Script tests for the settlement package |
 | [`exemplar/`](exemplar/) | Consumer composition with Access Control and Pausable DARs |
-| [`../interoperability/cip-exemplar/`](../interoperability/cip-exemplar/) | CIP-0086, CIP-0103, and CIP-0104 integration scenarios |
+| [`../interoperability/cip-exemplar/`](../interoperability/cip-exemplar/) | CIP-0086 and CIP-0103 integration scenarios, and settlement attribution |
 
 The fixture supplies the narrow Token Standard V2-shaped types needed to build
 and run the experiment. Published upstream Token Standard artifacts provide the
