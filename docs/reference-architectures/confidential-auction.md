@@ -109,13 +109,14 @@ move only one side of the trade. This is **non-custodial settlement**, not
 holder-only control: an instrument's admin may still have powers over that
 instrument.
 
-The pinned OpenZeppelin
+In the current OpenZeppelin experiment, every allocation supports the seizure
+workflow (`D2`). The allocation admin can mark an allocation and select the
+receiving custodian account without the bidder's approval. The required
+privileged parties can then move the locked assets to that account. An unmarked
+allocation may still be marked later; the experiment has no permanent opt out
+at creation. See the pinned
 [`TokenAllocation`](https://github.com/OpenZeppelin/canton-contracts/blob/7696749737885e25cd88422847105f890f03b00d/experiments/token/tokenCIP112-v1/daml/OpenZeppelin/TokenCIP112V1/Allocation.daml)
-experiment, described in [section 2.1](#21-core-components-and-evidence), exposes
-D2 mark and sweep choices on every allocation. It provides no immutable D2 opt
-out when an allocation is created. The allocation admin chooses the custodian
-destination when it marks an allocation; the bidder does not approve that mark
-or destination.
+source and the component evidence in [section 2.1](#21-core-components-and-evidence).
 
 Time limits, burner capabilities, destination-account authority from a principal
 distinct from the admin, and the lawful-process path reduce misuse, but they do
@@ -148,12 +149,12 @@ authority.
 
 | In scope | Boundary |
 |---|---|
-| Sealed bids | Other bidders do not receive a bid; the auctioneer does. |
-| Uniform-price allocation | The immutable round terms fix the algorithm version and rounding rule before intake. Every bid binds to those terms, while the auctioneer remains trusted to apply them honestly to the complete bid set. |
-| Marginal partial fills | The parked maximum payment is reshaped into an exact final allocation during clearing; the bidder does not sign again. |
-| Atomic delivery-versus-payment | A clear settles both assets atomically in one Daml transaction. Different admins or incompatible factories require separate `SettleBatch` calls within it. |
-| KYC and compliance | D3 bidder-identity eligibility and D1 settlement attestation are independent checks. |
-| Recovery | Executors cancel losing escrows; bidders withdraw after the agreed deadline. Active D2 seizure is an explicit exception. |
+| Sealed bids | Each bid is visible to its bidder, required account providers, issuer, and auctioneer. Unrelated bidders do not see it. |
+| Uniform-price allocation | Immutable terms fix the algorithm version and rounding rule. Every admitted bid binds to them; the auctioneer remains trusted to apply them honestly. |
+| Marginal partial fills | During clearing, prior bidder authorization lets the application replace the parked maximum with the exact payment and return any change. No new bidder signature is required. |
+| Atomic delivery versus payment | Both assets settle in one Daml transaction. Different admins or settlement factory CIDs require separate `SettleBatch` calls within it. |
+| KYC and compliance | Bidder identity is checked at admission and rechecked for winners. Each factory independently verifies the settlement attestation it requires. |
+| Recovery | Executors may cancel losing payment allocations. After the settlement deadline, all payment account parties may withdraw. Active allocation seizure blocks both. |
 
 ## 2. Architecture Overview
 
@@ -177,14 +178,14 @@ behavior that production implementations must provide and validate end to end.
 
 | Component | Status | Responsibility | Evidence or required implementation |
 |---|---|---|---|
-| Access control, ownership, pause guards | **Experiment** | Separate pause, administration, and handover powers. | [`canton-contracts` access experiments](https://github.com/OpenZeppelin/canton-contracts/tree/cec416d6e3c2118551c761d5598c403ab27ee342/experiments/access) and [`PausableV1.daml`](https://github.com/OpenZeppelin/canton-contracts/blob/cec416d6e3c2118551c761d5598c403ab27ee342/experiments/security/pausable-v1/daml/OpenZeppelin/PausableV1.daml). |
-| Token Standard V2 allocation and settlement | **Experiment** | Lock holdings, create receiver authority, settle an admin-scoped batch, emit holding-change events, and recover allocations. | Pinned [`TokenRules`](https://github.com/OpenZeppelin/canton-contracts/blob/7696749737885e25cd88422847105f890f03b00d/experiments/token/tokenCIP112-v1/daml/OpenZeppelin/TokenCIP112V1/Registry.daml) and [`TokenAllocation`](https://github.com/OpenZeppelin/canton-contracts/blob/7696749737885e25cd88422847105f890f03b00d/experiments/token/tokenCIP112-v1/daml/OpenZeppelin/TokenCIP112V1/Allocation.daml). |
-| D1 settlement attestation | **Experiment** | Bind one attestation to one settlement, executor set, and exact transfer-leg set. | [`D1.daml`](https://github.com/OpenZeppelin/canton-contracts/blob/7696749737885e25cd88422847105f890f03b00d/experiments/token/tokenCIP112-v1/daml/OpenZeppelin/TokenCIP112V1/D1.daml). |
-| D2 allocation seizure | **Experiment** | Mark an allocation, block its normal lifecycle, and sweep under bounded authority. | [`Allocation.daml`](https://github.com/OpenZeppelin/canton-contracts/blob/7696749737885e25cd88422847105f890f03b00d/experiments/token/tokenCIP112-v1/daml/OpenZeppelin/TokenCIP112V1/Allocation.daml#L152-L234). Production requires the target policy in section 1.3. |
-| D3 KYC claim | **Experiment** | Demonstrate a typed claim, expiry, and trusted-issuer membership check. | Local [`ShapeB.daml`](../../experiments/identity/hook-shape-b/daml/OpenZeppelin/Experimental/Identity/ShapeB.daml). Production additionally requires current-status and revocation handling. |
-| `AuctionTerms`, `AuctionRegistration`, `AuctionDirectoryEntry` | **Target** | Keep terms immutable, pin the canonical phase chain, and publish the single terminal result or closure. | Must be implemented and validated as one application workflow. |
-| `BidAuthorization`, clear/loser permits, `IssuerAuthorization`, outcomes | **Target** | Admit one escrow-backed bid, carry account authority into clear, and expose only each bidder's result. | Must be implemented and validated as one application workflow. |
-| Clearing service and wallet integration | **Target** | Compute results, prepare commands, collect required attestations/signatures, submit, retry, and disclose outcomes. | Must use the configured deterministic algorithm and the exact ledger state. |
+| Access control, ownership, pause guards | **Experiment** | Provide role grant and revocation, ownership transfer by explicit acceptance, and pause primitives for application controls. | [`AccessControlV1.daml`](https://github.com/OpenZeppelin/canton-contracts/blob/7696749737885e25cd88422847105f890f03b00d/experiments/access/access-control-v1/daml/OpenZeppelin/AccessControlV1.daml), [`OwnableV1.daml`](https://github.com/OpenZeppelin/canton-contracts/blob/7696749737885e25cd88422847105f890f03b00d/experiments/access/ownable-v1/daml/OpenZeppelin/OwnableV1.daml), and [`PausableV1.daml`](https://github.com/OpenZeppelin/canton-contracts/blob/7696749737885e25cd88422847105f890f03b00d/experiments/security/pausable-v1/daml/OpenZeppelin/PausableV1.daml). |
+| Token Standard V2 allocation and settlement | **Experiment** | Lock holdings, create sender and receiver allocations, settle a compatible admin-scoped batch, emit holding-change events, and recover allocations. | Pinned [`TokenRules`](https://github.com/OpenZeppelin/canton-contracts/blob/7696749737885e25cd88422847105f890f03b00d/experiments/token/tokenCIP112-v1/daml/OpenZeppelin/TokenCIP112V1/Registry.daml) and [`TokenAllocation`](https://github.com/OpenZeppelin/canton-contracts/blob/7696749737885e25cd88422847105f890f03b00d/experiments/token/tokenCIP112-v1/daml/OpenZeppelin/TokenCIP112V1/Allocation.daml). |
+| D1 settlement attestation | **Experiment** | Verify one consumed attestation for one settlement ID, executor set, factory admin's registry, validity policy, and exact transfer leg set. | [`D1.daml`](https://github.com/OpenZeppelin/canton-contracts/blob/7696749737885e25cd88422847105f890f03b00d/experiments/token/tokenCIP112-v1/daml/OpenZeppelin/TokenCIP112V1/D1.daml). |
+| D2 allocation seizure | **Experiment** | Mark an allocation, block settlement, cancellation, and withdrawal, and sweep under allocation admin, burner capability, destination account, and time checks. | [`Allocation.daml`](https://github.com/OpenZeppelin/canton-contracts/blob/7696749737885e25cd88422847105f890f03b00d/experiments/token/tokenCIP112-v1/daml/OpenZeppelin/TokenCIP112V1/Allocation.daml#L152-L234). Production requires the target policy in section 1.3. |
+| D3 KYC claim | **Experiment** | Demonstrate transfer-time validation of a typed claim, expiry, and trusted-issuer membership snapshot. | Local [`ShapeB.daml`](../../experiments/identity/hook-shape-b/daml/OpenZeppelin/Experimental/Identity/ShapeB.daml). Production additionally requires current-status and revocation handling. |
+| `AuctionTerms`, `AuctionRegistration`, `AuctionRoundState` | **Target** | Keep terms immutable and establish the canonical phase and terminal result chain. | Implement and validate these proposed application contracts as one workflow. See [section 4.1](#41-contract-responsibilities). |
+| `BidAuthorization`, `WinnerPermit`, `IssuerPermit`, `LoserPermit`, `IssuerAuthorization`, `AuctionResult`, `BidOutcome` | **Target** | Admit one allocation-backed bid, carry bidder and treasury-account authority into clearing and recovery, and publish aggregate and bidder-private results. | Implement and validate these proposed application contracts as one workflow. See [section 4.1](#41-contract-responsibilities). |
+| Clearing service and wallet integration | **Target** | Compute and validate results, prepare commands from current ledger state, obtain required attestations and any required external command signatures, submit and retry idempotently, authenticate disclosures, and present private outcomes. | Implement and validate the off-ledger application services against the configured algorithm and ledger contracts. |
 
 The pinned settlement code provides component-level evidence for the allocation,
 settlement, D1, and D2 mechanisms above. Its evidence boundary includes a local
@@ -196,33 +197,52 @@ and registry policies.
 
 | Party or service | Type | Authority and visibility |
 |---|---|---|
-| Bidder account parties | Daml parties | Authorize the maximum payment and later exact winner allocations. Every required owner/provider sees the complete bid authorization. |
-| Auctioneer | Daml party plus off-ledger service | Sees all bids, computes the result, admits bids with the issuer in the baseline, controls clear/cancel choices, and is the sole baseline settlement executor. |
-| Token issuer | Daml party | Co-signs immutable terms and admitted bids, and authorizes launched-token delivery and payment receipt. It may be distinct from either instrument admin. |
-| Launch administrator | Daml party or threshold party | Pins the canonical registration and governs package/factory changes between rounds; the auctioneer executes settlement. |
-| Payment instrument admin | Daml party | Validates only the payment-instrument batch and applies that instrument's D1/D2 policy. |
-| Launched-token admin | Daml party | Validates only the launched-token batch and applies that instrument's D1/D2 policy. |
-| KYC issuer | Daml party or credential service | Issues D3 eligibility credentials; it does not attest settlement legs. |
-| D1 attester | Daml party | Signs a leg-bound compliance attestation for one admin-scoped batch. |
-| Burner and destination account parties | Daml parties | Under an enabled D2 policy, the burner presents scoped authority and the destination account parties authorize receipt. The current code permits role overlap. |
-| Participant/validator and synchronizer | Infrastructure | Host parties, validate authorized views, sequence transactions, and charge traffic. They are not application roles. |
+| Bidder account parties | Daml parties | The required owners and providers of both bidder accounts authorize the maximum payment and later exact winner allocations. Each sees the complete bid authorization. |
+| Auctioneer | Daml party plus off-ledger service | Provides standing admission authority with the issuer, sees all admitted bids, computes the result, controls clear and pre-deadline cancellation, and is the sole baseline settlement executor. |
+| Issuer | Daml party | Signs immutable terms and round states, provides standing admission authority, and sees all admitted bids. It may be distinct from either instrument admin. |
+| Issuer treasury account parties | Daml parties | The owners and providers required by the issuer inventory and payment-receipt accounts authorize the exact issuer-side allocations through `IssuerAuthorization`. |
+| Launch administrator | Daml party | Pins the canonical registration and configures each new round. Multi-hosting or multisignature command authorization can protect this party without changing its ledger type. |
+| Intake pauser | Daml party | Controls intake pause and resume. It cannot change immutable terms or block close, clearing, or recovery in the baseline. |
+| Upgrade governance | Daml parties plus deployment governance | Approves supported packages and factory policies between rounds. Existing `AuctionTerms` remain immutable. |
+| Payment instrument admin | Daml party | As payment admin, sees and validates the payment-instrument batch and enforces that instrument's D1/D2 policy. A party holding another role may see additional data. |
+| Launched-token admin | Daml party | As launched-token admin, sees and validates the launched-token batch and enforces that instrument's D1/D2 policy. A party holding another role may see additional data. |
+| KYC issuer | Daml party operated directly or by a credential service | Signs D3 eligibility credentials. D3 and D1 remain separate roles even when one organization operates both. |
+| D1 attester | Daml party | Sees and signs the settlement ID, executor set, and exact transfer legs for one compatible factory batch. |
+| Burner and destination account parties | Daml parties | Under an enabled D2 policy, the burner presents a capability issued by the admin with an expiry, and the destination account parties authorize creation of replacement holdings. Instrument and case scopes are optional in the current code, which also permits role overlap. |
+| Participant or validator | Infrastructure node and application services | Hosts parties and their contract data, exposes the Ledger API, submits commands, validates relevant transaction views, and manages the participant-wide traffic balance. |
+| Synchronizer sequencers and mediators | Infrastructure services | Sequencers order and distribute encrypted messages; mediators aggregate participant confirmations and issue transaction verdicts. They are not auction roles and do not receive bid plaintext. |
 
 ### 2.3 Authority and Visibility by Action
 
-`PlaceBid` is controlled by all bidder account parties. The issuer and
-auctioneer sign the open entry, so that entry supplies standing venue authority
-to each admitted bid; every resulting bid signatory sees the complete bid.
+The current [`AuctionRoundState`](#41-contract-responsibilities) records the
+round phase. While it is `Open`, all parties required by the bidder's payment
+and delivery accounts control its `PlaceBid` choice. The issuer and auctioneer
+are signatories of the round state, so exercising it combines bidder authority
+with their standing venue authority. The resulting `BidAuthorization` has the
+bidder account parties, issuer, and auctioneer as signatories; each sees the
+complete bid.
 
-The auctioneer computes the result and is the sole baseline executor. Bidder and
-issuer allocations are created inside their respective authorization choices,
-and each factory receives only its compatible group. Authority is local:
-fetching or consuming an authorization does not lend its signatories to a later
-sibling action. A multi-executor or clear-guard variant must bring every required
-party into the exact choice body that uses it.
+The auctioneer computes the result off ledger and is the sole baseline
+settlement executor. Exact bidder allocations are created inside
+`BidAuthorization_FinalizeWinner`, and exact issuer allocations are created
+inside `IssuerAuthorization_Use`. Each allocation factory call uses the
+instrument and factory CID pinned in the round terms. Each `SettleBatch` call
+receives only legs and allocations compatible with its instrument admin and
+settlement factory CID.
 
-D2 remains an independent instrument-admin path. When enabled, mark can block
-normal choices and sweep also requires the configured burner and destination
-authority; the holder does not approve either action.
+Daml authority is local to the exercised choice. Fetching or consuming an
+authorization contract does not make its signatories' authority available to a
+later sibling action. A variant with multiple executors or an independent clear
+guard must make every required party's authority available inside the choice
+that cancels or settles.
+
+D2 belongs to the instrument's allocation policy and operates independently of
+auction roles. Under a policy that enables D2, the allocation admin may mark an
+allocation. While the mark is active, settlement, cancellation, and withdrawal
+fail. A sweep also requires a valid burner capability and authorization from the
+destination account parties. Holding the allocation alone grants the bidder no
+controller role in either action; a bidder participates only when it separately
+holds a required privileged role.
 
 ### 2.4 Control Profile
 
@@ -231,106 +251,159 @@ and production requirements.
 
 | Control | Actor and scope | Ledger behavior | Production requirement |
 |---|---|---|---|
-| **Settlement attestation (`D1`)** | Each settlement factory pins its trusted-attester registry. | When `requiredAttesterRegistryCid` is present, the factory reads a `ComplianceAttestation` CID from `extraArgs.context`, verifies the exact settlement and leg set, and consumes it. | Collect one compatible attestation for every factory call that requires D1. The D1 CID is supplied through choice context; it is not a `SettleBatch` field. |
-| **Allocation seizure (`D2`)** | `allocation.admin` marks; a scoped burner and destination account parties authorize sweep. | An active mark blocks settle, cancel, and withdraw. Any stakeholder can release a lapsed mark. The ordinary pre-deadline sweep does not require a `SeizureOrder`. | Enforce and disclose immutable `D2Policy`, including a separate order policy and registry. The current experiment selects a merely distinct regular account at mark time. |
-| **Bidder identity (`D3`)** | A trusted KYC issuer signs a credential for the bidder/account. | The target bid gate validates the credential at intake and revalidates every winner against current status during clear. D1 does not perform this check. | Implement issuer rotation, revocation/status lookup, claim kind, subject/account binding, and expiry. Do not put credential identifiers in public transfer metadata. |
-| **Application authority (`D4`)** | Separate launch administrator, auctioneer, intake-pauser, and upgrade governance roles. | Daml signatories and controllers enforce the selected topology; the access-control library supports role handover. | Keep value-moving, intake-pause, and upgrade powers separate. Use two-step handover and disclose emergency powers. |
+| **Settlement attestation (`D1`)** | The cited `TokenRules` settlement factory optionally pins a `TrustedAttesterRegistry` CID. | When `requiredAttesterRegistryCid` is present, the factory reads a `ComplianceAttestation` CID from `extraArgs.context`. Verification checks that the registry belongs to the factory admin, the signer and claim kind are trusted, the settlement ID, executor set, and transfer leg set match, and the validity window is current and within the configured maximum. It then consumes the attestation. | Supply one compatible attestation for each factory call that requires D1. The CID travels through choice context rather than a direct `SettleBatch` field. |
+| **Allocation seizure (`D2`)** | `allocation.admin` controls the mark. A sweep combines the allocation's standing admin authority, a burner with a capability issued by the admin and carrying an expiry, and the destination account parties. | An active mark blocks settle, cancel, and withdraw. Any single stakeholder can release a lapsed mark. The ordinary sweep must occur before the settlement deadline and does not require a `SeizureOrder`. | The token registry enforces and discloses an immutable `D2Policy` with an independent order policy and authority registry. In the cited experiment, the admin supplies the destination at mark time; the code accepts any regular account whose principal differs from the admin. |
+| **Bidder identity (`D3`)** | A trusted KYC issuer signs a credential whose subject matches both bidder account owners in the baseline. | The target bid gate validates the credential at intake and revalidates every winner during clear. D1 remains a separate settlement attestation. | Define issuer rotation, current status and revocation, accepted claim kinds, owner binding, and expiry. Keep the credential reference in the private `BidAuthorization` rather than transfer leg metadata. |
+| **Application authority (`D4`)** | The target assigns launch administrator, auctioneer, intake pauser, and upgrade governance responsibilities. Deployment policy defines permitted role overlap. | Target contract signatories and controllers enforce these roles. The access control experiment supplies grants, revocation, and timelocked acceptance; accepting a grant does not revoke the previous holder. | Bind every power to its exact choices, preserve close, clear, and recovery during an intake pause, require explicit acceptance for role changes, revoke superseded grants where exclusivity is required, and disclose emergency powers. |
 
-The pinned experiment couples D1 and D2 lawful-process checks through the same
-`TokenRules.requiredAttesterRegistryCid`. When it is `None`, D1 is disabled and
-the choice named `SweepD2WithLawfulProcess` does not validate the supplied
-seizure order; the other D2 window, admin, burner, and destination-authority
-checks still apply. When it is `Some`, the same attester registry governs both
-D1 settlements and D2 orders. A production D2 policy needs its own immutable
-order-required flag and order-authority registry so operators can configure D1
-and D2 independently.
+#### Pinned Experiment Limitations
 
-The pinned D1 registry has a production-blocking rotation defect. Its
-`TrustedAttesterRegistry_Update` choice is consuming, so it archives the
-registry and creates a successor with a new CID. `TokenRules` continues to hold
-the archived `requiredAttesterRegistryCid`, and later settlement cannot fetch it.
-The successor has a different contract ID under Daml contract-ID semantics. A
-production registry needs a stable indirection or an
-admin-authorized rules update that atomically points to the successor. Until
-then, rotating attesters requires replacing the affected token rules and
-starting a new auction round.
+The cited `TokenRules` uses one optional `requiredAttesterRegistryCid` for D1
+and the D2 lawful process path. When it is `None`, D1 is disabled and
+`TokenAllocation_SweepD2WithLawfulProcess` proceeds without validating the
+supplied seizure order; the remaining D2 authority and time checks still apply.
+When it is `Some`, the same registry governs settlement attesters and seizure
+order authorities. The target D2 policy therefore defines its own immutable
+order policy and authority registry.
+
+Production registry rotation must keep an authenticated registry resolvable by
+every dependent factory and active allocation. In the cited experiment,
+`TrustedAttesterRegistry_Update` consumes the registry and creates a successor
+with a new CID. `TokenRules` retains the archived CID, and every existing
+`TokenAllocation` created under those rules also retains it. D1 verification
+and the D2 lawful process path can no longer fetch that registry after rotation.
+Operators must preserve the old trust root until its dependencies are retired,
+or implement authenticated successor resolution for both factories and
+allocations. Replacing the rules and opening a new round protects new
+allocations but does not repair existing ones.
 
 ### 2.5 Wallet Integration Requirements
 
 A bidder-facing wallet must:
 
-- authenticate disclosed `AuctionTerms`, `AuctionRegistration`, the current
-  phase entry, and both allocation-factory contracts before any account party
-  acts, and verify the phase entry against the registered successor chain or a
-  clearly disclosed venue-trust fallback;
-- show the complete bid authorization, rounded maximum payment, parking leg,
-  deadline, account providers, and each instrument's D2 policy before signing;
-- track the allocation root, which is the first parking-allocation CID; accept a
-  current allocation only if it is that root or an authenticated successor whose
-  `originalAllocationCid` and immutable fields match the stored record; and
-- show the private outcome and the currently authorized cancel, withdraw, D2
-  release, or terminal-reconciliation path from completion-stream and ledger
-  state.
+- obtain `AuctionRegistration` from a launch trust anchor pinned in wallet
+  configuration or an authenticated launch directory. Before collecting any
+  account-party signature, verify the disclosed `AuctionTerms` against that
+  registration and confirm that the current `AuctionRoundState` descends from
+  the first state it pins. If the wallet cannot verify that chain, it must
+  present the state as a venue assertion and disclose that trust assumption to
+  the user;
+- verify the allocation and settlement factories referenced by the terms for
+  both instruments, including each factory's package/interface and admin, and
+  confirm the D1 and D2 policies enforced by each instrument's registry.
+  Production mode supports only instruments whose registries expose and enforce
+  the immutable D2 policy required by
+  [section 1.3](#13-control-model-and-allocation-seizure);
+- show every account party the requested quantity, maximum unit price, rounded
+  maximum payment, parking allocation, deadlines and recovery rules, account
+  owners and providers, instrument admins, and applicable D2 seizure powers
+  before requesting authorization;
+- record the first parking-allocation CID and its complete immutable allocation
+  fingerprint. A successor is accepted only when its `originalAllocationCid`
+  identifies that first CID and all immutable fields match the stored
+  fingerprint; and
+- use party-filtered ledger updates and active-contract state to maintain the
+  bidder's private outcome and current allocation status;
+- derive each displayed recovery action from the auction contracts, the
+  allocation's live `availableActions`, and ledger time. Identify the required
+  actors and timing, and distinguish application paths from independently
+  callable token actions, including executor cancellation, admin expiry, D2
+  unmark, stakeholder lapse release, and terminal sweep; and
+- use the completion stream only to confirm commands submitted by the wallet.
+  Follow its update ID and offset to the visible transaction, then reconcile
+  the active-contract state.
 
 ### 2.6 Deployment and Bootstrap
 
-On the Canton 3.5.1 baseline, contract keys require a package compiled for
-Daml-LF 2.3 and a Protocol Version 35 synchronizer; later compatible LF and
-protocol versions may also support them. Canton keys are non-unique lookup
-labels, and negative lookups are not validated. The application must serialize
-creation of logical auction IDs and remain safe if duplicate keyed contracts
-exist.
+Deployment fixes the packages, synchronizer, party topology, and trust anchors
+used throughout a round. Fixed checks complete before intake opens;
+checks for each bidder repeat during admission.
 
-By-key interpretation considers contracts created in the transaction,
-explicitly disclosed contracts, and contracts known to the participant; a
-negative lookup is not proof of global absence. For external submission on this
-baseline, explicitly request `HASHING_SCHEME_VERSION_V3`: the prepare API
-defaults to V2, while transactions using contract keys require V3. See the
-[Canton 3.5.1 release notes](https://docs.canton.network/global-synchronizer/release-notes/canton-releases/3-5-1).
+#### Runtime and Package Compatibility
 
-`PartyToParticipant.threshold` is the number of hosting participants whose
-confirmations are required. `partySigningKeys` separately defines the N-of-M
-signing-key threshold for external submissions. Configure command authorization
-independently: supported patterns include Daml delegation, in-Daml signature
-verification, and external multi-signature submission. These mechanisms improve
-key and validator resilience; they do not make the off-ledger clearing
-algorithm honest. See the [multi-signature party operations guide](https://docs.canton.network/global-synchronizer/production-operations/multi-sig).
+This architecture assigns every contract used by one clear to the same
+synchronizer; settlement across synchronizers follows a separate design. Pin the
+application and factory package IDs and Token Standard interface
+versions for the lifetime of the round. Audit and approve that package set,
+then load and vet it, including dependencies, on every participant that may
+interpret an auction transaction. See the [package management guide](https://docs.canton.network/global-synchronizer/production-operations/manage-packages).
 
-Before opening, operators verify:
+#### Party Topology and Authorization
 
-- packages are pinned, audited, and vetted on every participant involved;
-- each instrument's admin, separate factory CIDs, account rules, D1/D2 policy,
-  expiry, pause behavior, and limits match the terms;
-- all four business accounts are regular, and inventory/capacity remains
-  available through clear;
-- allocation instructions complete synchronously and settlement outputs are
-  final for the required shapes;
-- `settlement.executors` is exactly `[auctioneer]` in the evidence-compatible
-  baseline. A multi-executor deployment must bring every executor's authority
-  into each cancel and settlement choice locally;
-- the wallet requirements above pass against every dynamic bidder controller;
-  and
-- every required actor can complete within the settlement deadline.
+Configure confirmation topology and command authorization separately for the
+launch administrator, issuer, auctioneer, intake pauser, and upgrade governance.
+`PartyToParticipant.threshold` sets the number of hosting participants required
+to confirm. For external submission, `partySigningKeys` supplies the signing
+keys and their threshold. Command authorization may use Daml delegation,
+signature verification in Daml, or external multisignature submission. See the
+[multi-signature party operations guide](https://docs.canton.network/global-synchronizer/production-operations/multi-sig).
+
+The single executor baseline fixes `settlement.executors = [auctioneer]`. A
+design with multiple executors must place every executor's authority inside
+each cancel and settlement choice and account for the resulting visibility,
+availability, and signing latency.
+
+#### Round Bootstrap
+
+Before opening intake, operators:
+
+1. Create immutable `AuctionTerms`, the first `AuctionRoundState`, the bounded
+   `IssuerAuthorization`, and an `AuctionRegistration` that pins the terms and
+   first state. Publish the registration CID through the authenticated trust
+   anchor used by bidder wallets.
+2. For each instrument, pin its ID, admin, allocation factory CID, settlement
+   factory CID, package and interface versions, account rules, D1 and D2
+   policies and registries, deadlines, limits, and pause or freeze behavior.
+   Keep every referenced registry resolvable for the lifetime of dependent
+   factories and allocations.
+3. Approve only factories tested to return completed allocation instructions
+   and final, noniterated settlement results for the transfer shapes used by
+   this architecture.
+4. Validate the issuer's regular payment and inventory accounts and initial
+   inventory coverage. Continue monitoring inventory because
+   `IssuerAuthorization` carries authority without reserving holdings; disclose
+   and recheck the current issuer holdings at clear.
+5. Test authenticated disclosure, party projections, and recovery actions for
+   every supported bidder account owner and provider arrangement. Each
+   admission separately validates the bidder's regular payment and delivery
+   accounts and D3 owner binding, and confirms that the participants hosting
+   those parties have the required packages and disclosures.
+6. Verify that account parties, executors, attesters, and external signers can
+   complete within the configured deadline and submission margins described in
+   [section 3.8](#38-time-model-and-deadlines).
+
+#### Optional Contract Key Discovery
+
+`AuctionRegistration` provides the canonical round identity. A deployment that
+also uses contract keys for discovery targets Daml-LF 2.3 or later on a
+Protocol Version 35 or later compatible synchronizer. On the Protocol Version
+35 baseline, an external submission that uses keys explicitly selects
+`HASHING_SCHEME_VERSION_V3`. Because Canton keys are nonunique and negative
+lookups do not prove global absence, every discovery result must resolve to the
+pinned registration and remain safe when duplicate keys exist. See the
+[contract key guide](https://docs.canton.network/appdev/modules/m3-contract-keys)
+and [Canton 3.5.1 release notes](https://docs.canton.network/global-synchronizer/release-notes/canton-releases/3-5-1).
 
 ## 3. Target Design
 
 The lifecycle separates immutable economic terms from mutable phase state.
 `AuctionTerms` is immutable: its contract ID and terms hash identify the signed
 round terms, and every admitted bid binds both. Setup creates the first
-`AuctionDirectoryEntry` and an `AuctionRegistration` that pins its CID and the
-terms. Every phase successor records the registration CID, first-entry CID,
-predecessor CID, monotonic revision, terms CID, and terms hash.
+`AuctionRoundState` and an `AuctionRegistration` that pins its CID and the terms.
+Every successor state records `registrationCid`, `firstStateCid`,
+`predecessorCid`, a monotonic `revision`, `termsCid`, and the terms hash.
 
 A wallet establishes canonicality by verifying those successor transactions
 from an authorized stakeholder's transaction stream or a separately signed
-phase-chain proof. Explicit disclosure of the current contract proves its
+state-chain proof. Explicit disclosure of the current contract proves its
 payload, not its ancestry; a wallet that cannot verify the chain trusts the
-venue's assertion. Directly created lookalike entries and results are ignored.
+venue's assertion. Directly created lookalike states and results are ignored.
 
-Every admitted bid also binds the registration CID, first-entry CID,
-admission-entry CID/revision, and its own allocation root. A failed clear rolls
-back all nested cancellation, allocation, settlement, result, and phase actions,
-leaving the closed round and inputs available for a state-aware retry.
+Every admitted bid also binds `registrationCid`, `firstStateCid`,
+`admissionStateCid`, `admissionStateRevision`, and its own allocation root. A
+failed clear rolls back all nested cancellation, allocation, settlement, result,
+and round state transitions, leaving the closed round and inputs available for
+a retry based on current state.
 
 Sections 3.1 through 3.6 describe the settlement critical path: configure the
 round, admit and park each bid, close intake, validate one result, materialize
@@ -348,8 +421,8 @@ The launch administrator, issuer, and auctioneer configure:
   settlement-factory CID, regular treasury/bidder account requirements, D1
   registry, and disclosed D2 policy;
 - `settlement.executors = [auctioneer]` for the baseline;
-- an `Open` directory entry plus a stable `AuctionRegistration` that pins it and
-  the terms; and
+- an `AuctionRoundState` in phase `Open` plus a stable `AuctionRegistration` that
+  pins it and the terms; and
 - an `IssuerAuthorization` signed by every owner/provider required by the
   issuer payment and inventory accounts.
 
@@ -376,16 +449,16 @@ accepted price is used.
 
 ### 3.2 Admit a Bid and Park Maximum Payment
 
-Wallets first receive authenticated disclosure of the terms, registration,
-current open directory entry, and both allocation factories. All bidder payment
-and delivery account parties then call the nonconsuming `PlaceBid` choice. It
-checks the open phase, `biddingDeadline`, positive quantity and price, ticks and
-lots, regular accounts, and the D3 credential's subject, kind, trusted issuer,
-current status, and expiry.
+Wallets first receive authenticated disclosure of the terms, registration, the
+current `AuctionRoundState` in phase `Open`, and both allocation factories. All
+bidder payment and delivery account parties then call the nonconsuming
+`PlaceBid` choice. It checks the open phase, `biddingDeadline`, positive quantity
+and price, ticks and lots, regular accounts, and the D3 credential's subject,
+kind, trusted issuer, current status, and expiry.
 
-It also fetches the registration: revision zero must be the pinned first entry,
-and every later entry must preserve the registered first CID, terms, predecessor,
-and revision chain supplied in the verified phase proof.
+It also fetches `AuctionRegistration`. Revision zero must match `firstStateCid`.
+Every later state must preserve that root, the terms, its predecessor, and the
+revision chain supplied in the verified state proof.
 
 The terms define one fixed-scale, overflow-checked payment rounding function:
 
@@ -402,10 +475,11 @@ maxPayment = paymentRound(requestedQuantity * maximumUnitPrice)
    allocation CID as the allocation root, and records any returned change;
 3. creates `BidAuthorization` with the bidder account parties **and** the issuer
    and auctioneer as signatories; and
-4. binds `termsCid`, terms hash, `registrationCid`, `firstEntryCid`, the admission
-   entry CID/revision, full accounts, both instrument IDs/admins, both factory
-   CIDs, treasury accounts, quantity, limit, `maxPayment`, rounding, deterministic
-   leg IDs, deadline, and credential reference; and
+4. binds `termsCid`, terms hash, `registrationCid`, `firstStateCid`, the
+   `admissionStateCid`, `admissionStateRevision`, full accounts, both instrument
+   IDs/admins, both factory CIDs, treasury accounts, quantity, limit,
+   `maxPayment`, rounding, deterministic leg IDs, deadline, and credential
+   reference; and
 5. fingerprints the root allocation's full `SettlementInfo`,
    `AllocationSpecification`, holding CIDs, `createdAt`, `expiresAt`, and
    `numIterations = 0`.
@@ -422,7 +496,8 @@ this is a disclosed availability power, not a payment power.
 
 ### 3.3 Pause Intake, Close, Cancel, or Expire
 
-Directory choices consume the current entry and create its canonical successor:
+`AuctionRoundState` choices consume the current state and create its canonical
+successor:
 
 - `Pause` stops intake by changing `Open` to `Paused`; `Unpause` returns to
   `Open` before the bidding deadline.
@@ -444,7 +519,7 @@ After close, the auctioneer computes the uniform-price result from the admitted
 bids in its projection and collects D1 inputs for the exact settlement groups.
 The clear command includes the complete proposed bid set and outcome vector.
 
-The consuming clear choice checks the canonical closed entry, deadline,
+The consuming clear choice checks the canonical `Closed` state, deadline,
 algorithm, unique bid and allocation roots, strictly positive winner quantities,
 price, and payments, price limits, lots, deterministic tie output, rounded
 payment equality, and aggregate supply. It revalidates every winner's current D3
@@ -461,7 +536,7 @@ After those checks, the transaction creates an aggregate `AuctionResult` and:
 `WinnerPermit` is signed by the issuer and auctioneer and has a consuming `Use`
 choice controlled by the auctioneer. It prevents out-of-chain winner
 finalization by the auctioneer alone. During canonical clear, the issuer's
-signature on the directory entry is standing preauthorization for valid choice
+signature on the round state is standing preauthorization for valid choice
 consequences, not a fresh per-clear signature. All permit signatories could
 still collude to create the template directly.
 
@@ -474,7 +549,7 @@ An empty winner set remains valid. Its `IssuerPermit` binds an empty issuer-leg
 set; `IssuerAuthorization_Use` consumes and closes the authorization without
 calling either allocation factory. Clear makes no settlement-factory calls and
 requires no D1 inputs, but still creates the zero-fill result, loser permits, and
-canonical successor.
+canonical successor state.
 
 ### 3.5 Materialize Exact Winner and Issuer Allocations
 
@@ -543,7 +618,7 @@ not carry allocation CIDs, so positional allocation-to-result correspondence is
 a settlement-factory conformance assumption. `Pending`, a successor iteration,
 or any invalid result aborts the clear.
 
-The same transaction replaces the canonical directory entry with
+The same transaction replaces the canonical round state with
 `Cleared(resultCid)`. Consumers accept a result
 only through that successor chain. It also creates private winner outcomes,
 consumes winner bids and permits, and consumes `IssuerAuthorization`. Any failed
@@ -576,7 +651,7 @@ separate recovery handle, so one stale or seized loser cannot abort DvP.
   `Allocation_Withdraw`.
 - If the round is cancelled or expires without a result,
   `BidAuthorization_CancelTerminal` and `BidAuthorization_WithdrawTerminal`
-  verify that canonical terminal entry and provide the equivalent two paths
+  verify that canonical terminal state and provide the equivalent two paths
   without a loser permit.
 - If clear fails, the closed state and bids remain active because all attempted
   result and settlement actions rolled back.
@@ -693,8 +768,8 @@ the minimum target surface for a single-use, recoverable, auditable lifecycle.
 | Contract | Stakeholders | Responsibility |
 |---|---|---|
 | `AuctionTerms` | Launch administrator, issuer, auctioneer | Holds immutable economics, deadlines, instrument/factory bindings, policies, and arithmetic rules. |
-| `AuctionRegistration` | Launch administrator, issuer, auctioneer | Pins the terms CID and first directory-entry CID. Wallets verify successors from this stable root rather than a human-readable ID or negative key lookup. |
-| `AuctionDirectoryEntry` | Issuer and auctioneer | Holds phase, registration/terms identity, first/predecessor CIDs, and revision; consuming choices form the phase chain. |
+| `AuctionRegistration` | Launch administrator, issuer, auctioneer | Pins the terms CID and first `AuctionRoundState` CID. Wallets verify successors from this stable root rather than a human-readable ID or negative key lookup. |
+| `AuctionRoundState` | Issuer and auctioneer | Holds phase, registration/terms identity, `firstStateCid`, `predecessorCid`, and revision; consuming choices form the phase chain. |
 | `BidAuthorization` | Bidder account parties, issuer, auctioneer | Proves venue admission and carries one bid's account authority, terms binding, and parking-allocation root into clear or recovery. |
 | `WinnerPermit` / `IssuerPermit` | Issuer and auctioneer | Bind exact bidder- or issuer-side allocations to the proposed canonical result; each is consumed inside the corresponding authorization choice. |
 | `LoserPermit` | Issuer and auctioneer; bidder account parties observe | Binds one excluded bid and reason to the result; a consuming variant is used inside bid-authorized cancel/withdraw. |
@@ -706,10 +781,10 @@ the minimum target surface for a single-use, recoverable, auditable lifecycle.
 
 | Choice | Controller | Consuming? | Required effect |
 |---|---|---:|---|
-| `AuctionDirectoryEntry_PlaceBid` | Required parties of both bidder accounts | No | Use standing venue authority from the open entry to validate intake/D3 and create a completed parking allocation plus admitted `BidAuthorization`. |
-| `Pause` / `Unpause` / `Close` | Configured venue governance | Yes | Stop or resume intake, or create the closed phase entry, without changing terms or recovery bounds. |
-| `CancelRound` / `ExpireRound` | Configured venue or recovery governance | Yes | Create a terminal entry that enables independent bid recovery. |
-| `ClearRound` | Auctioneer | Yes | Validate the canonical closed entry and result, finalize winners, settle every factory group, create permits/outcomes, and create `Cleared(resultCid)`. |
+| `AuctionRoundState_PlaceBid` | Required parties of both bidder accounts | No | Use standing venue authority from the `Open` state to validate intake/D3 and create a completed parking allocation plus admitted `BidAuthorization`. |
+| `Pause` / `Unpause` / `Close` | Configured venue governance | Yes | Stop or resume intake, or create the `Closed` round state, without changing terms or recovery bounds. |
+| `CancelRound` / `ExpireRound` | Configured venue or recovery governance | Yes | Create a terminal round state that enables independent bid recovery. |
+| `ClearRound` | Auctioneer | Yes | Validate the canonical `Closed` state and result, finalize winners, settle every factory group, create permits/outcomes, and create `Cleared(resultCid)`. |
 | `BidAuthorization_FinalizeWinner` | Auctioneer | Yes | Consume the exact `WinnerPermit`; authenticate/cancel the current parking-chain member; create completed exact winner allocations inside bidder authority. |
 | `WinnerPermit_Use` | Auctioneer | Yes | Verify the result, bid, fill, price, payment, settlement, legs, and factory groups; return the bound data to winner finalization. |
 | `IssuerPermit_Use` | Auctioneer | Yes | Verify the result, terms, accounts, exact legs/amounts, factories, and deadline; return the bound data to issuer authorization. |
@@ -776,7 +851,7 @@ assumptions that the application cannot enforce.
 | Ledger-enforced in the target | Trusted or deployment-dependent |
 |---|---|
 | Only required signatories/controllers authorize each contract and choice. | The auctioneer includes all eligible bids and follows the advertised algorithm. |
-| A verified directory entry is consumed at most once, and its clear creates one terminal successor. | Clients verify transaction ancestry from the authentic registration; disclosure of a current entry alone proves only its payload. |
+| A verified round state is consumed at most once, and its clear creates one terminal successor. | Clients verify transaction ancestry from the authentic registration; disclosure of a current state alone proves only its payload. |
 | A bidder cannot create an admitted bid without the venue admission signatories. | All admission or permit signatories can collude to create their jointly signed contracts directly; Daml does not prove constructor ancestry. |
 | A bid cannot pay above its signed maximum or receive above its requested quantity. | Instrument admins keep factories available and use emergency powers according to policy. |
 | Sender and receiver sides cover every transfer leg within each compatible factory group. | The issuer keeps sufficient launched-token inventory available until clear. |
@@ -790,8 +865,8 @@ An implementation must enforce and test the following production invariants:
 
 | Invariant | Required property |
 |---|---|
-| Canonical admission and finality | Registration pins immutable terms/first entry; verified successors consume their predecessor. `PlaceBid` creates one completed self-return parking allocation plus its venue-authorized bid; only `Cleared(resultCid)` finalizes. |
-| Complete binding and arithmetic | Each bid binds accounts/parties, instrument/admin/factory identities, registration/entry identities, full allocation fingerprint, credential, settlement, deadline, leg IDs, and one positive fixed-scale, overflow-checked amount calculation. |
+| Canonical admission and finality | Registration pins immutable terms and the first round state; verified successors consume their predecessor. `PlaceBid` creates one completed self-return parking allocation plus its venue-authorized bid; only `Cleared(resultCid)` finalizes. |
+| Complete binding and arithmetic | Each bid binds accounts/parties, instrument/admin/factory identities, registration/state identities, full allocation fingerprint, credential, settlement, deadline, leg IDs, and one positive fixed-scale, overflow-checked amount calculation. |
 | Eligibility and controls | Both bidder owners match D3; D3 is checked at intake and clear. Each required factory call independently checks D1 and the instrument's disclosed D2 policy. |
 | Local authority | Bidder allocations are created inside the consumed bid choice and issuer allocations inside the issuer choice. No workflow assumes authority escapes a choice body. |
 | Factory isolation and atomicity | Each `(admin, settlementFactoryCid)` call has exact leg coverage and completed allocations. All calls share one clear and return final outputs; an empty winner set calls no token factory. |
@@ -804,8 +879,8 @@ An implementation must enforce and test the following production invariants:
 | Threat or failure | Effect | Required defense or recovery |
 |---|---|---|
 | Auctioneer omits or misorders bids | Unfair price or allocation. | Fixed algorithm, commitments, private outcomes, and auditor disclosure. The ledger still cannot prove completeness. |
-| Admission or permit is forged or reused | Intake checks or bidder authority could be bypassed. | The open entry supplies standing venue admission authority; permits bind every result field and are consumed. Add a locally authorized clear guard if issuer-plus-auctioneer trust is insufficient. |
-| Venue presents two results | Conflicting prices or double allocation. | Only a transaction-verified canonical entry can create the accepted `Cleared(resultCid)` successor; clients ignore lookalikes. |
+| Admission or permit is forged or reused | Intake checks or bidder authority could be bypassed. | The `Open` round state supplies standing venue admission authority; permits bind every result field and are consumed. Add a locally authorized clear guard if issuer-plus-auctioneer trust is insufficient. |
+| Venue presents two results | Conflicting prices or double allocation. | Only a transaction-verified canonical round state can create the accepted `Cleared(resultCid)` successor; clients ignore lookalikes. |
 | Factories are split into separate commands, mis-grouped, or return nonfinal output | Partial DvP or premature finality. | One outer transaction, compatible `(admin, settlementFactoryCid)` groups, and exact completed/final result checks. |
 | D1 is missing or D3 becomes invalid | A batch or winner is no longer compliant. | One exact D1 input per required factory call; revalidate D3 and follow the published exclude-or-fail rule. |
 | D2 marks a winner or loser | Settle and recovery block; a winner can abort clear. | Preflight marks, apply the published recomputation policy, and release losers independently. |
@@ -845,12 +920,13 @@ Before production, the application test suite must cover:
   transaction tree for provider/issuer/auctioneer visibility and divulgence;
 - registration bootstrap, successor/predecessor/revision verification, direct
   lookalike rejection, and the documented fallback when a wallet trusts the
-  venue's phase-chain proof;
+  venue's state-chain proof;
 - different-admin, same-admin/different-factory, and compatible shared-factory
   settlement, with injected failure and `Pending`/iterated/misordered results in
   each nested call to prove rollback and final-result checks;
 - D1 enabled/disabled combinations, one consumed attestation per factory call,
-  registry rotation, and the pinned shared-registry coupling to D2 orders;
+  registry rotation while factories or allocations still depend on the prior
+  CID, and the pinned shared-registry coupling to D2 orders;
 - D3 expiry, issuer removal, both-owner subject mismatch, delegated-owner policy,
   revocation, and retry behavior;
 - D2 mark, unmark, lapse release, ordinary sweep, lawful-process sweep, and a
@@ -859,9 +935,9 @@ Before production, the application test suite must cover:
 - nested loser cancel/withdraw authority, terminal issuer close, direct
   cancel/withdraw/admin expiry/sweep followed by application reconciliation,
   deadline boundaries, and crash/retry idempotency;
-- authenticated disclosure of terms, registration, the current directory entry,
-  and factory contracts to every dynamic bidder controller, plus issuer holding
-  disclosure to the clearing participant; and
+- authenticated disclosure of terms, registration, the current round state,
+  and factory contracts to every supported bidder account owner and provider,
+  plus issuer holding disclosure to the clearing participant; and
 - ingestion of `EventLog_HoldingsChange` events and correlation to one result.
 
 Repository experiments are built and tested with the commands documented in
@@ -876,8 +952,8 @@ transaction views, package dependencies, and external signatures. The round's
 `maxWinners` must fit the smallest limit advertised or tested by either
 instrument registry.
 
-Competing clear submissions consume the same canonical closed entry, so only
-one can commit. A rejected contender re-reads the current entry before deciding
+Competing clear submissions consume the same canonical `Closed` state, so only
+one can commit. A rejected contender re-reads the current state before deciding
 whether to retry; independent rounds can proceed in parallel.
 
 Monitor at least:
@@ -938,12 +1014,12 @@ in contracts, configuration, tests, and bidder-facing disclosures. Items marked
 |---|---|---|
 | **R-01 blocking** | D2 capability | `Disabled` makes mark and both sweep paths ledger-impossible. `Enabled` pins destinations, window, `NoExternalOrder` / `LawfulProcessPathOnly` / `EverySweep`, and a D2-specific registry when orders are required. |
 | **R-02 blocking when D2 is enabled** | Privileged roles | Admin, burner grantor, burners, destination owners, order authorities, pauser, and upgrade governance have documented custody, enforced separation where required, rotation, and incident response. |
-| **R-03 blocking** | Factory and D1 topology | Each instrument pins separate allocation/settlement factory CIDs, admin, account rules, expiry, limits, exact executors, and D1 policy. Groups use `(admin, settlementFactoryCid)`, return final outputs, and have one D1 input per required call. The stale D1 CID and D1/D2 coupling are repaired or force rules/round replacement. |
-| **R-04 blocking** | Venue finality and recovery | Registration bootstrap and successor evidence, immutable terms, venue-admitted bids, local permit/guard authority, terminal states, nested loser recovery, issuer close, and direct-token-action reconciliation are implemented. Only the verified phase successor finalizes a result. |
+| **R-03 blocking** | Factory and D1 topology | Each instrument pins separate allocation and settlement factory CIDs, admin, account rules, expiry, limits, exact executors, and D1 policy. Groups use `(admin, settlementFactoryCid)`, return final outputs, and have one D1 input per required call. D1 and D2 use independent trust roots. Registry rotation preserves a resolvable authenticated registry for every dependent factory and active allocation, or waits until those dependencies are retired. |
+| **R-04 blocking** | Venue finality and recovery | Registration bootstrap and successor evidence, immutable terms, venue-admitted bids, local permit/guard authority, terminal states, nested loser recovery, issuer close, and direct-token-action reconciliation are implemented. Only the verified `AuctionRoundState` successor finalizes a result. |
 | **R-05 blocking** | D3 status | Credential kind, subject/account mapping, issuers, expiry, current status, revocation, rotation, and exclude-or-fail behavior are fixed and winners are rechecked. |
 | R-06 | Clearing arithmetic | Algorithm, reserve, ticks, lots, marginal rule, remainder order, maximum winners, fixed-scale rounding/overflow, and positive-value rules have published test vectors. |
 | R-07 | Inventory and accounts | Both bidder owners satisfy D3, all business accounts are regular, every provider is bound, issuer authorization has a terminal path, and current holdings are disclosed/preflighted before clear. Mint/burn or iterated variants receive separate review. |
-| R-08 | Party signing | Confirmation and key thresholds plus local authorization workflows are defined for venue, account, admin, attester, intake-pause, and D2 roles; their latency fits the deadline. |
+| R-08 | Party signing | Confirmation and key thresholds plus local authorization workflows are defined for venue, account, admin, attester, intake pause, and D2 roles; their latency fits the deadline. |
 | R-09 | Visibility and audit | Provider/issuer bid visibility, private outcome delivery, auditor disclosure, and authenticated wallet disclosure are verified from party projections and the transaction tree. |
 | R-10 | Packages and upgrades | Package IDs and interface versions are vetted and pinned; wallets authenticate registration; upgrades close and recover active rounds before new terms open. |
 
