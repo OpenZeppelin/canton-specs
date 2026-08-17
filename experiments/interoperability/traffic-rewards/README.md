@@ -22,16 +22,18 @@ The steps are:
    `RewardVersion_TrafficBasedAppRewards` and lowers `appRewardCouponThreshold`
    far below its 0.5 USD default, which a run of this size stays under. LocalNet
    has one SV and a voting threshold of 1, so the vote of the requester carries.
-3. The harness waits for the next mining round to open, and then the app-provider
-   settles three USD transfers as the settlement executor. These settlements are
-   the traffic, and a round that has just opened holds all three of them.
+3. The app-provider settles three USD transfers as the settlement executor. These
+   settlements are the traffic, and the harness records the ledger record time of
+   each settle transaction.
 4. The harness asserts the app-side attribution of those settlements from the
    `SettlementReceipt` views, the same property that
    [`SettlementAttribution.daml`](../cip-exemplar/daml/OpenZeppelin/Experimental/Interop/SettlementAttribution.daml)
    specifies.
-5. Scan reports a closed round with a non-zero app activity weight and one
-   rewarded app-provider party.
-6. The app-provider holds a `RewardCouponV2` for that round.
+5. Scan reports a round, at or after the round of the settlements, with a
+   non-zero app activity weight whose confirmed batch of minting allowances names
+   the app-provider party.
+6. The app-provider holds a `RewardCouponV2` for that round, and the coupon
+   carries the same amount as the minting allowance that Scan computed.
 7. The app-provider assigns beneficiaries to the coupon
    (`RewardCoupon_AssignBeneficiaries`, 0.7 / 0.2 / 0.1). The choice replaces the
    coupon with one coupon for each beneficiary, and the harness asserts the three
@@ -95,10 +97,19 @@ reward amount is not: the network computes it from measured traffic and the
 issuance curve of the round, and the harness asserts only that the shares match
 the coupon that the network minted.
 
-The coupon covers the traffic of one mining round, which is why the harness
-settles at the start of a round. A slow network can still split the settlements
-across two rounds, and the coupon then covers the part inside the round that
-Scan measured.
+The gate does not isolate the share of the reward that the settlements earned. A
+round pays for every transaction that it accounts to the app-provider, and on
+LocalNet that includes the traffic top-ups of the app-provider's own validator,
+which run on their own interval. With one featured app on the network the whole
+app-reward pool of the round goes to that app in any case, so the amount reflects
+the round rather than the three settlements.
+
+Which round accounts for a given transaction is internal to Splice: several rounds
+are open at once, the reward accounting fills behind them, and the CIP-0104
+endpoints of Scan carry a "subject to change" note. The harness therefore searches
+forward from the round it observed before settling, instead of computing the round
+itself. A quiet round reports zero weight and no rewarded party, so the round it
+finds did measure app traffic.
 
 This experiment gives interoperability evidence on LocalNet. It is not a
 production reward integration, and it does not make the app-provider a featured

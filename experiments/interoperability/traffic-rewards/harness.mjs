@@ -222,7 +222,9 @@ async function submit(actAs, label, commands, { disclosedContracts, mustFail = n
       const ev = e?.CreatedEvent ?? e?.created ?? e?.CreatedTreeEvent?.value
       if (ev) created.push({ contractId: ev.contractId, templateId: ev.templateId })
     }
-    return { created }
+    // The record time decides which mining round accounts for the traffic of
+    // this transaction.
+    return { created, recordTime: res?.transaction?.recordTime }
   } catch (err) {
     if (!mustFail) throw err
     const body = err.body ?? String(err.message)
@@ -359,17 +361,20 @@ async function createAndAcceptAllocation(admin, factory, settlement, authorizer,
 // One settlement, executed by the featured app-provider. Every command of this
 // function costs traffic, and CIP-0104 attributes the traffic of the settle
 // transaction to the app-provider that confirms it.
+// Returns the record time of the settle transaction, which is the transaction
+// whose traffic CIP-0104 attributes to the app-provider that confirms it.
 async function settleUsdTransfer(admin, app, sender, receiver, senderHoldingCid, amount, ref) {
   const factory = await mkFactory(admin)
   const settlement = settlementInfo(ref, app)
   const leg = transferLeg(ref, sender, receiver, amount)
   const senderAlloc = await createAndAcceptAllocation(admin, factory, settlement, sender, [legSide('SenderSide', leg)], [senderHoldingCid])
   const receiverAlloc = await createAndAcceptAllocation(admin, factory, settlement, receiver, [legSide('ReceiverSide', leg)], [])
-  await submit([app], 'settle', [
+  const settled = await submit([app], 'settle', [
     { ExerciseCommand: { templateId: T.factory, contractId: factory.factoryCid, choice: 'SettlementFactory_SettleBatch', choiceArgument: {
       settlement, transferLegs: [leg], allocationCids: [senderAlloc, receiverAlloc], actors: [app], d1ComplianceRef: null,
     } } },
   ], { disclosedContracts: [factory.disclosure] })
+  return settled.recordTime
 }
 
 const unlockedUsd = (hs) => hs.filter((h) => !h.payload?.lock && h.payload?.instrumentId?.id === 'USD')
@@ -483,49 +488,56 @@ const latestRound = async () => {
   return Number(dso.latest_mining_round.contract.payload.round.number)
 }
 
-// A round boundary in the middle of the settlements splits their traffic over two
-// rounds, and a round pays only if it opened with the reward configuration in
-// force. Settling at the start of a round keeps the traffic of the run inside one
-// round that pays.
-async function waitForNextRound(after) {
-  return waitFor(
-    `mining round ${after + 1} to open`,
-    async () => {
-      const current = await latestRound()
-      return current > after ? current : null
-    },
-    TRAFFIC_TIMEOUT_MS,
-  )
-}
-
-// Scan measures the traffic of each transaction and computes the per-round
-// totals when the round closes. A round with a non-zero activity weight and a
-// rewarded app-provider is the evidence that the network attributed the traffic
-// of the settlements.
-async function waitForAttributedRound(fromRound) {
-  return waitFor('a closed round with attributed app activity', async () => {
+// Splice keeps several mining rounds open at once and fills its reward accounting
+// behind them. Which round accounts for the traffic of a transaction is internal
+// to Splice, and the CIP-0104 endpoints of Scan carry a "subject to change" note,
+// so the client makes no assumption about it: it searches forward from the round
+// that it saw before its settlements.
+async function waitForAttributedRound(fromRound, provider) {
+  return waitFor('a round that rewards the app-provider', async () => {
     const latest = await latestRound()
     for (let round = fromRound; round <= latest; round += 1) {
-      const totals = await scanApi('GET', `/v0/internal/reward-accounting-process/rounds/${round}/activity-totals`)
+      const totals = await scanApi(
+        'GET',
+        `/v0/internal/reward-accounting-process/rounds/${round}/activity-totals`,
+      )
       if (totals.status !== 'Ok') continue
-      if (Number(totals.total_app_activity_weight) > 0 && Number(totals.rewarded_app_provider_parties_count) > 0) {
-        return totals
-      }
+      if (Number(totals.total_app_activity_weight) <= 0) continue
+      const allowances = await roundMintingAllowances(round)
+      const mine = allowances.filter((a) => a.provider === provider)
+      if (mine.length === 1) return { round, totals, allowance: mine[0].amount }
     }
     return null
   })
 }
 
+// The minting allowances that Scan computed for the round. This is the leaf of
+// the Merkle tree that the SV confirms, so it names the parties that the round
+// pays.
+async function roundMintingAllowances(round) {
+  const hash = await scanApi('GET', `/v0/internal/reward-accounting-process/rounds/${round}/root-hash`)
+  assertEq(`the root hash of round ${round}`, hash.status, 'Ok')
+  const batch = await scanApi(
+    'GET',
+    `/v0/internal/reward-accounting-process/rounds/${round}/batches/${hash.root_hash}`,
+  )
+  return batch.minting_allowances ?? []
+}
+
 const couponsOf = async (provider) =>
   (await acs(provider, T.rewardCouponV2)).filter((c) => c.payload.provider === provider)
 
-// The SV creates one `RewardCouponV2` for each rewarded provider of a round.
-// The client takes the first coupon that has no beneficiary, because only such
-// a coupon accepts an assignment.
-async function waitForUnassignedCoupon(provider) {
-  return waitFor('a reward coupon for the app-provider', async () => {
+// The SV creates one `RewardCouponV2` for each rewarded provider of a round. The
+// client takes the coupon of the round that it measured, and only a coupon
+// without a beneficiary accepts an assignment. A provider that earns in several
+// rounds holds several coupons, so the round keeps the coupon and the measured
+// activity together.
+async function waitForUnassignedCoupon(provider, round) {
+  return waitFor(`the reward coupon of round ${round}`, async () => {
     const coupons = await couponsOf(provider)
-    return coupons.find((c) => !c.payload.beneficiary) ?? null
+    return (
+      coupons.find((c) => !c.payload.beneficiary && String(c.payload.round.number) === String(round)) ?? null
+    )
   })
 }
 
@@ -577,15 +589,16 @@ async function main() {
   log(`starting at round ${roundBefore}`)
 
   // Step 4: the traffic. The app-provider settles three CIP-0112 batches as the
-  // executor, at the start of a round. No command here mentions CIP-0104.
-  const settleRound = await waitForNextRound(roundBefore)
-  log(`settling in round ${settleRound}`)
+  // executor. No command here mentions CIP-0104. The record times go into the
+  // evidence, because they state when the traffic of the run reached the ledger.
   const aliceHolding = await mintUsd(admin, alice, 100.0)
-  await settleUsdTransfer(admin, provider, alice, bob, aliceHolding, 30.0, `traffic-${RUN_ID}-1`)
+  const recordTimes = []
+  recordTimes.push(await settleUsdTransfer(admin, provider, alice, bob, aliceHolding, 30.0, `traffic-${RUN_ID}-1`))
   const bobHolding = await holdingWithAmount(admin, bob, 30.0)
-  await settleUsdTransfer(admin, provider, bob, alice, bobHolding, 10.0, `traffic-${RUN_ID}-2`)
+  recordTimes.push(await settleUsdTransfer(admin, provider, bob, alice, bobHolding, 10.0, `traffic-${RUN_ID}-2`))
   const aliceHolding2 = await holdingWithAmount(admin, alice, 70.0)
-  await settleUsdTransfer(admin, provider, alice, bob, aliceHolding2, 20.0, `traffic-${RUN_ID}-3`)
+  recordTimes.push(await settleUsdTransfer(admin, provider, alice, bob, aliceHolding2, 20.0, `traffic-${RUN_ID}-3`))
+  log(`settled at ${recordTimes.join(', ')}`)
 
   // The app-side attribution of the same settlements. These reads consume no
   // synchronizer traffic, and they fail before the wait for the round.
@@ -594,22 +607,30 @@ async function main() {
   assertEq('settled volume confirmed by the app-provider', activity.settledVolume, 60)
   log(`app-side attribution: ${activity.settlements} settlements, ${activity.settledVolume} USD`)
 
-  // Step 5: the network measures the traffic and attributes it. The search starts
-  // at the settlement round and moves up, for the case of a straddled boundary.
-  const totals = await waitForAttributedRound(settleRound)
+  // Step 5: the network measures the traffic and computes a minting allowance for
+  // the app-provider. The allowance comes from the batch that the SV confirms, so
+  // it names the party that the round pays.
+  const { round: settleRound, totals, allowance } = await waitForAttributedRound(roundBefore, provider)
   log(
-    `round ${totals.round_number}: activity weight ${totals.total_app_activity_weight}, ` +
+    `round ${settleRound}: activity weight ${totals.total_app_activity_weight}, ` +
       `${totals.activity_records_count} activity records, ` +
-      `${totals.rewarded_app_provider_parties_count} rewarded app-provider parties, ` +
-      `minting allowance ${totals.total_app_reward_minting_allowance} CC`,
+      `${totals.rewarded_app_provider_parties_count} rewarded app-provider parties`,
   )
+  log(`round ${settleRound} minting allowance of the app-provider: ${allowance} CC`)
 
-  // Step 6: the SV mints the coupon of the app-provider.
-  const coupon = await waitForUnassignedCoupon(provider)
+  // Step 6: the SV mints the coupon of the app-provider for that round.
+  const coupon = await waitForUnassignedCoupon(provider, settleRound)
   const couponAmount = Number(coupon.payload.amount)
   const couponRound = String(coupon.payload.round.number)
   log(`reward coupon for round ${couponRound}: ${couponAmount} CC`)
   assertEq('the coupon names the app-provider as its provider', coupon.payload.provider, provider)
+  // The coupon on the ledger carries what Scan computed for the round, which ties
+  // the measured traffic to the reward.
+  assertEq(
+    `the coupon carries the minting allowance of round ${settleRound}`,
+    couponAmount,
+    Number(allowance),
+  )
 
   // Step 7: the app-provider divides the reward between its beneficiaries.
   const parties = { venue: provider, registrar, operator }
@@ -642,10 +663,11 @@ async function main() {
           settlements: activity.settlements,
           settledVolumeUsd: activity.settledVolume,
           settleRound,
-          round: totals.round_number,
+          settleRecordTimes: recordTimes,
           totalAppActivityWeight: totals.total_app_activity_weight,
           activityRecordsCount: totals.activity_records_count,
           rewardedAppProviderPartiesCount: totals.rewarded_app_provider_parties_count,
+          mintingAllowanceCc: allowance,
           couponRound,
           couponAmountCc: couponAmount,
           shares,
