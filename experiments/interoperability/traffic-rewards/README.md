@@ -25,7 +25,9 @@ reward that the network computes from them.
    has one SV and a voting threshold of 1, so the vote of the requester carries.
 3. The app-provider settles three USD transfers as the settlement executor. These
    settlements are the traffic, and the harness records the ledger record time of
-   each settle transaction.
+   each settle transaction. On the third batch a party that the settlement does
+   not name as an executor submits first, and the participant rejects it. Only
+   the named executor produces the traffic that the reward pays for.
 4. The harness asserts the app-side attribution of those settlements from the
    `SettlementReceipt` views, the same property that
    [`SettlementAttribution.daml`](../cip-exemplar/daml/OpenZeppelin/Experimental/Interop/SettlementAttribution.daml)

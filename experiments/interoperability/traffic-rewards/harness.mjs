@@ -3,8 +3,9 @@
 //
 // The client features the app-provider party, switches the network to
 // traffic-based app rewards, settles CIP-0112 batches as the featured
-// app-provider, and then follows the reward that the network computes from the
-// traffic of those settlements. The settlement packages get no CIP-0104 code:
+// app-provider, asserts that a party which the settlement does not name as an
+// executor cannot settle one of them, and then follows the reward that the
+// network computes from the traffic of those settlements. The settlement packages get no CIP-0104 code:
 // the sequencer measures the traffic, Scan attributes it to the
 // `FeaturedAppRight` holders of each transaction, and the SV mints a
 // `RewardCouponV2` for the app-provider when the round closes.
@@ -85,6 +86,9 @@ const T = {
 }
 
 const FEATURE_FLAG = 'experimental.cip112-settlement.enabled'
+// `SettlementFactory_SettleBatch` rejects a caller that the settlement does not
+// name as an executor with this message.
+const E_EXECUTORS_MISMATCH = 'Cip112Settlement: actors must equal settlement executors'
 const META = { entries: [] }
 // The `ExtraArgs` of the Splice token metadata API: an empty choice context and
 // empty metadata.
@@ -364,22 +368,38 @@ async function createAndAcceptAllocation(admin, factory, settlement, authorizer,
   return createdOf(accepted, 'Allocation')
 }
 
+// Settle the batch as `executor`. Set `mustFail` to the message that the
+// rejection must carry.
+const settleBatch = (executor, factory, settlement, legs, allocationCids, { mustFail = null } = {}) =>
+  submit([executor], mustFail ? 'settle-rejected' : 'settle', [
+    { ExerciseCommand: { templateId: T.factory, contractId: factory.factoryCid, choice: 'SettlementFactory_SettleBatch', choiceArgument: {
+      settlement, transferLegs: legs, allocationCids, actors: [executor], d1ComplianceRef: null,
+    } } },
+  ], { disclosedContracts: [factory.disclosure], mustFail })
+
 // One settlement, executed by the featured app-provider. Every command of this
 // function costs traffic, and CIP-0104 attributes the traffic of the settle
 // transaction to the app-provider that confirms it.
+//
+// Set `rejectAs` to a party that the settlement does not name as an executor.
+// The function then submits the batch as that party first and asserts the
+// rejection. This is what makes the traffic of a settle transaction attributable:
+// a party that the settlement does not name cannot produce it. The rejected
+// submission commits nothing, so the same allocations settle afterwards.
+//
 // Returns the record time of the settle transaction, which is the transaction
 // whose traffic CIP-0104 attributes to the app-provider that confirms it.
-async function settleUsdTransfer(admin, app, sender, receiver, senderHoldingCid, amount, ref) {
+async function settleUsdTransfer(admin, app, sender, receiver, senderHoldingCid, amount, ref, { rejectAs = null } = {}) {
   const factory = await mkFactory(admin)
   const settlement = settlementInfo(ref, app)
   const leg = transferLeg(ref, sender, receiver, amount)
   const senderAlloc = await createAndAcceptAllocation(admin, factory, settlement, sender, [legSide('SenderSide', leg)], [senderHoldingCid])
   const receiverAlloc = await createAndAcceptAllocation(admin, factory, settlement, receiver, [legSide('ReceiverSide', leg)], [])
-  const settled = await submit([app], 'settle', [
-    { ExerciseCommand: { templateId: T.factory, contractId: factory.factoryCid, choice: 'SettlementFactory_SettleBatch', choiceArgument: {
-      settlement, transferLegs: [leg], allocationCids: [senderAlloc, receiverAlloc], actors: [app], d1ComplianceRef: null,
-    } } },
-  ], { disclosedContracts: [factory.disclosure] })
+  const allocationCids = [senderAlloc, receiverAlloc]
+  if (rejectAs) {
+    await settleBatch(rejectAs, factory, settlement, [leg], allocationCids, { mustFail: E_EXECUTORS_MISMATCH })
+  }
+  const settled = await settleBatch(app, factory, settlement, [leg], allocationCids)
   return settled.recordTime
 }
 
@@ -606,14 +626,15 @@ async function main() {
   // Step 3: the settlement parties. The app-provider executes every settlement,
   // so the admin user that this client submits as needs `CanActAs` for the
   // app-provider party too.
-  const [admin, alice, bob, registrar, operator] = await Promise.all([
+  const [admin, alice, bob, registrar, operator, notApp] = await Promise.all([
     allocateParty(`traffic-admin-${RUN_ID}`),
     allocateParty(`traffic-alice-${RUN_ID}`),
     allocateParty(`traffic-bob-${RUN_ID}`),
     allocateParty(`traffic-registrar-${RUN_ID}`),
     allocateParty(`traffic-operator-${RUN_ID}`),
+    allocateParty(`traffic-notapp-${RUN_ID}`),
   ])
-  await grantActAs([provider, admin, alice, bob, registrar, operator])
+  await grantActAs([provider, admin, alice, bob, registrar, operator, notApp])
 
   const roundBefore = await latestRound()
   log(`starting at round ${roundBefore}`)
@@ -621,13 +642,20 @@ async function main() {
   // Step 4: the traffic. The app-provider settles three CIP-0112 batches as the
   // executor. No command here mentions CIP-0104. The record times go into the
   // evidence, because they state when the traffic of the run reached the ledger.
+  // The third batch also proves the structural half of the attribution over this
+  // API: `notApp` submits the same batch first and the participant rejects it,
+  // because the settlement names the app-provider as its only executor.
   const aliceHolding = await mintUsd(admin, alice, 100.0)
   const recordTimes = []
   recordTimes.push(await settleUsdTransfer(admin, provider, alice, bob, aliceHolding, 30.0, `traffic-${RUN_ID}-1`))
   const bobHolding = await holdingWithAmount(admin, bob, 30.0)
   recordTimes.push(await settleUsdTransfer(admin, provider, bob, alice, bobHolding, 10.0, `traffic-${RUN_ID}-2`))
   const aliceHolding2 = await holdingWithAmount(admin, alice, 70.0)
-  recordTimes.push(await settleUsdTransfer(admin, provider, alice, bob, aliceHolding2, 20.0, `traffic-${RUN_ID}-3`))
+  recordTimes.push(
+    await settleUsdTransfer(admin, provider, alice, bob, aliceHolding2, 20.0, `traffic-${RUN_ID}-3`, {
+      rejectAs: notApp,
+    }),
+  )
   log(`settled at ${recordTimes.join(', ')}`)
 
   // The app-side attribution of the same settlements. These reads consume no
