@@ -31,12 +31,6 @@
 # participant's admin user (`ledger-api-user`), which every gate passes to its
 # Daml Script and off-ledger clients.
 #
-# OZ_LOCALNET_TICK_DURATION shortens the mining round for a gate that waits for a
-# round to close. A tick is half a round, and the LocalNet default is 10 minutes.
-# Keep it at 30s or more: the SV automation polls its triggers at that interval.
-# The setting is an onboarding parameter, so it applies to a network that a gate
-# founds and not to one that already runs.
-#
 # A LocalNet run needs a FRESH ledger, because the scenarios allocate stable
 # party ids and a participant vets one version of each package. `ledger_start`
 # therefore recreates the network of its own Docker Compose project, and
