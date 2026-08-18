@@ -50,16 +50,25 @@ data AttributedActivity = AttributedActivity with
 -- one receipt for each authorizer, and these receipts have the same
 -- settlement ref. Thus the function counts batches by unique ref. The sender
 -- side of each leg is in exactly one receipt. Thus the function adds the USD
--- sender-side amounts to get the volume. An event counts only when one of
--- its transfer legs is in a confirmed receipt.
+-- sender-side amounts to get the volume. An event names the account that it
+-- belongs to, so an event counts only when one of its transfer legs, paired
+-- with that account, is in a confirmed receipt.
+--
+-- The settlement ref and the transfer-leg id are free text that the caller of
+-- the settlement chooses, and Daml-LF 2.1 has no contract key to make either
+-- one unique. The counts above are therefore exact only while the app-provider
+-- issues a distinct ref for each batch and a distinct leg id for each leg. A
+-- repeated ref merges two confirmed batches into one settlement, and a leg id
+-- that a batch of an other executor repeats for the same account counts an
+-- event that the app-provider only observes.
 attributedActivity : Party -> Script AttributedActivity
 attributedActivity app = do
   receipts <- query @SettlementReceipt app
   events <- query @SettlementEventLogEntry app
   let confirmed = [r | (_, r) <- receipts, app `elem` r.settlement.executors]
       refs = dedup [r.settlement.settlementRef.id | r <- confirmed]
-      confirmedLegIds =
-        dedup [s.transferLegId | r <- confirmed, s <- r.settledTransferLegSides]
+      confirmedLegKeys =
+        dedup [(r.authorizer, s.transferLegId) | r <- confirmed, s <- r.settledTransferLegSides]
       senderAmounts =
         [ s.amount
         | r <- confirmed, s <- r.settledTransferLegSides
@@ -68,7 +77,7 @@ attributedActivity app = do
       confirmedEvents =
         [ e
         | (_, e) <- events
-        , any (\s -> s.transferLegId `elem` confirmedLegIds) e.event.transferLegSides
+        , any (\s -> (e.event.account, s.transferLegId) `elem` confirmedLegKeys) e.event.transferLegSides
         ]
   pure AttributedActivity with
     settlements = length refs
