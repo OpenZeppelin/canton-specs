@@ -80,7 +80,11 @@ const T = {
   instruction: `${PKG_SETTLEMENT}:${MOD_ENGINE}:AllocationInstruction`,
   toyHolding: `${PKG_SETTLEMENT}:${MOD_ENGINE}:ToyHolding`,
   receipt: `${PKG_SETTLEMENT}:${MOD_ENGINE}:SettlementReceipt`,
-  // Splice packages, which LocalNet vets on the app-provider participant.
+  // Splice packages, which LocalNet vets on the app-provider participant. The
+  // `#package-name` form resolves to the highest vetted version, so the pin is
+  // `OZ_SPLICE_VERSION` of `scripts/ledger.sh`. This client reads the payloads of
+  // Splice 0.7.1, and a release that changes either one fails an assertion below
+  // rather than reporting a version mismatch here.
   rewardCouponV2: '#splice-amulet:Splice.Amulet:RewardCouponV2',
   rewardCoupon: '#splice-api-reward-assignment-v1:Splice.Api.RewardAssignmentV1:RewardCoupon',
 }
