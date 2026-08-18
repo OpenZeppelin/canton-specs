@@ -18,6 +18,12 @@
 // `scripts/localnet-cip0104-traffic-rewards.sh` starts the LocalNet that this
 // client needs and then this client.
 //
+// The run changes the network, and nothing reverts those changes: the featured
+// app right, the reward configuration, the lowered coupon threshold, and the
+// party rights all stay. The gate founds and removes its own LocalNet, so the
+// changes go with that network. `OZ_USE_EXTERNAL_LEDGER=1` keeps them, thus point
+// that mode at a disposable network.
+//
 // Environment:
 //   OZ_JSON_API_URL          JSON Ledger API of the app-provider participant
 //   OZ_LEDGER_TOKEN_FILE     file with the token of the participant admin user

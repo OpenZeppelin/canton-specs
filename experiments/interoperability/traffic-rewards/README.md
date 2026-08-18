@@ -85,7 +85,14 @@ The gate reads the variables below.
 | `OZ_LEDGER_LOG_DIR` | Move the logs and the evidence of the run |
 | `OZ_VALIDATOR_API_URL`, `OZ_SV_API_URL`, `OZ_SCAN_API_URL` | Splice service endpoints |
 | `OZ_KEEP_LOCALNET` | Keep the network after the run |
-| `OZ_USE_EXTERNAL_LEDGER` | Use a LocalNet that already runs, with the DAR uploaded |
+| `OZ_USE_EXTERNAL_LEDGER` | Use a LocalNet that already runs, with the DAR uploaded. Point it at a disposable network: see the warning below |
+
+The run changes the network, and nothing reverts those changes. It self-grants a
+`FeaturedAppRight` to the app-provider. It votes the reward configuration to
+traffic-based app rewards and lowers the coupon threshold. It grants `CanActAs`
+for its parties to the Ledger API admin user. The gate founds and removes its own
+LocalNet, so the changes go with that network. `OZ_USE_EXTERNAL_LEDGER=1` keeps
+them, thus point that mode at a disposable network.
 
 ## Scope
 
