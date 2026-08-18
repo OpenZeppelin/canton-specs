@@ -37,11 +37,6 @@ jobs:
       - name: Run the identity SCU smoke test (sandbox)
         run: scripts/identity-hook-upgrade-smoke.sh
 
-      - name: Set up Node 24
-        uses: actions/setup-node@v4
-        with:
-          node-version: "24"
-
       - name: Run the CIP interoperability gate (sandbox)
         run: scripts/cip-interop-validation.sh
 
