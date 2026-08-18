@@ -19,6 +19,13 @@
 -- The function `attributedActivity` reads only `query` results over
 -- `SettlementReceipt` and `SettlementEventLogEntry`. It creates no contract.
 --
+-- The receipt has the registry admin as its only signatory. The attribution
+-- therefore holds against a correct admin. An admin that creates a receipt
+-- outside `SettlementFactory_SettleBatch` can name any executor, and the views
+-- cannot tell the two receipts apart. What the views do prove is that the
+-- app-provider authorized each settlement that the engine recorded, because
+-- `SettlementFactory_SettleBatch` makes the executors its controllers.
+--
 -- Scope: experimental interoperability behavior.
 module OpenZeppelin.Experimental.Interop.SettlementAttribution where
 
