@@ -467,15 +467,10 @@ async function selfFeature() {
   return status.party_id
 }
 
-// The reward configuration that the vote installs, built on the one that the
-// network already runs. Only the fields that this gate needs are explicit, and
-// every other field keeps its current value, so a Splice release that adds a
-// field to the record does not make the vote request undecodable.
-const trafficRewardConfig = (current, rewardCouponThreshold) => ({
-  ...structuredClone(current),
+const trafficRewardConfig = (rewardCouponThreshold) => ({
   mintingVersion: 'RewardVersion_TrafficBasedAppRewards',
-  // The coupon must outlive step 7. The wallet automation of a node that shares
-  // its rewards waits most of this lifetime before it collects.
+  dryRunVersion: null,
+  batchSize: '100',
   rewardCouponTimeToLive: { microseconds: String(36 * 3600 * 1000000) },
   // The threshold drops far below its 0.5 USD default: the traffic of this run
   // is small, and a round below the threshold mints no coupon at all.
@@ -493,15 +488,8 @@ async function enableTrafficBasedRewards() {
     log('the network already runs traffic-based app rewards')
     return
   }
-  assertTrue(
-    'the amulet rules carry no rewardConfig, so this Splice version predates the CIP-0104 minting versions',
-    Boolean(base.rewardConfig),
-  )
   assertEq('the SV voting threshold is 1', Number(dso.voting_threshold), 1)
-  const newConfig = {
-    ...structuredClone(base),
-    rewardConfig: trafficRewardConfig(base.rewardConfig, '0.0000000001'),
-  }
+  const newConfig = { ...structuredClone(base), rewardConfig: trafficRewardConfig('0.0000000001') }
   await svApi('POST', '/v0/admin/sv/voterequest/create', {
     requester: dso.sv_party_id,
     action: {
