@@ -680,8 +680,7 @@ appends):
   curve check in the swap choice changes.
 - **Protocol-fee switch.** An `Optional` operator share on the `Pool` routes a
   fraction of `feeBps` to a venue account instead of reserves, giving the
-  operator on-ledger revenue ([section 6](#6-network-economics-traffic-costs-and-app-rewards)
-  currently assumes venue fees without a collection mechanism).
+  operator on-ledger revenue.
 - **TWAP price feed.** The `Pool` accumulates a time-weighted price and
   publishes it through the committee-attested oracle of the
   [lending design](./lending.md), making the DEX the lending protocol's price
@@ -1002,7 +1001,7 @@ path, in three steps:
    default 24h from creation); coupons from several rounds can batch into one
    mint. Collection is validator wallet automation. Reward
    sharing with the LP token issuer or instrument registrars happens here:
-   the venue accounts for the split itself off Scan's activity records, then
+   the venue accounts for the split itself of Scan's activity records, then
    names beneficiaries and CC amounts out of its allowance (CIP-0073 minting
    delegations). Per-transaction beneficiary attribution is not supported.
 
