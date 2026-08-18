@@ -29,9 +29,12 @@ reward that the network computes from them.
    not name as an executor submits first, and the participant rejects it. Only
    the named executor produces the traffic that the reward pays for.
 4. The harness asserts the app-side attribution of those settlements from the
-   `SettlementReceipt` views, the same property that
+   `SettlementReceipt` views: the settlement count and the settled volume of the
+   property that
    [`SettlementAttribution.daml`](../cip-exemplar/daml/OpenZeppelin/Experimental/Interop/SettlementAttribution.daml)
-   specifies.
+   specifies. The run has one executor and no second app-provider, so it counts
+   no holdings-change event and does not exercise the negative case of a receipt
+   that the app-provider only observes. The Daml walkthrough covers both.
 5. Scan reports a round, at or after the round of the settlements, with a
    non-zero app activity weight whose confirmed batch of minting allowances names
    the app-provider party.
