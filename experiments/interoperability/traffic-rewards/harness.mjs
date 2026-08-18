@@ -540,10 +540,21 @@ const couponsOf = async (provider) =>
 // activity together.
 async function waitForUnassignedCoupon(provider, round) {
   return waitFor(`the reward coupon of round ${round}`, async () => {
-    const coupons = await couponsOf(provider)
-    return (
-      coupons.find((c) => !c.payload.beneficiary && String(c.payload.round.number) === String(round)) ?? null
+    const forRound = (await couponsOf(provider)).filter(
+      (c) => String(c.payload.round.number) === String(round),
     )
+    const unassigned = forRound.find((c) => !c.payload.beneficiary)
+    if (unassigned) return unassigned
+    // The coupon of the round exists and already names a beneficiary. The wallet
+    // automation of the validator took it first, and no wait recovers it, so the
+    // run stops here instead of timing out against the network.
+    if (forRound.length > 0) {
+      fail(
+        `round ${round}: the coupon of the app-provider already names a beneficiary. ` +
+          'The wallet automation of the validator reached it before this run did.',
+      )
+    }
+    return null
   })
 }
 
@@ -551,13 +562,26 @@ async function waitForUnassignedCoupon(provider, round) {
 // percentages. The choice archives the coupon and creates one coupon for each
 // beneficiary, with the amount scaled by the percentage.
 async function assignBeneficiaries(provider, couponCid, beneficiaries) {
-  await submit([provider], 'assign-beneficiaries', [
-    { ExerciseCommand: { templateId: T.rewardCoupon, contractId: couponCid, choice: 'RewardCoupon_AssignBeneficiaries', choiceArgument: {
-      additionalCoupons: [],
-      newBeneficiaries: beneficiaries.map(([beneficiary, percentage]) => ({ beneficiary, percentage })),
-      extraArgs: EXTRA_ARGS,
-    } } },
-  ])
+  try {
+    await submit([provider], 'assign-beneficiaries', [
+      { ExerciseCommand: { templateId: T.rewardCoupon, contractId: couponCid, choice: 'RewardCoupon_AssignBeneficiaries', choiceArgument: {
+        additionalCoupons: [],
+        newBeneficiaries: beneficiaries.map(([beneficiary, percentage]) => ({ beneficiary, percentage })),
+        extraArgs: EXTRA_ARGS,
+      } } },
+    ])
+  } catch (err) {
+    // The same race as in `waitForUnassignedCoupon`, one step later: the wallet
+    // automation archived the coupon between the read and this submission.
+    const body = err.body ?? String(err.message)
+    if (body.includes('CONTRACT_NOT_FOUND')) {
+      fail(
+        'the reward coupon was archived between the read and the assignment. ' +
+          'The wallet automation of the validator collected it first.',
+      )
+    }
+    throw err
+  }
 }
 
 // --- the run -----------------------------------------------------------------
