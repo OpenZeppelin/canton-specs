@@ -73,8 +73,9 @@ scripts/cip-interop-validation.sh --localnet
 
 A gate whose name starts with `localnet-` runs on LocalNet and takes no arguments.
 Name a new gate that way when its subject needs a service that a sandbox does not
-have; the CIP-0104 traffic-rewards gate needs the Amulet packages, Scan, and an
-SV.
+have; for example, the CIP-0104 traffic-rewards gate
+(`scripts/localnet-cip0104-traffic-rewards.sh`) needs the Amulet packages, Scan,
+and an SV.
 
 Each gate starts its ledger and removes it again. `scripts/ledger.sh` documents
 both backends, the Docker Compose profiles, the Ledger API authentication, the
@@ -86,9 +87,10 @@ image pull. The Wallet Gateway gate fetches its npm package at run time, and the
 CIP-0104 traffic-rewards gate waits for mining rounds to close, so both stay out
 of `ci` and run on the schedule alone. The scheduled `live-ledger-gates` workflow
 runs every gate on LocalNet, which is where authorization, party rights, package
-vetting, and the Amulet reward path on a real synchronizer are validated. Run `--localnet` locally before you change a gate, a harness, or a
-participant assumption. The domain documentation of each gate describes its
-prerequisites, topology assumptions, and the evidence it produces.
+vetting, and the Amulet reward path on a real synchronizer are validated. Run
+`--localnet` locally before you change a gate, a harness, or a participant
+assumption. The domain documentation of each gate describes its prerequisites,
+topology assumptions, and the evidence it produces.
 
 ## Adding or changing an experiment
 
