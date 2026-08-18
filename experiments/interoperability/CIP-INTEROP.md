@@ -10,7 +10,7 @@ complements the in-memory ledger used by `dpm test`.
 |---|---|
 | CIP-0086 | Maps transfer and delegated transfer behavior to settlement, enforces allowance bounds, conserves supply, and keeps balance queries projection-scoped |
 | CIP-0103 | Drives request, instruction, allocation, settlement, events, privacy, and fail-closed wallet behavior |
-| Settlement attribution | Shows which settlements an app-provider may claim: the executor-confirmed ones, read from the settlement views alone, and not the receipts that it merely observes |
+| Settlement attribution | Shows which settlements an app-provider may claim for CIP-0104 rewards: the executor-confirmed ones, read from the settlement views alone, and not the receipts that it merely observes |
 
 The executable scripts live in
 [`cip-exemplar/`](cip-exemplar/daml/OpenZeppelin/Experimental/Interop/).
