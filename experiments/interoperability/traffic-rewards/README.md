@@ -78,7 +78,10 @@ resolve.
 A mining round takes two ticks, and the LocalNet tick is 10 minutes by default.
 The gate founds its network with a 30s tick instead, so a round is about one
 minute. The setting is an onboarding parameter, so it applies to a network that
-the gate founds and not to one that already runs.
+the gate founds and not to one that already runs. A network that already runs
+keeps the tick of its own onboarding, thus raise `OZ_REWARD_TIMEOUT_S` past two
+ticks of that network. On the 10 minute default a round takes 20 minutes and the
+900 second default expires first.
 
 The gate reads the variables below.
 
@@ -97,7 +100,9 @@ The run changes the network, and nothing reverts those changes. It self-grants a
 traffic-based app rewards and lowers the coupon threshold. It grants `CanActAs`
 for its parties to the Ledger API admin user. The gate founds and removes its own
 LocalNet, so the changes go with that network. `OZ_USE_EXTERNAL_LEDGER=1` keeps
-them, thus point that mode at a disposable network.
+them, thus point that mode at a disposable network. A second run against the same
+network files a second vote request while the first one is still open, because
+the run reads the effective reward configuration and not the open requests.
 
 ## Scope
 

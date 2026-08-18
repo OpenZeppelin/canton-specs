@@ -488,6 +488,11 @@ async function enableTrafficBasedRewards() {
     log('the network already runs traffic-based app rewards')
     return
   }
+  // The early return reads the effective configuration, not the open vote
+  // requests, so a run against a network where an earlier request is still open
+  // files a second one. Only external-ledger mode reaches that state: the gate
+  // founds a fresh network otherwise.
+  //
   // The early return above reads this field through `?.`, so name the case where
   // it is absent: a Splice version without it takes no `rewardConfig` in its
   // amulet config either, and the vote request would fail to decode instead.
