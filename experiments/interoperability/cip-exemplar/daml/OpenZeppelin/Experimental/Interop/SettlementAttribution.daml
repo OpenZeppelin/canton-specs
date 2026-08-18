@@ -19,8 +19,7 @@
 -- The function `attributedActivity` reads only `query` results over
 -- `SettlementReceipt` and `SettlementEventLogEntry`. It creates no contract.
 --
--- Scope: experimental interoperability behavior. These scenarios make no
--- CIP-0104 reward, SV, or Scan production claim.
+-- Scope: experimental interoperability behavior.
 module OpenZeppelin.Experimental.Interop.SettlementAttribution where
 
 import DA.Assert ((===))
