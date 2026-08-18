@@ -488,6 +488,13 @@ async function enableTrafficBasedRewards() {
     log('the network already runs traffic-based app rewards')
     return
   }
+  // The early return above reads this field through `?.`, so name the case where
+  // it is absent: a Splice version without it takes no `rewardConfig` in its
+  // amulet config either, and the vote request would fail to decode instead.
+  assertTrue(
+    'the amulet rules carry no rewardConfig, so this Splice version predates the CIP-0104 minting versions',
+    Boolean(base.rewardConfig),
+  )
   assertEq('the SV voting threshold is 1', Number(dso.voting_threshold), 1)
   const newConfig = { ...structuredClone(base), rewardConfig: trafficRewardConfig('0.0000000001') }
   await svApi('POST', '/v0/admin/sv/voterequest/create', {
