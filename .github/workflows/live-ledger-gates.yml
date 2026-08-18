@@ -91,12 +91,6 @@ jobs:
         with:
           node-version: "24"
 
-      # LocalNet publishes the SV app, Scan, and the wallet API behind one nginx
-      # that routes on the `Host` header, so those names must resolve.
-      - name: Resolve the LocalNet service names
-        run: |
-          printf '127.0.0.1 wallet.localhost sv.localhost scan.localhost\n' | sudo tee -a /etc/hosts
-
       # This gate drives the Amulet reward path: it features the app-provider,
       # votes the network onto traffic-based app rewards, settles as the featured
       # app-provider, and waits for the mining round that pays for that traffic.
@@ -125,8 +119,8 @@ jobs:
         uses: ./.github/actions/setup-daml
 
       # The ci workflow runs the same gate against the sandbox on every pull
-      # request. This run adds the participant behavior that only an
-      # authenticated ledger shows: party rights and package vetting.
+      # request. The run in this job adds the participant behavior that only
+      # an authenticated ledger shows: party rights and package vetting.
       - name: Run the identity SCU smoke test on LocalNet
         run: scripts/identity-hook-upgrade-smoke.sh --localnet
 
