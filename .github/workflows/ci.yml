@@ -34,7 +34,7 @@ jobs:
       - name: Run the Daml Script tests and the coverage gate
         run: scripts/check-tests.sh
 
-      - name: Run the identity SCU smoke test
+      - name: Run the identity SCU smoke test (sandbox)
         run: scripts/identity-hook-upgrade-smoke.sh
 
       - name: Set up Node 24
@@ -42,12 +42,7 @@ jobs:
         with:
           node-version: "24"
 
-      # The gate takes the sandbox backend, so a pull request pays no container
-      # image pull. The scheduled live-ledger-gates workflow runs the same gate on
-      # LocalNet, together with the gates that a pull request does not carry: the
-      # Wallet Gateway gate fetches its npm package at run time, and the CIP-0104
-      # traffic-rewards gate waits for mining rounds.
-      - name: Run the CIP interoperability gate
+      - name: Run the CIP interoperability gate (sandbox)
         run: scripts/cip-interop-validation.sh
 
       - name: Check documentation links
