@@ -26,7 +26,7 @@ The launcher builds the interop exemplar DAR. It starts a wallclock Canton sandb
 
 To use a participant that already operates, set `OZ_USE_EXTERNAL_LEDGER=1` and `OZ_JSON_API_URL`. That participant must have no authentication and must have the exemplar DAR uploaded. In this mode the script needs only Node.js 20+: it does not build the DAR and does not start a sandbox. The harness gives each run a unique party-hint suffix, so repeated runs against the same participant are possible.
 
-The harness settlements have no deadline. Thus the sandbox operates on wallclock time, and `setTime` is not necessary. (The Daml walkthrough uses a deadline and static time.)
+The harness settlements have no deadline. Thus the sandbox operates on wallclock time, and `setTime` is not necessary. (The Daml walkthrough uses a deadline that starts at the current ledger time, so it also runs on wallclock time.)
 
 ## Scope
 

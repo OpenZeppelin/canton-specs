@@ -15,22 +15,24 @@ concurrency:
 jobs:
   localnet:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    # The gate starts the Splice LocalNet Docker Compose network, so it also
+    # pays for the image pull and the network bootstrap.
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
 
       - name: Set up Daml
         uses: ./.github/actions/setup-daml
 
-      - name: Run LocalNet CIP interoperability
-        run: scripts/localnet-cip-interop-validation.sh
+      - name: Run the CIP interoperability gate
+        run: scripts/cip-interop-validation.sh --localnet
 
-      - name: Upload LocalNet evidence
+      - name: Upload CIP interoperability evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: localnet-interop-evidence
-          path: .cache/localnet-cip-interop/
+          name: cip-interop-evidence
+          path: .cache/cip-interop-validation/
           if-no-files-found: warn
           retention-days: 30
 
