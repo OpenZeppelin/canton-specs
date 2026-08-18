@@ -63,8 +63,8 @@ scripts/localnet-cip0104-traffic-rewards.sh
 
 Every gate above takes its ledger through the shared
 [`scripts/ledger.sh`](scripts/ledger.sh). A gate with a choice of backend starts
-`dpm sandbox` without an argument, which needs no container images, and
-[Canton LocalNet](https://docs.canton.network/sdks-tools/development-tools/localnet)
+`dpm sandbox` without an argument, which needs no container images. The same gate
+starts [Canton LocalNet](https://docs.canton.network/sdks-tools/development-tools/localnet)
 with `--localnet`:
 
 ```sh
@@ -87,8 +87,8 @@ image pull. The Wallet Gateway gate fetches its npm package at run time, and the
 CIP-0104 traffic-rewards gate waits for mining rounds to close, so both stay out
 of `ci` and run on the schedule alone. The scheduled `live-ledger-gates` workflow
 runs every gate on LocalNet, which is where authorization, party rights, package
-vetting, and the Amulet reward path on a real synchronizer are validated. Run
-`--localnet` locally before you change a gate, a harness, or a participant
+vetting, and the Amulet reward path on a real synchronizer are validated. Run a
+gate on LocalNet locally before you change it, its harness, or a participant
 assumption. The domain documentation of each gate describes its prerequisites,
 topology assumptions, and the evidence it produces.
 

@@ -6,7 +6,7 @@ complements the in-memory ledger used by `dpm test`.
 
 ## Scenarios
 
-| CIP | Behavior |
+| Scenario | Behavior |
 |---|---|
 | CIP-0086 | Maps transfer and delegated transfer behavior to settlement, enforces allowance bounds, conserves supply, and keeps balance queries projection-scoped |
 | CIP-0103 | Drives request, instruction, allocation, settlement, events, privacy, and fail-closed wallet behavior |
@@ -38,8 +38,8 @@ script`, and stops the ledger on exit. Logs are written under
 
 LocalNet is the backend that proves participant behavior: it runs a participant
 on a real synchronizer and it authenticates the Ledger API. It starts with the
-`sv` and `app-provider` profiles, of which these scenarios use the participant and
-the synchronizer. The script fetches the LocalNet Docker Compose files into
+`sv` and `app-provider` profiles, and these scenarios use the participant and the
+synchronizer of that network. The script fetches the LocalNet Docker Compose files into
 `.cache/splice-localnet/`, pinned to the same Splice release that provides the
 container images. Every live-ledger gate in the repository shares both backends
 through [`scripts/ledger.sh`](../../scripts/ledger.sh), which also documents the

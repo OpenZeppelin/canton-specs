@@ -27,7 +27,7 @@
 # LocalNet starts with the `sv` and `app-provider` profiles, which carry the whole
 # Splice stack: the SV app, Scan, the DSO with the Amulet packages, and the
 # app-provider validator with its wallet. The `app-user` profile stays off, so the
-# network has no second non-SV validator. `ledger_start` mints the token of the
+# app-provider validator is the only non-SV validator. `ledger_start` mints the token of the
 # participant's admin user (`ledger-api-user`), which every gate passes to its
 # Daml Script and off-ledger clients.
 #

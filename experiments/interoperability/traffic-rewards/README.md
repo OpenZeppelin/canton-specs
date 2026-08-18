@@ -12,7 +12,7 @@ a mining round closes. The harness therefore settles ordinary
 [CIP-0112 settlement](../../settlement/cip-0112/) batches and then follows the
 reward that the network computes from them.
 
-The steps are:
+## Reward path
 
 1. The app-provider grants itself a `FeaturedAppRight`. LocalNet runs in DevNet
    mode, so the validator wallet API does this without an approval. Scan confirms
@@ -20,7 +20,8 @@ The steps are:
    SV on its own interval, so this first call waits for that traffic.
 2. An SV vote sets `rewardConfig.mintingVersion` to
    `RewardVersion_TrafficBasedAppRewards` and lowers `appRewardCouponThreshold`
-   far below its 0.5 USD default, which a run of this size stays under. LocalNet
+   far below its 0.5 USD default, because the reward of a run this small stays
+   under that default and a round below the threshold mints no coupon. LocalNet
    has one SV and a voting threshold of 1, so the vote of the requester carries.
 3. The app-provider settles three USD transfers as the settlement executor. These
    settlements are the traffic, and the harness records the ledger record time of
@@ -73,6 +74,8 @@ A mining round takes two ticks, and the LocalNet tick is 10 minutes by default.
 The gate founds its network with a 30s tick instead, so a round is about one
 minute. The setting is an onboarding parameter, so it applies to a network that
 the gate founds and not to one that already runs.
+
+The gate reads the variables below.
 
 | Variable | Purpose |
 |---|---|
