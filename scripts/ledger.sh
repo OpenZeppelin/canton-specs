@@ -417,7 +417,7 @@ localnet_compose() {
 			--env-file "$LOCALNET_DIR/env/common.env" \
 			-f "$LOCALNET_DIR/compose.yaml" \
 			-f "$LOCALNET_DIR/resource-constraints.yaml" \
-			"${LOCALNET_COMPOSE_OVERRIDES[@]}" \
+			${LOCALNET_COMPOSE_OVERRIDES[@]+"${LOCALNET_COMPOSE_OVERRIDES[@]}"} \
 			--profile sv \
 			--profile app-provider \
 			"$@"
@@ -491,7 +491,10 @@ ledger_stop() {
 }
 
 # The Authorization header of the JSON Ledger API calls. The sandbox
-# authenticates nothing, so the array stays empty there.
+# authenticates nothing, so the array stays empty there. Each expansion of an
+# array that can be empty uses `${name[@]+"${name[@]}"}`, because bash before
+# 4.4, which macOS ships, treats a plain empty-array expansion as unbound under
+# `set -u`.
 ledger_auth_header() {
 	LEDGER_AUTH_HEADER=()
 	if [ -n "$LEDGER_TOKEN" ]; then
@@ -504,7 +507,7 @@ ledger_wait_ready() {
 	local i=0
 	ledger_auth_header
 	while [ "$i" -lt 120 ]; do
-		if curl -sf "${LEDGER_AUTH_HEADER[@]}" \
+		if curl -sf ${LEDGER_AUTH_HEADER[@]+"${LEDGER_AUTH_HEADER[@]}"} \
 			"$LEDGER_JSON_API_URL/v2/state/ledger-end" >/dev/null 2>&1; then
 			ledger_log "the participant is ready (Ledger API $LEDGER_HOST:$LEDGER_PORT, JSON Ledger API $LEDGER_JSON_API_URL)"
 			return 0
@@ -523,7 +526,7 @@ ledger_upload_dar() {
 	ledger_auth_header
 	status="$(curl -s -o "$log" -w '%{http_code}' \
 		-X POST "$LEDGER_JSON_API_URL/v2/dars?vetAllPackages=true" \
-		"${LEDGER_AUTH_HEADER[@]}" \
+		${LEDGER_AUTH_HEADER[@]+"${LEDGER_AUTH_HEADER[@]}"} \
 		-H 'content-type: application/octet-stream' \
 		--data-binary "@$dar")"
 	case "$status" in

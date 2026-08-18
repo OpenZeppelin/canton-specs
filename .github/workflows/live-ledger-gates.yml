@@ -94,7 +94,12 @@ jobs:
       # This gate drives the Amulet reward path: it features the app-provider,
       # votes the network onto traffic-based app rewards, settles as the featured
       # app-provider, and waits for the mining round that pays for that traffic.
+      # A job timeout cancels the job and drops the evidence upload below, so the
+      # cap sits on the step instead. A run takes eight to ten minutes with the
+      # images pulled, and the waits of the harness sum to more than the job
+      # budget, so this is the limit that fires first.
       - name: Run CIP-0104 traffic-based app rewards on LocalNet
+        timeout-minutes: 30
         run: scripts/localnet-cip0104-traffic-rewards.sh
 
       - name: Upload traffic-rewards evidence
