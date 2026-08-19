@@ -17,8 +17,9 @@
 # order does not matter.
 #
 # The exemplars grant the participant's admin user `CanActAs` for every party
-# they allocate (Common.daml, `allocateInteropParty`). The sandbox reports no
-# admin user, so the grant does nothing there.
+# they allocate (Common.daml, `allocateInteropParty`). The sandbox needs no
+# grant, because it authenticates nothing, but it reports the admin user
+# `participant_admin` and the grant runs there too.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"

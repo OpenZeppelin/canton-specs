@@ -111,8 +111,14 @@ scripts/check-docs.sh
 ```
 
 Run `scripts/identity-hook-upgrade-smoke.sh` when changing the SCU experiment.
-Run the LocalNet and Wallet Gateway integration gates when changing their Daml
-surface, harness, or participant assumptions.
+Run the interoperability and Wallet Gateway integration gates when changing their
+Daml surface, harness, or participant assumptions.
+
+Every gate in `scripts/` selects its ledger through `scripts/ledger.sh`. Without
+an argument a gate starts `dpm sandbox`. With `--localnet` it starts Canton
+LocalNet, which authenticates the Ledger API and runs a participant on a real
+synchronizer. Run `--localnet` for a change to authorization, party rights, or
+package vetting; the sandbox cannot show those.
 
 `scripts/check-tests.sh` discovers every declared Daml Script package, prints
 the aggregate coverage report, and fails when a measured repository-owned

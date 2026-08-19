@@ -19,8 +19,9 @@
 #
 # Both backends run on WALLCLOCK time, and both take their DARs over the JSON
 # Ledger API. The scenarios therefore need no per-backend branch: they read the
-# ledger clock, and they grant `CanActAs` for the parties they allocate, which
-# does nothing on the unauthenticated sandbox.
+# ledger clock, and they grant `CanActAs` for the parties they allocate. The
+# sandbox needs no grant, because it authenticates nothing, but it reports the
+# admin user `participant_admin` and the grant runs there too.
 #
 # LocalNet starts with the `sv` and `app-provider` profiles only: the gates need
 # a participant on a real synchronizer, and they use no Amulet or wallet
@@ -37,6 +38,11 @@
 # both the start and the teardown. The localnet backend still mints its token
 # there, so that combination serves a participant which authenticates the Ledger
 # API with the LocalNet secret.
+#
+# That mode leaves state behind. The scenarios grant `CanActAs` to every admin
+# user of the participant, and they revoke nothing, so the rights outlive a run
+# which does not take its ledger down with it. They also allocate stable party
+# ids. Point the mode at a disposable participant.
 #
 # Set OZ_KEEP_LOCALNET=1 to keep the network after the run, for inspection. The
 # switch serves the LocalNet backend alone, because its containers outlive the
@@ -327,6 +333,11 @@ sandbox_stop() {
 
 # The token of the participant's admin user. The LocalNet containers must read
 # their own mounted files, so only the token file is owner-only.
+#
+# The token carries no `exp` claim, so it stays valid for as long as the
+# participant accepts the secret. That suits a network which this gate removes
+# at the end of the run. Do not reuse this function for a participant that
+# outlives its gate.
 localnet_mint_token() {
 	local header payload signature
 	b64url() { openssl base64 -A | tr '+/' '-_' | tr -d '='; }
@@ -433,6 +444,7 @@ ledger_start() {
 	fi
 	if [ "$LEDGER_EXTERNAL" = 1 ]; then
 		ledger_log "using the ledger that already runs at $LEDGER_JSON_API_URL (must be fresh)"
+		ledger_log "WARNING: this run grants CanActAs to every admin user of that participant, for every party it allocates, and revokes none of them. Use a disposable participant."
 		return 0
 	fi
 	if [ "$LEDGER_MODE" = localnet ]; then

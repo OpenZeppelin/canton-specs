@@ -1,7 +1,9 @@
 -- | Daml Script driver for the experimental identity hook upgrade v0.1.0 DAR.
 module OpenZeppelin.Experimental.Identity.UpgradeScript.V1 where
 
+import DA.Action (when)
 import DA.Assert ((===))
+import DA.Foldable (forA_)
 import Daml.Script
 
 import OpenZeppelin.Experimental.Identity.Upgrade
@@ -24,6 +26,40 @@ baselineAttestation = OpaqueIdentityAttestation with
 scriptPartyHint : Text -> Text -> Text
 scriptPartyHint runId role = "identity-hook-upgrade-script-v1-" <> role <> "-" <> runId
 
+-- | Allocate a fixture party and let the Ledger API admin users act as it.
+--
+-- A Canton LocalNet participant authenticates the Ledger API. A user may then
+-- submit for a party only if a `CanActAs` right names that party, and party
+-- allocation grants no such right. The v2 driver submits for the same parties
+-- in the second phase of the smoke gate, so the grant must outlive this script.
+-- Neither the in-memory ledger of `dpm test` nor a `dpm sandbox` needs the
+-- grant, because neither authenticates the Ledger API. A `dpm sandbox` still
+-- reports the admin user `participant_admin`, so the grant runs there too.
+--
+-- `listAllUsers` needs admin rights of its own. A gate that submits as a user
+-- without them fails on that call, and the error names the user management
+-- service instead of the party allocation that the caller asked for.
+--
+-- Scope: the grant reaches EVERY user that holds `ParticipantAdmin`, not only
+-- the one user that the gate submits as, and nothing revokes it. Daml Script
+-- cannot name the user that the runner submits as, so the helper finds that
+-- user by looking for the admin rights instead. A gate that starts its own
+-- ledger loses both effects with the ledger. A gate that runs against a
+-- participant which outlives it leaves the rights behind, so point
+-- `OZ_USE_EXTERNAL_LEDGER=1` at a disposable participant. The recipients hold
+-- `ParticipantAdmin` already, which carries user management, so the grant gives
+-- them no authority that they could not take.
+allocateDriverParty : Text -> Script Party
+allocateDriverParty requestedName = do
+  party <- allocateParty requestedName
+  users <- listAllUsers
+  forA_ users $ \user -> do
+    rights <- listUserRights user.userId
+    when (ParticipantAdmin `elem` rights) do
+      _ <- grantUserRights user.userId [CanActAs party]
+      pure ()
+  pure party
+
 -- | Creates a v0.1.0 holding and returns the parties/contract id for a v0.2.0
 -- migration script running on the same ledger.
 createV1HoldingFixture : Script MigrationFixture
@@ -37,9 +73,9 @@ createV1HoldingFixtureForRun run = createV1HoldingFixtureWithRunId run.runId
 
 createV1HoldingFixtureWithRunId : Text -> Script MigrationFixture
 createV1HoldingFixtureWithRunId runId = script do
-  issuer <- allocateParty (scriptPartyHint runId "issuer")
-  alice <- allocateParty (scriptPartyHint runId "alice")
-  bob <- allocateParty (scriptPartyHint runId "bob")
+  issuer <- allocateDriverParty (scriptPartyHint runId "issuer")
+  alice <- allocateDriverParty (scriptPartyHint runId "alice")
+  bob <- allocateDriverParty (scriptPartyHint runId "bob")
 
   registry <- submit issuer do
     createCmd ToyRegistry with

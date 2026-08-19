@@ -47,7 +47,7 @@ data is temporary and is removed after the gate finishes.
 ## Integration evidence
 
 The identity upgrade smoke test exercises contracts created with the v1 package
-through the v2 package on a live sandbox:
+through the v2 package on a live ledger:
 
 ```sh
 scripts/identity-hook-upgrade-smoke.sh
@@ -56,13 +56,33 @@ scripts/identity-hook-upgrade-smoke.sh
 The interoperability gates run real processes and ledger connections:
 
 ```sh
-scripts/localnet-cip-interop-validation.sh
+scripts/cip-interop-validation.sh
 scripts/wallet-gateway-cip0103-interop.sh
-scripts/localnet-cip0104-rewards-walkthrough.sh
+scripts/cip0104-rewards-walkthrough.sh
 ```
 
-Their domain documentation describes prerequisites, topology assumptions, and
-the evidence they produce.
+Every gate above takes one of two ledger backends through the shared
+[`scripts/ledger.sh`](scripts/ledger.sh). Without an argument a gate starts
+`dpm sandbox`, which needs no container images. With `--localnet` it starts
+[Canton LocalNet](https://docs.canton.network/sdks-tools/development-tools/localnet):
+
+```sh
+scripts/cip-interop-validation.sh --localnet
+```
+
+Each gate starts its ledger and removes it again. `scripts/ledger.sh` documents
+both backends, the Docker Compose profiles, the Ledger API authentication, the
+fresh-ledger requirement, and the environment overrides.
+
+The `ci` workflow runs the identity upgrade, CIP interoperability, and CIP-0104
+rewards gates against the sandbox on every pull request, so a pull request pays
+no container image pull. The Wallet Gateway gate fetches its npm package at run
+time, so it stays out of `ci` and runs on the schedule alone. The scheduled
+`live-ledger-gates` workflow runs every gate with `--localnet`, which is where
+authorization, party rights, and package vetting on a real synchronizer are
+validated. Run `--localnet` locally before you change a gate, a harness, or a
+participant assumption. The domain documentation of each gate describes its
+prerequisites, topology assumptions, and the evidence it produces.
 
 ## Adding or changing an experiment
 

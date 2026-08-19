@@ -1,0 +1,138 @@
+# The four gates below all use `--localnet`, so each job starts its own Splice
+# LocalNet Docker Compose network. Before a job can run its gate, it downloads
+# the LocalNet images and waits for the network to become ready. This workflow
+# repeats that setup four times, which is why each job needs a 45 minute
+# timeout.
+#
+# The ci workflow already runs the same gates against the in-process
+# sandbox on every pull request, so a daily schedule here is enough.
+
+name: live-ledger-gates
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "17 3 * * *"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: live-ledger-gates-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  cip-interop:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Daml
+        uses: ./.github/actions/setup-daml
+
+      - name: Run the CIP interoperability gate
+        run: scripts/cip-interop-validation.sh --localnet
+
+      - name: Upload CIP interoperability evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cip-interop-evidence
+          # The minted Ledger API token stays out of the artifact.
+          path: |
+            .cache/cip-interop-validation/
+            !.cache/cip-interop-validation/**/*.token
+          if-no-files-found: warn
+          retention-days: 30
+
+  wallet-gateway:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Daml
+        uses: ./.github/actions/setup-daml
+
+      - name: Set up Node 24
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+
+      - name: Run Canton Wallet Gateway interoperability
+        run: scripts/wallet-gateway-cip0103-interop.sh --localnet
+
+      - name: Upload Wallet Gateway evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: wallet-gateway-interop-evidence
+          # The minted Ledger API token, the gateway config that carries the
+          # participant secret, and the wallet's signing store stay out of the
+          # artifact. On the LocalNet backend the secret is the public literal
+          # `unsafe`, but this gate also accepts OZ_LEDGER_AUTH_SECRET and
+          # OZ_OIDC_CLIENT_SECRET.
+          path: |
+            .cache/wallet-gateway-interop/
+            !.cache/wallet-gateway-interop/**/*.token
+            !.cache/wallet-gateway-interop/**/*.sqlite
+            !.cache/wallet-gateway-interop/**/gateway-config.json
+          if-no-files-found: warn
+          retention-days: 30
+
+  cip0104-rewards:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Daml
+        uses: ./.github/actions/setup-daml
+
+      - name: Set up Node 24
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+
+      - name: Run CIP-0104 rewards walkthrough interoperability
+        run: scripts/cip0104-rewards-walkthrough.sh --localnet
+
+      - name: Upload rewards walkthrough evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cip0104-rewards-walkthrough-evidence
+          # The minted Ledger API token stays out of the artifact.
+          path: |
+            .cache/cip0104-rewards-walkthrough/
+            !.cache/cip0104-rewards-walkthrough/**/*.token
+          if-no-files-found: warn
+          retention-days: 30
+
+  identity-upgrade:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Daml
+        uses: ./.github/actions/setup-daml
+
+      # The ci workflow runs the same gate against the sandbox on every pull
+      # request. This run adds the participant behavior that only an
+      # authenticated ledger shows: party rights and package vetting.
+      - name: Run the identity SCU smoke test on LocalNet
+        run: scripts/identity-hook-upgrade-smoke.sh --localnet
+
+      - name: Upload identity upgrade evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: identity-hook-upgrade-evidence
+          # The minted Ledger API token stays out of the artifact.
+          path: |
+            .cache/identity-hook-upgrade/
+            !.cache/identity-hook-upgrade/**/*.token
+          if-no-files-found: warn
+          retention-days: 30
