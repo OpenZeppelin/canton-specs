@@ -64,7 +64,7 @@ On public EVM networks, a bridge mints tokens into a globally visible state ledg
 
 The inbound message from the gateway therefore does **not** mint-and-broadcast an asset in one global update. Instead the gateway drives an isolated, recipient-targeted allocation on the spine. State changes by archive-and-recreate rather than in-place mutation, and the atomic DvP archives the inbound request and creates a [`TokenEventLog`](https://github.com/OpenZeppelin/canton-contracts/blob/7696749737885e25cd88422847105f890f03b00d/experiments/token/tokenCIP112-v1/daml/OpenZeppelin/TokenCIP112V1/Base.daml#L75) visible only to the recipient, the relayer, the required compliance verifiers, and the issuing admin that signs it. Cross-chain settlement thereby inherits Canton's data compartmentalization.
 
-Because a recipient's signature (or a standing delegation of it) is required to bind them to an allocation, **two-step handshakes (Daml's propose-and-accept pattern) are a necessity, not a style choice**. The design uses **contract keys** `[FUTURE]` (reintroduced in [Canton 3.5.1+](https://github.com/digital-asset/canton/releases/tag/v3.5.1)) so the `PauseState`, the trusted-issuer registry, and the consumed-nonce registry keep a stable lookup handle across those archive-and-recreate cycles. A key is a handle, not a uniqueness constraint: Canton 3.x lets several active contracts share one key, so uniqueness is the rail's job rather than the engine's ([Registry Uniqueness Under Non-Unique Keys](#registry-uniqueness-under-non-unique-keys-future)). The trusted-attester registry is the deliberate exception: settlement takes its contract id from the caller and defeats substitution by requiring `registry.admin == factoryAdmin` (diagram A, [section 3](#3-how-we-implement-it)).
+Because a recipient's signature (or a standing delegation of it) is required to bind them to an allocation, **two-step handshakes (Daml's propose-and-accept pattern) are a necessity, not a style choice**. The design uses **contract keys** `[FUTURE]` (reintroduced in [Canton 3.5.1+](https://github.com/digital-asset/canton/releases/tag/v3.5.1)) so the `PauseState`, the trusted-issuer registry, and the consumed-nonce registry keep a stable lookup handle across those archive-and-recreate cycles. A key is a handle, not a uniqueness constraint: Canton 3.x lets several active contracts share one key, so uniqueness is the rail's job rather than the engine's ([Registry Uniqueness Under Non-Unique Keys](#registry-uniqueness-under-non-unique-keys-future)). The trusted-attester registry is the deliberate exception: its contract id is pinned on the settlement registry itself (`requiredAttesterRegistryCid`), so nothing is resolved and no caller names it (diagram A, [section 3](#3-how-we-implement-it)).
 
 Contract keys are the design target, not what runs today, and the gap has two parts. **SDK**: the `[EXPERIMENT]` experiment code sits on the workspace's pinned baseline, which has no key support at all, so each choice instead takes a caller-supplied registry contract id and asserts that registry shares the factory's admin. **Templates**: no template in this workspace declares a `key` today, so the by-key resolution shown below is also a template change, not only an SDK migration. Because a key's maintainers must be signatories of the keyed contract, each key is fixed by that contract's own authority rather than by the rail `admin`: [`PauseState`](https://github.com/OpenZeppelin/canton-contracts/blob/cec416d6e3c2118551c761d5598c403ab27ee342/experiments/security/pausable-v1/daml/OpenZeppelin/PausableV1.daml#L47) `[LIBRARY]` is `signatory pauser` and carries no `admin` field, so its key is `pauser`, and ShapeB's [`TrustedIssuerRegistry`](../../experiments/identity/hook-shape-b/daml/OpenZeppelin/Experimental/Identity/ShapeB.daml#L74) `[EXPERIMENT]` is `signatory registryAdmin`, so its key is `registryAdmin`. The snippets and diagrams below use those maintainers.
 
@@ -193,13 +193,13 @@ The diagrams below decompose the design around the shared `Atomic settlement` hu
 - **C** is the outbound redemption that mirrors B.
 - **D** is the operational control plane (pausing and D2 seizure). Keyed contracts are marked with their key.
 
-**A. Compliance and identity (D1 + D3).** The registries list several independent attesters and issuers (one of each shown). The two gates fire at different points in the flow. D3 identity is checked at **request** time, in the gateway: no valid claim from a listed issuer whose subject is the recipient, no allocation request. D1 compliance is checked at **settlement** time: a single-use attestation from a listed attester, bound to this batch's own legs. Note the two registries are reached differently: the issuer registry is key-resolved in the gateway, while the attester registry is **not** - the settling caller supplies its contract id and [`ComplianceAttestation_Verify`](https://github.com/OpenZeppelin/canton-contracts/blob/7696749737885e25cd88422847105f890f03b00d/experiments/token/tokenCIP112-v1/daml/OpenZeppelin/TokenCIP112V1/D1.daml#L83) rejects any registry whose `admin` is not the settling factory's admin, so what defeats registry substitution there is the admin match, not a key.
+**A. Compliance and identity (D1 + D3).** The registries list several independent attesters and issuers (one of each shown). The two gates fire at different points in the flow. D3 identity is checked at **request** time, in the gateway: no valid claim from a listed issuer whose subject is the recipient, no allocation request. D1 compliance is checked at **settlement** time: a single-use attestation from a listed attester, bound to this batch's own legs. Note the two registries are reached differently: the issuer registry is key-resolved in the gateway, while the attester registry is **not** - its contract id is pinned on the `TokenRules` contract as `requiredAttesterRegistryCid`, and the settling caller supplies only the attestation. [`ComplianceAttestation_Verify`](https://github.com/OpenZeppelin/canton-contracts/blob/7696749737885e25cd88422847105f890f03b00d/experiments/token/tokenCIP112-v1/daml/OpenZeppelin/TokenCIP112V1/D1.daml#L83) also checks `registry.admin == factoryAdmin`, but that is a secondary check on a registry the caller did not choose.
 
 ```mermaid
 flowchart TD
     Attester([Attester])
     Issuer([KYC Issuer])
-    AttReg["TrustedAttesterRegistry<br/>signatory: admin"]
+    AttReg["TrustedAttesterRegistry<br/>pinned cid on TokenRules"]
     IssReg[["TrustedIssuerRegistry<br/>key: registryAdmin"]]
     Attn["ComplianceAttestation<br/>signed, single-use"]
     Kyc["KycClaim<br/>signed"]
@@ -215,7 +215,7 @@ flowchart TD
     Attester -->|"listed in"| AttReg
     Attester -->|"signs"| Attn
     Attn -->|"verify + consume"| Settle
-    AttReg -->|"cid supplied by caller; registry.admin == factory admin; attester trusted?"| Settle
+    AttReg -->|"pinned as requiredAttesterRegistryCid; attester trusted?"| Settle
 ```
 
 **B. Inbound mint settlement.** The attesters sign the one-time carrier; the gateway consumes it, records the nonce, and creates the executor-signed allocation request whose amount is exactly the attested amount. The recipient's standing `TransferPreapproval` supplies their authority to commit the receiving allocation, and the Stablecoin Admin's mint leg and the recipient's credit settle in one transaction, with compliance (from A) plugged in.
@@ -460,7 +460,11 @@ Consequences:
 
 ### D1: Compliance through Party-Applied Attestation `[EXPERIMENT]`
 
-Institutional payment rails require that sanctioned or unverified parties cannot be paid. The RI checks compliance per settlement and fails closed: no valid attestation, no credit. Our atomic-settlement codebase currently showcases an experimental example via [`SettlementFactory_SettleBatch`](https://github.com/OpenZeppelin/canton-contracts/blob/7696749737885e25cd88422847105f890f03b00d/experiments/token/tokenCIP112-v1/daml/OpenZeppelin/TokenCIP112V1/Registry.daml#L79), which requires an attestation covering this specific settlement, from an attester listed in the [`TrustedAttesterRegistry`](https://github.com/OpenZeppelin/canton-contracts/blob/7696749737885e25cd88422847105f890f03b00d/experiments/token/tokenCIP112-v1/daml/OpenZeppelin/TokenCIP112V1/D1.daml#L22). The registry must share the factory's admin, so callers cannot substitute a registry of their own choosing. Attestations are single-use, so none can be cached or reused across settlements.
+Institutional payment rails require that sanctioned or unverified parties cannot be paid. The RI checks compliance per settlement and fails closed: no valid attestation, no credit. Our atomic-settlement codebase currently showcases an experimental example via [`SettlementFactory_SettleBatch`](https://github.com/OpenZeppelin/canton-contracts/blob/7696749737885e25cd88422847105f890f03b00d/experiments/token/tokenCIP112-v1/daml/OpenZeppelin/TokenCIP112V1/Registry.daml#L79), which requires an attestation covering this specific settlement, from an attester listed in the [`TrustedAttesterRegistry`](https://github.com/OpenZeppelin/canton-contracts/blob/7696749737885e25cd88422847105f890f03b00d/experiments/token/tokenCIP112-v1/daml/OpenZeppelin/TokenCIP112V1/D1.daml#L22). Attestations are single-use, so none can be cached or reused across settlements.
+
+The trust anchor is a pinned contract id, not a key and not a caller argument. [`requireD1Attestation`](https://github.com/OpenZeppelin/canton-contracts/blob/7696749737885e25cd88422847105f890f03b00d/experiments/token/tokenCIP112-v1/daml/OpenZeppelin/TokenCIP112V1/Registry.daml#L383) reads `requiredAttesterRegistryCid` from the `TokenRules` contract, and the caller supplies only the attestation, through the choice context ([section 3](#the-upstream-choice-surface-upstream)). `ComplianceAttestation_Verify` does check `registry.admin == factoryAdmin`, but on a registry the caller never named.
+
+Two consequences belong to the deployment rather than to the code. A registry created with `requiredAttesterRegistryCid = None` verifies nothing and every settle succeeds without an attestation, so **setting that field is a precondition of the D1 claim above, not a default**. And rotating the attester roster means recreating `TokenRules`, because the cid is stamped on it. That rotation cost is what this registry pays instead of depending on key uniqueness ([section 2](#registry-uniqueness-under-non-unique-keys-future)).
 
 ### D2: Seizure through Preset Custodian Lock-and-Sweep `[EXPERIMENT]`
 
@@ -615,7 +619,6 @@ template CrossChainDvP
         settlement : SettlementInfo
         transferLegs : [TransferLeg]
         attestationCid : ContractId ComplianceAttestation
-        registryCid : ContractId TrustedAttesterRegistry  -- checked against the factory's admin
       controller executor
       do
         -- The recipient's required co-authorization flows through a choice on the
@@ -630,10 +633,9 @@ template CrossChainDvP
               _ -> error "allocation did not complete"
 
         -- Atomic DvP via the attested spine entrypoint: the issuer's SenderSide
-        -- mint leg and the recipient's ReceiverSide settle together or not at all,
-        -- presenting the signed compliance attestation and the attester registry
-        -- (D1). The registry cid is caller-supplied; verification rejects any
-        -- registry whose admin is not the factory's own admin.
+        -- mint leg and the recipient's ReceiverSide settle together or not at all.
+        -- D1: the attestation rides the choice context; the attester registry is
+        -- pinned on the TokenRules contract, so the caller never names it.
         let finalized cid = FinalizedAllocation with
               allocationCid = cid
               extraTransferLegSides = []
@@ -710,6 +712,7 @@ We propose a three-tier validation approach, based on verification tools built b
 | Replay of a used lock | A consumed inbound message (or a second carrier for the same lock) is submitted again to mint twice. | `[FUTURE]` One-time carrier consumption plus the consumed-nonce registry: a duplicate `(sourceChainId, nonce)` fails closed even if the attesters misbehave, provided the resolved registry sits on the pinned successor chain ([section 2](#registry-uniqueness-under-non-unique-keys-future)). |
 | Toxic or spam inflow | A sender forces a settlement onto an unwilling recipient. | `[EXPERIMENT]` Without the recipient's accept (live, or via their standing `TransferPreapproval` `[EVIDENCE]`), the allocation never commits; unsettled allocations expire and return to sender. |
 | Compromised admin key | A compromised Stablecoin Admin or Custodian key attempts arbitrary expropriation. | `[EXPERIMENT]` D2 sweeps are hardcoded to the preset `custodianDestination` (no arbitrary burn, no return-to-sender). `[FUTURE]` Supply-changing authority is slated for N-of-M multisig ([section 2](#decentralization-and-trust-topology)); today a single key holds it. |
+| D1 deployed unset | The `wTOK` registry is created with `requiredAttesterRegistryCid = None`, so every settle passes with no compliance attestation. | `[EXPERIMENT]` The spine offers none: an unset field is a silent no-op. The RI sets the field at deployment and asserts it, which is a deployment-time control rather than a code-level one ([D1](#d1-compliance-through-party-applied-attestation-experiment)). |
 | Forced upgrades breaking in-flight allocations (SCU) | A poorly executed upgrade mutates fields, rendering existing `Allocation` contracts un-settleable. | `[FUTURE]` Programmatic adherence to the SCU rule (Optional appends + new choices only). Existing choices stay operable; in-flight settlements conclude before users transition. |
 | UTXO fragmentation | Many small transfers accumulate holding dust. | `[EXPERIMENT]` Settlement returns a sender's surplus as a single new *change* holding per instrument rather than many fragments. |
 | DAR unvetting | A participant unvets the rail's DAR on their validator, blocking every choice on contracts its parties are stakeholders of: a holder freezes the D2 sweep of their own funds, and an unvetted attester or recipient blocks pending settlements they are party to. | `[UPSTREAM]` A transaction succeeds only if every participant hosting each **informee** has vetted the package version the submitter selected for it. Unvetting therefore freezes contracts rather than freeing them: the holder cannot move the asset either, and the locked value stays readable and swept-able once re-vetted. Attester-side liveness risk is bounded by the N-of-M registry posture ([section 2](#decentralization-and-trust-topology)); holder-side unvetting is an inherent Canton vetting property with no protocol-level bypass. |
