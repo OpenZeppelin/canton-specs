@@ -8,14 +8,14 @@ artifacts:
     file: dars/vendor/openzeppelin-access-control-v1-0.1.0.dar
     main-package-id: 023c12b7906fd3b49393dee6bdda9a84900aaad03fc0d08df465d7653a60d56b
     sha256: 611c35e1275822a8afca48562b77753759db2929b5dca548b4c171d38bdb510c
-    source-commit: 68b7c52ccb2db496a668508101fdb0024c60c713
-    source: https://github.com/OpenZeppelin/canton-contracts/tree/68b7c52ccb2db496a668508101fdb0024c60c713/packages/access/access-control-v1
+    source-commit: 7696749737885e25cd88422847105f890f03b00d
+    source: https://github.com/OpenZeppelin/canton-contracts/tree/7696749737885e25cd88422847105f890f03b00d/experiments/access/access-control-v1
     license: MIT
   - package: openzeppelin-pausable-v1
     version: 0.1.0
     file: dars/vendor/openzeppelin-pausable-v1-0.1.0.dar
     main-package-id: 607dd38870be252206b6231fb91c1b01f0fb8ef872e1ba211bf717a671d33ca3
     sha256: a8691af202856a18d43abea056cc28d0c5e538b865d0066de628b82686b8e566
-    source-commit: 68b7c52ccb2db496a668508101fdb0024c60c713
-    source: https://github.com/OpenZeppelin/canton-contracts/tree/68b7c52ccb2db496a668508101fdb0024c60c713/packages/security/pausable-v1
+    source-commit: 7696749737885e25cd88422847105f890f03b00d
+    source: https://github.com/OpenZeppelin/canton-contracts/tree/7696749737885e25cd88422847105f890f03b00d/experiments/security/pausable-v1
     license: MIT
