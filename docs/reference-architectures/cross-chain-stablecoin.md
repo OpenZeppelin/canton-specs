@@ -13,7 +13,7 @@ workspace. Every item is tagged where it appears, except the out-of-scope table 
 whose rows describe what the design excludes and therefore ground no claim.
 [Section 7](#7-open-design-questions) collects the open questions.
 
-For such a payment rail to work, the inbound credit must settle atomically: the recipient is credited exactly the attested amount or nothing at all, and no intermediary holds the assets along the way. Therefore the settlement architecture centers on [CIP-0112 - Canton Network Token Standard V2](https://github.com/canton-foundation/cips/blob/main/cip-0112/cip-0112.md), specifically its support for [atomic settlement](https://github.com/canton-foundation/cips/blob/main/cip-0112/cip-0112.md#416-committed-allocations-for-prefunded-trading-and-iterated-settlement). The core building block is the **atomic delivery-versus-payment (DvP) settlement**: committed allocations are settled in one all-or-nothing transaction, with each leg's amount fixed on-ledger by the allocation sides their authorizers signed. A signed side is what makes the amount non-repudiable, not what makes it *correct*: tying the inbound amount, recipient, and instrument to the attesters' `LockAttestation` `[FUTURE]` is the job of the explicit binding checks in [section 3](#3-how-we-implement-it), without which a signed side is only the submitter's own declaration.
+For such a payment rail to work, the inbound credit must settle atomically: the recipient is credited exactly the attested amount or nothing at all, and no intermediary holds the assets along the way. Therefore the settlement architecture centers on [CIP-0112 - Canton Network Token Standard V2](https://github.com/canton-foundation/cips/blob/main/cip-0112/cip-0112.md), specifically its support for [atomic settlement](https://github.com/canton-foundation/cips/blob/main/cip-0112/cip-0112.md#416-committed-allocations-for-prefunded-trading-and-iterated-settlement). The core building block is the **atomic delivery-versus-payment (DvP) settlement**: committed allocations are settled in one all-or-nothing transaction, with each leg's amount fixed on-ledger by the allocation sides their authorizers signed. A signed side is what makes the amount non-repudiable, not what makes it *correct*: tying the inbound amount, recipient, and instrument to the attesters' `LockAttestation` `[FUTURE]` is the job of the explicit binding checks in [section 3](#3-target-design), without which a signed side is only the submitter's own declaration.
 
 The `OpenZeppelin/canton-contracts` repository contains an [experimental implementation of atomic settlement](https://github.com/OpenZeppelin/canton-contracts/tree/7696749737885e25cd88422847105f890f03b00d/experiments/token/tokenCIP112-v1/daml/OpenZeppelin/TokenCIP112V1). It carries the first three capabilities below; D3 and D4 come from elsewhere and are marked accordingly.
 
@@ -32,7 +32,7 @@ The reference implementation favors **simplicity and modular extensibility**. Th
 | Feature Category | In-Scope Architectural Components |
 |---|---|
 | Atomic Settlement | Private on-Canton settlement of inbound stablecoin payments via [`SettlementFactory_SettleBatch`](https://github.com/OpenZeppelin/canton-contracts/blob/7696749737885e25cd88422847105f890f03b00d/experiments/token/tokenCIP112-v1/daml/OpenZeppelin/TokenCIP112V1/Registry.daml#L79) `[UPSTREAM]` (atomic DvP). |
-| Cross-Chain Bridge `[FUTURE]` | An inbound/outbound bridge **interface** (the Standardized Messaging Gateway) as a **bounded, verifiable mock**: attested inbound mint ([section 3](#3-how-we-implement-it)) and attested outbound redemption. |
+| Cross-Chain Bridge `[FUTURE]` | An inbound/outbound bridge **interface** (the Standardized Messaging Gateway) as a **bounded, verifiable mock**: attested inbound mint ([section 3](#3-target-design)) and attested outbound redemption. |
 | Compliance & Control `[EXPERIMENT]` | D1: a settlement does not execute unless an attester has signalled compliance. D2: a privileged party can block settlement and sweep allocation funds to a preset custodian account. D3: single-synchronizer identity. |
 | Asset Representation `[FUTURE]` | The gateway-minted wrapped instrument (`wTOK`), compliant with the CIP-0112 Token Standard V2 holding interfaces, and the integration **shape** for settling an existing native Canton stablecoin (e.g. USDCx) by interface. |
 | Component Integration | Direct reuse of `openzeppelin-access-control-v1`, `openzeppelin-ownable-v1`, `openzeppelin-pausable-v1` (all `[EXPERIMENT]` in `canton-contracts` `experiments/`, and none of the three is a released package yet), the CIP-0112 settlement spine, as well as patterns from the [`OpenZeppelin/canton-token-template`](https://github.com/OpenZeppelin/canton-token-template) and [`OpenZeppelin/canton-stablecoin`](https://github.com/OpenZeppelin/canton-stablecoin) codebases. |
@@ -65,7 +65,7 @@ On public EVM networks, a bridge mints tokens into a globally visible state ledg
 
 The inbound message from the gateway therefore does **not** mint-and-broadcast an asset in one global update. Instead the gateway drives an isolated, recipient-targeted allocation on the spine. State changes by archive-and-recreate rather than in-place mutation, and the atomic DvP archives the inbound request, credits the recipient's holding, and emits its holdings-change events through [`TransferEventsV2.EventLog`](https://github.com/OpenZeppelin/canton-contracts/blob/7696749737885e25cd88422847105f890f03b00d/experiments/token/tokenCIP112-v1/daml/OpenZeppelin/TokenCIP112V1/Base.daml#L75) to the recipient, the relayer, and the issuing admin that signs the instrument. Cross-chain settlement thereby inherits Canton's data compartmentalization.
 
-Because a recipient's signature (or a standing delegation of it) is required to bind them to an allocation, **two-step handshakes (Daml's propose-and-accept pattern) are a necessity, not a style choice**. The design uses **contract keys** `[FUTURE]` (reintroduced in [Canton 3.5](https://github.com/digital-asset/canton/releases/tag/v3.5.1)) so the `PauseState`, the trusted-issuer registry, and the consumed-nonce registry keep a stable lookup handle across those archive-and-recreate cycles. A key is a handle, not a uniqueness constraint: Canton 3.x lets several active contracts share one key, so uniqueness is the rail's job rather than the engine's ([Registry Uniqueness Under Non-Unique Keys](#registry-uniqueness-under-non-unique-keys-future)). The trusted-attester registry is the deliberate exception: its contract id is pinned on the settlement registry itself (`requiredAttesterRegistryCid`), so nothing is resolved and no caller names it (diagram A, [section 3](#3-how-we-implement-it)).
+Because a recipient's signature (or a standing delegation of it) is required to bind them to an allocation, **two-step handshakes (Daml's propose-and-accept pattern) are a necessity, not a style choice**. The design uses **contract keys** `[FUTURE]` (reintroduced in [Canton 3.5](https://github.com/digital-asset/canton/releases/tag/v3.5.1)) so the `PauseState`, the trusted-issuer registry, and the consumed-nonce registry keep a stable lookup handle across those archive-and-recreate cycles. A key is a handle, not a uniqueness constraint: Canton 3.x lets several active contracts share one key, so uniqueness is the rail's job rather than the engine's ([Registry Uniqueness Under Non-Unique Keys](#registry-uniqueness-under-non-unique-keys-future)). The trusted-attester registry is the deliberate exception: its contract id is pinned on the settlement registry itself (`requiredAttesterRegistryCid`), so nothing is resolved and no caller names it (diagram A, [section 3](#3-target-design)).
 
 Contract keys are the design target, not what runs today, and adopting them touches five things:
 
@@ -163,7 +163,7 @@ The **Compliance Verifier** function should rest on several independent issuers 
 
 ---
 
-## 3. How We Implement It
+## 3. Target Design
 
 The inbound payment is the primary critical path: a deterministic sequence of state transitions on the CIP-0112 spine, from an attested source-chain lock to a privately projected Canton credit.
 
@@ -528,7 +528,7 @@ The design is modular code first, and the seams below are the deliberate extensi
 
 - `openzeppelin-pausable-v1`, `openzeppelin-ownable-v1`, and `openzeppelin-access-control-v1` are plug-and-play `[EXPERIMENT]`: any template that needs a circuit breaker, two-step handover, or role gating composes them without modification.
 - The atomic settlement primitive `[EXPERIMENT]` serves any system that needs multi-leg DvP; the DEX and Lending RIs ride the same entrypoint, with no parallel settlement path.
-- The Standardized Messaging Gateway `[FUTURE]` is the pluggable bridge boundary: a production gateway, or an alternative bridge mode ([section 3](#3-how-we-implement-it)), swaps in behind the interface without touching settlement or compliance.
+- The Standardized Messaging Gateway `[FUTURE]` is the pluggable bridge boundary: a production gateway, or an alternative bridge mode ([section 3](#3-target-design)), swaps in behind the interface without touching settlement or compliance.
 - The `KycClaim` / `TrustedIssuerRegistry` identity hook `[EXPERIMENT]` is the substitution point for richer identity regimes, including the deferred cross-domain D3 `[FUTURE]`.
 
 ---
@@ -919,7 +919,7 @@ application path, in three steps:
    supported.
 
 Applying the earn rule to the inbound flow
-([section 3](#3-how-we-implement-it)):
+([section 3](#3-target-design)):
 
 | Transaction | Who pays traffic | Confirms, so earns (if featured) |
 | --- | --- | --- |
