@@ -782,7 +782,12 @@ The design handles them under one invariant:
 
 **Bounded custody.** Every locked holding has a unilateral, time-bounded exit
 path for its owner: a committed allocation becomes withdrawable after
-`settlementDeadline`. The non-recoverable resource is not funds but the
+`settlementDeadline`. That exit does not depend on the workflow contract
+surviving. Once the funding lock expires,
+[`TokenHolding_OwnerUnlock`](https://github.com/OpenZeppelin/canton-contracts/blob/7696749737885e25cd88422847105f890f03b00d/experiments/token/tokenCIP112-v1/daml/OpenZeppelin/TokenCIP112V1/Holding.daml#L33) `[EXPERIMENT]` lets the
+account parties reclaim the holding directly, without routing it through a
+transfer or an allocation, which covers the case where the referencing
+allocation was already collected by the admin. The non-recoverable resource is not funds but the
 consumed nonce: a settlement that lapses after `Gateway_ProcessInbound`
 requires a fresh attestation to re-drive. The sole custody exception is an
 active D2 seizure with an explicit, finite window and lawful-process
