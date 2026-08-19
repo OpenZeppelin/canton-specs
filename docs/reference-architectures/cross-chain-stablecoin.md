@@ -857,7 +857,11 @@ relayer-funded transactions accrues to the admin if the admin is the featured
 party, and to nobody if only the relayer is.
 
 Rewards are traffic-based
-([CIP-0104](https://github.com/canton-foundation/cips/blob/main/cip-0104/cip-0104.md), rolling out on MainNet in increments since April 2026).
+([CIP-0104](https://github.com/canton-foundation/cips/blob/main/cip-0104/cip-0104.md)).
+The scheme is off until the super validators vote it on: `rewardConfigMintingVersion`
+must be set to `RewardVersion_TrafficBasedAppRewards`, and the default is still
+`RewardVersion_FeaturedAppMarkers`, so whether this subsection applies at M2 is a
+governance question before it is a design one.
 Super-validator automation
 measures activity directly from sequencer and mediator data, and the app
 creates nothing on-ledger to earn. The pipeline runs entirely off the
@@ -872,14 +876,17 @@ application path, in three steps:
 2. **Issue** (per round, by the DSO). Super-validator automation agrees on
    each party's minting allowance: its traffic credit priced in CC, scaled by
    the issuance curve's `appRewardPercentage` tranche, diluted pro rata when
-   oversubscribed. Exactly one DSO-created `AppRewardCoupon` per party
-   carries the allowance (the app itself never creates coupons); allowances
-   below `appRewardCouponThreshold` (`AmuletConfig`, default 0.50 USD) are
-   burned.
-3. **Collect** (within 24h, by the provider's wallet). The provider mints CC
-   against the coupon within `appRewardCouponLifetime` (`AmuletConfig`,
-   default 24h from creation); coupons from several rounds can batch into one
-   mint. Collection is validator wallet automation. Reward sharing with the attesters or the Stablecoin Admin happens here:
+   oversubscribed. Exactly one DSO-created `Splice.Amulet.RewardCouponV2` per
+   party per round carries the allowance (the app itself never creates
+   coupons). A party whose allowance falls below `appRewardCouponThreshold`
+   (`RewardConfig`, default 0.50 USD) gets no coupon for that round at all;
+   the threshold is applied while building the Merkle tree over the
+   allowances, not enforced in Daml.
+3. **Collect** (within the coupon's TTL, by the provider's wallet). The
+   provider mints CC against the coupon within `rewardCouponTimeToLive`
+   (`RewardConfig`, default 36 hours). The TTL runs from the coupon rather
+   than from the round lifecycle, so coupons from several rounds batch into
+   one mint. Collection is validator wallet automation. Reward sharing with the attesters or the Stablecoin Admin happens here:
    the provider accounts for the split itself off Scan's activity records,
    then names beneficiaries and CC amounts out of its allowance (CIP-0073
    minting delegations). Per-transaction beneficiary attribution is not
