@@ -14,7 +14,7 @@ built.
 
 The product is a lending protocol for the Canton Network. Its core object is
 the **Vault**: an isolated collateralized debt position (CDP), held as a
-discrete Daml contract per borrower-issuer relationship. Four properties
+discrete Daml contract per position. Four properties
 define the protocol:
 
 - **Fixed-rate.** The `interestRate` is immutable for the life of a
@@ -68,11 +68,11 @@ tables below define its scope.
 | Core Flows | The five vault flows: **vault creation with collateral deposit**, **borrow**, **repay**, **liquidation**, and **close** (full repay and collateral withdrawal). How each flow moves value is specified in [section 3](#3-target-design). |
 | Asset Representation | Fungible digital assets compliant with the CIP-0112 Token Standard V2 holding interfaces. The stablecoin (debt token) is issued by the vault admin; collateral may be issued by any third party, since it is custodied rather than minted or burned ([section 3](#3-target-design)). |
 | Pricing | The keyed `PriceOracle` interface the vaults consume, naming both the collateral and quote instruments, with max-staleness and per-update deviation guards enforced by every price-dependent choice ([section 4](#43-component-price-oracle-interface)). |
-| Fees | Interest is burned with the payment that carries it and recorded in `feeReceivable`; the insurance fund can later mint the recorded amount. The `liquidationBonus` is the liquidator's seizure premium, paid from the borrower's collateral. The accumulated fund is the first absorber of bad debt. |
-| Compliance & Control | **Compliance attestation** (optional per deployment, [section 3](#compliance-attestation)): when the gate is enabled, no value-moving operation executes unless an attester has signalled compliance, re-checked per operation; attestation mentions elsewhere in this report assume the gate is enabled. **Custodian lock-and-sweep**: a privileged party can block settlement and sweep allocation funds to a preset custodian account. **Identity verification**: single-synchronizer KYC. |
+| Fees | Interest is burned with the payment that carries it and recorded in `feeReceivable`; the insurance fund can later mint the recorded amount. The `liquidationBonus` is the liquidator's seizure premium, paid from the borrower's collateral. The accumulated insurance fund is the first absorber of bad debt. |
+| Compliance & Control | **Compliance attestation** (optional per deployment, [section 3](#compliance-is-re-checked-on-every-operation)): when the gate is enabled, no value-moving operation executes unless an attester has signalled compliance, re-checked per operation; attestation mentions elsewhere in this report assume the gate is enabled. **Custodian lock-and-sweep**: a privileged party can block settlement and sweep allocation funds to a preset custodian account. **Identity verification**: single-synchronizer KYC. |
 | Component Integration | Direct reuse of `openzeppelin-access-control-v1`, `openzeppelin-ownable-v1`, `openzeppelin-pausable-v1`, CIP-0112 settlement, as well as the vault, oracle, and identity patterns from the [`OpenZeppelin/canton-stablecoin`](https://github.com/OpenZeppelin/canton-stablecoin), [`OpenZeppelin/canton-token-template`](https://github.com/OpenZeppelin/canton-token-template) and [`ShapeB`](../../experiments/identity/hook-shape-b/daml/OpenZeppelin/Experimental/Identity/ShapeB.daml#L6) codebases. |
 
-The compliance and control terms above are this report's names for four external control requirements, used throughout: **compliance attestation** (D1), **custodian lock-and-sweep** (D2), **know-your-customer identity** (D3), and **authority and privilege transfer** (D4). Each has a dedicated section in [section 3](#compliance-attestation).
+The compliance and control terms above are this report's names for four control requirements tracked externally under the IDs D1-D4: **compliance attestation** (D1), **custodian lock-and-sweep** (D2), **know-your-customer identity** (D3), and **authority and privilege transfer** (D4). The report uses the names throughout and keeps the IDs only here, for traceability; each control is specified in [section 3](#3-target-design).
 
 | Feature Category | Out-of-Scope Architectural Components |
 |---|---|
@@ -100,11 +100,11 @@ Moving from an EVM ecosystem to Canton requires a paradigm shift in state manage
 
 In the [ERC-4626](https://docs.openzeppelin.com/contracts/5.x/erc4626) lineage, a single globally visible contract manages pooled liquidity, debt shares, and dynamic interest accrual for all participants: a monolithic state that broadcasts every participant's collateral balance and liquidation threshold publicly.
 
-Canton operates on a privacy-preserving, **per-party projection** model enforced by the Canton protocol. A Canton contract is an instance of a template, signed and authorized by a set of parties (signatories). State changes by archive-and-recreate rather than in-place mutation, and any signatory must actively co-authorize a transition (Daml's propose-and-accept pattern). The design uses **contract keys** (reintroduced in [Canton 3.5.1+](https://github.com/digital-asset/canton/releases/tag/v3.5.1)) so the `Vault`, `PriceOracle`, `PauseState`, and the trusted-attester and trusted-issuer registries keep stable, unique identities across those archive-and-recreate cycles.
+Canton operates on a privacy-preserving, **per-party projection** model enforced by the Canton protocol. A Canton contract is an instance of a template, signed and authorized by a set of parties (signatories). State changes by archive-and-recreate rather than in-place mutation, and any signatory must actively co-authorize a transition (Daml's propose-and-accept pattern). The design uses **contract keys** (reintroduced in [Canton 3.5.1+](https://github.com/digital-asset/canton/releases/tag/v3.5.1)) so the `Vault`, `PriceOracle`, `PauseState`, and the trusted-attester and trusted-issuer registries keep stable identities across those archive-and-recreate cycles. Note that 3.5.1 keys are **not unique**: the platform does not reject two contracts sharing a key, so uniqueness is an application-level obligation - here, the factory's creation check and each registry creating exactly one contract per key.
 
 Contract keys are the design target; they are not yet implemented in the current templates. The `[IMPLEMENTED]` experiment code sits on the workspace's pinned SDK baseline and is keyless: each choice takes a caller-supplied registry contract id and asserts that registry shares the factory's admin. The resolution by key, shown throughout, lands with the Canton 3.5.1+ SDK migration.
 
-The per-party projection model is why the design puts each **vault in its own contract**: instead of one pooled share-accounting contract, the protocol deploys a discrete, isolated `Vault` contract per borrower-issuer relationship. A borrower's position is observable only to the borrower, the vault admin, the designated liquidators that police it, and any regulatory observer parties explicitly placed in the contract's observer set. Visibility is a precondition for action on Canton: a party can flag or liquidate a vault only if the vault is in its projection, which is why the liquidator set is declared as observers rather than left implicit.
+The per-party projection model is why the design puts each **vault in its own contract**: instead of one pooled share-accounting contract, the protocol deploys a discrete, isolated `Vault` contract per position. A borrower's position is observable only to the borrower, the vault admin, the designated liquidators that police it, and any regulatory observer parties explicitly placed in the contract's observer set. Visibility is a precondition for action on Canton: a party can flag or liquidate a vault only if the vault is in its projection, which is why the liquidator set is declared as observers rather than left implicit.
 
 ---
 
@@ -222,7 +222,7 @@ The topology separates public market data from private positions: `PriceOracle` 
 Canton decentralizes a party along three independent axes, and the design assigns each role a deliberate position on each:
 
 1. **governance** - whose signatures can change the party's identity and hosting (re-home the party to their own validator and act freely);
-2. **validation** - how many independent validators must confirm the party's transactions (the `PartyToParticipant` confirmation threshold; a threshold above 1 defends against a malicious validator, at a latency and cost premium, and such a party can no longer submit Ledger API commands directly - it acts through externally signed submissions or through choices submitted by others);
+2. **validation** - how many independent validators (the Canton Network term for participant-node operators, used throughout this report) must confirm the party's transactions (the `PartyToParticipant` confirmation threshold; a threshold above 1 defends against a malicious validator, at a latency and cost premium, and such a party can no longer submit Ledger API commands directly - it acts through externally signed submissions or through choices submitted by others);
 3. **authorization** - what the Daml signatory/controller topology requires regardless of hosting.
 
 Two roles hold value-moving or supply-changing authority as a single party:
@@ -258,7 +258,7 @@ The **liquidator** set should contain several independently granted parties, so 
 
 ### The CDP Math
 
-A vault's health is its **collateral ratio**: `collateralRatio = (collateralAmount · price) / debtAmount`, priced by the `PriceOracle`. Borrowing and collateral withdrawal must keep the ratio at or above `VaultParams.minCollateralRatio`; falling below the `liquidationRatio` exposes the position to a margin call.
+Two figures track a position: `principalAmount` is the stablecoin minted and not yet repaid, and `debtAmount` is what the borrower owes - that principal plus the interest accrued on it - so `principalAmount <= debtAmount` always. A vault's health is its **collateral ratio**: `collateralRatio = (collateralAmount · price) / debtAmount`, priced by the `PriceOracle`. Borrowing and collateral withdrawal must keep the ratio at or above `VaultParams.minCollateralRatio`; falling below the `liquidationRatio` exposes the position to a margin call.
 
 The vault utilizes **simple interest accrual**: `accrueDebt` computes `newDebt = oldDebt + principalAmount · interestRate · elapsedYears`, where `elapsedYears` derives from `now - lastAccrualTime`. Accrual runs on every state-changing choice before the solvency check, and `lastAccrualTime` resets on each recreation. Because interest is always charged on the principal, it does not matter how often accrual runs: two accruals over `t₁` and `t₂` add exactly what one accrual over `t₁+t₂` would; whether a compounding variant is also needed is an open question ([section 7](#7-open-design-questions)).
 
@@ -285,11 +285,11 @@ Taking each element of the codeblock in turn:
 - **Proportional seizure.** `debtRepaid` is the amount the liquidator's own exercise burns in the same transaction, never the vault's full accrued debt, so a liquidator can never take more collateral than their payment (plus bonus) buys.
 - **Restorable vault (`collateralRatio > 1 + liquidationBonus`).** Repaying `x` leaves debt `accruedDebt - x` and collateral value `collateralAmount · price - x · (1 + liquidationBonus)`; `restoreAmount` is the `x` that sets their ratio to exactly `minCollateralRatio`. In this regime every repaid unit improves the ratio, so a payment below the cap partially cures, a payment at the cap fully cures, and nothing beyond it can be taken (no overshoot). The target is `minCollateralRatio`, not `liquidationRatio`, so a cured vault does not restart on the liquidation boundary.
 - **Underwater vault (`collateralRatio <= 1 + liquidationBonus`).** No repayment can restore health, so the cap becomes what the remaining collateral can pay for: the pass seizes all of it, and the uncovered remainder is quantified as `badDebt`.
-- **Well-definedness.** Protocol configuration requires `minCollateralRatio > 1 + liquidationBonus`, which keeps `restoreAmount`'s denominator positive and its value within what the collateral supports.
+- **Well-definedness.** Protocol configuration requires the full ordering `minCollateralRatio > liquidationRatio > 1 + liquidationBonus`. The first gap is the margin-call buffer; the second keeps the restorable regime reachable, so a freshly flagged vault can still be partially cured; and the chain keeps `restoreAmount`'s denominator positive and its value within what the collateral supports.
 
 ### Data and State Flow
 
-The diagrams below show the four vault flows: **A** collateral deposit, **B** borrow, **C** repay and close, **D** margin call and liquidation. Atomic settlement appears only in the collateral deposit; repayment and liquidation payments burn in place, and everything the protocol releases (minted stablecoin, returned or seized collateral) moves by direct transfer under the vault's joint authority in the same transaction. In each, the `Compliance gate` node stands for the compliance-attestation check and the live KYC-claim fetch ([section 3](#compliance-attestation)), and keyed contracts are marked with their key.
+The diagrams below show the four vault flows: **A** collateral deposit, **B** borrow, **C** repay and close, **D** margin call and liquidation. Atomic settlement appears only in the collateral deposit; repayment and liquidation payments burn in place, and everything the protocol releases (minted stablecoin, returned or seized collateral) moves by direct transfer under the vault's joint authority in the same transaction. In each, the `Compliance gate` node stands for the compliance-attestation check and the live KYC-claim fetch ([section 3](#compliance-is-re-checked-on-every-operation)), and keyed contracts are marked with their key.
 
 **A. Collateral deposit.** The borrower commits the collateral they are locking; settlement delivers it into the vault's custody account, and the vault's own record of how much collateral backs the position grows by the same amount. The first deposit goes through the `VaultFactory` instead: creation settles it identically, but creates the `Vault` rather than updating one ([section 4.1](#41-component-vaultfactory-and-vault-creation)).
 
@@ -387,7 +387,7 @@ sequenceDiagram
     participant O as PriceOracle
     participant L as Liquidator
 
-    note over O: price drops below liquidationRatio
+    note over O: price drops, pushing collateralRatio below liquidationRatio
     L->>V: Vault_FlagForLiquidation (margin call)
     V->>O: fetchByKey (assert instruments + freshness)
     V->>V: assert unhealthy, set liquidationFlaggedAt = now
@@ -464,10 +464,12 @@ Canton features the protocol must account for:
 
 - Ledger time is accurate only to 60 seconds. Every deadline check is fuzzy by that much, hence sub-minute deadlines
   should be avoided.
-- Externally signed (prepared) transactions must be submitted within
-  24h by default. Any leg signed by an
-  external party must complete prepare, sign, submit within 24h. CIP-0107
-  exposes the same window through the token-standard APIs.
+- Externally signed (prepared) transactions must be submitted within 24h by
+  default: any leg signed by an external party must complete prepare, sign,
+  submit inside that window.
+  [CIP-0107](https://github.com/canton-foundation/cips/blob/main/cip-0107/cip-0107.md)
+  (externally signed transactions for the token-standard APIs) exposes the
+  same window.
 - CIP-0112 defines the deadline fields and their semantics but no values:
   `settlementDeadline` (an allocation must not settle after it; committed
   allocations become withdrawable after it) and a registry-set `expiresAt`
@@ -518,7 +520,7 @@ On a public chain, a collateral top-up racing a liquidation is decided by gas an
 
 ### Compliance is Re-checked on Every Operation
 
-The KYC gate at vault opening is necessary but not sufficient: a borrower can lose good standing after opening. Two distinct layers keep a position compliant. For identity, each value-moving vault choice fetches the borrower's live `KycClaim` and re-checks it: the claim must be unexpired and its issuer still listed in the `TrustedIssuerRegistry`. Revocation is the issuer archiving the claim or being delisted from the registry; either blocks new borrows, top-ups, and withdrawals immediately. For the compliance attestation, each flow consumes one single-use attestation: the deposit settlement consumes it in `SettleBatch`, fail-closed, with no caching, and the pure-direct flows (mint, repay, liquidation, withdrawal) consume it inline, so every flow sits behind the same gate. With the gate disabled, no flow waits on an attester and compliance rests on the identity layer alone.
+The KYC gate at vault opening is necessary but not sufficient: a borrower can lose good standing after opening. Two distinct layers keep a position compliant. For identity, each value-moving vault choice fetches the borrower's live `KycClaim` and re-checks it: the claim must be unexpired and its issuer still listed in the `TrustedIssuerRegistry`. Revocation is the issuer archiving the claim or being delisted from the registry; either blocks new borrows, top-ups, and withdrawals immediately. The compliance-attestation gate is configured per deployment: `VaultParams` carries an optional trusted-attester registry reference for the direct flows, and the collateral registry's own `requiredAttesterRegistryCid` pins it for the settled deposit. When enabled, each flow consumes one single-use attestation: the deposit settlement consumes it in `SettleBatch`, fail-closed, with no caching, and the pure-direct flows (mint, repay, liquidation, withdrawal) consume it inline, so every flow sits behind the same gate. With the gate disabled, no flow waits on an attester and compliance rests on the identity layer alone.
 
 Deliberately, the borrower's continued compliance is **not** a precondition for winding the position down: on repay and close the borrower is reducing risk, so those flows do not gate on the borrower's attestation standing (the attestation covers the operation, not the repaying borrower's status), and on the liquidation legs it is the liquidator's compliance that is checked. A now-non-compliant position can always be repaid or liquidated, never trapped, and never dependent on an attester's willingness to re-attest the borrower.
 
@@ -595,8 +597,9 @@ The `VaultFactory` is the vault admin's standing vault-creation offer: an
 admin-signed contract publishing the terms (`VaultParams` and the
 instrument pair). A borrower creates their vault unilaterally. Creation is pause- and KYC-gated, settles the
 committed initial deposit in the same transaction (a vault is never created
-empty), and the contract key rejects a duplicate
-`(vaultAdmin, borrower, vaultId)`. `requireLiveKycClaim`,
+empty), and duplicate `(vaultAdmin, borrower, vaultId)` vaults are rejected
+by an application-level check, since 3.5.1 contract keys are not unique.
+`requireNoExistingVault`, `requireLiveKycClaim`,
 `requireJointAccount`, `requireFactoryAdmin`, and `requireDepositLeg` (exactly one leg delivers a positive
 `initialCollateral` of the collateral instrument into custody) are
 illustrative helpers in the style of section 4.2.
@@ -634,6 +637,7 @@ template VaultFactory
         now <- getTime
         (_, pause) <- fetchByKey @PauseState vaultAdmin
         whenNotPaused pause
+        requireNoExistingVault vaultAdmin borrower vaultId
         requireLiveKycClaim kycClaimCid borrower vaultAdmin
         requireJointAccount custodyAccount vaultAdmin borrower
         requireFactoryAdmin settlementFactoryCid collateralInstrumentId.admin
@@ -835,7 +839,7 @@ evidence for:
 | Compliance evasion, including post-open drift | A borrower bypasses KYC, or becomes non-compliant after opening. | The `KycClaim` is validated at open and fetched live by each vault choice (unexpired, issuer still in the `TrustedIssuerRegistry`), and, when the attestation gate is enabled, the compliance attestation is re-checked per operation, fail-closed, with no caching; a deployment with the gate disabled relies on the KYC layer alone. A revoked or expired claim blocks new borrows, top-ups, and withdrawals immediately, while repay, close, and liquidation stay open so a position is never trapped. |
 | Unauthorized admin action | An attacker with the admin key tries to mint unbacked stablecoin, drain custodied collateral, or invoke a custodian seizure. | Minting is reachable only through the solvency-coupled vault choice and the fee collection bounded by `feeReceivable`, which re-mints at most the interest already burned; custody holdings carry the borrower's signature too, so the admin alone cannot move them outside a vault choice; seizure requires an admin-issued, time-bounded sweep capability and sweeps only to the preset custodian account. |
 | Forced upgrades breaking in-flight allocations (SCU) | A poorly executed upgrade mutates fields, rendering existing `TokenAllocation` contracts un-settleable. | Programmatic adherence to the SCU rule (Optional appends and new choices only). The `Vault` template's existing choices stay operable; in-flight settlements conclude before users transition. |
-| DAR unvetting on a stakeholder's validator | A party (malicious or misconfigured) unvets the protocol DAR on their validator, so transactions on contracts they are a stakeholder of can no longer be confirmed: a D2 sweep of their funds fails, and co-signed flows they participate in stall. | Signatories and observers alike must have the same DAR version vetted for a transaction to succeed, and the freeze cuts both ways: the unvetting party cannot move the asset either, so the contract stays frozen rather than extractable, and re-vetting restores operation. Liveness-critical sets (oracle operators, liquidators) are multi-member with sub-unanimous quorums precisely so one unvetted participant cannot stall the protocol. A borrower who unvets freezes their own custody account: seizure is blocked, but so is every withdrawal, and the debt keeps accruing until they re-vet. |
+| DAR unvetting on a stakeholder's validator | A party (malicious or misconfigured) unvets the protocol DAR on their validator, so transactions on contracts they are a stakeholder of can no longer be confirmed: a custodian sweep of their funds fails, and co-signed flows they participate in stall. | Signatories and observers alike must have the same DAR version vetted for a transaction to succeed, and the freeze cuts both ways: the unvetting party cannot move the asset either, so the contract stays frozen rather than extractable, and re-vetting restores operation. Liveness-critical sets (oracle operators, liquidators) are multi-member with sub-unanimous quorums precisely so one unvetted participant cannot stall the protocol. A borrower who unvets freezes their own custody account: seizure is blocked, but so is every withdrawal, and the debt keeps accruing until they re-vet. |
 
 ### 5.4 Failure Modes and Recovery
 
