@@ -11,6 +11,14 @@ artifacts:
     source-commit: 7696749737885e25cd88422847105f890f03b00d
     source: https://github.com/OpenZeppelin/canton-contracts/tree/7696749737885e25cd88422847105f890f03b00d/experiments/access/access-control-v1
     license: MIT
+  - package: openzeppelin-ownable-v1
+    version: 0.1.0
+    file: dars/vendor/openzeppelin-ownable-v1-0.1.0.dar
+    main-package-id: 1cb1184f47b979ee66ba4e106c612681938e51ac5adc361504a86b6447705030
+    sha256: cae8baf1064a3886c0e060f020bfcf345c6b922a12a38ca53653d333aa99c13c
+    source-commit: 7696749737885e25cd88422847105f890f03b00d
+    source: https://github.com/OpenZeppelin/canton-contracts/tree/7696749737885e25cd88422847105f890f03b00d/experiments/access/ownable-v1
+    license: MIT
   - package: openzeppelin-pausable-v1
     version: 0.1.0
     file: dars/vendor/openzeppelin-pausable-v1-0.1.0.dar
