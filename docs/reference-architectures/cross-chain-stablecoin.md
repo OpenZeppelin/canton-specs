@@ -2,15 +2,16 @@
 
 This document describes a *reference design* for private, atomic settlement on Canton of stablecoin payments originating on external blockchains, grounded in the OpenZeppelin Canton components from this workspace, as well as the Canton Network Token Standard V2.
 
-Source-grounding tags used throughout: `[EXPERIMENT]` real experimental code, either in this workspace or in `OpenZeppelin/canton-contracts` `experiments/`, with the owning repository named where the item is introduced, `[EVIDENCE]` real code in an evidence repo ([`OpenZeppelin/canton-token-template`](https://github.com/OpenZeppelin/canton-token-template), [`OpenZeppelin/canton-stablecoin`](https://github.com/OpenZeppelin/canton-stablecoin)) but not the M1 surface, `[UPSTREAM]` Splice / CIP / external-ecosystem reference, including the CIP-0112 interface choices whose argument records the standard fixes ([section 3](#the-upstream-choice-surface-upstream)), `[FUTURE]` proposed RI-level design, not built in M1 scope.
+Source-grounding tags used throughout: `[EXPERIMENT]` real experimental code, either in this workspace or in `OpenZeppelin/canton-contracts` `experiments/`, with the owning repository named where the item is introduced, `[EVIDENCE]` real code in the [`OpenZeppelin/canton-token-template`](https://github.com/OpenZeppelin/canton-token-template) evidence repository but not the M1 surface, `[UPSTREAM]` Splice / CIP / external-ecosystem reference, including the CIP-0112 interface choices whose argument records the standard fixes ([section 3](#the-upstream-choice-surface-upstream)), `[FUTURE]` proposed RI-level design, not built in M1 scope.
 
 ## 1. Product Definition
 
 This report specifies a cross-chain stablecoin payment orchestration design for the Canton Network. Institutional participants accept an inbound asset representation, either an already-native Canton stablecoin such as USDCx or a gateway-minted wrapped instrument (written **`wTOK`** throughout), while the settlement amount, payer and payee identities, and compliance markers stay projected only to explicitly authorized parties.
 
 Most of the payment path is planned, external, or evidenced elsewhere rather than present in this
-workspace. Every item is tagged where it appears, and [section 7](#7-open-design-questions)
-collects the open questions.
+workspace. Every item is tagged where it appears, except the out-of-scope table below,
+whose rows describe what the design excludes and therefore ground no claim.
+[Section 7](#7-open-design-questions) collects the open questions.
 
 For such a payment rail to work, the inbound credit must settle atomically: the recipient is credited exactly the attested amount or nothing at all, and no intermediary holds the assets along the way. Therefore the settlement architecture centers on [CIP-0112 - Canton Network Token Standard V2](https://github.com/canton-foundation/cips/blob/main/cip-0112/cip-0112.md), specifically its support for [atomic settlement](https://github.com/canton-foundation/cips/blob/main/cip-0112/cip-0112.md#416-committed-allocations-for-prefunded-trading-and-iterated-settlement). The core building block is the **atomic delivery-versus-payment (DvP) settlement**: committed allocations are settled in one all-or-nothing transaction, with each leg's amount fixed on-ledger by the allocation sides their authorizers signed. A signed side is what makes the amount non-repudiable, not what makes it *correct*: tying the inbound amount, recipient, and instrument to the attesters' `LockAttestation` `[FUTURE]` is the job of the explicit binding checks in [section 3](#3-how-we-implement-it), without which a signed side is only the submitter's own declaration.
 
@@ -31,9 +32,9 @@ The reference implementation favors **simplicity and modular extensibility**. Th
 | Feature Category | In-Scope Architectural Components |
 |---|---|
 | Atomic Settlement | Private on-Canton settlement of inbound stablecoin payments via [`SettlementFactory_SettleBatch`](https://github.com/OpenZeppelin/canton-contracts/blob/7696749737885e25cd88422847105f890f03b00d/experiments/token/tokenCIP112-v1/daml/OpenZeppelin/TokenCIP112V1/Registry.daml#L79) `[UPSTREAM]` (atomic DvP). |
-| Cross-Chain Bridge | An inbound/outbound bridge **interface** (the Standardized Messaging Gateway) as a **bounded, verifiable mock**: attested inbound mint ([section 3](#3-how-we-implement-it)) and attested outbound redemption. |
-| Compliance & Control | D1: a settlement does not execute unless an attester has signalled compliance. D2: a privileged party can block settlement and sweep allocation funds to a preset custodian account. D3: single-synchronizer identity. |
-| Asset Representation | The gateway-minted wrapped instrument (`wTOK`), compliant with the CIP-0112 Token Standard V2 holding interfaces, and the integration **shape** for settling an existing native Canton stablecoin (e.g. USDCx) by interface. |
+| Cross-Chain Bridge `[FUTURE]` | An inbound/outbound bridge **interface** (the Standardized Messaging Gateway) as a **bounded, verifiable mock**: attested inbound mint ([section 3](#3-how-we-implement-it)) and attested outbound redemption. |
+| Compliance & Control `[EXPERIMENT]` | D1: a settlement does not execute unless an attester has signalled compliance. D2: a privileged party can block settlement and sweep allocation funds to a preset custodian account. D3: single-synchronizer identity. |
+| Asset Representation `[FUTURE]` | The gateway-minted wrapped instrument (`wTOK`), compliant with the CIP-0112 Token Standard V2 holding interfaces, and the integration **shape** for settling an existing native Canton stablecoin (e.g. USDCx) by interface. |
 | Component Integration | Direct reuse of `openzeppelin-access-control-v1`, `openzeppelin-ownable-v1`, `openzeppelin-pausable-v1` (all `[EXPERIMENT]` in `canton-contracts` `experiments/`, and none of the three is a released package yet), the CIP-0112 settlement spine, as well as patterns from the [`OpenZeppelin/canton-token-template`](https://github.com/OpenZeppelin/canton-token-template) and [`OpenZeppelin/canton-stablecoin`](https://github.com/OpenZeppelin/canton-stablecoin) codebases. |
 
 | Feature Category | Out-of-Scope Architectural Components |
@@ -320,11 +321,11 @@ Step-by-step execution of an inbound payment:
 
 | # | Step | Submitter | Kind |
 |---|---|---|---|
-| 1 | Source-chain lock observed | relayer | off-Canton |
-| 2 | Carrier and compliance attestation | attester | async ledger commands, automated |
-| 3 | `Gateway_ProcessInbound` | bridge relayer | async ledger command; consumes the nonce |
-| 4 | Delegated allocate and accept | bridge relayer | one atomic submission under the recipient's preapproval |
-| 5 | `SettlementFactory_SettleBatch` | bridge relayer | one atomic transaction; final at the mediator verdict, seconds |
+| 1 | Source-chain lock observed `[FUTURE]` | relayer | off-Canton |
+| 2 | Carrier and compliance attestation `[FUTURE]` carrier, `[EXPERIMENT]` attestation | attester | async ledger commands, automated |
+| 3 | `Gateway_ProcessInbound` `[FUTURE]` | bridge relayer | async ledger command; consumes the nonce |
+| 4 | Delegated allocate and accept `[FUTURE]` choice on an `[EVIDENCE]` template | bridge relayer | one atomic submission under the recipient's preapproval |
+| 5 | `SettlementFactory_SettleBatch` `[UPSTREAM]` | bridge relayer | one atomic transaction; final at the mediator verdict, seconds |
 
 Assumptions:
 
@@ -387,9 +388,9 @@ its own 24h window.
 
 | Flow | Slowest actor | Window | Rationale |
 |---|---|---|---|
-| Inbound settle | automated attester plus relayer | `settlementDeadline`, minutes to an hour | not price-sensitive, but a lapse strands the spent nonce, so the deadline must comfortably exceed the attester and relayer SLAs |
-| Outbound redemption | attester | `settlementDeadline`, hours | burn-first; the source-chain claim is standing and replay-protected, so slow release costs latency, not funds |
-| D1 attestation | attester | the attestation's own `expiresAt`, capped by `maxAttestationValidity` | verified at settle, so the window must span gateway processing through settle; the registry cap stops an attester issuing an effectively permanent pass |
+| Inbound settle `[FUTURE]` | automated attester plus relayer | `settlementDeadline`, minutes to an hour | not price-sensitive, but a lapse strands the spent nonce, so the deadline must comfortably exceed the attester and relayer SLAs |
+| Outbound redemption `[FUTURE]` | attester | `settlementDeadline`, hours | burn-first; the source-chain claim is standing and replay-protected, so slow release costs latency, not funds |
+| D1 attestation `[EXPERIMENT]` | attester | the attestation's own `expiresAt`, capped by `maxAttestationValidity` | verified at settle, so the window must span gateway processing through settle; the registry cap stops an attester issuing an effectively permanent pass |
 
 Consequence for D1: the attestation's validity window must cover the whole
 inbound path from gateway processing to settle, not only the settle itself,
@@ -463,13 +464,13 @@ Canton guarantees reads only to a contract's signatories and observers; other pa
 
 | Contract | Signatories | Observers |
 |---|---|---|
-| [`TokenAllocationRequest`](https://github.com/OpenZeppelin/canton-contracts/blob/7696749737885e25cd88422847105f890f03b00d/experiments/token/tokenCIP112-v1/daml/OpenZeppelin/TokenCIP112V1/AllocationRequest.daml#L18) | settlement executors (the bridge relayer) | the leg's authorizer |
-| [`AllocationFactory_Allocate`](https://github.com/OpenZeppelin/canton-contracts/blob/7696749737885e25cd88422847105f890f03b00d/experiments/token/tokenCIP112-v1/daml/OpenZeppelin/TokenCIP112V1/Registry.daml#L280), [`TokenAllocation`](https://github.com/OpenZeppelin/canton-contracts/blob/7696749737885e25cd88422847105f890f03b00d/experiments/token/tokenCIP112-v1/daml/OpenZeppelin/TokenCIP112V1/Allocation.daml#L67) | the instrument admin (Stablecoin Admin for `wTOK`), the leg's authorizer | settlement executors |
-| [`TokenEventLog`](https://github.com/OpenZeppelin/canton-contracts/blob/7696749737885e25cd88422847105f890f03b00d/experiments/token/tokenCIP112-v1/daml/OpenZeppelin/TokenCIP112V1/Base.daml#L75), an ephemeral emit host archived in the transaction that creates it | the instrument admin | none |
-| `wTOK` holding ([`TokenHolding`](https://github.com/OpenZeppelin/canton-contracts/blob/7696749737885e25cd88422847105f890f03b00d/experiments/token/tokenCIP112-v1/daml/OpenZeppelin/TokenCIP112V1/Holding.daml#L17) in the experiment) | the instrument admin, the account's parties | the lock's observers, when locked |
-| [`ComplianceAttestation`](https://github.com/OpenZeppelin/canton-contracts/blob/7696749737885e25cd88422847105f890f03b00d/experiments/token/tokenCIP112-v1/daml/OpenZeppelin/TokenCIP112V1/D1.daml#L53) | the attester | the executor verifying it |
-| [`TrustedAttesterRegistry`](https://github.com/OpenZeppelin/canton-contracts/blob/7696749737885e25cd88422847105f890f03b00d/experiments/token/tokenCIP112-v1/daml/OpenZeppelin/TokenCIP112V1/D1.daml#L22) | the factory admin | listed attesters |
-| [`SeizureOrder`](https://github.com/OpenZeppelin/canton-contracts/blob/7696749737885e25cd88422847105f890f03b00d/experiments/token/tokenCIP112-v1/daml/OpenZeppelin/TokenCIP112V1/D1.daml#L121) | the lawful-process authority | the instrument admin |
+| [`TokenAllocationRequest`](https://github.com/OpenZeppelin/canton-contracts/blob/7696749737885e25cd88422847105f890f03b00d/experiments/token/tokenCIP112-v1/daml/OpenZeppelin/TokenCIP112V1/AllocationRequest.daml#L18) `[EXPERIMENT]` | settlement executors (the bridge relayer) | the leg's authorizer |
+| [`AllocationFactory_Allocate`](https://github.com/OpenZeppelin/canton-contracts/blob/7696749737885e25cd88422847105f890f03b00d/experiments/token/tokenCIP112-v1/daml/OpenZeppelin/TokenCIP112V1/Registry.daml#L280), [`TokenAllocation`](https://github.com/OpenZeppelin/canton-contracts/blob/7696749737885e25cd88422847105f890f03b00d/experiments/token/tokenCIP112-v1/daml/OpenZeppelin/TokenCIP112V1/Allocation.daml#L67) `[EXPERIMENT]` | the instrument admin (Stablecoin Admin for `wTOK`), the leg's authorizer | settlement executors |
+| [`TokenEventLog`](https://github.com/OpenZeppelin/canton-contracts/blob/7696749737885e25cd88422847105f890f03b00d/experiments/token/tokenCIP112-v1/daml/OpenZeppelin/TokenCIP112V1/Base.daml#L75) `[EXPERIMENT]`, an ephemeral emit host archived in the transaction that creates it | the instrument admin | none |
+| `wTOK` holding ([`TokenHolding`](https://github.com/OpenZeppelin/canton-contracts/blob/7696749737885e25cd88422847105f890f03b00d/experiments/token/tokenCIP112-v1/daml/OpenZeppelin/TokenCIP112V1/Holding.daml#L17) `[EXPERIMENT]` in the experiment) | the instrument admin, the account's parties | the lock's observers, when locked |
+| [`ComplianceAttestation`](https://github.com/OpenZeppelin/canton-contracts/blob/7696749737885e25cd88422847105f890f03b00d/experiments/token/tokenCIP112-v1/daml/OpenZeppelin/TokenCIP112V1/D1.daml#L53) `[EXPERIMENT]` | the attester | the executor verifying it |
+| [`TrustedAttesterRegistry`](https://github.com/OpenZeppelin/canton-contracts/blob/7696749737885e25cd88422847105f890f03b00d/experiments/token/tokenCIP112-v1/daml/OpenZeppelin/TokenCIP112V1/D1.daml#L22) `[EXPERIMENT]` | the factory admin | listed attesters |
+| [`SeizureOrder`](https://github.com/OpenZeppelin/canton-contracts/blob/7696749737885e25cd88422847105f890f03b00d/experiments/token/tokenCIP112-v1/daml/OpenZeppelin/TokenCIP112V1/D1.daml#L121) `[EXPERIMENT]` | the lawful-process authority | the instrument admin |
 | [`KycClaim`](../../experiments/identity/hook-shape-b/daml/OpenZeppelin/Experimental/Identity/ShapeB.daml#L43), [`TrustedIssuerRegistry`](../../experiments/identity/hook-shape-b/daml/OpenZeppelin/Experimental/Identity/ShapeB.daml#L74) `[EXPERIMENT]` | the issuing party / the registry admin | the claim's subject / none |
 | `PauseState` `[EXPERIMENT]`, gateway and nonce registry `[FUTURE]` | the pauser / the gateway's admin and operator | none |
 
@@ -769,15 +770,15 @@ reference.
 
 | Failure | Effect while pending | Recovery path | Funds locked at most |
 |---|---|---|---|
-| Attester never signs the carrier | nothing on Canton | reclaiming the source-chain lock is an open question ([section 7](#7-open-design-questions)) | nothing locked on Canton |
-| Relayer crashes before `Gateway_ProcessInbound` | nothing consumed | any relayer resubmits; the carrier is standing | nothing locked |
-| Relayer crashes after `Gateway_ProcessInbound` | nonce spent, settlement pending | complete allocate and settle on restart (deduplication-safe); if the deadline lapses, funds unlock but the nonce stays spent: fresh attestation required | `settlementDeadline` |
-| Attestation expires before the settle | settle blocked (fail closed) | re-attest within the window; else deadline lapse and withdraw | `settlementDeadline` |
-| Recipient has no `TransferPreapproval` | delegated accept fails, nothing locked | recipient establishes the preapproval; relayer retries | nothing locked |
-| Pause during in-flight settlement | settle blocked by `whenNotPaused` | unpause, or deadline lapse and withdraw (the griefing window of [section 2](#decentralization-and-trust-topology)) | `settlementDeadline` |
-| Relayer validator out of traffic | the rail halts: every inbound submission is relayer-paid | traffic top-up and monitoring ([section 6](#6-network-economics-traffic-costs-and-app-rewards)) | `settlementDeadline` |
-| Synchronizer outage | ledger halted: no one can settle, and no one can withdraw | service resumes; if `settlementDeadline` lapsed during the outage the allocation is withdraw-only | outage duration + `settlementDeadline` |
-| D2 marked, never swept | settle, withdraw, and cancel all blocked | `TokenAllocation_UnmarkD2Seizure` by the admin, or `TokenAllocation_ReleaseLapsedD2Seizure` by any stakeholder once the window lapses | seizure window end, itself capped by `maxSeizureExtension` |
+| Attester never signs the carrier `[FUTURE]` | nothing on Canton | reclaiming the source-chain lock is an open question ([section 7](#7-open-design-questions)) | nothing locked on Canton |
+| Relayer crashes before `Gateway_ProcessInbound` `[FUTURE]` | nothing consumed | any relayer resubmits; the carrier is standing | nothing locked |
+| Relayer crashes after `Gateway_ProcessInbound` `[FUTURE]` | nonce spent, settlement pending | complete allocate and settle on restart (deduplication-safe); if the deadline lapses, funds unlock but the nonce stays spent: fresh attestation required | `settlementDeadline` |
+| Attestation expires before the settle `[EXPERIMENT]` | settle blocked (fail closed) | re-attest within the window; else deadline lapse and withdraw | `settlementDeadline` |
+| Recipient has no `TransferPreapproval` `[EVIDENCE]` | delegated accept fails, nothing locked | recipient establishes the preapproval; relayer retries | nothing locked |
+| Pause during in-flight settlement `[EXPERIMENT]` | settle blocked by `whenNotPaused` | unpause, or deadline lapse and withdraw (the griefing window of [section 2](#decentralization-and-trust-topology)) | `settlementDeadline` |
+| Relayer validator out of traffic `[UPSTREAM]` | the rail halts: every inbound submission is relayer-paid | traffic top-up and monitoring ([section 6](#6-network-economics-traffic-costs-and-app-rewards)) | `settlementDeadline` |
+| Synchronizer outage `[UPSTREAM]` | ledger halted: no one can settle, and no one can withdraw | service resumes; if `settlementDeadline` lapsed during the outage the allocation is withdraw-only | outage duration + `settlementDeadline` |
+| D2 marked, never swept `[EXPERIMENT]` | settle, withdraw, and cancel all blocked | `TokenAllocation_UnmarkD2Seizure` by the admin, or `TokenAllocation_ReleaseLapsedD2Seizure` by any stakeholder once the window lapses | seizure window end, itself capped by `maxSeizureExtension` |
 
 Each row becomes a Daml Script test in the RI test suite.
 
@@ -897,10 +898,10 @@ Applying the earn rule to the inbound flow
 
 | Transaction | Who pays traffic | Confirms, so earns (if featured) |
 | --- | --- | --- |
-| Inbound carrier and attestation | attester | attester (signs the `InboundMessage` and `ComplianceAttestation`) |
-| `Gateway_ProcessInbound` | bridge relayer | relayer (signs the executor-side `AllocationRequest`); the gateway's admin and operator on the gateway views |
-| Delegated allocate and accept | bridge relayer | Stablecoin Admin and the recipient (sign the instruction and allocation); the relayer only observes and earns nothing |
-| `SettlementFactory_SettleBatch` | bridge relayer | Stablecoin Admin (signs the settled holdings); the relayer as the acting executor |
+| Inbound carrier and attestation `[FUTURE]` | attester | attester (signs the `InboundMessage` and `ComplianceAttestation`) |
+| `Gateway_ProcessInbound` `[FUTURE]` | bridge relayer | relayer (signs the executor-side `AllocationRequest`); the gateway's admin and operator on the gateway views |
+| Delegated allocate and accept `[FUTURE]` | bridge relayer | Stablecoin Admin and the recipient (sign the instruction and allocation); the relayer only observes and earns nothing |
+| `SettlementFactory_SettleBatch` `[UPSTREAM]` | bridge relayer | Stablecoin Admin (signs the settled holdings); the relayer as the acting executor |
 
 The report defines no fee model, so there is no revenue for rewards to
 rebate: the credit is an issuance-scaled fraction of each transaction's own
