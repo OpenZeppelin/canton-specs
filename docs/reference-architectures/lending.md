@@ -522,9 +522,12 @@ A single trusted price feed plus a single liquidator would be the largest live a
 
 ### Compliance Attestation
 
-The compliance-attestation gate is **optional per deployment**: `VaultParams`
-carries an optional trusted-attester registry reference, and the gate exists
-only when it is set. When enabled, the architecture checks compliance per
+The compliance-attestation gate is **optional per deployment**, configured in
+two places: for the direct vault flows (mint, burns, withdrawal),
+`VaultParams` carries an optional trusted-attester registry reference; for
+the settled deposit, the equivalent pin lives on the collateral registry's
+own rules contract (`requiredAttesterRegistryCid`). The gate exists only
+where the pin is set. When enabled, the architecture checks compliance per
 value-moving operation and fails closed: no valid attestation means no value
 movement. When unset, the choices skip the attestation entirely - no
 operation waits on an attester - and the compliance story rests on identity
@@ -645,7 +648,8 @@ template VaultFactory
         settlement : SettlementInfo
         transferLegs : [TransferLeg]
         attestationCid : Optional (ContractId ComplianceAttestation)
-          -- ^ Required when `params` configures the attester registry.
+          -- ^ Required when the collateral registry configures its
+          -- attestation gate.
       controller borrower
       do
         now <- getTime
@@ -656,11 +660,21 @@ template VaultFactory
         requireSettlementFactory settlementFactoryCid vaultAdmin
         requireDepositLeg transferLegs collateralInstrumentId custodyAccount initialCollateral
 
+        -- The attestation rides the choice context: `SettleBatch` is a fixed
+        -- Token Standard interface choice, so extensions travel in `extraArgs`
+        -- under the registry's documented key; the registry fails closed when
+        -- its gate is configured and the entry is absent.
         _ <- exercise settlementFactoryCid SettlementFactory_SettleBatch with
           settlement; transferLegs
           allocationCids = [allocationCid]
           actors = [borrower]
-          attestationCid
+          extraArgs = ExtraArgs with
+            context = ChoiceContext with
+              values = case attestationCid of
+                None -> TextMap.empty
+                Some cid -> TextMap.fromList
+                  [(d1AttestationContextKey, AV_ContractId (toAnyContractId cid))]
+            meta = emptyMetadata
 
         create Vault with
           vaultAdmin; borrower; vaultId

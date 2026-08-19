@@ -765,14 +765,20 @@ template Pool
         assertMsg "output side mismatch"
           (outSide.amount == dOut && outSide.instrumentId == outInstrument.id && outSide.otherside == poolAccount)
 
-        -- Atomic DvP: settle the trader's input and the pool's output in one batch,
-        -- presenting the signed compliance attestation. The factory resolves its
-        -- TrustedAttesterRegistry by key, so no caller-supplied registry is trusted.
+        -- Atomic DvP: settle the trader's input and the pool's output in one
+        -- batch. The attestation rides the choice context - `SettleBatch` is a
+        -- fixed Token Standard interface choice - and the factory verifies it
+        -- against its own attester registry, resolved by key, so no
+        -- caller-supplied registry is trusted.
         receipts <- exercise settlementFactoryId SettlementFactory_SettleBatch with
           settlement; transferLegs
           allocationCids = [traderAllocationId, poolAllocationId]
           actors = [venueOperator]
-          attestationCid
+          extraArgs = ExtraArgs with
+            context = ChoiceContext with
+              values = TextMap.fromList
+                [(d1AttestationContextKey, AV_ContractId (toAnyContractId attestationCid))]
+            meta = emptyMetadata
         let (newBase, newQuote) =
               if baseToQuote then (baseReserves + amountIn, quoteReserves - dOut)
                              else (baseReserves - dOut, quoteReserves + amountIn)
@@ -790,27 +796,47 @@ through `SettlementFactory_SettleBatch`, which is given a signed
 The factory verifies and **consumes** the attestation before settling (single-use,
 no replay). It resolves its `TrustedAttesterRegistry` **by key** (keyed by the
 factory admin), so the attester must be trusted by the factory's own registry, not
-one the caller supplies. The attestation must also cover this settlement, bind to
-the batch's exact transfer-leg set, and be within its validity window.
+one the caller supplies; the keyless `[IMPLEMENTED]` experiment pins the registry
+cid on the rules contract (`requiredAttesterRegistryCid`) and asserts its admin
+instead. The attestation must also cover this settlement, be issued to these exact
+executors, bind to the batch's exact transfer-leg set, and sit within a validity
+window bounded by the registry's `maxAttestationValidity`.
 
 ```daml
--- Executors settle by presenting the attestation.
+-- Executors present the attestation in the choice context: the interface's
+-- argument record is fixed by the Token Standard, so extensions ride
+-- `extraArgs` under the documented key.
 exercise factoryCid SettlementFactory_SettleBatch with
   settlement; transferLegs; allocationCids; actors
-  attestationCid
+  extraArgs = ExtraArgs with
+    context = ChoiceContext with
+      values = TextMap.fromList
+        [(d1AttestationContextKey, AV_ContractId (toAnyContractId attestationCid))]
+    meta = emptyMetadata
 
--- The factory calls the attestation's consuming verify, passing its own admin:
+-- The factory calls the attestation's consuming verify, passing its own
+-- admin and its policy bound on validity windows:
 choice ComplianceAttestation_Verify : Text
   with
     settlement : SettlementInfo; transferLegs : [TransferLeg]
     factoryAdmin : Party
-  controller settlement.executors
+    maxValidity : RelTime
+  controller authorizedExecutors  -- pinned at issuance, checked below
   do
     (_, registry) <- fetchByKey @TrustedAttesterRegistry factoryAdmin
     assertMsg "attester not trusted" (attester `elem` registry.attesters)
-    assertMsg "wrong settlement"     (settlementRef == settlement.settlementRef.id)
-    -- also: bound to this batch's exact leg set; now within [issuedAt, expiresAt]
-    pure claimKind
+    assertMsg "wrong settlement"     (settlementId == settlement.id)
+    assertMsg "issued to different executors"
+      (dedupSort authorizedExecutors == dedupSort settlement.executors)
+    assertMsg "legs not the attested set"
+      (dedupSort boundTransferLegs == dedupSort transferLegs)
+    assertMsg "claim kind not accepted by the registry"
+      (claimKind `elem` registry.acceptedClaimKinds)
+    assertMsg "validity window exceeds the registry cap"
+      (expiresAt <= issuedAt `addRelTime` maxValidity)
+    now <- getTime
+    assertMsg "attestation not currently valid" (now >= issuedAt && now <= expiresAt)
+    pure complianceReference
 ```
 
 ---
