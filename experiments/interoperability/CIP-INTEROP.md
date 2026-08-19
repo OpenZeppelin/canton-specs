@@ -1,16 +1,16 @@
 # CIP interoperability on a live ledger
 
-This gate runs the CIP-0086, CIP-0103, and CIP-0104 experiment scenarios against
-a live ledger over the Ledger API. It complements the in-memory ledger used by
-`dpm test`.
+This gate runs the CIP-0086 and CIP-0103 experiment scenarios, and the
+settlement-attribution walkthrough, against a live ledger over the Ledger API. It
+complements the in-memory ledger used by `dpm test`.
 
 ## Scenarios
 
-| CIP | Behavior |
+| Scenario | Behavior |
 |---|---|
 | CIP-0086 | Maps transfer and delegated transfer behavior to settlement, enforces allowance bounds, conserves supply, and keeps balance queries projection-scoped |
 | CIP-0103 | Drives request, instruction, allocation, settlement, events, privacy, and fail-closed wallet behavior |
-| CIP-0104 | Shows executor-confirmed app-provider attribution through the settlement views, without a reward-marker template, plus a step-by-step rewards accounting walkthrough |
+| Settlement attribution | Shows which settlements an app-provider may claim for CIP-0104 rewards: the executor-confirmed ones, read from the settlement views alone, and not the receipts that it merely observes |
 
 The executable scripts live in
 [`cip-exemplar/`](cip-exemplar/daml/OpenZeppelin/Experimental/Interop/).
@@ -38,8 +38,8 @@ script`, and stops the ledger on exit. Logs are written under
 
 LocalNet is the backend that proves participant behavior: it runs a participant
 on a real synchronizer and it authenticates the Ledger API. It starts with the
-`sv` and `app-provider` profiles, because the scenarios need no Amulet or wallet
-service. The script fetches the LocalNet Docker Compose files into
+`sv` and `app-provider` profiles, and these scenarios use the participant and the
+synchronizer of that network. The script fetches the LocalNet Docker Compose files into
 `.cache/splice-localnet/`, pinned to the same Splice release that provides the
 container images. Every live-ledger gate in the repository shares both backends
 through [`scripts/ledger.sh`](../../scripts/ledger.sh), which also documents the
@@ -72,6 +72,7 @@ variables below.
   for the same reason.
 
 This experiment provides interoperability evidence for the modeled surfaces. It
-does not establish CIP-0086 conformance, provide a CIP-0103 wallet product, or
-implement CIP-0104 reward infrastructure. The asset remains the settlement
-experiment's Token Standard V2 fixture.
+does not establish CIP-0086 conformance or provide a CIP-0103 wallet product. The
+asset remains the settlement experiment's Token Standard V2 fixture. The CIP-0104
+reward path runs in the [traffic-rewards gate](traffic-rewards/README.md), against
+the reward infrastructure of LocalNet.
