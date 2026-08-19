@@ -167,6 +167,23 @@ Provenance of this path: steps 2 and 4 run on the `[EXPERIMENT]` spine, and ever
 3. **Recipient co-authorization via `TransferPreapproval` `[EVIDENCE]`.** A recipient cannot be bound unilaterally; the steps that bind them need their own authority. For an offline corporate treasury that cannot provide a live interactive signature, the recipient's wallet pre-establishes a `TransferPreapproval` for the wrapped instrument. The relayer exercises it - through a delegated allocate-and-accept choice that is itself `[FUTURE]` ([section 4.2](#42-component-inbound-dvp-via-delegated-accept-future)) - to run [`AllocationFactory_Allocate`](https://github.com/OpenZeppelin/canton-contracts/blob/7696749737885e25cd88422847105f890f03b00d/experiments/token/tokenCIP112-v1/daml/OpenZeppelin/TokenCIP112V1/Registry.daml#L280) for the request's legs under the recipient's standing signature, producing a committed [`TokenAllocation`](https://github.com/OpenZeppelin/canton-contracts/blob/7696749737885e25cd88422847105f890f03b00d/experiments/token/tokenCIP112-v1/daml/OpenZeppelin/TokenCIP112V1/Allocation.daml#L67) in a single atomic submission. The same submission exercises [`AllocationRequest_Accept`](https://github.com/OpenZeppelin/canton-contracts/blob/7696749737885e25cd88422847105f890f03b00d/experiments/token/tokenCIP112-v1/daml/OpenZeppelin/TokenCIP112V1/AllocationRequest.daml#L61), whose controller is the authorizer's own account parties: it is consuming, so the request is archived instead of orphaned. CIP-0112 permits the request accept and the allocation in one transaction, and the RI takes that option so no inbound payment leaves residue behind.
 4. **Atomic DvP `[EXPERIMENT]`.** The relayer packages the committed allocations into one [`SettlementFactory_SettleBatch`](https://github.com/OpenZeppelin/canton-contracts/blob/7696749737885e25cd88422847105f890f03b00d/experiments/token/tokenCIP112-v1/daml/OpenZeppelin/TokenCIP112V1/Registry.daml#L79). Settlement enforces value conservation per instrument: the archived locked input holdings must cover the authorizer's SenderSide leg amounts, and any surplus returns as a single new *change* holding (reducing fragmentation). Under-funded senders fail closed. The batch is **all-or-nothing**: if any leg fails (an already-archived allocation, a consumed input holding, a failed compliance check), the entire batch fails, so the application must validate inputs before submission and minimize concurrent consumption of the allocation contracts it references. On success the allocations are archived and a [`TokenEventLog`](https://github.com/OpenZeppelin/canton-contracts/blob/7696749737885e25cd88422847105f890f03b00d/experiments/token/tokenCIP112-v1/daml/OpenZeppelin/TokenCIP112V1/Base.daml#L75) plus the recipient's holding are created, projected to the recipient, the executing relayer, and the Stablecoin Admin that signs them. The emitted events are scoped per authorizer: each [`TokenAllocation`](https://github.com/OpenZeppelin/canton-contracts/blob/7696749737885e25cd88422847105f890f03b00d/experiments/token/tokenCIP112-v1/daml/OpenZeppelin/TokenCIP112V1/Allocation.daml#L67) carries only its authorizer's legs, so a recipient in a multi-leg batch sees its own legs and no one else's ([Privacy and Visibility Model](#privacy-and-visibility-model)).
 
+### The Upstream Choice Surface `[UPSTREAM]`
+
+Steps 3 and 4 call **CIP-0112 interface choices**, not choices this design owns. `AllocationFactory_Allocate`, `AllocationRequest_Accept`, `SettlementFactory_SettleBatch`, `Allocation_Cancel`, and `Allocation_Withdraw` are declared in `Splice.Api.Token.*`; the settlement registry supplies the `*Impl` method behind each one. The argument record of such a choice is fixed by the CIP, so a registry cannot append a field to it and a caller cannot pass one.
+
+Registry-specific arguments travel in the standard's own extension slot instead: `ExtraArgs`, whose `context : ChoiceContext` is a `TextMap` of `AnyValue`. The D1 attestation reaches the settlement factory that way, under the key [`d1AttestationContextKey`](https://github.com/OpenZeppelin/canton-contracts/blob/7696749737885e25cd88422847105f890f03b00d/experiments/token/tokenCIP112-v1/daml/OpenZeppelin/TokenCIP112V1/Base.daml#L43). When the registry requires attestation and that key is absent, the settle fails with `this factory requires a D1 compliance attestation in the choice context`, so omission fails closed.
+
+```daml
+-- What the settling caller places in the choice context (section 4.2).
+extraArgs = ExtraArgs with
+  context = ChoiceContext with
+    values = TextMap.fromList
+      [(d1AttestationContextKey, AV_ContractId (toAnyContractId attestationCid))]
+  meta = emptyMetadata
+```
+
+The same slot carries the registry's internal plumbing: [`settlementFactory_settleBatchImpl`](https://github.com/OpenZeppelin/canton-contracts/blob/7696749737885e25cd88422847105f890f03b00d/experiments/token/tokenCIP112-v1/daml/OpenZeppelin/TokenCIP112V1/Registry.daml#L79) mints a per-authorizer [`BatchSettlementAuthorization`](https://github.com/OpenZeppelin/canton-contracts/blob/7696749737885e25cd88422847105f890f03b00d/experiments/token/tokenCIP112-v1/daml/OpenZeppelin/TokenCIP112V1/Allocation.daml#L37) and hands it to each allocation's settle under `batchAuthorizationContextKey`, which is what makes the batch cover check and the D1 gate unavoidable rather than conventional. `SettlementFactory_SettleBatch` returns a `SettlementFactory_SettleBatchResult` carrying one `AllocationResult` per settled allocation. It returns no receipt contract.
+
 ### Data and State Flow
 
 The diagrams below decompose the design around the shared `Atomic settlement` hub:
@@ -576,7 +593,11 @@ The `OpenZeppelin/canton-token-template` evidence template `TransferPreapproval`
 ```daml
 module CrossChain.Orchestrator where
 
+import DA.TextMap qualified as TextMap
+import Splice.Api.Token.AllocationV2 (FinalizedAllocation(..), SettlementFactory_SettleBatchResult)
+import Splice.Api.Token.MetadataV1 (AnyValue(..), ChoiceContext(..), ExtraArgs(..), emptyMetadata)
 import OpenZeppelin.TokenCIP112V1
+import OpenZeppelin.TokenCIP112V1.Base (d1AttestationContextKey)
 import SimpleToken.Preapproval (TransferPreapproval)
 
 template CrossChainDvP
@@ -585,7 +606,7 @@ template CrossChainDvP
   where
     signatory executor
 
-    choice Execute_Inbound_Settlement : ContractId TokenEventLog
+    choice Execute_Inbound_Settlement : SettlementFactory_SettleBatchResult
       with
         requestCid : ContractId AllocationRequest  -- the gateway's executor-signed request (section 4.1)
         recipientPreapprovalCid : ContractId TransferPreapproval
@@ -613,14 +634,19 @@ template CrossChainDvP
         -- presenting the signed compliance attestation and the attester registry
         -- (D1). The registry cid is caller-supplied; verification rejects any
         -- registry whose admin is not the factory's own admin.
-        receipts <- exercise batchFactoryCid SettlementFactory_SettleBatch with
+        let finalized cid = FinalizedAllocation with
+              allocationCid = cid
+              extraTransferLegSides = []
+              nextIterationFunding = None
+        exercise batchFactoryCid SettlementFactory_SettleBatch with
           settlement; transferLegs
-          allocationCids = [issuerSendAllocationId, allocationId]
+          allocations = map finalized [issuerSendAllocationId, allocationId]
           actors = settlement.executors
-          attestationCid; registryCid
-        case receipts of
-          r :: _ -> pure r
-          [] -> abort "SettleBatch returned no receipt"
+          extraArgs = ExtraArgs with
+            context = ChoiceContext with
+              values = TextMap.fromList
+                [(d1AttestationContextKey, AV_ContractId (toAnyContractId attestationCid))]
+            meta = emptyMetadata
 ```
 
 ### 4.3 Component: D2 Lock-and-Sweep
