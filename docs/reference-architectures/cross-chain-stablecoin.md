@@ -362,18 +362,34 @@ Canton features that the protocol must take into consideration:
   for hygiene expiry. Enforcement lives in each token registry's
   implementation, so with third-party compliant tokens the expiry policy is
   per registry (Amulet caps allocation lifetimes at 90 days).
+- The settlement registry sets its own ceilings `[EXPERIMENT]`, and they bind
+  before any RI policy does. [`TokenRules`](https://github.com/OpenZeppelin/canton-contracts/blob/7696749737885e25cd88422847105f890f03b00d/experiments/token/tokenCIP112-v1/daml/OpenZeppelin/TokenCIP112V1/Registry.daml#L28) carries
+  `maxTTL`, an upper bound on how long an allocation or transfer instruction may
+  occupy storage, with workflow deadlines beyond it rejected outright rather than
+  truncated; `maxAttestationValidity`, which caps an attestation's own window
+  (`ComplianceAttestation_Verify` asserts `expiresAt <= issuedAt addRelTime maxValidity`);
+  and `maxSeizureExtension`, which caps how far past the settlement deadline a D2
+  seizure window may reach. Every [`TokenAllocation`](https://github.com/OpenZeppelin/canton-contracts/blob/7696749737885e25cd88422847105f890f03b00d/experiments/token/tokenCIP112-v1/daml/OpenZeppelin/TokenCIP112V1/Allocation.daml#L67)
+  additionally requires `expiresAt < lockExpiresAt`.
 
 Deadlines are derived per flow, not picked globally:
 
 ```text
 slowest required actor's SLA <= settlementDeadline
-  <= min(operation staleness tolerance, capital-lock tolerance, 24h if any external signer)
+  <= min(maxTTL, operation staleness tolerance, capital-lock tolerance)
 ```
 
-| Flow | Slowest actor | `settlementDeadline` | Rationale |
+The 24h `preparationTimeRecordTimeTolerance` is a separate, per-submission
+constraint: every externally signed leg must complete prepare, sign, and submit
+inside its own window. It does not bound the allocation's deadline, so a
+multi-day `settlementDeadline` is compatible with signing each submission inside
+its own 24h window.
+
+| Flow | Slowest actor | Window | Rationale |
 |---|---|---|---|
-| Inbound settle | automated attester plus relayer | minutes to an hour | not price-sensitive, but a lapse strands the spent nonce, so the deadline must comfortably exceed the attester and relayer SLAs |
-| Outbound redemption | attester | hours | burn-first; the source-chain claim is standing and replay-protected, so slow release costs latency, not funds |
+| Inbound settle | automated attester plus relayer | `settlementDeadline`, minutes to an hour | not price-sensitive, but a lapse strands the spent nonce, so the deadline must comfortably exceed the attester and relayer SLAs |
+| Outbound redemption | attester | `settlementDeadline`, hours | burn-first; the source-chain claim is standing and replay-protected, so slow release costs latency, not funds |
+| D1 attestation | attester | the attestation's own `expiresAt`, capped by `maxAttestationValidity` | verified at settle, so the window must span gateway processing through settle; the registry cap stops an attester issuing an effectively permanent pass |
 
 Consequence for D1: the attestation's validity window must cover the whole
 inbound path from gateway processing to settle, not only the settle itself,
@@ -895,6 +911,6 @@ Decisions to settle with the internal team before implementation, not M1 build i
 - **Registry uniqueness enforcement.** Contract keys carry no uniqueness on Canton 3.x, so the design anchors each keyed registry to a successor chain ([section 2](#registry-uniqueness-under-non-unique-keys-future)). Open: who pins the genesis contract id and how it reaches each consumer, how a rotation is operated so predecessor and successor are never active together, and whether the chain is walked on every read or trusted after one anchor check. Also open: whether keying `PauseState` earns a new `openzeppelin-pausable` package lineage at all, given that a pinned contract id is the stronger anchor while keys carry no uniqueness.
 - **Gateway behavior under source-chain reorgs.** When the production gateway lands, how are inbound attestations sequenced if the origin chain deep-reorgs? Does the gateway manage confirmation delays internally, or must the relayer contract use a time-locked `TokenAllocation` to mitigate cross-chain rollback risk?
 - **Expired / unsettled inbound-allocation lifecycle.** The spine provides post-deadline release primitives ([`Allocation_Cancel`](https://github.com/OpenZeppelin/canton-contracts/blob/7696749737885e25cd88422847105f890f03b00d/experiments/token/tokenCIP112-v1/daml/OpenZeppelin/TokenCIP112V1/Allocation.daml#L144), [`Allocation_Withdraw`](https://github.com/OpenZeppelin/canton-contracts/blob/7696749737885e25cd88422847105f890f03b00d/experiments/token/tokenCIP112-v1/daml/OpenZeppelin/TokenCIP112V1/Allocation.daml#L134)). Open: who *operationally* runs the reclaim for a dead inbound flow (an automated handler needs executor or authorizer authority), and how this local lifecycle aligns with the upstream Token Standard V2 allocation lifecycle once imported.
-- **Synchrony and time assumptions.** The boundary is asynchronous by construction: the gateway consumes finalized source-chain events, and Canton settlement is a separate, later transaction, while the on-Canton windows (the attestation `expiry`, the mandatory finite `settlementDeadline`) are checked against ledger time. Open: concrete window sizes (the margin between source-chain finality and Canton ledger time, attester turnaround ceilings) and the operational SLAs around them. Also open: whether the nonce should be recorded at settlement rather than at the gateway, since no window size makes a consumed-but-unsettled nonce retryable.
+- **Synchrony and time assumptions.** The boundary is asynchronous by construction: the gateway consumes finalized source-chain events, and Canton settlement is a separate, later transaction, while the on-Canton windows (the attestation `expiry`, the mandatory finite `settlementDeadline`) are checked against ledger time. Open: the values the RI sets for its own registry ceilings (`maxTTL`, `maxAttestationValidity`, `maxSeizureExtension`), the margin between source-chain finality and Canton ledger time, attester turnaround ceilings, and the operational SLAs around them. Also open: whether the nonce should be recorded at settlement rather than at the gateway, since no window size makes a consumed-but-unsettled nonce retryable.
 - **Cross-domain identity proof injection (D3, deferred).** When ONCHAINID / ERC-3643 equivalents are supported, does the `TrustedIssuerRegistry` ingest external state proofs via an oracle, or rely on a CCID protocol synchronized across the global synchronizer? The cross-domain proof-injection trust model must be audited.
 - **Composability with the other RIs** (forward-compatibility): recipients holding instruments settled here (`wTOK`, or native USDCx) can provide liquidity to the DEX RI ([`01`](./dex.md)) pools or collateralize a Lending RI ([`02`](./lending.md)) vault - all over the same `SettlementFactory_SettleBatch` spine, with no parallel settlement path.
