@@ -111,6 +111,7 @@ const BENEFICIARY_SPLIT = [
 const log = (...args) => console.log('[traffic-rewards]', ...args)
 
 const fail = (msg) => {
+  // codeql[js/clear-text-logging] - env values here are LocalNet URLs and a user id, not secrets
   console.error('[traffic-rewards] FAIL:', msg)
   process.exit(1)
 }
