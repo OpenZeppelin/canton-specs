@@ -848,7 +848,7 @@ Implications:
 - Failed transactions burn traffic too and earn no rewards: CIP-0104 credits
   only successful confirmation requests ([section 6.2](#62-app-rewards)).
   Inbound settlements serialize on the per-rail `ConsumedNonceRegistry`
-  ([section 5.4](#55-throughput-and-contention-future)), so the loser of two
+  ([section 5.5](#55-throughput-and-contention-future)), so the loser of two
   concurrent inbound mints retries and pays twice; sharding the registry
   bounds that waste as well as the contention.
 - Batching amortizes: several allocations can ride one
@@ -866,7 +866,7 @@ Since CIP-0078 only featured apps earn rewards. The natural holder of the
 to the Global Synchronizer Foundation) is the party operating the gateway,
 i.e. the Bridge Relayer side of the design. Two tensions are specific to this
 RI. First, featuring a single relayer sits poorly with the goal that relay
-ultimately be permissionless ([section 2](#2-architecture-overview)): a
+ultimately be permissionless ([section 2](#decentralization-and-trust-topology)): a
 `FeaturedAppRight` names one provider party, so a permissionless relay set
 either shares one party or leaves most relayers unrewarded. Second, the earn
 rule pays signers, not submitters: the relayer signs only the
