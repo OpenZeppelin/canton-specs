@@ -648,6 +648,7 @@ The `OpenZeppelin/canton-token-template` evidence template `TransferPreapproval`
 module CrossChain.Orchestrator where
 
 import DA.TextMap qualified as TextMap
+import Splice.Api.Token.AllocationInstructionV2 (AllocationInstructionResult_Output(..))
 import Splice.Api.Token.AllocationV2 (FinalizedAllocation(..), SettlementFactory_SettleBatchResult)
 import Splice.Api.Token.MetadataV1 (AnyValue(..), ChoiceContext(..), ExtraArgs(..), emptyMetadata)
 import OpenZeppelin.TokenCIP112V1
@@ -678,9 +679,9 @@ template CrossChainDvP
         -- confers no authority).
         result <- exercise recipientPreapprovalCid TransferPreapproval_AllocateInbound with
           requestCid; executor
-        let allocationId = case result of
-              AllocationInstructionResult_Completed cid -> cid
-              _ -> error "allocation did not complete"
+        allocationId <- case result.output of
+          AllocationInstructionResult_Completed with allocationCid = cid -> pure cid
+          _ -> fail "inbound allocation did not complete"
 
         -- Atomic DvP via the attested spine entrypoint: the issuer's SenderSide
         -- mint leg and the recipient's ReceiverSide settle together or not at all.
