@@ -64,9 +64,37 @@ On public EVM networks, a bridge mints tokens into a globally visible state ledg
 
 The inbound message from the gateway therefore does **not** mint-and-broadcast an asset in one global update. Instead the gateway drives an isolated, recipient-targeted allocation on the spine. State changes by archive-and-recreate rather than in-place mutation, and the atomic DvP archives the inbound request and creates a [`TokenEventLog`](https://github.com/OpenZeppelin/canton-contracts/blob/7696749737885e25cd88422847105f890f03b00d/experiments/token/tokenCIP112-v1/daml/OpenZeppelin/TokenCIP112V1/Base.daml#L75) visible only to the recipient, the relayer, the required compliance verifiers, and the issuing admin that signs it. Cross-chain settlement thereby inherits Canton's data compartmentalization.
 
-Because a recipient's signature (or a standing delegation of it) is required to bind them to an allocation, **two-step handshakes (Daml's propose-and-accept pattern) are a necessity, not a style choice**. The design uses **contract keys** `[FUTURE]` (reintroduced in [Canton 3.5.1+](https://github.com/digital-asset/canton/releases/tag/v3.5.1)) so the `PauseState`, the trusted-issuer registry, and the consumed-nonce registry keep stable, unique identities across those archive-and-recreate cycles. The trusted-attester registry is the deliberate exception: settlement takes its contract id from the caller and defeats substitution by requiring `registry.admin == factoryAdmin` (diagram A, [section 3](#3-how-we-implement-it)).
+Because a recipient's signature (or a standing delegation of it) is required to bind them to an allocation, **two-step handshakes (Daml's propose-and-accept pattern) are a necessity, not a style choice**. The design uses **contract keys** `[FUTURE]` (reintroduced in [Canton 3.5.1+](https://github.com/digital-asset/canton/releases/tag/v3.5.1)) so the `PauseState`, the trusted-issuer registry, and the consumed-nonce registry keep a stable lookup handle across those archive-and-recreate cycles. A key is a handle, not a uniqueness constraint: Canton 3.x lets several active contracts share one key, so uniqueness is the rail's job rather than the engine's ([Registry Uniqueness Under Non-Unique Keys](#registry-uniqueness-under-non-unique-keys-future)). The trusted-attester registry is the deliberate exception: settlement takes its contract id from the caller and defeats substitution by requiring `registry.admin == factoryAdmin` (diagram A, [section 3](#3-how-we-implement-it)).
 
 Contract keys are the design target, not what runs today, and the gap has two parts. **SDK**: the `[EXPERIMENT]` experiment code sits on the workspace's pinned baseline, which has no key support at all, so each choice instead takes a caller-supplied registry contract id and asserts that registry shares the factory's admin. **Templates**: no template in this workspace declares a `key` today, so the by-key resolution shown below is also a template change, not only an SDK migration. Because a key's maintainers must be signatories of the keyed contract, each key is fixed by that contract's own authority rather than by the rail `admin`: [`PauseState`](https://github.com/OpenZeppelin/canton-contracts/blob/cec416d6e3c2118551c761d5598c403ab27ee342/experiments/security/pausable-v1/daml/OpenZeppelin/PausableV1.daml#L47) `[LIBRARY]` is `signatory pauser` and carries no `admin` field, so its key is `pauser`, and ShapeB's [`TrustedIssuerRegistry`](../../experiments/identity/hook-shape-b/daml/OpenZeppelin/Experimental/Identity/ShapeB.daml#L74) `[EXPERIMENT]` is `signatory registryAdmin`, so its key is `registryAdmin`. The snippets and diagrams below use those maintainers.
+
+### Registry Uniqueness Under Non-Unique Keys `[FUTURE]`
+
+A Canton 3.x key is a lookup handle, and the rail supplies the uniqueness itself. The [contract-keys reference](https://docs.canton.network/appdev/modules/m3-contract-keys) `[UPSTREAM]` states three properties the design must absorb:
+
+- several active contracts of one template may share a key, and `DA.ContractKeys` ships `lookupNByKey` and `lookupAllByKey` for exactly that case;
+- negative lookups are not validated, so no check may rest on the *absence* of a key;
+- where duplicates exist, `fetchByKey` resolution order is not guaranteed, and the submitter can steer it, because disclosed contracts are prioritized over known contracts during command submission.
+
+Only the maintainer can create a duplicate, but creating one is an ordinary rotation mistake: a migration that creates the successor before it archives the predecessor leaves both active. From that point the Bridge Relayer, which builds every inbound submission and holds no minting trust ([section 2](#decentralization-and-trust-topology)), picks which registry the gateway sees by disclosing it. A `ConsumedNonceRegistry` that lacks a given `(sourceChainId, nonce)` lets an already-minted lock mint a second time, and a `TrustedIssuerRegistry` with a wider `trustedIssuers` list passes a D3 check that the narrower one refuses.
+
+The RI therefore anchors every keyed registry to an on-ledger successor chain. Each version pins the genesis contract id and consumes its predecessor, so a consumer resolves by key and then checks the anchor it pinned once. A planted parallel registry fails against that anchor rather than against operator vigilance.
+
+```daml
+-- [FUTURE] Uniqueness comes from the chain, not from the key.
+template ConsumedNonceRegistry
+  with
+    admin : Party
+    genesis : ContractId ConsumedNonceRegistry                 -- self at genesis; pinned by every consumer
+    predecessor : Optional (ContractId ConsumedNonceRegistry)  -- None only at genesis
+    consumed : [Text]
+  where
+    signatory admin
+    key admin : Party        -- convenience lookup only; carries no uniqueness
+    maintainer key
+```
+
+Two constraints follow. `lookupByKey` requires authorization from **all** maintainers of the key, which bounds where such a lookup can be written at all. And the trusted-attester registry stays outside this scheme: it is pinned by contract id on the settlement registry, which is the same anchoring idea without the key ([D1](#d1-compliance-through-party-applied-attestation-experiment)).
 
 ---
 
@@ -454,7 +482,7 @@ The code below is idiomatic Daml that composes with the libraries above. These s
 
 ### 4.1 Component: Standardized Messaging Gateway (bounded mock) `[FUTURE]`
 
-The gateway is the cross-chain boundary. Its single inbound choice validates the relayer's role grant, resolves the pause state and the identity and nonce registries **by key** - each keyed by its own maintaining authority (`pauser`, `registryAdmin`, the rail `admin`), so membership changes never leave the gateway holding a stale contract id - consumes the one-time attested carrier, records the nonce fail-closed, and creates an executor-signed allocation request whose amount is exactly the attested amount. The recipient-side allocation is deliberately not created here: the gateway carries no recipient authority, so binding the recipient happens in [section 4.2](#42-component-inbound-dvp-via-delegated-accept-future) under the recipient's own standing signature.
+The gateway is the cross-chain boundary. Its single inbound choice validates the relayer's role grant, resolves the pause state and the identity and nonce registries **by key** - each keyed by its own maintaining authority (`pauser`, `registryAdmin`, the rail `admin`), so membership changes never leave the gateway holding a stale contract id, and checks each resolved registry against the genesis anchor the gateway pins, because the key alone does not make that registry unique ([section 2](#registry-uniqueness-under-non-unique-keys-future)) - consumes the one-time attested carrier, records the nonce fail-closed, and creates an executor-signed allocation request whose amount is exactly the attested amount. The recipient-side allocation is deliberately not created here: the gateway carries no recipient authority, so binding the recipient happens in [section 4.2](#42-component-inbound-dvp-via-delegated-accept-future) under the recipient's own standing signature.
 
 ```daml
 module CrossChain.Gateway where
@@ -478,6 +506,8 @@ template StandardizedMessagingGateway
     stablecoinAdmin : Party  -- issuing admin of the gateway-minted wTOK
     pauser : Party           -- pause authority; maintainer of the PauseState key
     registryAdmin : Party    -- compliance verifier; maintainer of the issuer-registry key
+    issuerRegistryGenesis : ContractId TrustedIssuerRegistry   -- successor-chain anchors, pinned once
+    nonceRegistryGenesis : ContractId ConsumedNonceRegistry
   where
     signatory admin, operator
 
@@ -500,9 +530,12 @@ template StandardizedMessagingGateway
         -- Pause gate and D3 identity, resolved by key. A key's maintainers must be
         -- signatories of the keyed contract, so each key is that contract's own
         -- authority: `pauser` for PauseState, `registryAdmin` for the issuer registry.
+        -- A key is not unique, so each resolved registry is checked against the
+        -- genesis anchor this gateway pins (section 2).
         (_, pause) <- fetchByKey @PauseState pauser
         whenNotPaused pause
         (_, registry) <- fetchByKey @TrustedIssuerRegistry registryAdmin
+        assertMsg "issuer registry off the pinned chain" (registry.genesis == issuerRegistryGenesis)
         claim <- fetch kycClaimCid
         assertMsg "identity mismatch" (claim.subjectParty == recipient)
         assertMsg "issuer not trusted" (claim.declaredIssuer `elem` registry.trustedIssuers)
@@ -515,7 +548,8 @@ template StandardizedMessagingGateway
         assertMsg "attestation expired" (now <= att.expiry)
         assertMsg "recipient mismatch" (recipient == att.cantonRecipient)
         assertMsg "instrument admin mismatch" (att.cantonInstrumentId.admin == stablecoinAdmin)
-        (nonceRegCid, _) <- fetchByKey @ConsumedNonceRegistry admin
+        (nonceRegCid, nonceReg) <- fetchByKey @ConsumedNonceRegistry admin
+        assertMsg "nonce registry off the pinned chain" (nonceReg.genesis == nonceRegistryGenesis)
         exercise nonceRegCid ConsumedNonceRegistry_Record with
           sourceChainId = att.sourceChainId; nonce = att.nonce
 
@@ -622,6 +656,7 @@ The RI prioritizes verifiable security. Security rests on Daml's authorization m
   - A mint requires a registry-trusted, unexpired, non-replayed attestation whose `lockedAmount` equals the minted amount; redemption burns first and decrements the reserve. No mint without locked backing; no double-redeem of one lock.
 - **Replay protection `[FUTURE]`**:
   - One source-chain lock can credit Canton at most once: the attested carrier is consumed one-time, and the consumed-nonce registry fails closed on a duplicate `(sourceChainId, nonce)`.
+  - The dedup layer holds only while the registry the gateway resolves is the one on the pinned successor chain. Key resolution alone does not establish that, because Canton 3.x keys are not unique ([section 2](#registry-uniqueness-under-non-unique-keys-future)).
 - **Privacy partitioning `[EXPERIMENT]`**:
   - Amount, payer, and payload memo of a settled leg are projected only to that leg's counterparties, the executing relayer, the designated compliance verifier, and the issuing admin of the instrument being settled. If any *other* party - a recipient of a different leg in the same batch above all - could observe them, the invariant is broken; the enforcing structure is the per-authorizer [`TokenAllocation`](https://github.com/OpenZeppelin/canton-contracts/blob/7696749737885e25cd88422847105f890f03b00d/experiments/token/tokenCIP112-v1/daml/OpenZeppelin/TokenCIP112V1/Allocation.daml#L67).
   - The issuing admin's visibility is a stated trust assumption, not a violation: it signs the instrument's holdings, allocations, and receipts, so it reads them by construction ([Privacy and Visibility Model](#privacy-and-visibility-model)). Hiding the memo from the issuer would require a spine that does not make the admin a signatory of the receipt, which CIP-0112 does not offer and this RI does not attempt.
@@ -643,7 +678,7 @@ We propose a three-tier validation approach, based on verification tools built b
 |---|---|---|
 | Malicious relayer routing | Routes valid inbound funds to an unauthorized or sanctioned account. | `[FUTURE]` The recipient is pinned by the attesters' signed `LockAttestation` (`cantonRecipient`), and D3 requires a `KycClaim` whose `subjectParty` matches the exact recipient. The relayer cannot spoof the destination; fail-closed. |
 | Unbacked mint (relayer or forged attestation) | A relayer, or anyone without attester authorization, tries to mint `wTOK` with no real source-chain lock. | `[FUTURE]` The mint amount and instrument derive only from a registry-trusted, unexpired, single-use `LockAttestation`; there is no standalone admin mint. A lone relayer holds transport authority, not trust authority. Residual risk concentrates in the attester set, which is why its N-of-M decentralization is the largest open trust question ([section 7](#7-open-design-questions)). |
-| Replay of a used lock | A consumed inbound message (or a second carrier for the same lock) is submitted again to mint twice. | `[FUTURE]` One-time carrier consumption plus the consumed-nonce registry: a duplicate `(sourceChainId, nonce)` fails closed even if the attesters misbehave. |
+| Replay of a used lock | A consumed inbound message (or a second carrier for the same lock) is submitted again to mint twice. | `[FUTURE]` One-time carrier consumption plus the consumed-nonce registry: a duplicate `(sourceChainId, nonce)` fails closed even if the attesters misbehave, provided the resolved registry sits on the pinned successor chain ([section 2](#registry-uniqueness-under-non-unique-keys-future)). |
 | Toxic or spam inflow | A sender forces a settlement onto an unwilling recipient. | `[EXPERIMENT]` Without the recipient's accept (live, or via their standing `TransferPreapproval` `[EVIDENCE]`), the allocation never commits; unsettled allocations expire and return to sender. |
 | Compromised admin key | A compromised Stablecoin Admin or Custodian key attempts arbitrary expropriation. | `[EXPERIMENT]` D2 sweeps are hardcoded to the preset `custodianDestination` (no arbitrary burn, no return-to-sender). `[FUTURE]` Supply-changing authority is slated for N-of-M multisig ([section 2](#decentralization-and-trust-topology)); today a single key holds it. |
 | Forced upgrades breaking in-flight allocations (SCU) | A poorly executed upgrade mutates fields, rendering existing `Allocation` contracts un-settleable. | `[FUTURE]` Programmatic adherence to the SCU rule (Optional appends + new choices only). Existing choices stay operable; in-flight settlements conclude before users transition. |
@@ -813,6 +848,7 @@ Decisions to settle with the internal team before implementation, not M1 build i
 - **Outbound-redemption cross-chain atomicity.** Burn-first / attested-release guarantees no double-spend and no unbacked supply, but the foreign release is not atomic with the Canton burn. Open: the standing-claim resubmission protocol and SLA for a stalled source-chain release, and whether a bounded grace window before burn (escrow-then-burn) is ever preferable for specific source chains.
 - **Capability lifecycle (revocation / rotation).** `BurnerCapability` is a choice-less capability witness, revocable only by the admin archiving it. Open before any public authority surface: the SCU-additive `BurnerCapability_Revoke`/`_Rotate` shape (single contract vs a registry of capabilities), and the concrete holder and co-authorization model for the `[FUTURE]` `RedemptionBurnCapability` that gates outbound redemption burns, kept strictly separate from the Custodian's seizure credential.
 - **Aligning gateway scope with native rails.** USDCx is minted on Canton by Circle's own xReserve lock-and-mint rail ([section 1](#1-product-definition)), so this RI settles it rather than bridging it. Open: a general rule for when an inbound asset already has a native Canton rail (settle the native mint output) versus when the generic gateway is the right reference, so the architecture never re-bridges an already-bridged asset.
+- **Registry uniqueness enforcement.** Contract keys carry no uniqueness on Canton 3.x, so the design anchors each keyed registry to a successor chain ([section 2](#registry-uniqueness-under-non-unique-keys-future)). Open: who pins the genesis contract id and how it reaches each consumer, how a rotation is operated so predecessor and successor are never active together, and whether the chain is walked on every read or trusted after one anchor check.
 - **Gateway behavior under source-chain reorgs.** When the production gateway lands, how are inbound attestations sequenced if the origin chain deep-reorgs? Does the gateway manage confirmation delays internally, or must the relayer contract use a time-locked `TokenAllocation` to mitigate cross-chain rollback risk?
 - **Expired / unsettled inbound-allocation lifecycle.** The spine provides post-deadline release primitives ([`Allocation_Cancel`](https://github.com/OpenZeppelin/canton-contracts/blob/7696749737885e25cd88422847105f890f03b00d/experiments/token/tokenCIP112-v1/daml/OpenZeppelin/TokenCIP112V1/Allocation.daml#L144), [`Allocation_Withdraw`](https://github.com/OpenZeppelin/canton-contracts/blob/7696749737885e25cd88422847105f890f03b00d/experiments/token/tokenCIP112-v1/daml/OpenZeppelin/TokenCIP112V1/Allocation.daml#L134)). Open: who *operationally* runs the reclaim for a dead inbound flow (an automated handler needs executor or authorizer authority), how the RI enforces the mandatory finite `settlementDeadline`, and how this local lifecycle aligns with the upstream Token Standard V2 allocation lifecycle once imported.
 - **Synchrony and time assumptions.** The boundary is asynchronous by construction: the gateway consumes finalized source-chain events, and Canton settlement is a separate, later transaction, while the on-Canton windows (the attestation `expiry`, the mandatory finite `settlementDeadline`) are checked against ledger time. Open: concrete window sizes (the margin between source-chain finality and Canton ledger time, attester turnaround ceilings) and the operational SLAs around them. Also open: whether the nonce should be recorded at settlement rather than at the gateway, since no window size makes a consumed-but-unsettled nonce retryable.
