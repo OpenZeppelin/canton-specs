@@ -1,8 +1,10 @@
 #!/usr/bin/env bash
 #
-# Validation gate for the CIP-0086 / CIP-0103 / CIP-0104 interop exemplars: runs
-# every exemplar script against a live ledger over the Ledger API gRPC endpoint,
-# instead of the in-memory IDE ledger that `dpm test` uses.
+# Validation gate for the CIP-0086 / CIP-0103 interop exemplars and the
+# settlement-attribution walkthrough: runs every exemplar script against a live
+# ledger over the Ledger API gRPC endpoint, instead of the in-memory IDE ledger
+# that `dpm test` uses. The CIP-0104 reward path needs Amulet, Scan, and an SV,
+# so `scripts/localnet-cip0104-traffic-rewards.sh` drives that one.
 #
 #   scripts/cip-interop-validation.sh              # dpm sandbox
 #   scripts/cip-interop-validation.sh --localnet   # Canton LocalNet
@@ -17,8 +19,9 @@
 # order does not matter.
 #
 # The exemplars grant the participant's admin user `CanActAs` for every party
-# they allocate (Common.daml, `allocateInteropParty`). The sandbox reports no
-# admin user, so the grant does nothing there.
+# they allocate (Common.daml, `allocateInteropParty`). The sandbox needs no
+# grant, because it authenticates nothing, but it reports the admin user
+# `participant_admin` and the grant runs there too.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -63,9 +66,7 @@ SCRIPTS=(
 	Cip0103Wallet:test_cip0103_v1WalletDirectFactoryPath
 	Cip0103Wallet:test_cip0103_privacyScopedToParticipants
 	Cip0103Wallet:test_cip0103_failClosedSurfacesToWallet
-	Cip0104AppRewards:test_cip0104_attributableViaSettlementViewsWithoutMarkers
-	Cip0104AppRewards:test_cip0104_onlyAppProviderExecutorCanSettle
-	Cip0104RewardsWalkthrough:test_cip0104_rewardsAccountingWalkthrough
+	SettlementAttribution:test_attribution_walkthrough
 )
 
 fail=0

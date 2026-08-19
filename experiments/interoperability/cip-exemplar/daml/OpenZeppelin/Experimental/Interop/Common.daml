@@ -36,9 +36,25 @@ expiringSettlementWindow = seconds 30
 --
 -- A LocalNet participant authenticates the Ledger API. A user may then submit
 -- for a party only if a `CanActAs` right names that party, and party allocation
--- grants no such right. The in-memory ledger of `dpm test` and an
--- unauthenticated sandbox need no grant, and they report no admin user, so the
--- grant does nothing there.
+-- grants no such right. Neither the in-memory ledger of `dpm test` nor a
+-- `dpm sandbox` needs the grant, because neither authenticates the Ledger API.
+-- A `dpm sandbox` still reports the admin user `participant_admin`, so the
+-- grant runs there too and adds one right for each party that the run
+-- allocates.
+--
+-- `listAllUsers` needs admin rights of its own. A gate that submits as a user
+-- without them fails on that call, and the error names the user management
+-- service instead of the party allocation that the caller asked for.
+--
+-- Scope: the grant reaches EVERY user that holds `ParticipantAdmin`, not only
+-- the one user that the gate submits as, and nothing revokes it. Daml Script
+-- cannot name the user that the runner submits as, so the helper finds that
+-- user by looking for the admin rights instead. A gate that starts its own
+-- ledger loses both effects with the ledger. A gate that runs against a
+-- participant which outlives it leaves the rights behind, so point
+-- `OZ_USE_EXTERNAL_LEDGER=1` at a disposable participant. The recipients hold
+-- `ParticipantAdmin` already, which carries user management, so the grant gives
+-- them no authority that they could not take.
 allocateInteropParty : Text -> Script Party
 allocateInteropParty requestedName = do
   party <- allocateParty requestedName
