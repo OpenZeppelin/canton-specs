@@ -306,7 +306,7 @@ sequenceDiagram
     SettleFactory-->>Recipient: committed Allocation (receive wTOK)
     Relayer->>SettleFactory: SettleBatch (issuer mint leg + recipient leg)
     SettleFactory-->>Recipient: settlement events + wTOK holding
-    Note over SettleFactory,Recipient: payload visible ONLY to relayer + recipient + verifier<br/>+ Stablecoin Admin (it signs the wTOK legs and holdings);
+    Note over SettleFactory,Recipient: payload visible ONLY to relayer + recipient + attesting attester<br/>+ Stablecoin Admin (it signs the wTOK legs and holdings);
 ```
 
 ### Execution Model
@@ -744,7 +744,7 @@ The RI prioritizes verifiable security. Security rests on Daml's authorization m
   - One source-chain lock can credit Canton at most once: the attested carrier is consumed one-time, and the consumed-nonce registry fails closed on a duplicate `(sourceChainId, nonce)`.
   - The dedup layer holds only while the registry the gateway resolves is the one on the pinned successor chain. Key resolution alone does not establish that, because Canton 3.x keys are not unique ([section 2](#registry-uniqueness-under-non-unique-keys-future)).
 - **Privacy partitioning `[EXPERIMENT]`**:
-  - Amount, payer, and payload memo of a settled leg are projected only to that leg's counterparties, the executing relayer, the designated compliance verifier, and the issuing admin of the instrument being settled. If any *other* party - a recipient of a different leg in the same batch above all - could observe them, the invariant is broken; the enforcing structure is the per-authorizer [`TokenAllocation`](https://github.com/OpenZeppelin/canton-contracts/blob/7696749737885e25cd88422847105f890f03b00d/experiments/token/tokenCIP112-v1/daml/OpenZeppelin/TokenCIP112V1/Allocation.daml#L67).
+  - Amount, payer, and payload memo of a settled leg are projected only to that leg's counterparties, the executing relayer, the attester whose attestation gates the settlement, and the issuing admin of the instrument being settled. The Compliance Verifier is a separate role: it maintains the `TrustedIssuerRegistry` and issues `KycClaim`s, and it observes no settlement leg ([section 2](#party-and-role-model-topology)). If any *other* party - a recipient of a different leg in the same batch above all - could observe them, the invariant is broken; the enforcing structure is the per-authorizer [`TokenAllocation`](https://github.com/OpenZeppelin/canton-contracts/blob/7696749737885e25cd88422847105f890f03b00d/experiments/token/tokenCIP112-v1/daml/OpenZeppelin/TokenCIP112V1/Allocation.daml#L67).
   - The issuing admin's visibility is a stated trust assumption, not a violation: it signs the instrument's holdings and allocations, so it reads them by construction ([Privacy and Visibility Model](#privacy-and-visibility-model)). Hiding the memo from the issuer would require a spine that does not make the admin a signatory of the settled holding, which CIP-0112 does not offer and this RI does not attempt.
 - **Non-custodial recipient binding**:
   - No allocation binds a recipient without their signature `[EXPERIMENT]` supplied live, or through their standing `TransferPreapproval` `[EVIDENCE]` via a delegated choice that is `[FUTURE]`.
