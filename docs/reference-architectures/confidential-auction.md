@@ -345,14 +345,14 @@ sequenceDiagram
     participant Assets as Token registries
 
     Issuer->>App: Publish terms
-    Issuer->>App: Inventory parties authorize lock;<br/>inventory and receipt parties sign sale authority
+    Issuer->>App: Inventory parties authorize supply lock<br/>Inventory and receipt parties sign sale authority
     App->>Assets: Create offered supply lock
     App->>App: Record signed issuer sale authority
     App-->>Bidder: Open round and authenticated terms
     loop Each accepted bid
         Note over Bidder,Assets: One bid acceptance transaction
         Bidder->>App: Submit private bid
-        Bidder->>App: Payment parties authorize lock;<br/>payment and delivery parties sign accepted bid
+        Bidder->>App: Payment parties authorize payment lock<br/>Payment and delivery parties sign accepted bid
         App->>Assets: Create maximum payment lock
         App->>App: Record signed accepted bid
         App-->>Bidder: Confirm bid and recovery deadline
@@ -360,13 +360,11 @@ sequenceDiagram
     Auctioneer->>App: Close bidding
     Auctioneer->>Auctioneer: Calculate clearing result off-ledger
     Auctioneer->>App: Submit accepted bids and proposed result
-    rect rgba(120, 160, 120, 0.12)
-        Note over App,Assets: Atomic clear: all steps commit or all roll back
+    rect rgba(255, 255, 255, .1)
+        Note over App,Assets: Atomic clear. All steps commit or all roll back.
         App->>App: Revalidate bids, result,<br/>and signed authorities
-        loop Inside each signed winner bid
-            App->>Assets: Cancel payment lock; create bidder<br/>payment and token receipt allocations
-        end
-        App->>Assets: Inside signed issuer sale action:<br/>cancel supply lock and create matching allocations
+        App->>Assets: For each winner, inside the signed bid<br/>Cancel payment lock and create exact bidder allocations
+        App->>Assets: Inside the signed issuer sale authority<br/>Cancel supply lock and create exact issuer allocations
         App->>Assets: Settle every required batch
         Assets-->>App: Return final settlement results
         App->>App: Record aggregate result<br/>and private outcomes
