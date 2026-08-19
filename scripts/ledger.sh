@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 #
 # Shared live-ledger plumbing for the gates in `scripts/`. A gate sources this
-# file, calls `ledger_parse_args` and `ledger_init`, and then uses the functions
-# below to start a ledger, upload its DARs, and run its scenarios.
+# file, sets `LEDGER_MODE` (through `ledger_parse_args`, or directly when the gate
+# supports one backend), calls `ledger_init`, and then uses the functions below to
+# start a ledger, upload its DARs, and run its scenarios.
 #
 # Two backends serve the same interface:
 #
@@ -11,9 +12,9 @@
 #             pull-request gate. It authenticates nothing.
 #   localnet  Canton LocalNet
 #             (https://docs.canton.network/sdks-tools/development-tools/localnet),
-#             the Splice Docker Compose network. A gate selects it with
-#             `--localnet`. It runs a participant on a real synchronizer and it
-#             authenticates the Ledger API, so it is the backend that proves
+#             the Splice Docker Compose network. A gate with a choice selects it
+#             with `--localnet`. It runs a participant on a real synchronizer and
+#             it authenticates the Ledger API, so it is the backend that proves
 #             participant behavior: authorization, party rights, and package
 #             vetting.
 #
@@ -23,11 +24,12 @@
 # sandbox needs no grant, because it authenticates nothing, but it reports the
 # admin user `participant_admin` and the grant runs there too.
 #
-# LocalNet starts with the `sv` and `app-provider` profiles only: the gates need
-# a participant on a real synchronizer, and they use no Amulet or wallet
-# service. `ledger_start` mints the token of the participant's admin user
-# (`ledger-api-user`), which every gate passes to its Daml Script and off-ledger
-# clients.
+# LocalNet starts with the `sv` and `app-provider` profiles, which carry the whole
+# Splice stack: the SV app, Scan, the DSO with the Amulet packages, and the
+# app-provider validator with its wallet. The `app-user` profile stays off, so the
+# app-provider validator is the only non-SV validator. `ledger_start` mints the token of the
+# participant's admin user (`ledger-api-user`), which every gate passes to its
+# Daml Script and off-ledger clients.
 #
 # A LocalNet run needs a FRESH ledger, because the scenarios allocate stable
 # party ids and a participant vets one version of each package. `ledger_start`
@@ -63,12 +65,13 @@
 #   OZ_SPLICE_REPO           Splice repository to fetch the Compose files from
 #   OZ_LOCALNET_PROJECT      Docker Compose project name
 #   OZ_LOCALNET_PARTY_HINT   party hint of the LocalNet validator operator
+#   OZ_LOCALNET_TICK_DURATION  duration of a tick, which is half a mining round
 #   OZ_LEDGER_USER_ID        Ledger API user that the gate submits as (localnet)
 #   OZ_LEDGER_AUTH_SECRET    HS256 secret of the participant (localnet)
 #   OZ_LEDGER_AUTH_AUDIENCE  audience that the participant accepts (localnet)
 
-# Read the backend flag from a gate's command line. A gate calls this before
-# `ledger_init` and passes its own arguments through.
+# Read the backend flag from a gate's command line. A gate with a choice of
+# backend calls this before `ledger_init` and passes its own arguments through.
 ledger_parse_args() {
 	LEDGER_MODE="${OZ_LEDGER_MODE:-sandbox}"
 	local usage
@@ -102,7 +105,7 @@ ledger_parse_args() {
 # Set the label of the messages, the repository root, the log directory, and the
 # defaults of the selected backend.
 ledger_init() {
-	: "${LEDGER_MODE:?ledger_parse_args must run before ledger_init}"
+	: "${LEDGER_MODE:?LEDGER_MODE must be set before ledger_init}"
 	LEDGER_LABEL="${1:?label required}"
 	LEDGER_ROOT="${2:?repository root required}"
 	# One subdirectory per backend: the two backends write logs of the same name,
@@ -142,6 +145,8 @@ ledger_init() {
 	LOCALNET_SPLICE_REPO="${OZ_SPLICE_REPO:-https://github.com/canton-network/splice.git}"
 	LOCALNET_PROJECT="${OZ_LOCALNET_PROJECT:-oz-localnet-gate}"
 	LOCALNET_PARTY_HINT="${OZ_LOCALNET_PARTY_HINT:-ozspecs-interop-1}"
+	LOCALNET_TICK_DURATION="${OZ_LOCALNET_TICK_DURATION:-}"
+	LOCALNET_COMPOSE_OVERRIDES=()
 	LOCALNET_DIR=""
 	LEDGER_STARTED=0
 	LEDGER_SCRIPT_ARGS=()
@@ -151,6 +156,25 @@ ledger_init() {
 	mkdir -p "$LEDGER_LOG_DIR"
 	LEDGER_START_LOG="$LEDGER_LOG_DIR/start.log"
 	LEDGER_BUILD_LOG="$LEDGER_LOG_DIR/build.log"
+
+	if [ "$LEDGER_MODE" = localnet ] && [ -n "$LOCALNET_TICK_DURATION" ]; then
+		localnet_write_round_override
+	fi
+}
+
+# The `splice` service reads a fixed list of env files, so a shell variable of
+# this gate does not reach the SV app. Write the round settings into a Docker
+# Compose override instead, and let `localnet_compose` add it to the file list.
+localnet_write_round_override() {
+	local override="$LEDGER_LOG_DIR/localnet-round-override.yaml"
+	cat >"$override" <<-YAML
+		services:
+		  splice:
+		    environment:
+		      SPLICE_APP_SV_INITIAL_TICK_DURATION: "$LOCALNET_TICK_DURATION"
+		      SPLICE_APP_SV_ROUND_ZERO_DURATION: "$LOCALNET_TICK_DURATION"
+	YAML
+	LOCALNET_COMPOSE_OVERRIDES=(-f "$override")
 }
 
 ledger_log() {
@@ -393,6 +417,7 @@ localnet_compose() {
 			--env-file "$LOCALNET_DIR/env/common.env" \
 			-f "$LOCALNET_DIR/compose.yaml" \
 			-f "$LOCALNET_DIR/resource-constraints.yaml" \
+			${LOCALNET_COMPOSE_OVERRIDES[@]+"${LOCALNET_COMPOSE_OVERRIDES[@]}"} \
 			--profile sv \
 			--profile app-provider \
 			"$@"
@@ -466,7 +491,10 @@ ledger_stop() {
 }
 
 # The Authorization header of the JSON Ledger API calls. The sandbox
-# authenticates nothing, so the array stays empty there.
+# authenticates nothing, so the array stays empty there. Each expansion of an
+# array that can be empty uses `${name[@]+"${name[@]}"}`, because bash before
+# 4.4, which macOS ships, treats a plain empty-array expansion as unbound under
+# `set -u`.
 ledger_auth_header() {
 	LEDGER_AUTH_HEADER=()
 	if [ -n "$LEDGER_TOKEN" ]; then
@@ -479,7 +507,7 @@ ledger_wait_ready() {
 	local i=0
 	ledger_auth_header
 	while [ "$i" -lt 120 ]; do
-		if curl -sf "${LEDGER_AUTH_HEADER[@]}" \
+		if curl -sf ${LEDGER_AUTH_HEADER[@]+"${LEDGER_AUTH_HEADER[@]}"} \
 			"$LEDGER_JSON_API_URL/v2/state/ledger-end" >/dev/null 2>&1; then
 			ledger_log "the participant is ready (Ledger API $LEDGER_HOST:$LEDGER_PORT, JSON Ledger API $LEDGER_JSON_API_URL)"
 			return 0
@@ -498,7 +526,7 @@ ledger_upload_dar() {
 	ledger_auth_header
 	status="$(curl -s -o "$log" -w '%{http_code}' \
 		-X POST "$LEDGER_JSON_API_URL/v2/dars?vetAllPackages=true" \
-		"${LEDGER_AUTH_HEADER[@]}" \
+		${LEDGER_AUTH_HEADER[@]+"${LEDGER_AUTH_HEADER[@]}"} \
 		-H 'content-type: application/octet-stream' \
 		--data-binary "@$dar")"
 	case "$status" in

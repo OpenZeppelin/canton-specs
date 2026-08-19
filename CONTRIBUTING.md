@@ -58,31 +58,39 @@ The interoperability gates run real processes and ledger connections:
 ```sh
 scripts/cip-interop-validation.sh
 scripts/wallet-gateway-cip0103-interop.sh
-scripts/cip0104-rewards-walkthrough.sh
+scripts/localnet-cip0104-traffic-rewards.sh
 ```
 
-Every gate above takes one of two ledger backends through the shared
-[`scripts/ledger.sh`](scripts/ledger.sh). Without an argument a gate starts
-`dpm sandbox`, which needs no container images. With `--localnet` it starts
-[Canton LocalNet](https://docs.canton.network/sdks-tools/development-tools/localnet):
+Every gate above takes its ledger through the shared
+[`scripts/ledger.sh`](scripts/ledger.sh). A gate with a choice of backend starts
+`dpm sandbox` without an argument, which needs no container images. The same gate
+starts [Canton LocalNet](https://docs.canton.network/sdks-tools/development-tools/localnet)
+with `--localnet`:
 
 ```sh
 scripts/cip-interop-validation.sh --localnet
 ```
 
+A gate whose name starts with `localnet-` runs on LocalNet and takes no arguments.
+Name a new gate that way when its subject needs a service that a sandbox does not
+have; for example, the CIP-0104 traffic-rewards gate
+(`scripts/localnet-cip0104-traffic-rewards.sh`) needs the Amulet packages, Scan,
+and an SV.
+
 Each gate starts its ledger and removes it again. `scripts/ledger.sh` documents
 both backends, the Docker Compose profiles, the Ledger API authentication, the
 fresh-ledger requirement, and the environment overrides.
 
-The `ci` workflow runs the identity upgrade, CIP interoperability, and CIP-0104
-rewards gates against the sandbox on every pull request, so a pull request pays
-no container image pull. The Wallet Gateway gate fetches its npm package at run
-time, so it stays out of `ci` and runs on the schedule alone. The scheduled
-`live-ledger-gates` workflow runs every gate with `--localnet`, which is where
-authorization, party rights, and package vetting on a real synchronizer are
-validated. Run `--localnet` locally before you change a gate, a harness, or a
-participant assumption. The domain documentation of each gate describes its
-prerequisites, topology assumptions, and the evidence it produces.
+The `ci` workflow runs the identity upgrade and CIP interoperability gates
+against the sandbox on every pull request, so a pull request pays no container
+image pull. The Wallet Gateway gate fetches its npm package at run time, and the
+CIP-0104 traffic-rewards gate waits for mining rounds to close, so both stay out
+of `ci` and run on the schedule alone. The scheduled `live-ledger-gates` workflow
+runs every gate on LocalNet, which is where authorization, party rights, package
+vetting, and the Amulet reward path on a real synchronizer are validated. Run a
+gate on LocalNet locally before you change it, its harness, or a participant
+assumption. The domain documentation of each gate describes its prerequisites,
+topology assumptions, and the evidence it produces.
 
 ## Adding or changing an experiment
 

@@ -12,7 +12,8 @@
 #        ^ Ledger API gRPC ---------- dpm script (admin/app/receiver phases)
 #        ^ JSON Ledger API
 #        |
-#   Wallet Gateway (npx @canton-network/wallet-gateway-remote)
+#   Wallet Gateway (@canton-network/wallet-gateway-remote, installed from the
+#   lockfile of experiments/interoperability/wallet-gateway)
 #        ^ CIP-0103 dApp + user JSON-RPC on 3030
 #        |
 #   experiments/interoperability/wallet-gateway/harness.mjs (the dApp; wallet party is an
@@ -39,12 +40,12 @@
 # audience, and it gives the same participant's admin token to the `dpm script`
 # phases and to the harness's ledger-user provisioning.
 #
-# Requirements: DPM, Java 21+, `curl`, `lsof`, and Node.js 20+ with npx. The
+# Requirements: DPM, Java 21+, `curl`, `lsof`, and Node.js 20+ with npm. The
 # `--localnet` backend also needs Docker Compose v2, `git`, and `openssl`.
-# Env overrides: OZ_GATEWAY_PORT (3030), OZ_INTEROP_WORK_DIR, OZ_GATEWAY_PKG
-# (pin/override the gateway npm package spec), OZ_GATEWAY_NETWORK_ID,
-# OZ_GATEWAY_LEDGER_USER (the ledger user of the gateway session), and
-# OZ_DAPP_ORIGIN (the origin that the dApp declares to the gateway).
+# Env overrides: OZ_GATEWAY_PORT (3030), OZ_INTEROP_WORK_DIR,
+# OZ_GATEWAY_NETWORK_ID, OZ_GATEWAY_LEDGER_USER (the ledger user of the gateway
+# session), and OZ_DAPP_ORIGIN (the origin that the dApp declares to the
+# gateway).
 #
 # External-ledger mode (devnet/testnet): set OZ_USE_EXTERNAL_LEDGER=1 plus the
 # connection variables below in an env file OUTSIDE the repo (e.g.
@@ -82,7 +83,7 @@ ledger_parse_args "$@"
 ledger_init wallet-gateway-cip0103 "$ROOT" "$WORK_DIR"
 EXTERNAL="$LEDGER_EXTERNAL"
 
-ledger_require_command dpm lsof npx
+ledger_require_command dpm lsof npm
 ledger_require_java
 ledger_require_node
 ledger_require_tools
@@ -90,13 +91,21 @@ ledger_require_tools
 PKG_DIR="$ROOT/experiments/interoperability/cip-exemplar"
 DAR="$PKG_DIR/.daml/dist/openzeppelin-experimental-cip-interop-exemplar-0.1.0.dar"
 MODULE="OpenZeppelin.Experimental.Interop.WalletGateway"
-HARNESS="$ROOT/experiments/interoperability/wallet-gateway/harness.mjs"
+GATEWAY_DIR="$ROOT/experiments/interoperability/wallet-gateway"
+HARNESS="$GATEWAY_DIR/harness.mjs"
 
 GATEWAY_PORT="${OZ_GATEWAY_PORT:-3030}"
-# The gateway release under test. Version 1.6.0 no longer starts a session with
-# the current versions of its own dependency ranges: its `addSession` sends no
-# session origin, and `@canton-network/core-wallet-store-sql` 1.11 requires one.
-GATEWAY_PKG="${OZ_GATEWAY_PKG:-@canton-network/wallet-gateway-remote@1.8.1}"
+# The gateway release under test. Its version and the version of every package it
+# depends on come from the lockfile of $GATEWAY_DIR, so a run resolves no range
+# at the registry and npm checks each package against a recorded hash. Bump the
+# release by editing that package.json and refreshing the lockfile.
+#
+# Version 1.6.0 no longer starts a session with the current versions of its own
+# dependency ranges: its `addSession` sends no session origin, and
+# `@canton-network/core-wallet-store-sql` 1.11 requires one.
+GATEWAY_BIN="$GATEWAY_DIR/node_modules/.bin/wallet-gateway"
+GATEWAY_VERSION="$(node -p \
+  "require('$GATEWAY_DIR/package.json').dependencies['@canton-network/wallet-gateway-remote']")"
 
 # The self-signed credentials of the gateway's network entry. `auth` carries the
 # ledger user of the dApp session; `adminAuth` carries the user that allocates
@@ -183,6 +192,15 @@ build_exemplar() { (cd "$PKG_DIR" && dpm build); }
 
 ledger_build "the interop exemplar package" build_exemplar
 [ -f "$DAR" ] || { echo "ERROR: DAR not found at $DAR" >&2; exit 1; }
+
+# Install before the ledger starts: this step reaches the npm registry, and a
+# registry failure must not cost a ledger start.
+echo "== Installing the pinned Wallet Gateway ($GATEWAY_VERSION)"
+npm ci --prefix "$GATEWAY_DIR" --no-audit --no-fund \
+  >"$WORK_DIR/gateway-install.log" 2>&1 ||
+  { echo "ERROR: npm ci failed; see $WORK_DIR/gateway-install.log" >&2; exit 1; }
+[ -x "$GATEWAY_BIN" ] ||
+  { echo "ERROR: gateway binary not found at $GATEWAY_BIN" >&2; exit 1; }
 
 if [ "$EXTERNAL" = 1 ]; then
   echo "== External ledger mode: $LEDGER_HOST:$LEDGER_PORT (gRPC/TLS), $OZ_JSON_API_URL (JSON API)"
@@ -318,11 +336,11 @@ cat >"$WORK_DIR/gateway-config.json" <<EOF
 EOF
 fi
 
-echo "== Booting Wallet Gateway ($GATEWAY_PKG on port $GATEWAY_PORT)"
+echo "== Booting Wallet Gateway ($GATEWAY_VERSION on port $GATEWAY_PORT)"
 set -m
 (
   cd "$WORK_DIR"
-  npx -y "$GATEWAY_PKG" -c "$WORK_DIR/gateway-config.json" \
+  "$GATEWAY_BIN" -c "$WORK_DIR/gateway-config.json" \
     >"$WORK_DIR/gateway.log" 2>&1
 ) &
 GATEWAY_PID=$!
@@ -400,4 +418,4 @@ else
 fi
 
 echo
-echo "PASS: CIP-0103 interop against Wallet Gateway ($GATEWAY_PKG) on the $LEDGER_MODE ledger - all phases green"
+echo "PASS: CIP-0103 interop against Wallet Gateway ($GATEWAY_VERSION) on the $LEDGER_MODE ledger - all phases green"

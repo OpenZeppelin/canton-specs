@@ -59,6 +59,8 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: "24"
+          cache: npm
+          cache-dependency-path: experiments/interoperability/wallet-gateway/package-lock.json
 
       - name: Run Canton Wallet Gateway interoperability
         run: scripts/wallet-gateway-cip0103-interop.sh --localnet
@@ -81,7 +83,7 @@ jobs:
           if-no-files-found: warn
           retention-days: 30
 
-  cip0104-rewards:
+  cip0104-traffic-rewards:
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
@@ -95,18 +97,26 @@ jobs:
         with:
           node-version: "24"
 
-      - name: Run CIP-0104 rewards walkthrough interoperability
-        run: scripts/cip0104-rewards-walkthrough.sh --localnet
+      # This gate drives the Amulet reward path: it features the app-provider,
+      # votes the network onto traffic-based app rewards, settles as the featured
+      # app-provider, and waits for the mining round that pays for that traffic.
+      # A job timeout cancels the job and drops the evidence upload below, so the
+      # cap sits on the step instead. A run takes eight to ten minutes with the
+      # images pulled, and the waits of the harness sum to more than the job
+      # budget, so this is the limit that fires first.
+      - name: Run CIP-0104 traffic-based app rewards on LocalNet
+        timeout-minutes: 30
+        run: scripts/localnet-cip0104-traffic-rewards.sh
 
-      - name: Upload rewards walkthrough evidence
+      - name: Upload traffic-rewards evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: cip0104-rewards-walkthrough-evidence
+          name: cip0104-traffic-rewards-evidence
           # The minted Ledger API token stays out of the artifact.
           path: |
-            .cache/cip0104-rewards-walkthrough/
-            !.cache/cip0104-rewards-walkthrough/**/*.token
+            .cache/cip0104-traffic-rewards/
+            !.cache/cip0104-traffic-rewards/**/*.token
           if-no-files-found: warn
           retention-days: 30
 
@@ -120,8 +130,8 @@ jobs:
         uses: ./.github/actions/setup-daml
 
       # The ci workflow runs the same gate against the sandbox on every pull
-      # request. This run adds the participant behavior that only an
-      # authenticated ledger shows: party rights and package vetting.
+      # request. The run in this job adds the participant behavior that only
+      # an authenticated ledger shows: party rights and package vetting.
       - name: Run the identity SCU smoke test on LocalNet
         run: scripts/identity-hook-upgrade-smoke.sh --localnet
 
