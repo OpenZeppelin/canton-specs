@@ -18,7 +18,7 @@ The design adapts the [`OpenZeppelin/canton-stablecoin`](https://github.com/Open
 
 That atomicity comes from two complementary mechanisms. Funds flowing **into** the protocol (a collateral deposit, a repayment, a liquidation payment) arrive as committed allocations settled through [CIP-0112 - Canton Network Token Standard V2](https://github.com/canton-foundation/cips/blob/main/cip-0112/cip-0112.md) [atomic settlement](https://github.com/canton-foundation/cips/blob/main/cip-0112/cip-0112.md#416-committed-allocations-for-prefunded-trading-and-iterated-settlement): the **atomic delivery-versus-payment (DvP) batch**, with each leg's amount pinned on-ledger to a signed allocation side. Funds the protocol **releases** (minted stablecoin, returned or seized collateral) move by direct transfer under authority the vault choice already carries, coupled to the accounting update by Daml's native transaction atomicity.
 
-The bounded [settlement experiment](../../experiments/settlement/) demonstrates
+The bounded [settlement experiment](https://github.com/OpenZeppelin/canton-contracts/tree/7696749737885e25cd88422847105f890f03b00d/experiments/token/tokenCIP112-v1) demonstrates
 allocation-based atomic settlement, per-settlement attestations, and preset
 custodian lock-and-sweep behavior. The separate
 [identity experiment](../../experiments/identity/) demonstrates typed,
@@ -101,13 +101,13 @@ Evidence labels distinguish the source of each component:
 | Access Control `[LIBRARY]` | `openzeppelin-access-control-v1`: [`RoleGrant`](https://github.com/OpenZeppelin/canton-contracts/blob/cec416d6e3c2118551c761d5598c403ab27ee342/experiments/access/access-control-v1/daml/OpenZeppelin/AccessControlV1.daml#L58), [`RoleAdmin`](https://github.com/OpenZeppelin/canton-contracts/blob/cec416d6e3c2118551c761d5598c403ab27ee342/experiments/access/access-control-v1/daml/OpenZeppelin/AccessControlV1.daml#L116), [`DefaultAdminTransferOffer`](https://github.com/OpenZeppelin/canton-contracts/blob/cec416d6e3c2118551c761d5598c403ab27ee342/experiments/access/access-control-v1/daml/OpenZeppelin/AccessControlV1.daml#L237), [`requireRole`](https://github.com/OpenZeppelin/canton-contracts/blob/cec416d6e3c2118551c761d5598c403ab27ee342/experiments/access/access-control-v1/daml/OpenZeppelin/AccessControlV1.daml#L287) | Role-based permissioning for the vault admin, liquidators, oracle committee members, and pausers. |
 | Ownership Lifecycle `[LIBRARY]` | `openzeppelin-ownable-v1`: [`Ownership`](https://github.com/OpenZeppelin/canton-contracts/blob/cec416d6e3c2118551c761d5598c403ab27ee342/experiments/access/ownable-v1/daml/OpenZeppelin/OwnableV1.daml#L41), [`OwnershipOffer`](https://github.com/OpenZeppelin/canton-contracts/blob/cec416d6e3c2118551c761d5598c403ab27ee342/experiments/access/ownable-v1/daml/OpenZeppelin/OwnableV1.daml#L82) | Two-step handover of protocol administration between legal entities. |
 | Protocol Constraints `[LIBRARY]` | `openzeppelin-pausable-v1`: [`PauseState`](https://github.com/OpenZeppelin/canton-contracts/blob/cec416d6e3c2118551c761d5598c403ab27ee342/experiments/security/pausable-v1/daml/OpenZeppelin/PausableV1.daml#L47), [`whenNotPaused`](https://github.com/OpenZeppelin/canton-contracts/blob/cec416d6e3c2118551c761d5598c403ab27ee342/experiments/security/pausable-v1/daml/OpenZeppelin/PausableV1.daml#L77) | Emergency circuit breaker used by the target borrow and settlement flows. |
-| Settlement Spine `[EXPERIMENT]` | `OpenZeppelin.Experimental.Settlement.Cip112`: [`SettlementFactory`](../../experiments/settlement/cip-0112/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L137), [`AllocationRequest`](../../experiments/settlement/cip-0112/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L257), [`AllocationInstruction`](../../experiments/settlement/cip-0112/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L306), [`Allocation`](../../experiments/settlement/cip-0112/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L388), [`SettlementReceipt`](../../experiments/settlement/cip-0112/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L588), [`ToyHolding`](../../experiments/settlement/cip-0112/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L98), [`BurnerCapability`](../../experiments/settlement/cip-0112/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L75) | Demonstrates the allocation, attestation, and seizure mechanisms used by the target inbound asset flows. `ToyHolding` is a fixture, not the target asset implementation. |
+| Settlement Spine `[EXPERIMENT]` | `OpenZeppelin.TokenCIP112V1`: [`TokenRules`](https://github.com/OpenZeppelin/canton-contracts/blob/7696749737885e25cd88422847105f890f03b00d/experiments/token/tokenCIP112-v1/daml/OpenZeppelin/TokenCIP112V1/Registry.daml#L28), [`TokenAllocationRequest`](https://github.com/OpenZeppelin/canton-contracts/blob/7696749737885e25cd88422847105f890f03b00d/experiments/token/tokenCIP112-v1/daml/OpenZeppelin/TokenCIP112V1/AllocationRequest.daml#L18), [`AllocationFactory_Allocate`](https://github.com/OpenZeppelin/canton-contracts/blob/7696749737885e25cd88422847105f890f03b00d/experiments/token/tokenCIP112-v1/daml/OpenZeppelin/TokenCIP112V1/Registry.daml#L280), [`TokenAllocation`](https://github.com/OpenZeppelin/canton-contracts/blob/7696749737885e25cd88422847105f890f03b00d/experiments/token/tokenCIP112-v1/daml/OpenZeppelin/TokenCIP112V1/Allocation.daml#L67), [`TokenEventLog`](https://github.com/OpenZeppelin/canton-contracts/blob/7696749737885e25cd88422847105f890f03b00d/experiments/token/tokenCIP112-v1/daml/OpenZeppelin/TokenCIP112V1/Base.daml#L75), [`TokenHolding`](https://github.com/OpenZeppelin/canton-contracts/blob/7696749737885e25cd88422847105f890f03b00d/experiments/token/tokenCIP112-v1/daml/OpenZeppelin/TokenCIP112V1/Holding.daml#L17), [`BurnerCapability`](https://github.com/OpenZeppelin/canton-contracts/blob/7696749737885e25cd88422847105f890f03b00d/experiments/token/tokenCIP112-v1/daml/OpenZeppelin/TokenCIP112V1/Allocation.daml#L52) | Demonstrates the allocation, attestation, and seizure mechanisms used by the target inbound asset flows. |
 | Identity Verification `[EXPERIMENT]` | `ShapeB`: [`KycClaim`](../../experiments/identity/hook-shape-b/daml/OpenZeppelin/Experimental/Identity/ShapeB.daml#L43), [`TrustedIssuerRegistry`](../../experiments/identity/hook-shape-b/daml/OpenZeppelin/Experimental/Identity/ShapeB.daml#L74) | Demonstrates typed claim, trusted-issuer, subject, and expiry checks. This report specifies the target vault integration. |
 | Vault / CDP Core `[REFERENCE]` | [`OpenZeppelin/canton-stablecoin`](https://github.com/OpenZeppelin/canton-stablecoin): `Vault`, `VaultFactory`, `VaultParams`, `PriceOracle` | Provides the vault mechanics that inform this design. The target architecture uses simple interest and payment-proportional liquidation instead of the reference code's discrete compounding and whole-vault seizure ([section 3](#3-target-design)). |
 
 Token Standard V2 interfaces are the target asset and settlement interoperability
-boundary. The local settlement package uses narrow fixtures to test that design;
-those fixtures are not upstream Token Standard packages or conformance evidence.
+boundary; the `tokenCIP112-v1` package implements them directly against the
+upstream splice interface packages.
 
 ### Party and Role Model Topology
 
@@ -131,7 +131,7 @@ Canton decentralizes a party along three independent axes, and the design assign
 2. **validation** - how many independent validators must confirm the party's transactions (the `PartyToParticipant` confirmation threshold; a threshold above 1 defends against a malicious validator, at a latency and cost premium, and such a party can no longer submit Ledger API commands directly - it acts through externally signed submissions or through choices submitted by others);
 3. **authorization** - what the Daml signatory/controller topology requires regardless of hosting.
 
-For the roles that hold value-moving or supply-changing authority - the vault admin, the treasury, and the vault custody account - the design envisions the EVM equivalent of an **N-of-M multisig**: no single key may exercise the role's authority. The custody account inherits this protection through its joint authorization: its account parties are the (N-of-M) vault admin and the borrower, so moving collateral outside the vault's choices requires the borrower plus the admin quorum, while inside the vault's choices both authorities arrive by signatory inheritance, with no per-release ceremony. Canton offers two ways to implement the multisig; selecting one remains an open question ([section 6](#6-open-design-questions)):
+For the roles that hold value-moving or supply-changing authority - the vault admin, the treasury, and the vault custody account - the design envisions the EVM equivalent of an **N-of-M multisig**: no single key may exercise the role's authority. The custody account inherits this protection through its joint authorization: its account parties are the (N-of-M) vault admin and the borrower, so moving collateral outside the vault's choices requires the borrower plus the admin quorum, while inside the vault's choices both authorities arrive by signatory inheritance, with no per-release ceremony. Canton offers two ways to implement the multisig; selecting one remains an open question ([section 7](#7-open-design-questions)):
 
 - **On-ledger approval workflow** - the multisig is written in Daml ([Multiple Party Agreement](https://docs.canton.network/appdev/modules/m3-design-patterns#multiple-party-agreement)): approvers record approvals as contracts, and the final choice executes under the role party's inherited authority only once a threshold of approvals exists. Approvals are durable, named, and auditable on-ledger.
 - **External party with threshold signing keys** - the role party's transactions require signatures from N of M keys (`PartyToKeyMapping`), held by independent organizations. Invisible to the Daml code and a single ledger transaction per action, but the signing ceremony must complete within the prepared transaction's validity window, and the approval record stays off-ledger. The implementation could leverage something like the [Bitsafe decentralization-manager](https://github.com/DLC-link/decentralization-manager).
@@ -156,7 +156,7 @@ The **liquidator** set should contain several independently granted parties, eac
 
 A vault's health is its **collateral ratio**: `collateralRatio = (collateralAmount · price) / debtAmount`, priced by the `PriceOracle`. Borrowing and collateral withdrawal must keep the ratio at or above `VaultParams.minCollateralRatio`; falling below the (lower) `liquidationRatio` exposes the position to a margin call.
 
-**Interest accrual (simple, non-compounding).** `accrueDebt` computes `newDebt = oldDebt + principalAmount · stabilityFeeRate · elapsedYears`, where `elapsedYears` derives from `now - lastAccrualTime`. Accrual runs on every state-changing choice before the solvency check, and `lastAccrualTime` resets on each recreation. Because each increment is linear in the tracked `principalAmount`, never in the accumulated debt, splitting a period changes nothing: across windows `t₁` then `t₂` the debt grows to `P·(1 + r·(t₁+t₂))`, exactly simple interest, no matter how often accrual runs. This departs from the `OpenZeppelin/canton-stablecoin` evidence code, which compounds discretely (`newDebt = oldDebt · (1 + r·t)`, so the total depends on the interaction pattern); whether a compounding variant is also needed is an open question ([section 6](#6-open-design-questions)).
+**Interest accrual (simple, non-compounding).** `accrueDebt` computes `newDebt = oldDebt + principalAmount · stabilityFeeRate · elapsedYears`, where `elapsedYears` derives from `now - lastAccrualTime`. Accrual runs on every state-changing choice before the solvency check, and `lastAccrualTime` resets on each recreation. Because each increment is linear in the tracked `principalAmount`, never in the accumulated debt, splitting a period changes nothing: across windows `t₁` then `t₂` the debt grows to `P·(1 + r·(t₁+t₂))`, exactly simple interest, no matter how often accrual runs. This departs from the `OpenZeppelin/canton-stablecoin` evidence code, which compounds discretely (`newDebt = oldDebt · (1 + r·t)`, so the total depends on the interaction pattern); whether a compounding variant is also needed is an open question ([section 7](#7-open-design-questions)).
 
 **Liquidation arithmetic (payment-proportional).** Collateral seized is bound to the stablecoin the liquidator actually repays:
 
@@ -240,7 +240,7 @@ flowchart TD
     Vault -->|"abort<br/>if paused"| Pause
     Vault -->|"assert fresh,<br/>in-band price"| Oracle
     Liquidator -->|"stablecoin<br/>repayment in"| Settle
-    Vault ==>|"SettleBatchWithAttestation:<br/>burn principal, route fee"| Settle
+    Vault ==>|"SettleBatch:<br/>burn principal, route fee"| Settle
     Vault ==>|"release seized collateral<br/>(direct transfer,<br/>joint authority)"| Custody
     Custody -->|"to liquidator"| Liquidator
     Settle -.->|"archive + recreate<br/>debt -repaid,<br/>collateral -seized"| Vault
@@ -248,11 +248,11 @@ flowchart TD
 
 ### The Settlement-Spine Flow: Step by Step
 
-The settlement spine carries the protocol's **inbound** funds: collateral deposits, repayments, and liquidation payments arrive as committed allocations and settle through [`SettlementFactory_SettleBatchWithAttestation`](../../experiments/settlement/cip-0112/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L218), which is also where the D1 attestation is verified and consumed. Outbound value typically needs no settlement factory. The stablecoin mint and every collateral release (withdrawal, close, seizure) move by direct transfer under authority the vault choice already carries: the admin's issuer authority for the mint, and the vault's joint authority over its custody account for collateral. Daml's transaction atomicity couples each release to the accounting update, and the direct paths verify and consume D1 attestations inline, so no flow sits outside the compliance gate.
+The settlement spine carries the protocol's **inbound** funds: collateral deposits, repayments, and liquidation payments arrive as committed allocations and settle through [`SettlementFactory_SettleBatch`](https://github.com/OpenZeppelin/canton-contracts/blob/7696749737885e25cd88422847105f890f03b00d/experiments/token/tokenCIP112-v1/daml/OpenZeppelin/TokenCIP112V1/Registry.daml#L79), which is also where the D1 attestation is verified and consumed. Outbound value typically needs no settlement factory. The stablecoin mint and every collateral release (withdrawal, close, seizure) move by direct transfer under authority the vault choice already carries: the admin's issuer authority for the mint, and the vault's joint authority over its custody account for collateral. Daml's transaction atomicity couples each release to the accounting update, and the direct paths verify and consume D1 attestations inline, so no flow sits outside the compliance gate.
 
-1. **Vault origination and collateral deposit.** The borrower locks collateral into a committed [`Allocation`](../../experiments/settlement/cip-0112/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L388) (instruction-and-accept lifecycle) and presents their KYC claim to the vault factory. On successful verification the factory batch-settles the collateral **into the vault custody account** and instantiates the `Vault` with the verified `collateralAmount`. Subsequent top-ups use `Vault_DepositCollateral`; reductions use `Vault_WithdrawCollateral`, which releases collateral back to the borrower by direct transfer under the vault's joint authority. Both are solvency-checked and re-run the compliance check.
+1. **Vault origination and collateral deposit.** The borrower locks collateral into a committed [`TokenAllocation`](https://github.com/OpenZeppelin/canton-contracts/blob/7696749737885e25cd88422847105f890f03b00d/experiments/token/tokenCIP112-v1/daml/OpenZeppelin/TokenCIP112V1/Allocation.daml#L67) and presents their KYC claim to the vault factory. On successful verification the factory batch-settles the collateral **into the vault custody account** and instantiates the `Vault` with the verified `collateralAmount`. Subsequent top-ups use `Vault_DepositCollateral`; reductions use `Vault_WithdrawCollateral`, which releases collateral back to the borrower by direct transfer under the vault's joint authority. Both are solvency-checked and re-run the compliance check.
 2. **Borrow.** The borrower exercises `Vault_MintStablecoin`. The vault verifies and consumes the D1 attestation, fetches the live `KycClaim`, then runs a deterministic solvency check: requested plus existing debt must keep `collateralRatio` at or above `minCollateralRatio`, priced by a fresh `PriceOracle` reading. On success the choice mints the stablecoin directly to the borrower, under the vault's joint authority (the admin is the stablecoin issuer), in the same exercise that increments `debtAmount`.
-3. **Repay.** The borrower allocates stablecoin and exercises `Vault_BurnStablecoin`; the batch burns only the backing principal via the [`BurnerCapability`](../../experiments/settlement/cip-0112/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L75) and routes the accrued stability-fee portion to the treasury, reducing `debtAmount`. Collateral is released via `Vault_WithdrawCollateral` (a direct transfer under joint authority) as health allows, and `Vault_Close` winds the position down.
+3. **Repay.** The borrower allocates stablecoin and exercises `Vault_BurnStablecoin`; the batch burns only the backing principal via the [`BurnerCapability`](https://github.com/OpenZeppelin/canton-contracts/blob/7696749737885e25cd88422847105f890f03b00d/experiments/token/tokenCIP112-v1/daml/OpenZeppelin/TokenCIP112V1/Allocation.daml#L52) and routes the accrued stability-fee portion to the treasury, reducing `debtAmount`. Collateral is released via `Vault_WithdrawCollateral` (a direct transfer under joint authority) as health allows, and `Vault_Close` winds the position down.
 4. **Liquidation, after a margin call.** If the vault is below `liquidationRatio`, any designated liquidator may flag it (`Vault_FlagForLiquidation`), opening a deterministic grace period in which the borrower may cure. Only once the grace period has elapsed and the vault is still unhealthy does an authorized liquidator exercise `Vault_Liquidate_ViaSpine`, providing a committed stablecoin allocation. The batch atomically burns the liquidator's principal portion and routes the fee and bonus to the treasury; in the same transaction the choice releases the payment-proportional collateral from the custody account to the liquidator by direct transfer under the vault's joint authority, and the residual position is recreated in a new `Vault`.
 
 A batch settles **all-or-nothing**: if any leg fails, because an allocation was already archived or a backing holding was concurrently consumed, the entire batch fails. The protocol therefore keeps batches minimal (only the legs of one vault operation), validates that every referenced allocation is still active before submission, and relies on the allocation expiry so a failed batch never strands locked funds.
@@ -282,17 +282,109 @@ sequenceDiagram
     V->>V: read debtRepaid from liquidator's signed allocation
     V->>V: collateralToSeize = debtRepaid*(1+bonus)/price (capped)
     note over V,SF: begin atomic DvP
-    V->>SF: SettleBatchWithAttestation (liquidator's stablecoin)
+    V->>SF: SettleBatch (liquidator's stablecoin)
     activate SF
     SF->>SF: burn principal portion (BurnerCapability)
     SF->>T: route stability fee + liquidation bonus
-    SF-->>V: SettlementReceipt
+    SF-->>V: settlement events (TokenEventLog)
     deactivate SF
     V->>L: release collateralToSeize (direct transfer, joint authority)
     V->>V: archive old Vault, create new (debt-repaid, collateral-seized)
     V-->>L: (newVaultCid, receiptCid)
     deactivate V
 ```
+
+### Execution Model
+
+In an EVM lending pool every action is one synchronous transaction against
+shared state. The Canton flows decompose into a sequence of ledger commands,
+but almost every flow here is **single-driver**: one party submits each of
+its steps back-to-back, the counterparty authorities (the vault admin's, the
+instrument admin's) are carried by contract signatories rather than requested
+live, and the only cross-party dependency on the critical path is the
+automated attester. A client that submits and waits per command therefore
+experiences each flow as a synchronous sequence completing in seconds.
+Outbound flows (borrow, withdraw, close) are single atomic exercises under
+authority the vault choice already carries; inbound flows (deposits,
+repayments, liquidation payments) add a locking step before their settle.
+
+Step-by-step execution, per flow:
+
+| Flow | Step | Submitter | Interaction |
+|---|---|---|---|
+| Deposit / origination | 1. lock the collateral for settlement | borrower wallet | sync: borrower alone |
+| Deposit / origination | 2. settle the collateral into the vault's custody account, creating or updating the vault | borrower | sync: borrower drives; automated attestation |
+| Borrow | mint the stablecoin against the vault's collateral | borrower | sync: borrower alone; keyed oracle read, automated attestation |
+| Repay | 1. lock the repayment stablecoin | borrower wallet | sync: borrower alone |
+| Repay | 2. settle the repayment: burn the principal, route the fee | borrower | sync: borrower drives; automated attestation |
+| Withdraw / close | release collateral back to the borrower | borrower | sync: borrower alone; direct transfer, no spine |
+| Liquidation | 1. flag the vault (the margin call) | liquidator keeper | sync: keeper alone; opens the grace period |
+| Liquidation | 2. lock the stablecoin that repays the debt | liquidator keeper | sync: keeper alone, once the grace period lapses uncured |
+| Liquidation | 3. seize collateral and settle the debt | liquidator keeper | sync: keeper drives; automated attestation |
+| Oracle publish | propose, approve, and publish a price | vault admin and committee | async: a multi-party ceremony, N approvals on the committee's cadence |
+
+Three things still make asynchronous machinery necessary:
+
+- Custody-held keys turn any synchronous step asynchronous: a signature that
+  routes through an external custodian's approval flow comes back as a
+  prepared transaction, bounded by the 24h window
+  ([the time model below](#time-model-and-deadlines)).
+- The oracle publish is a genuine multi-party ceremony on its own cadence,
+  and price-dependent choices that lose the race against a publish retry
+  against the fresh price, resolved by key without client-side rewiring.
+- Between a lock and its settle there is real locked state, so crash recovery
+  still matters: command deduplication (24h) makes re-submitting a mint or a
+  settle safe, and every lock is time-bounded with a unilateral exit
+  ([section 5.4](#54-failure-modes-and-recovery)).
+
+A stalled flow blocks nothing else on the ledger: the vault is only touched
+by each flow's final atomic exercise, so operations against the same vault
+serialize there while different vaults run in parallel
+([section 5.5](#55-throughput-and-contention)).
+
+**Progress tracking.** The borrower client and the keeper still track each
+flow by command id: a step that neither commits nor rejects times out against
+its deadline and marks the workflow stuck, raising an alert with the pending
+step and the deadline after which funds unlock.
+[Section 5.4](#54-failure-modes-and-recovery) enumerates the stuck states and
+their exits.
+
+### Time Model and Deadlines
+
+Canton features that the protocol must take into consideration:
+
+- Ledger time is accurate only to `ledgerTimeRecordTimeTolerance` (60s
+  default). Every deadline check is fuzzy by that much; sub-minute deadlines
+  are meaningless.
+- Externally signed (prepared) transactions must be submitted within
+  `preparationTimeRecordTimeTolerance`, 24h by default. Any leg signed by an
+  external party must complete prepare, sign, submit within 24h. CIP-0107
+  exposes the same window through the token-standard APIs.
+- CIP-0112 defines the deadline fields and their semantics but no values:
+  `settlementDeadline` (an allocation must not settle after it; committed
+  allocations become withdrawable after it) and a registry-set `expiresAt`
+  for hygiene expiry. Enforcement lives in each token registry's
+  implementation, so with third-party compliant tokens the expiry policy is
+  per registry (Amulet caps allocation lifetimes at 90 days).
+
+Deadlines are derived per flow, not picked globally:
+
+```text
+slowest required actor's SLA <= settlementDeadline
+  <= min(operation staleness tolerance, capital-lock tolerance, 24h if any external signer)
+```
+
+| Flow | Slowest actor | `settlementDeadline` | Rationale |
+|---|---|---|---|
+| Collateral deposit / repayment | the borrower end to end: allocate, then settle, back-to-back | minutes; extend toward the 24h prepared-transaction ceiling only when the borrower signs through an external custodian | both steps carry only the borrower's authority, so a live wallet completes them in one session; not price-sensitive, and solvency and compliance are re-checked at settle time |
+| Liquidation | automated keeper plus attester | minutes | price-sensitive; a longer deadline extends the flagged state and the protocol's exposure to further price moves |
+| Oracle publish | committee approvals, automated | minutes | the staleness guard rejects slow publishes and the circuit breaker trips on gaps |
+
+Consequence for D1: attestation is automated, issued just-in-time with a
+short validity window, and `settlementDeadline` must exceed the attester's
+SLA. The margin-call grace window ([section 3](#margin-call-a-grace-period-before-liquidation))
+is measured in ledger time, so it must exceed the 60s tolerance by a wide
+margin.
 
 ### Collateral is Custodied, Not Minted
 
@@ -321,7 +413,7 @@ On a public chain, a collateral top-up racing a liquidation is decided by gas an
 
 ### Compliance is Re-checked on Every Operation
 
-The KYC gate at vault opening is necessary but not sufficient: a borrower can lose good standing after opening. Two distinct layers keep a position compliant. For D3 identity, each value-moving vault choice fetches the borrower's live `KycClaim` and re-checks it: the claim must be unexpired and its issuer still listed in the `TrustedIssuerRegistry`. Revocation is the issuer archiving the claim or being delisted from the registry; either blocks new borrows, top-ups, and withdrawals immediately. For D1 compliance, each flow consumes one single-use attestation: inbound settlements consume it in `SettleBatchWithAttestation`, fail-closed, with no caching, covering any release in the same transaction, and the pure-direct flows (mint, withdrawal) consume it inline, so every flow sits behind the same gate.
+The KYC gate at vault opening is necessary but not sufficient: a borrower can lose good standing after opening. Two distinct layers keep a position compliant. For D3 identity, each value-moving vault choice fetches the borrower's live `KycClaim` and re-checks it: the claim must be unexpired and its issuer still listed in the `TrustedIssuerRegistry`. Revocation is the issuer archiving the claim or being delisted from the registry; either blocks new borrows, top-ups, and withdrawals immediately. For D1 compliance, each flow consumes one single-use attestation: inbound settlements consume it in `SettleBatch`, fail-closed, with no caching, covering any release in the same transaction, and the pure-direct flows (mint, withdrawal) consume it inline, so every flow sits behind the same gate.
 
 Deliberately, the borrower's continued compliance is **not** a precondition for winding the position down: on repay and close the borrower is reducing risk, so those settlements do not gate on the borrower's D1 standing (the attestation covers the settlement, not the repaying borrower's status), and on the liquidation legs it is the liquidator's compliance that is checked. A now-non-compliant position can always be repaid or liquidated, never trapped, and never dependent on an attester's willingness to re-attest the borrower.
 
@@ -339,10 +431,10 @@ A single trusted price feed plus a single liquidator would be the largest live a
 The target architecture checks compliance per settlement and fails closed: no
 valid attestation means no value movement. The bounded settlement experiment
 demonstrates this mechanism through
-[`SettlementFactory_SettleBatchWithAttestation`](../../experiments/settlement/cip-0112/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L218),
+[`SettlementFactory_SettleBatch`](https://github.com/OpenZeppelin/canton-contracts/blob/7696749737885e25cd88422847105f890f03b00d/experiments/token/tokenCIP112-v1/daml/OpenZeppelin/TokenCIP112V1/Registry.daml#L79),
 which requires an attestation for the specific settlement from an attester in
 the
-[`TrustedAttesterRegistry`](../../experiments/settlement/cip-0112/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L665).
+[`TrustedAttesterRegistry`](https://github.com/OpenZeppelin/canton-contracts/blob/7696749737885e25cd88422847105f890f03b00d/experiments/token/tokenCIP112-v1/daml/OpenZeppelin/TokenCIP112V1/D1.daml#L22).
 The registry shares the factory's admin, preventing callers from substituting
 their own trust root, and attestations are consumed so the same contract cannot
 authorize multiple settlements. This evidence covers the settlement gate, not a
@@ -352,9 +444,9 @@ complete institutional compliance service.
 
 The target architecture uses a strict **lock-and-sweep** policy for authorized
 seizure. The settlement experiment demonstrates the in-flight allocation path:
-[`Allocation_MarkD2InFlightSeizure`](../../experiments/settlement/cip-0112/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L502)
+[`TokenAllocation_MarkD2Seizure`](https://github.com/OpenZeppelin/canton-contracts/blob/7696749737885e25cd88422847105f890f03b00d/experiments/token/tokenCIP112-v1/daml/OpenZeppelin/TokenCIP112V1/Allocation.daml#L158)
 marks the locked funds, and
-[`Allocation_SweepD2InFlightSeizure`](../../experiments/settlement/cip-0112/daml/OpenZeppelin/Experimental/Settlement/Cip112.daml#L532)
+[`TokenAllocation_SweepD2Seizure`](https://github.com/OpenZeppelin/canton-contracts/blob/7696749737885e25cd88422847105f890f03b00d/experiments/token/tokenCIP112-v1/daml/OpenZeppelin/TokenCIP112V1/Allocation.daml#L207)
 routes them to the preset custodian account. Seized assets are neither burned nor
 returned to the sender; ordinary transfer failures return funds to the sender.
 Applying the same policy to locked vault collateral is part of the target lending
@@ -416,9 +508,9 @@ The `Vault` holds one borrower's CDP state. The state-update logic lives **here*
 ```daml
 module OpenZeppelin.Experimental.Lending.Vault where
 
-import OpenZeppelin.Experimental.Settlement.Cip112
-import OpenZeppelin.Experimental.TokenStandardFixture.V2.Holding (InstrumentId)
-import OpenZeppelin.Experimental.TokenStandardFixture.V2.Allocation (SettlementInfo, TransferLeg)
+import OpenZeppelin.TokenCIP112V1
+import Splice.Api.Token.HoldingV2 (InstrumentId)
+import Splice.Api.Token.AllocationV2 (SettlementInfo, TransferLeg)
 import OpenZeppelin.PausableV1 (PauseState, whenNotPaused)
 
 -- | One borrower's CDP. Amounts are `Decimal` accounting figures; the collateral
@@ -466,7 +558,7 @@ template Vault
 
     -- Phase 2, liquidation: only after the grace period, and only proportional
     -- to what the liquidator pays.
-    choice Vault_Liquidate_ViaSpine : (ContractId Vault, ContractId SettlementReceipt)
+    choice Vault_Liquidate_ViaSpine : (ContractId Vault, ContractId TokenEventLog)
       with
         liquidator : Party
         settlementFactoryId : ContractId SettlementFactory
@@ -504,7 +596,7 @@ template Vault
 
         -- Inbound leg over the spine: burn the principal portion and route
         -- fee + bonus to the treasury, D1-attested, all-or-nothing.
-        receipts <- exercise settlementFactoryId SettlementFactory_SettleBatchWithAttestation with
+        receipts <- exercise settlementFactoryId SettlementFactory_SettleBatch with
           settlement; transferLegs
           allocationCids = [debtAllocationId]
           actors = [liquidator]
@@ -657,7 +749,7 @@ evidence for:
 Each evidence claim should identify the exact package versions, topology,
 participant configuration, and upstream DAR identities used in the test.
 
-### 5.3 Threat Model and Failure Modes
+### 5.3 Threat Model
 
 | Vector | Attack | Mitigation |
 |---|---|---|
@@ -666,19 +758,168 @@ participant configuration, and upstream DAR identities used in the test.
 | Under-paying liquidator | The liquidator supplies a tiny stablecoin amount and seizes the whole vault. | Seizure is bound on-ledger to the liquidator's signed payment: `collateralToSeize = min(collateralAmount, debtRepaid · (1 + bonus) / price)` with `debtRepaid` read from the liquidator's own allocation; the choice itself computes and releases exactly that amount of collateral. A small payment seizes only a small, proportional slice. |
 | Liquidation front-running the borrower | A liquidation lands before the borrower can top up. | The two-phase margin call: flagging opens a `gracePeriod` the borrower owns for curing, and liquidation asserts the period has elapsed, so it cannot pre-empt the cure window. |
 | Settlement-leg failure | An under-funded or stale batch attempts a broken liquidation. | Daml atomicity: the whole transaction reverts, collateral stays in the custody account, no debt is cleared. Liquidations are partial and proportional, so a well-formed smaller batch simply liquidates less. |
-| Bad debt on a deeply under-water position | Collateral is worth less than debt, creating a protocol-level shortfall. | The shortfall is recognized and quantified as `badDebt`; the insurance fund capitalized from routed fees is its first absorber, with the exhaustion path an open design question ([section 6](#6-open-design-questions)). |
+| Bad debt on a deeply under-water position | Collateral is worth less than debt, creating a protocol-level shortfall. | The shortfall is recognized and quantified as `badDebt`; the insurance fund capitalized from routed fees is its first absorber, with the exhaustion path an open design question ([section 7](#7-open-design-questions)). |
 | Compliance evasion (D1), including post-open drift | A borrower bypasses KYC, or becomes non-compliant after opening. | The `KycClaim` is validated at open and fetched live by each vault choice (unexpired, issuer still in the `TrustedIssuerRegistry`), and the D1 attestation is re-checked per settlement, fail-closed, with no caching. A revoked or expired claim blocks new borrows, top-ups, and withdrawals immediately, while repay, close, and liquidation stay open so a position is never trapped. |
 | Unauthorized admin action | An attacker with the admin key tries to mint unbacked stablecoin, drain custodied collateral, or invoke a D2 seizure. | Minting is reachable only through the solvency-coupled vault choice; custody holdings carry the borrower's signature too, so the admin alone cannot move them outside a vault choice; seizure requires the `BurnerCapability` and sweeps only to the preset custodian account. These authorities are unforgeable contract instances under Daml's authorization model. |
-| Forced upgrades breaking in-flight allocations (SCU) | A poorly executed upgrade mutates fields, rendering existing `Allocation` contracts un-settleable. | Programmatic adherence to the SCU rule (Optional appends and new choices only). The `Vault` template's existing choices stay operable; in-flight settlements conclude before users transition. |
+| Forced upgrades breaking in-flight allocations (SCU) | A poorly executed upgrade mutates fields, rendering existing `TokenAllocation` contracts un-settleable. | Programmatic adherence to the SCU rule (Optional appends and new choices only). The `Vault` template's existing choices stay operable; in-flight settlements conclude before users transition. |
 | DAR unvetting on a stakeholder's validator | A party (malicious or misconfigured) unvets the protocol DAR on their validator, so transactions on contracts they are a stakeholder of can no longer be confirmed: a D2 sweep of their funds fails, and co-signed flows they participate in stall. | Signatories and observers alike must have the same DAR version vetted for a transaction to succeed, and the freeze cuts both ways: the unvetting party cannot move the asset either, so the contract stays frozen rather than extractable, and re-vetting restores operation. Liveness-critical sets (oracle committee, liquidators) are N-of-M and multi-member precisely so one unvetted participant cannot stall the protocol. A borrower who unvets freezes their own custody account: seizure is blocked, but so is every withdrawal, and the debt keeps accruing until they re-vet. |
 
-### 5.4 Throughput and Contention
+### 5.4 Failure Modes and Recovery
+
+The adversarial vectors above are complemented by liveness failures: parties
+that crash, stall, or never show up, and the infrastructure they depend on.
+The design handles them under one invariant:
+
+**Bounded custody.** Every locked holding has a unilateral, time-bounded exit
+path for its owner: an in-flight allocation becomes withdrawable after
+`settlementDeadline`, and collateral in the custody account stays reachable
+through the borrower-driven withdraw and close paths whenever the vault is
+healthy. The sole exception is an active D2 seizure with an explicit, finite
+seizure window end and lawful-process reference.
+
+| Failure | Effect while pending | Recovery path | Funds locked at most |
+|---|---|---|---|
+| Borrower never completes the allocation | request dangles, nothing locked | allocation expiry; nothing to recover | nothing locked |
+| Attester never attests, or attestation expires | settle blocked (fail closed) | re-request within the window; else deadline lapse and withdraw | `settlementDeadline` |
+| Oracle goes stale | borrows and liquidations blocked by the staleness guard | committee publishes; the breaker resets | nothing locked; positions frozen |
+| Liquidator never follows up a flag | vault stays flagged through the grace period | the borrower cures, or any other designated liquidator completes | nothing locked |
+| Pause during the margin-call window | liquidation blocked | unpause; the interaction is an open question ([section 7](#7-open-design-questions)) | nothing locked |
+| Protocol validator out of traffic | oracle publishes stall; the staleness guard then blocks borrows and liquidations | traffic top-up and monitoring ([section 6](#6-network-economics-traffic-costs-and-app-rewards)) | nothing locked |
+| Synchronizer outage | ledger halted: no one can settle, and no one can withdraw | service resumes; if `settlementDeadline` lapsed during the outage the allocation is withdraw-only | outage duration + `settlementDeadline` |
+| D2 marked, never swept | settle, withdraw, and cancel all blocked | admin unmark; lawful-process sweep bounded by the seizure window | seizure window end |
+
+Each row becomes a Daml Script test in the RI test suite.
+
+Bounded custody caps the loss, not the inconvenience: a borrower whose
+counterparties stall still waits out `settlementDeadline`, and a stale oracle
+freezes the book for everyone. Chronic staleness or slow settlement is an
+operational and competitive problem for the protocol before it is a safety
+problem for its users.
+
+### 5.5 Throughput and Contention
 
 Every vault operation archives and recreates that borrower's `Vault` contract, so operations against the *same* vault serialize; operations on different vaults run in parallel, which fits the one-position-per-contract model far better than a pooled design. The shared hot contract is the `PriceOracle`: each publish archives and recreates it, so a price update contends with in-flight price-dependent choices that fetched the prior version, and those retry against the new price. Since vaults resolve the oracle by key, a retry picks up the fresh contract without client-side rewiring.
 
 ---
 
-## 6. Open Design Questions
+## 6. Network Economics: Traffic Costs and App Rewards
+
+Canton meters every ledger transaction as synchronizer traffic and pays apps
+back through Splice rewards.
+
+### 6.1 Traffic costs
+
+Traffic beyond a small free base rate is bought in Canton Coin and burned by
+the submitting participant's validator. Cost is proportional to serialized
+view bytes with read amplification per recipient
+(`writeCost * (1 + recipients * readFactor / 10^4)`, summed per envelope). The
+price is calibrated so a standard Canton Coin transfer burns about 1 USD
+([CIP-0042](https://github.com/canton-foundation/cips/blob/main/cip-0042/cip-0042.pdf));
+the current 60 USD/MB is set by the Tokenomics Committee under the authority
+delegated by [CIP-0084](https://github.com/canton-foundation/cips/blob/main/cip-0084/cip-0084.md).
+
+Implications:
+
+- The flows price very differently. A borrow is one exercise
+  (`Vault_MintStablecoin`), the cheapest flow in the design. A deposit or
+  repayment rides the allocation lifecycle plus a settle. A liquidation is
+  the heaviest single transaction: `Vault_Liquidate_ViaSpine` touches the
+  pause state, the oracle, the liquidator's allocation, the settlement batch
+  with its burn and fee legs, the custody release, and the vault recreation,
+  with an informee set spanning both vault parties, the liquidator set, the
+  treasury, the oracle committee, and the regulatory observers.
+- The dominant recurring cost is not a vault flow at all: the push-model
+  oracle publish is N + 2 transactions per update (proposal, N approvals,
+  publish) on a continuous cadence, paid by the vault admin and the
+  committee. The unfunded cadence is already an open question
+  ([section 7](#7-open-design-questions)); app rewards do not close it,
+  because the admin's credit on its own publishes rebates its own burn
+  ([section 6.2](#62-app-rewards)).
+- Interest accrual is free: `accrueDebt` runs inside every state-changing
+  choice, so no standalone accrual transaction exists.
+- Failed transactions burn traffic too and earn no rewards: CIP-0104 credits
+  only successful confirmation requests ([section 6.2](#62-app-rewards)).
+  Price-dependent choices that lose the race against an oracle publish retry
+  against the new price and pay twice. The one-vault-operation-per-batch
+  policy ([section 3](#3-target-design)) gives up batching amortization to
+  keep those failures isolated, and the periodic custody consolidation exists
+  precisely to keep the settle legs cheap.
+- Operations: validator auto-top-up is off by default, and the validator's
+  reserved-traffic floor protects its own automation, not this app. Running
+  the protocol requires configured top-up plus balance monitoring.
+
+### 6.2 App rewards
+
+Since CIP-0078 only featured apps earn rewards. The natural holder of the
+`FeaturedAppRight` (granted jointly by the super validators, on application
+to the Global Synchronizer Foundation) is the vault admin and stablecoin
+issuer: it signs every `Vault`, the oracle, and the pause state, and it
+administers the settlement factory. The report already notes that a
+value-critical N-of-M party cannot submit Ledger API commands directly
+([section 2](#decentralization-and-trust-topology)); reward collection is
+unaffected, landing on the wallet automation of the provider's validator.
+
+Rewards are traffic-based
+([CIP-0104](https://github.com/canton-foundation/cips/blob/main/cip-0104/cip-0104.md), rolling out on MainNet in increments since April 2026).
+Super-validator automation
+measures activity directly from sequencer and mediator data, and the app
+creates nothing on-ledger to earn. The pipeline runs entirely off the
+application path, in three steps:
+
+1. **Earn** (per transaction, automatic). The traffic cost of every successful
+   confirmation request is credited to its **app confirmers**: parties holding
+   an active `FeaturedAppRight` at round start that confirm the request's
+   views, i.e. sign created contracts or sign/act on exercised ones. Contract
+   and choice observers earn nothing. Each envelope's cost splits equally
+   among its app confirmers.
+2. **Issue** (per round, by the DSO). Super-validator automation agrees on
+   each party's minting allowance: its traffic credit priced in CC, scaled by
+   the issuance curve's `appRewardPercentage` tranche, diluted pro rata when
+   oversubscribed. Exactly one DSO-created `AppRewardCoupon` per party
+   carries the allowance (the app itself never creates coupons); allowances
+   below `appRewardCouponThreshold` (`AmuletConfig`, default 0.50 USD) are
+   burned.
+3. **Collect** (within 24h, by the provider's wallet). The provider mints CC
+   against the coupon within `appRewardCouponLifetime` (`AmuletConfig`,
+   default 24h from creation); coupons from several rounds can batch into one
+   mint. Collection is validator wallet automation. Reward sharing with the treasury or the oracle committee happens here:
+   the provider accounts for the split itself off Scan's activity records,
+   then names beneficiaries and CC amounts out of its allowance (CIP-0073
+   minting delegations). Per-transaction beneficiary attribution is not
+   supported.
+
+Applying the earn rule to the lending flows
+([section 3](#the-settlement-spine-flow-step-by-step)):
+
+| Transaction | Who pays traffic | Confirms, so earns (if featured) |
+| --- | --- | --- |
+| Collateral allocation | borrower | the collateral instrument's admin (signs the holding and allocation) |
+| Origination or deposit settle | borrower | vault admin (signs the `Vault` and the factory-side legs) |
+| `Vault_MintStablecoin` | borrower | vault admin (signs the successor `Vault` and the minted holding) |
+| `Vault_BurnStablecoin` | borrower | vault admin (successor `Vault`, burn leg); the treasury's account parties on the fee leg |
+| `Vault_FlagForLiquidation` | liquidator | vault admin (signs the successor `Vault`) |
+| Debt allocation | liquidator | vault admin, as the stablecoin's issuing admin (signs the holding and allocation) |
+| `Vault_Liquidate_ViaSpine` | liquidator | vault admin, confirming the vault, the custody release, and the burn leg |
+| Oracle publish (N + 2 transactions) | vault admin and committee | vault admin and the approvers; a rebate on the protocol's own spend, not funding |
+
+The borrower pays for most flows and, unfeatured, earns nothing; the vault
+admin earns on transactions other parties pay for and rebates part of its own
+oracle spend. The protocol's own traffic purchases also mint
+`ValidatorRewardCoupon`s to its validator operator, a further rebate on the
+traffic bill.
+
+Rewards partially offset the traffic bill: the credit is an issuance-scaled
+fraction of each transaction's own burn, so the stability fee and liquidation
+bonus ([section 3](#fees-are-routed-not-burned)), not rewards, carry the
+business model; rewards are a rebate.
+
+A precise calculation of the application rewards and traffic cost, under
+CIP-0104 accounting, is deferred to M2, to be done once the implementation and
+testing/simulations against the DevNet are available.
+
+---
+
+## 7. Open Design Questions
 
 The following choices remain open for an application adopting this architecture:
 
@@ -686,6 +927,7 @@ The following choices remain open for an application adopting this architecture:
 - **Bad-debt disposition beyond the insurance fund.** The insurance fund is the first absorber of recognized `badDebt` ([section 3](#3-target-design)). Still open: what happens when the fund is exhausted (a socialized-loss path across outstanding positions, an admin write-off, or a capital top-up obligation), and how the fund's fee slice is sized against expected loss.
 - **Interest-accrual method.** Accrual is simple interest off the tracked principal ([section 3](#3-target-design)). Decide whether a discretely- or continuously-compounding variant is also needed, and fix explicit rounding bounds so accrual is reproducible and formally checkable.
 - **Partial-liquidation parameters and keeper sizing.** Open: the concrete `closeFactor` value, whether the `liquidationBonus` is enough to attract keepers for small slices, and whether a minimum liquidation size is needed to avoid dust liquidations.
+- **Guaranteed liquidatability ahead of bad debt.** A position only stays solvent for the protocol if it can be liquidated before its collateral value falls under its debt, and several design choices work against that: the buffer between `minCollateralRatio` and `liquidationRatio` plus the margin-call grace period define how much adverse price movement a position must survive before a keeper may act, partial liquidation repays at most a slice per pass so a crashing position needs several rounds, the staleness guard and circuit breaker block liquidation exactly when prices move fastest, and the `liquidationBonus` net of traffic costs ([section 6](#6-network-economics-traffic-costs-and-app-rewards)) puts a floor under the vault size a keeper will touch. Open: how to size the ratio buffer and grace window against the collateral's volatility, whether per-vault or aggregate debt ceilings are needed, whether the breaker should keep liquidation open on a stale-but-bounded price (or freeze borrows before it freezes liquidations), and what stress evidence shows expected bad debt staying within the insurance fund's capacity.
 - **Pause interaction with the margin-call window.** Liquidation and cure deposits are both pause-gated, but the grace clock keeps ticking while paused: a pause spanning the window leaves the borrower no usable cure period and the vault liquidatable the moment the pause lifts. Open: whether the grace deadline should extend by the paused duration, at the cost of tracking pause intervals on-ledger.
 - **Oracle delivery model: push vs request-driven.** The design assumes a push model (Chainlink price-feed style): the committee publishes on its own cadence and consumers `fetchByKey` the latest in-band price, gated by the staleness assert. The alternative is request-driven (Chainlink VRF / Pyth-pull style): a vault operation first creates a price request, the committee responds with a fresh attestation, and the action executes against that response in a follow-up transaction. Open: which model the committee operates. Push makes every vault choice single-transaction but forces the committee to publish continuously (and fund it, see update economics below); request-driven prices only on demand and always fresh, but splits borrow and liquidation into two round-trips, adds a liveness dependency on committee response time inside the margin-call window, and needs replay scoping so one response cannot serve two actions.
 - **Oracle hardening beyond the committee and breaker.** Whether to also require a TWAP (and its window) and/or multiple independent feeds, and where the bounds live (`VaultParams` vs a separate oracle-policy contract).

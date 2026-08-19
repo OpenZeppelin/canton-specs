@@ -1,0 +1,10 @@
+{
+  "name": "openzeppelin-canton-specs-wallet-gateway-interop",
+  "version": "0.0.1",
+  "private": true,
+  "description": "Pins the Canton Wallet Gateway release that the CIP-0103 interoperability gate runs against.",
+  "license": "MIT",
+  "dependencies": {
+    "@canton-network/wallet-gateway-remote": "1.8.1"
+  }
+}

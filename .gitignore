@@ -26,4 +26,7 @@ CLAUDE.local.md
 # Daml build state
 .daml/
 .cache/
-.cache/identity-hook-upgrade-sandbox/
+
+# Node build state. The gate installs the pinned Wallet Gateway from the
+# lockfile that the repository tracks.
+node_modules/

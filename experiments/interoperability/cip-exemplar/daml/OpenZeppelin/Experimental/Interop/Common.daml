@@ -2,9 +2,10 @@
 module OpenZeppelin.Experimental.Interop.Common where
 
 import Daml.Script
-import DA.Date (date, Month(Jan))
+import DA.Action (when)
+import DA.Foldable (forA_)
 import DA.Optional (isNone)
-import DA.Time (time)
+import DA.Time (RelTime, addRelTime, hours, milliseconds, seconds, subTime)
 
 import OpenZeppelin.Experimental.Settlement.Cip112
 import OpenZeppelin.Experimental.TokenStandardFixture.V2.Metadata
@@ -17,15 +18,70 @@ import OpenZeppelin.Experimental.TokenStandardFixture.V2.Allocation
   , AllocationSpecification(..)
   )
 
--- Settlement timeline: settle within (i0, deadline i1]; i2 is past the deadline.
-i0 : Time
-i0 = time (date 2026 Jan 1) 0 0 0
+-- | The settlement window of the scenarios. Each scenario reads the current
+-- ledger time and settles within that window, so the scenarios run on a static
+-- clock (`dpm test`, Daml Studio) and on the wallclock of a Canton LocalNet
+-- participant. The window is long enough for a real network to settle in.
+settlementWindow : RelTime
+settlementWindow = hours 1
 
-i1 : Time
-i1 = time (date 2026 Jan 1) 1 0 0
+-- | The settlement window of the scenario that must see its deadline pass. It
+-- must stay long enough for the scenario to allocate both sides of the
+-- settlement on a real network, because the scenario then waits out the rest of
+-- the window.
+expiringSettlementWindow : RelTime
+expiringSettlementWindow = seconds 30
 
-i2 : Time
-i2 = time (date 2026 Jan 1) 2 0 0
+-- | Allocate a scenario party and let the Ledger API admin users act as it.
+--
+-- A LocalNet participant authenticates the Ledger API. A user may then submit
+-- for a party only if a `CanActAs` right names that party, and party allocation
+-- grants no such right. Neither the in-memory ledger of `dpm test` nor a
+-- `dpm sandbox` needs the grant, because neither authenticates the Ledger API.
+-- A `dpm sandbox` still reports the admin user `participant_admin`, so the
+-- grant runs there too and adds one right for each party that the run
+-- allocates.
+--
+-- `listAllUsers` needs admin rights of its own. A gate that submits as a user
+-- without them fails on that call, and the error names the user management
+-- service instead of the party allocation that the caller asked for.
+--
+-- Scope: the grant reaches EVERY user that holds `ParticipantAdmin`, not only
+-- the one user that the gate submits as, and nothing revokes it. Daml Script
+-- cannot name the user that the runner submits as, so the helper finds that
+-- user by looking for the admin rights instead. A gate that starts its own
+-- ledger loses both effects with the ledger. A gate that runs against a
+-- participant which outlives it leaves the rights behind, so point
+-- `OZ_USE_EXTERNAL_LEDGER=1` at a disposable participant. The recipients hold
+-- `ParticipantAdmin` already, which carries user management, so the grant gives
+-- them no authority that they could not take.
+allocateInteropParty : Text -> Script Party
+allocateInteropParty requestedName = do
+  party <- allocateParty requestedName
+  users <- listAllUsers
+  forA_ users $ \user -> do
+    rights <- listUserRights user.userId
+    when (ParticipantAdmin `elem` rights) do
+      _ <- grantUserRights user.userId [CanActAs party]
+      pure ()
+  pure party
+
+-- | Move the ledger clock past `deadline`.
+--
+-- Only `setTime` moves the static clock of `dpm test` and Daml Studio. A
+-- LocalNet participant runs on a wallclock that `setTime` cannot set, so the
+-- scenario waits for the real clock instead. Sleeping tells the two clocks
+-- apart: it moves a wallclock and it leaves a static clock where it is.
+advancePastDeadline : Time -> Script ()
+advancePastDeadline deadline = do
+  before <- getTime
+  sleep (milliseconds 100)
+  after <- getTime
+  if after == before
+    then setTime (addRelTime deadline (seconds 1))
+    else do
+      let remaining = subTime (addRelTime deadline (seconds 1)) after
+      when (remaining > seconds 0) (sleep remaining)
 
 -- | The single USD instrument used across the exemplars.
 usdId : Party -> InstrumentId
@@ -34,12 +90,20 @@ usdId admin = InstrumentId with admin; id = "USD"
 usdSymbol : Text
 usdSymbol = "USD"
 
-mkSettlementInfo : Text -> Party -> SettlementInfo
-mkSettlementInfo ref app = SettlementInfo with
+-- | The settlement info for `ref`, with `deadline` as its settlement deadline.
+mkSettlementInfoBy : Text -> Party -> Time -> SettlementInfo
+mkSettlementInfoBy ref app deadline = SettlementInfo with
   executors = [app]
   settlementRef = Reference with id = ref; cidText = None
-  settlementDeadline = Some i1
+  settlementDeadline = Some deadline
   meta = emptyMetadata
+
+-- | The settlement info for `ref`, with a deadline one settlement window after
+-- the current ledger time.
+mkSettlementInfo : Text -> Party -> Script SettlementInfo
+mkSettlementInfo ref app = do
+  now <- getTime
+  pure (mkSettlementInfoBy ref app (addRelTime now settlementWindow))
 
 mkUsdLeg : Text -> Account -> Account -> Decimal -> TransferLeg
 mkUsdLeg ref sender receiver amount = TransferLeg with
@@ -89,6 +153,7 @@ createAndAcceptAllocation
   -> Script (ContractId Allocation)
 createAndAcceptAllocation admin factory factoryDisc settlement authorizer sides inputHoldingCids = do
   let authorizerParties = accountParties admin authorizer
+  requestedAt <- getTime
   instruction <- submit (actAs authorizerParties <> discloseMany [factoryDisc]) do
     exerciseCmd factory SettlementFactory_CreateAllocationInstruction with
       allocation = AllocationSpecification with
@@ -99,7 +164,7 @@ createAndAcceptAllocation admin factory factoryDisc settlement authorizer sides 
         nextIterationFunding = None
         committed = False
         meta = emptyMetadata
-      requestedAt = i0
+      requestedAt
       inputHoldingCids
       d1ComplianceHook = None
       actors = authorizerParties
@@ -124,8 +189,8 @@ settleUsdTransfer
   -> Script [ContractId SettlementReceipt]
 settleUsdTransfer admin app senderAcct recvAcct senderHoldingCid amount ref = do
   (factory, factoryDisc) <- mkFactory admin
-  let settlement = mkSettlementInfo ref app
-      leg = mkUsdLeg ref senderAcct recvAcct amount
+  settlement <- mkSettlementInfo ref app
+  let leg = mkUsdLeg ref senderAcct recvAcct amount
   senderAlloc <- createAndAcceptAllocation admin factory factoryDisc settlement senderAcct [senderSide leg] [senderHoldingCid]
   recvAlloc <- createAndAcceptAllocation admin factory factoryDisc settlement recvAcct [receiverSide leg] []
   submit (actAs [app] <> discloseMany [factoryDisc]) do

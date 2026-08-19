@@ -47,7 +47,7 @@ data is temporary and is removed after the gate finishes.
 ## Integration evidence
 
 The identity upgrade smoke test exercises contracts created with the v1 package
-through the v2 package on a live sandbox:
+through the v2 package on a live ledger:
 
 ```sh
 scripts/identity-hook-upgrade-smoke.sh
@@ -56,13 +56,41 @@ scripts/identity-hook-upgrade-smoke.sh
 The interoperability gates run real processes and ledger connections:
 
 ```sh
-scripts/localnet-cip-interop-validation.sh
+scripts/cip-interop-validation.sh
 scripts/wallet-gateway-cip0103-interop.sh
-scripts/localnet-cip0104-rewards-walkthrough.sh
+scripts/localnet-cip0104-traffic-rewards.sh
 ```
 
-Their domain documentation describes prerequisites, topology assumptions, and
-the evidence they produce.
+Every gate above takes its ledger through the shared
+[`scripts/ledger.sh`](scripts/ledger.sh). A gate with a choice of backend starts
+`dpm sandbox` without an argument, which needs no container images. The same gate
+starts [Canton LocalNet](https://docs.canton.network/sdks-tools/development-tools/localnet)
+with `--localnet`:
+
+```sh
+scripts/cip-interop-validation.sh --localnet
+```
+
+A gate whose name starts with `localnet-` runs on LocalNet and takes no arguments.
+Name a new gate that way when its subject needs a service that a sandbox does not
+have; for example, the CIP-0104 traffic-rewards gate
+(`scripts/localnet-cip0104-traffic-rewards.sh`) needs the Amulet packages, Scan,
+and an SV.
+
+Each gate starts its ledger and removes it again. `scripts/ledger.sh` documents
+both backends, the Docker Compose profiles, the Ledger API authentication, the
+fresh-ledger requirement, and the environment overrides.
+
+The `ci` workflow runs the identity upgrade and CIP interoperability gates
+against the sandbox on every pull request, so a pull request pays no container
+image pull. The Wallet Gateway gate fetches its npm package at run time, and the
+CIP-0104 traffic-rewards gate waits for mining rounds to close, so both stay out
+of `ci` and run on the schedule alone. The scheduled `live-ledger-gates` workflow
+runs every gate on LocalNet, which is where authorization, party rights, package
+vetting, and the Amulet reward path on a real synchronizer are validated. Run a
+gate on LocalNet locally before you change it, its harness, or a participant
+assumption. The domain documentation of each gate describes its prerequisites,
+topology assumptions, and the evidence it produces.
 
 ## Adding or changing an experiment
 

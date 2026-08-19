@@ -16,7 +16,7 @@ invariants.
 
 The reports draw on executable research in this repository:
 
-- [CIP-0112 settlement](../../experiments/settlement/) for allocation,
+- [CIP-0112 settlement](https://github.com/OpenZeppelin/canton-contracts/tree/7696749737885e25cd88422847105f890f03b00d/experiments/token/tokenCIP112-v1) for allocation,
   delivery-versus-payment, attestation, and seizure flows;
 - [compliance experiments](../../experiments/compliance/) for alternative
   off-ledger-check and on-ledger-attestation shapes;

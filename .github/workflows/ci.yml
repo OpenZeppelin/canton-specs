@@ -31,8 +31,14 @@ jobs:
       - name: Lint all packages
         run: scripts/check-lint.sh
 
-      - name: Run the identity SCU smoke test
+      - name: Run the Daml Script tests and the coverage gate
+        run: scripts/check-tests.sh
+
+      - name: Run the identity SCU smoke test (sandbox)
         run: scripts/identity-hook-upgrade-smoke.sh
+
+      - name: Run the CIP interoperability gate (sandbox)
+        run: scripts/cip-interop-validation.sh
 
       - name: Check documentation links
         run: scripts/check-docs.sh
