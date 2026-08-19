@@ -1,3 +1,12 @@
+# The four gates below all use `--localnet`, so each job starts its own Splice
+# LocalNet Docker Compose network. Before a job can run its gate, it downloads
+# the LocalNet images and waits for the network to become ready. This workflow
+# repeats that setup four times, which is why each job needs a 45 minute
+# timeout.
+#
+# The ci workflow already runs the same gates against the in-process
+# sandbox on every pull request, so a daily schedule here is enough.
+
 name: live-ledger-gates
 
 on:
@@ -12,9 +21,6 @@ concurrency:
   group: live-ledger-gates-${{ github.ref }}
   cancel-in-progress: true
 
-# Every job runs its gate with `--localnet`. Each one therefore starts the Splice
-# LocalNet Docker Compose network and pays for the image pull and the network
-# bootstrap, which is why this workflow is scheduled instead of per pull request.
 jobs:
   cip-interop:
     runs-on: ubuntu-latest
