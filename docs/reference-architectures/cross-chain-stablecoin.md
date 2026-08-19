@@ -543,10 +543,14 @@ The gateway is the cross-chain boundary. Its single inbound choice validates the
 ```daml
 module CrossChain.Gateway where
 
+import Splice.Api.Token.AllocationV2 (AllocationSpecification(..), SettlementInfo, TransferLegSide)
+import Splice.Api.Token.HoldingV2 (Account(..), InstrumentId)
 import OpenZeppelin.AccessControlV1 (RoleGrant, requireRole)
 import OpenZeppelin.TokenCIP112V1 (SettlementFactory)
+import OpenZeppelin.TokenCIP112V1.AllocationRequest (TokenAllocationRequest(..))
 import OpenZeppelin.Experimental.Identity.ShapeB (KycClaim, TrustedIssuerRegistry)
 import OpenZeppelin.PausableV1 (PauseState, whenNotPaused)
+import CrossChain.Inbound (ConsumedNonceRegistry(..), InboundMessage(..), LockAttestation(..))
 
 data GatewayRole = Relayer | Seizer deriving (Eq, Show)
 
@@ -570,11 +574,14 @@ template StandardizedMessagingGateway
     -- `InboundMessage` is a one-time attester-signed carrier holding the
     -- `LockAttestation`. Its consuming `InboundMessage_Consume` choice (controller:
     -- the gateway operator) returns the attestation and archives the carrier.
-    nonconsuming choice Gateway_ProcessInbound : ContractId AllocationRequest
+    nonconsuming choice Gateway_ProcessInbound : ContractId TokenAllocationRequest
       with
         relayerGrant : ContractId RoleGrant
         inboundMessageCid : ContractId InboundMessage
         recipient : Party
+        recipientAccount : Account  -- the recipient's wTOK account; owner must be `recipient`
+        inboundSettlement : SettlementInfo  -- executors, reference id, and settle-before time
+        mintLegSide : TransferLegSide  -- the recipient's ReceiverSide of the mint leg
         kycClaimCid : ContractId KycClaim
         settlementFactoryCid : ContractId SettlementFactory
       controller operator
@@ -604,6 +611,7 @@ template StandardizedMessagingGateway
         assertMsg "attestation expired" (now <= att.expiry)
         assertMsg "recipient mismatch" (recipient == att.cantonRecipient)
         assertMsg "instrument admin mismatch" (att.cantonInstrumentId.admin == stablecoinAdmin)
+        assertMsg "account owner mismatch" (recipientAccount.owner == Some recipient)
         (nonceRegCid, nonceReg) <- fetchByKey @ConsumedNonceRegistry admin
         assertMsg "nonce registry off the pinned chain" (nonceReg.genesis == nonceRegistryGenesis)
         exercise nonceRegCid ConsumedNonceRegistry_Record with
@@ -614,13 +622,22 @@ template StandardizedMessagingGateway
         -- allocation is created and accepted under the recipient's own authority,
         -- via their standing TransferPreapproval (section 4.2): the gateway holds
         -- no recipient authority and cannot bind them here.
+        -- `TokenAllocationRequest` carries no authorizer field of its own: the
+        -- authorizer is the account named on each allocation specification, and
+        -- the request's signatories are the settlement executors.
         create TokenAllocationRequest with
-          authorizer = recipientAccount
           settlement = inboundSettlement
-          allocations = [ mintAllocation recipient att.lockedAmount att.cantonInstrumentId ]
+          allocations =
+            [ AllocationSpecification with
+                admin = att.cantonInstrumentId.admin
+                authorizer = recipientAccount
+                transferLegSides = [mintLegSide]
+                settlementDeadline = Some att.expiry
+                nextIterationFunding = None
+                committed = True
+            ]
           requestedAt = now
           settleAt = Some att.expiry
-          actors = inboundSettlement.executors
 ```
 
 ### 4.2 Component: Inbound DvP via Delegated Accept `[FUTURE]`
