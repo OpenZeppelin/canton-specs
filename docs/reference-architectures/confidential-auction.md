@@ -34,8 +34,8 @@ required holdings. A **committed allocation** cannot be withdrawn before the
 settlement deadline; after that deadline, it becomes withdrawable under the
 registry's authorization rules. Its configured settlement executors may settle
 or cancel it. A settlement executor controls when those choices are invoked;
-executor status does not supply missing sender or receiver account authority for
-a final movement.
+executor status does not provide the sender or receiver account authority
+required for a final movement.
 
 The auction uses committed Token Standard allocations to lock the issuer's
 offered tokens and each bidder's maximum payment before the result is known.
@@ -57,8 +57,8 @@ accept. It is fixed before bidding, and bids below it are rejected. A **price
 tick** is the smallest allowed price increment, and a **lot** is the smallest
 quantity increment. A bidder's **fill** is the quantity it wins. The **marginal
 price** is the lowest maximum unit price among bids that receive a fill. When
-demand exceeds supply, it is the price band where the remaining supply runs
-out.
+demand exceeds supply, it is the price band where demand exceeds the remaining
+supply.
 
 The terms include:
 
@@ -118,7 +118,7 @@ asset per token. The marginal and clearing prices are 10, so every winner pays
 
 The auction has three principal business participants: the bidder, issuer, and
 auctioneer. The payment asset and offered token each have a Token Standard V2
-registry that creates and settles allocations; one registry may serve both
+registry that creates and settles allocations; one registry may support both
 assets. An eligibility provider issues or validates the reusable credential
 that permits a bidder to participate.
 
@@ -150,9 +150,8 @@ flowchart TB
 ```
 
 The auction application records the terms, round, accepted bids, and results.
-The second diagram separates that application from the asset implementations,
-institutional services, governance roles, and Canton infrastructure on which it
-depends.
+It depends on the asset implementations, institutional services, governance
+roles, and Canton infrastructure shown below.
 
 **Application dependencies**
 
@@ -182,12 +181,12 @@ flowchart TB
     Auction ==>|"create initial locks<br/>settle exact allocations"| Registries
 ```
 
-The responsibilities follow the same boundaries. The auction application owns
-the terms, round, accepted bids, and results. Token Standard V2 provides the
-common interface for locking and settling assets. Institutional services provide
-eligibility and, when enabled, settlement approval. Governance roles assign
-application powers. Canton hosts the parties, authorizes transactions, and
-controls which parties receive each part of a transaction.
+Token Standard V2 defines the common interface for locking and settling assets.
+Institutional services provide eligibility and optional settlement approval.
+Governance roles define application authority. Canton participant nodes host
+parties and private contract data. Daml authorization determines which parties
+must authorize an action, while transaction projections determine which parts
+each party sees.
 
 In Token Standard terminology, each asset is an **instrument**. Its
 **instrument admin** governs the asset implementation. An **allocation factory**
@@ -222,21 +221,21 @@ compatible admin and factory, all inside the same Daml transaction.
 
 ### 2.1 Privacy and Result Trust
 
-Canton gives each party a **transaction projection**: the transaction branches
-that party is entitled to see. Each bidder and every party that signs its
-accepted bid sees that complete bid. The auctioneer and issuer also see every
-accepted bid. A competing bidder sees another bid or private outcome only when
-another role entitles the same Canton party to see that application record.
+Each party receives a **transaction projection**: the transaction branches that
+party is entitled to see. Each bidder and every party that signs its accepted
+bid sees that complete bid. The auctioneer and issuer also see every accepted
+bid. A competing bidder sees another bid or private outcome only when another
+role entitles the same Canton party to see that application record.
 
 Asset roles have separate visibility. Each instrument admin sees settlement
 data for the instrument it administers, and an account provider sees every
 holding and asset movement for the account it services. Neither role alone
 reveals the complete accepted bid or its private application outcome.
 
-Private outcomes require both the right transaction shape and compatible asset
-implementations. With privacy-compatible assets, the clear gives each bidder a
-projection containing only that bidder's accepted bid action, settlement legs,
-and outcome. The issuer and auctioneer see the complete clear. Each asset
+Private outcomes depend on the transaction shape and the selected asset
+implementations' visibility rules. With privacy-compatible assets, each
+bidder's projection contains only that bidder's accepted bid action, settlement
+legs, and outcome. The issuer and auctioneer see the complete clear. Each asset
 implementation must also keep the settlement legs for that account private. An
 asset that publishes settlement legs cannot provide this privacy. Canton Coin
 publishes all transfer legs, so its payment or delivery movements are public
@@ -244,13 +243,13 @@ even when the application outcome record is private.
 
 The auctioneer calculates the result off-ledger, and the clear recomputes the
 published rule for the accepted bids the auctioneer supplies. This verifies the
-calculation, but bidders still trust the auctioneer to protect bid data, include
+calculation, but bidders trust the auctioneer to protect bid data, include
 every accepted bid, and attempt clearing on time.
 
 The application records an aggregate result for the issuer and auctioneer and a
 private outcome for each bidder. An auditor with authorized access to the
 accepted bids and outcomes can recompute the result. The audit can detect an
-incorrect calculation, while completeness of the bid set still depends on the
+incorrect calculation, while completeness of the bid set depends on the
 auctioneer.
 
 ### 2.2 Business Roles
@@ -276,7 +275,7 @@ Canton participant nodes, often operated by validators, host the parties and
 their private contract data. Sequencers order encrypted protocol messages,
 while mediators coordinate confirmation without receiving bid plaintext. A
 participant receives bid data only for the parties it hosts that are entitled
-to see it. Actual visibility for each party still requires testing because
+to see it. Actual visibility for each party requires testing because
 application topology, selected asset visibility rules, any configured account
 providers, and overlapping roles determine it.
 See the
@@ -291,9 +290,9 @@ We separate the architecture into six responsibilities:
 |---|---|
 | Auction terms | Fix the assets, economics, deadlines, clearing rule, capacity, eligibility policy, registry references, and governance before bidding begins. |
 | Round status | Records whether the round is open, closed, cleared, cancelled, or expired while preserving the auction terms. |
-| Accepted bid | Names every party required by the selected registries for the bidder's accounts, together with the issuer and auctioneer, as signatories. It records the exact payment allocation created for the bid and bounds the authority used to create the winner payment and token receipt. The initial allocation retains its cancellation and withdrawal paths. |
+| Accepted bid | Names every party required by the selected registries for the bidder's accounts, together with the issuer and auctioneer, as signatories. It records the exact payment allocation created for the bid and limits later use of that authority to the winner payment and token receipt defined by the bid. The initial allocation retains its cancellation and withdrawal paths. |
 | Issuer sale authority | Is signed by every party required for the issuer's inventory and payment receipt accounts. It records the exact supply allocation created for the round and limits its use to winner delivery or return of unsold tokens. Cancellation and withdrawal follow the allocation's recovery rules. |
-| Results | Records aggregate clearing data for the issuer and auctioneer and gives each bidder a private fill, payment, exclusion, or refund outcome. |
+| Results | Records aggregate clearing data for the issuer and auctioneer and a private fill, payment, exclusion, or refund outcome for each bidder. |
 | Asset registries | Create, cancel, withdraw, and settle allocations under each instrument's policy. |
 
 At bid acceptance, the parties required by the payment registry authorize the
@@ -311,13 +310,12 @@ the transaction under the Canton topology.
 
 ### 2.4 Institutional Controls
 
-This document uses D1 through D4 as shorthand for four independent institutional
-controls. These labels are not Canton or Token Standard terms. A deployment
-enables only the controls required by its policy:
+We use D1 through D4 as local shorthand for four independent institutional
+controls. A deployment enables only the controls required by its policy:
 
 | Control | Treatment |
 |---|---|
-| Settlement approval (`D1`) | An optional instrument policy may require approval from a configured trusted attester, the party authorized to validate each settlement batch. Organizational independence is a deployment requirement when the product requires it. |
+| Settlement approval (`D1`) | An optional instrument policy may require approval from a configured trusted attester, the party authorized to validate each settlement batch. When policy requires independent approval, the attester must operate independently of the instrument admin and auctioneer. |
 | Allocation seizure (`D2`) | An instrument policy may let its admin mark an allocation and let privileged parties move its holdings. A mark can block auction settlement and ordinary recovery. |
 | Bidder eligibility (`D3`) | Bid acceptance checks that the bidder's payment and delivery accounts name the same owner and that the owner has an accepted credential. Clearing checks eligibility again before assigning a fill. |
 | Application governance (`D4`) | Assigns authority to configure, close, clear, or cancel a round and to approve application code. A deployment may add pause authority or separate these powers. Allocation recovery remains governed by the configured executors, each registry's authorization rules, and instrument policy. |
@@ -343,7 +341,7 @@ The issuer and auctioneer open the round, bidders submit individual bids, and
 the auctioneer closes bidding. The auctioneer then computes the proposed result
 off-ledger. The successful clear is one Daml transaction: validation, exact
 allocation creation, settlement, and result recording either all commit or all
-roll back. The sequence below shows that boundary.
+roll back.
 
 **Round lifecycle**
 
@@ -536,8 +534,8 @@ mark cannot undo the completed winner settlement.
 
 A round and its allocations have separate lifecycles. The auctioneer may cancel
 an uncleared round before the settlement deadline or record it as expired after
-that deadline. Either transition prevents a later clear but does not release
-assets by itself. Each allocation still follows the recovery rules below.
+that deadline. Either transition prevents a later clear. Asset release remains
+a separate action under the allocation recovery rules below.
 
 A failed clear rolls back every step inside it and leaves the round closed. The
 auctioneer can refresh state that may have changed and retry while the
@@ -553,23 +551,23 @@ clear returns unsold inventory through the issuer sale authority. If the round
 ends without clearing, the initial supply lock returns through allocation
 cancellation or withdrawal.
 
-An active allocation seizure mark is the disclosed exception. It blocks normal
-settlement, auctioneer cancellation, and allocation withdrawal until the admin
-removes the mark, its time limit permits release, or an authorized sweep closes
-the allocation. The auction application cannot override the instrument policy.
+An active allocation seizure mark blocks normal settlement, auctioneer
+cancellation, and allocation withdrawal until the admin removes the mark, its
+time limit permits release, or an authorized sweep closes the allocation. The
+auction application cannot override the instrument policy.
 
 An asset operation outside the auction may also consume a locked allocation.
-The backend follows that ledger update and records whether the allocation was
+The backend processes that ledger update and records whether the allocation was
 settled, cancelled, withdrawn, or swept before finalizing the auction's
 recovery outcome.
 
-### 3.6 Execution and Timing
+### 3.6 Manage Execution and Timing
 
 Opening, bidding, approval, clearing, and recovery are separate submissions, so
 each may be delayed or retried. Within any one committed transaction, however,
 all of its actions remain atomic:
 
-| Stage | Execution boundary | What can invalidate the step |
+| Stage | Execution boundary | Invalidation conditions |
 |---|---|---|
 | Open | One transaction creates the supply lock, records the signed sale authority, and opens the round | Inventory, account, asset implementation, or policy no longer matches the terms |
 | Bid | One transaction per bidder creates the maximum payment lock and records the signed accepted bid | Bidding closes or eligibility, supply, account, or asset state changes |
@@ -581,10 +579,10 @@ all of its actions remain atomic:
 The bidding deadline stops new bids. The settlement deadline bounds clearing
 and makes committed allocations withdrawable afterwards. The settlement window
 runs from bidding close to that deadline. Preparation and recovery targets are
-operational margins, not additional ledger deadlines. An allocation factory,
-approval, asset policy, or transaction assembled for signing may impose an
-earlier bound. We use the earliest effective deadline and leave a published
-margin for preparation, signing, confirmation, and recovery.
+operational margins. An allocation factory, approval, asset policy, or
+transaction assembled for signing may impose an earlier bound. We use the
+earliest effective deadline and leave a published margin for preparation,
+signing, confirmation, and recovery.
 
 A transaction assembled for signing remains usable only while its inputs and
 time bounds remain valid. The backend gives it a latest allowed recording time.
@@ -610,10 +608,10 @@ passed, while retaining the same deduplication identity and coverage. See
 The round starts open and becomes closed when bidding ends. A successful clear
 makes it cleared. Before the settlement deadline, the auctioneer may instead
 cancel an uncleared round; after the deadline, it may record the round as
-expired. These round states do not release allocations by themselves. A failed
-clear rolls back and leaves the round closed, so the auctioneer can retry with
-current state. An optional pause stops new bids without blocking close, clear,
-or recovery.
+expired. Allocation release remains a separate action governed by
+[section 3.5](#35-release-locked-assets). A failed clear rolls back and leaves
+the round closed, so the auctioneer can retry with current state. An optional
+pause stops new bids without blocking close, clear, or recovery.
 
 | Situation | Result | Next action |
 |---|---|---|
@@ -656,7 +654,7 @@ that remain trusted.
 | Canton infrastructure | Keeps required parties hosted, approved code available, and transactions confirmable within the round deadlines. |
 | Auditor, when enabled | Receives enough authorized disclosures to check the supplied bid set and result without exposing records more broadly. |
 
-The most important residual risk is bid completeness. Deterministic on-ledger
+Bid completeness remains the main residual risk. Deterministic on-ledger
 clearing proves the result for the set the auctioneer supplies. It cannot prove
 that the auctioneer omitted an accepted bid the clear cannot see. A signed
 accepted bid record lets an omitted bidder demonstrate the omission, and
@@ -664,13 +662,12 @@ authorized disclosure lets an auditor recompute the supplied result. Neither
 forces the auctioneer to submit every accepted bid. Fixed capacity, operational
 controls, and legal accountability remain necessary.
 
-Asset implementations enforce asset controls. We support only implementations
-that enforce every claimed control across all settlement and privileged movement
-paths. The pinned OpenZeppelin
+We select asset implementations that enforce every claimed control across all
+settlement and privileged movement paths. The pinned OpenZeppelin
 [reference token experiment](https://github.com/OpenZeppelin/canton-contracts/tree/7696749737885e25cd88422847105f890f03b00d/experiments/token/tokenCIP112-v1)
-exposes seizure on every allocation and lets the admin choose the destination
-when marking. It therefore cannot by itself enforce the immutable seizure
-policy selected for the round.
+defines seizure choices on every allocation and lets the admin choose the
+destination when marking. It therefore cannot by itself enforce the immutable
+seizure policy selected for the round.
 
 ## 6. Deployment and Operations
 
@@ -682,10 +679,10 @@ clear. All records used by that clear remain on one compatible synchronizer,
 and every involved participant supports the approved application and asset
 code.
 
-On a traffic-controlled synchronizer, each participant that sends auction
-protocol messages draws from a balance shared by its hosted parties and
-applications. Operators monitor and fund every participant required by the
-flow; an exhausted balance blocks its messages. See the
+On a traffic-controlled synchronizer, auction protocol messages consume traffic
+from the participant that sends them. Each participant's hosted parties and
+applications share its balance. Operators monitor and fund every participant
+required by the flow; an exhausted balance blocks its messages. See the
 [traffic documentation](https://docs.sync.global/deployment/traffic.html).
 
 We require the following production checks:
@@ -739,6 +736,6 @@ Primary foundations include:
 - the [Canton ledger model](https://docs.canton.network/overview/reference/ledger-model-detailed)
   for authorization, transaction projection, and visibility.
 
-We use these experiments for the cited mechanisms. To deliver this design, we
-implement and validate the auction application, backend, wallet integration,
-asset selection, operations, and recovery services end to end.
+The experiments provide the cited mechanisms. A production auction also
+requires the application, backend, wallet integration, asset selection,
+operations, and recovery services.
