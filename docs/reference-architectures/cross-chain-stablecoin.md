@@ -169,7 +169,7 @@ flowchart TB
 
     subgraph Proc["Off-Canton processes - no ledger identity"]
         direction LR
-        RelaySvc["Relayer backend<br/>one state machine per nonce"]
+        RelaySvc["Relayer backend<br/>one state machine<br/>per nonce"]
         AttSvc["Attester services x M"]
         Wallet["Recipient wallet"]
     end
@@ -224,7 +224,7 @@ flowchart TB
     subgraph Off["Off-Canton"]
         direction LR
         Chain[("Source chain<br/>lock escrow")]
-        Backend["Relayer backend<br/>one state machine per nonce"]
+        Backend["Relayer backend<br/>one state machine<br/>per nonce"]
     end
 
     subgraph Canton["One Canton synchronizer - cross-synchronizer out of scope"]
@@ -239,7 +239,7 @@ flowchart TB
 
     Chain -.->|"finalized lock observed"| Backend
     Backend -.->|"release claim"| Chain
-    Backend ==>|"Ledger API: 3 submissions per payment"| NRel
+    Backend ==>|"3 submissions per payment"| NRel
 
     NRel <==>|"submit, confirm, pay traffic"| Sync
     NAtt <-->|"confirm"| Sync
