@@ -139,8 +139,8 @@ That makes "the attesters sign" two different things. Inbound, the attester part
 
 | Name | Kind | What it does |
 |---|---|---|
-| Bridge Relayer | party | settlement executor; signs the `TokenAllocationRequest`; holds `BRIDGE_RELAYER_ROLE`, which the gateway's `operator` field checks |
-| Attesters, M of them | party | signs the `InboundMessage` `[FUTURE]`, the `ComplianceAttestation` `[EXPERIMENT]`, and the `RedemptionAttestation` `[FUTURE]`; listed in the `TrustedAttesterRegistry` |
+| Bridge Relayer | party | settlement executor; signs the `TokenAllocationRequest`; holds `BRIDGE_RELAYER_ROLE`, which the gateway's `operator` field checks. Transport and liveness only, so a relayer with no attestation cannot mint |
+| Attesters, M of them | party | the trust role, separate from the relayer's transport role; signs the `InboundMessage` `[FUTURE]`, the `ComplianceAttestation` `[EXPERIMENT]`, and the `RedemptionAttestation` `[FUTURE]`; listed in the `TrustedAttesterRegistry` |
 | Stablecoin Admin | party | `wTOK` issuing admin; signs its holdings, allocations, and mint legs |
 | Compliance Verifier | party | `TrustedIssuerRegistry` admin; issues the `KycClaim` |
 | Custodian | party | `BurnerCapability` assignee; owns the preset sweep account |
@@ -151,14 +151,12 @@ That makes "the attesters sign" two different things. Inbound, the attester part
 | Lawful-process authority | party | signs the `SeizureOrder`; registry-listed, and never the admin |
 | Participant, or validator | Canton node | hosts parties, vets the DAR versions their transactions select, and buys the traffic they burn |
 | Sequencer and Mediator | Canton node | ordering, and the verdict that makes a transaction final; hosts no application party |
-| Scan | Canton node | the activity records the reward accounting reads ([section 6.2](#62-app-rewards)); off the application path |
 | Relayer backend `[FUTURE]` | off-Canton process | watches the source chain, one state machine per nonce, and submits every inbound command as the Bridge Relayer |
 | Attester services `[FUTURE]` | off-Canton process | M independent operators on M participants; each submits as its own attester party |
 | Recipient wallet | off-Canton process | creates the standing `TransferPreapproval` and submits as the Recipient |
-| Validator wallet automation | off-Canton process | mints reward coupons; node automation, not a party |
 | Lock escrow `[FUTURE]` | source-chain contract | holds the backing, and releases it against a verified `RedemptionAttestation` |
 
-The gateway, the registries, and the capabilities are contracts, not services. `StandardizedMessagingGateway` is a template with one choice the relayer exercises. `PauseState`, `TrustedAttesterRegistry`, `TrustedIssuerRegistry`, and `ConsumedNonceRegistry` are single contracts a caller fetches. `BurnerCapability` and `RedemptionBurnCapability` carry no choices, and the sweep and burn choices fetch and validate them. `LockAttestation` and `D2SeizureHook` are data records inside other contracts.
+The gateway and the registries are contracts, not services. `StandardizedMessagingGateway` is a template carrying one choice that the relayer exercises, and `PauseState`, `TrustedAttesterRegistry`, `TrustedIssuerRegistry`, and `ConsumedNonceRegistry` are single contracts a caller fetches. `LockAttestation` is a data record inside the `InboundMessage` rather than a contract, so what an attester signs is the carrier.
 
 ```mermaid
 flowchart TB
@@ -216,7 +214,7 @@ flowchart TB
 
 ### Node and Hosting Topology
 
-The parties above are Daml identities. The blocks below are the nodes that host them, and the postures in their labels are the targets that the next subsection argues for. The `[FUTURE]` cross-chain boundary sits outside the synchronizer entirely, and every other diagram in this report sits one plane below it, on contracts and choices rather than nodes.
+The postures in the labels below are the targets that [Decentralization and Trust Topology](#decentralization-and-trust-topology) argues for. The `[FUTURE]` cross-chain boundary sits outside the synchronizer entirely, and the remaining diagrams in this report sit one plane below, on contracts and choices rather than nodes.
 
 ```mermaid
 flowchart TB
@@ -228,11 +226,11 @@ flowchart TB
 
     subgraph Canton["One Canton synchronizer - cross-synchronizer out of scope"]
         direction TB
-        NRel["Relayer validators<br/>hosts Bridge Relayer<br/>multi-hosted, threshold 1"]
-        NAtt["Attester participants<br/>host the Attesters<br/>independent operators, N-of-M"]
-        NIss["Issuer participant<br/>hosts Stablecoin Admin, Compliance Verifier<br/>admin value-critical, N-of-M open"]
-        NCus["Custodian participant<br/>hosts Custodian<br/>value-critical, N-of-M open"]
-        NRec["Recipient validator<br/>hosts Recipient<br/>own keys only"]
+        NRel["Relayer validators<br/>multi-hosted, threshold 1"]
+        NAtt["Attester participants<br/>independent operators, N-of-M"]
+        NIss["Issuer participant<br/>admin value-critical, N-of-M open"]
+        NCus["Custodian participant<br/>value-critical, N-of-M open"]
+        NRec["Recipient validator<br/>own keys only"]
         Sync{{"Sequencer + Mediator<br/>ordering; mediator verdict = finality"}}
     end
 
@@ -261,16 +259,7 @@ Three properties follow from the layout. The relayer is the only block on both s
 | Holdings & Preapproval `[EVIDENCE]` | `OpenZeppelin/canton-token-template` (`SimpleToken.*`): `SimpleHolding`, `SimpleTokenRules`, `LockedSimpleHolding`, `TransferPreapproval` | Holds value, and lets a recipient agree in advance. The recipient signs a `TransferPreapproval` once, and the relayer acts under it later. The template's one choice, `TransferPreapproval_Send`, sends a transfer and cannot create an allocation on the settlement spine. The choice that can is `[FUTURE]` ([section 4.2](#42-component-inbound-dvp-via-delegated-accept-future)). |
 | Messaging Gateway `[FUTURE]` | `StandardizedMessagingGateway` (bounded mock, [section 4.1](#41-component-standardized-messaging-gateway-bounded-mock-future)) | The boundary with the external chain. It accepts a message that reports a lock on that chain, signed by the attesters, then starts a settlement on the spine. |
 
-### Party and Role Model Topology
-
-Duties are segregated across discrete Daml parties, with in-code role names carried by `roleId` wrappers such as `BRIDGE_RELAYER_ROLE`:
-
-- **Bridge Relayer** monitors the external chain, operates the gateway, submits inbound messages, and acts as settlement executor. Transport and liveness only: a relayer with no attester authorization cannot mint.
-- **Attesters** are independent parties in the `TrustedAttesterRegistry`. They sign the `LockAttestation` that authorizes an inbound mint, the per-settlement compliance attestation (D1), and the outbound redemption attestation. This is the trust role, deliberately separate from the relayer's transport role.
-- **Compliance Verifier** maintains the `TrustedIssuerRegistry` and issues the `KycClaim` used for D3.
-- **Custodian** holds the D2 seizure credential and owns the preset account that receives swept funds under mandate.
-- **Stablecoin Admin** is the issuing admin of `wTOK` and authors the mint leg of an inbound settlement.
-- **Recipient** is the treasury or end user receiving funds, optionally through a standing `TransferPreapproval`.
+### Per-Party Projection
 
 Because Canton settles on per-party projection, the settlement fractures into bilateral requests: the relayer and the recipient are the only initial observers of the inbound `TokenAllocationRequest`, and no other recipient sees that traffic. A committed allocation locks the bridging funds until the settlement deadline, so the recipient knows the liquidity is reserved and cannot be double-spent or withdrawn before the DvP concludes.
 
