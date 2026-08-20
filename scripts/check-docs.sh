@@ -11,7 +11,7 @@ import sys
 from urllib.parse import unquote
 
 root = os.path.realpath(sys.argv[1])
-excluded = {".git", ".daml", ".cache", ".coverage", ".vscode"}
+excluded = {".git", ".daml", ".cache", ".coverage", ".vscode", "node_modules"}
 # Group 1 captures the link label: a line anchor is only correct if the line it
 # points at declares whatever the label names.
 link_pattern = re.compile(r"!?\[([^\]]*)\]\(([^)]+)\)")

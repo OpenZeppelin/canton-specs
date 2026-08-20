@@ -83,6 +83,7 @@ done <<< "$actual_manifests"
 
 if grep -R -n -E \
 	--exclude-dir=.git --exclude-dir=.daml --exclude-dir=.cache --exclude-dir=.vscode \
+	--exclude-dir=node_modules \
 	--exclude='*.dar' --exclude='check.sh' \
 	'/Users/|/home/[^/]+/|/private/tmp/|/var/folders/|[A-Za-z]:\\Users\\' "$ROOT"; then
 	fail "repository content contains a machine-specific home path"

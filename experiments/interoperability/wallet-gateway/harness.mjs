@@ -29,11 +29,19 @@ import { join } from 'node:path'
 const GATEWAY = process.env.OZ_GATEWAY_URL ?? 'http://127.0.0.1:3030'
 const USER_API = `${GATEWAY}/api/v0/user`
 const DAPP_API = `${GATEWAY}/api/v0/dapp`
-const JSON_API = process.env.OZ_JSON_API_URL ?? 'http://127.0.0.1:7575'
-const NETWORK_ID = process.env.OZ_GATEWAY_NETWORK_ID ?? 'canton:local-sandbox'
+const JSON_API = process.env.OZ_JSON_API_URL ?? 'http://127.0.0.1:3975'
+const NETWORK_ID = process.env.OZ_GATEWAY_NETWORK_ID ?? 'canton:localnet'
 const WORK_DIR = process.env.OZ_INTEROP_WORK_DIR ?? '.cache/wallet-gateway-interop'
-const LEDGER_USER = 'oz-cip0103-interop'
+// The gateway keys a session by the origin of the dApp that opens it. This dApp
+// runs headless, so it declares a stable origin of its own.
+const DAPP_ORIGIN = process.env.OZ_DAPP_ORIGIN ?? 'http://oz-cip0103-interop.localhost'
+const LEDGER_USER = process.env.OZ_GATEWAY_LEDGER_USER ?? 'oz-cip0103-interop'
 const EXTERNAL = process.env.OZ_USE_EXTERNAL_LEDGER === '1'
+// The admin token of the participant, used only to provision the gateway's
+// ledger user. A participant without authentication needs no token.
+const ADMIN_TOKEN = process.env.OZ_LEDGER_TOKEN_FILE
+  ? readFileSync(process.env.OZ_LEDGER_TOKEN_FILE, 'utf8').trim()
+  : null
 
 const PKG_INTEROP = '#openzeppelin-experimental-cip-interop-exemplar'
 const PKG_SETTLEMENT = '#openzeppelin-experimental-cip112-settlement'
@@ -278,7 +286,7 @@ async function signMessageViaGateway(token, party, message) {
 
 // CIP-0103 error code exemplified by the doomed command below: the CIP's
 // error table adopts EIP-1474, whose -32603 is "Internal error". Gateway
-// 1.6.0 maps a prepare-time interpretation failure (consumed contract) to
+// 1.8.1 maps a prepare-time interpretation failure (consumed contract) to
 // this code, with the Canton CONTRACT_NOT_FOUND detail in `data`.
 const CIP0103_INTERNAL_ERROR = -32603
 
@@ -561,18 +569,19 @@ async function verifyExternal() { // Should be ran post-settlement. Queries the 
 
 // --- subcommands -------------------------------------------------------------
 
-// Provision the wallet user's ledger user on the participant. This is
-// admin-side IAM provisioning against the sandbox, NOT part of the wallet
-// surface under test; on a real network the validator operator does this.
-// NOTE: the request carries no Authorization header - it assumes an auth-less
-// local participant (the dev sandbox accepts unauthenticated admin calls; the
-// gateway's self-signed bearer tokens are likewise not validated by it).
-// An IAM-protected participant supplies this step through the operator's
-// authenticated user-provisioning flow.
+// Provision the gateway's ledger user on the participant. This is admin-side
+// IAM provisioning, NOT part of the wallet surface under test; on a real
+// network the validator operator does this. The user starts without rights:
+// the gateway grants it the wallet party's rights when it allocates that party.
+// The request carries the participant's admin token, which the LocalNet gate
+// mints; an unauthenticated participant needs no token.
 async function provisionLedgerUser(userId) {
   const res = await fetch(`${JSON_API}/v2/users`, {
     method: 'POST',
-    headers: { 'content-type': 'application/json' },
+    headers: {
+      'content-type': 'application/json',
+      ...(ADMIN_TOKEN ? { authorization: `Bearer ${ADMIN_TOKEN}` } : {}),
+    },
     body: JSON.stringify({
       user: { id: userId, primaryParty: '', isDeactivated: false, identityProviderId: '' },
       rights: [],
@@ -623,7 +632,7 @@ async function createWalletExternal() {
   log(`user API: ${USER_API}, network: ${NETWORK_ID} (external ledger)`)
   const accessToken = await oidcToken()
   log('obtained OIDC access token (client_credentials)')
-  await rpc(USER_API, 'addSession', { networkId: NETWORK_ID }, accessToken)
+  await rpc(USER_API, 'addSession', { networkId: NETWORK_ID, origin: DAPP_ORIGIN }, accessToken)
   log('session added')
   await rpc(USER_API, 'syncWallets', undefined, accessToken).catch((err) => log(`syncWallets: ${err.message}`))
   const wallet = await poll(`gateway wallet for ${partyId}`, 60_000, 500, async () => {
@@ -650,7 +659,7 @@ async function createWallet() {
     clientId: LEDGER_USER,
   })
   log('obtained self-signed access token')
-  await rpc(USER_API, 'addSession', { networkId: NETWORK_ID }, accessToken)
+  await rpc(USER_API, 'addSession', { networkId: NETWORK_ID, origin: DAPP_ORIGIN }, accessToken)
   log('session added')
   const created = await rpc(
     USER_API,
