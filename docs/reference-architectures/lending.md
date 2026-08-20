@@ -96,15 +96,13 @@ The compliance and control terms above are this report's names for four control 
 
 ### Educational Framing: How to Think About Building a Lending Protocol on Canton
 
-Moving from an EVM ecosystem to Canton requires a paradigm shift in state management, privacy boundaries, and trust topology.
+In the [ERC-4626](https://docs.openzeppelin.com/contracts/5.x/erc4626) lineage, one globally visible contract manages pooled liquidity, debt shares, and interest accrual for every participant, broadcasting each one's collateral balance and liquidation threshold publicly.
 
-In the [ERC-4626](https://docs.openzeppelin.com/contracts/5.x/erc4626) lineage, a single globally visible contract manages pooled liquidity, debt shares, and dynamic interest accrual for all participants: a monolithic state that broadcasts every participant's collateral balance and liquidation threshold publicly.
+Canton enforces **per-party projection** instead: a contract is an instance of a template, signed by a set of parties (its signatories) and visible only to them and to any observers. That is why each **vault is its own contract** rather than a share in a pool. A position is visible only to the borrower, the vault admin, the liquidators that police it, and any regulatory observers - and because visibility is a precondition for action, the liquidator set is declared as observers rather than left implicit.
 
-Canton operates on a privacy-preserving, **per-party projection** model enforced by the Canton protocol. A Canton contract is an instance of a template, signed and authorized by a set of parties (signatories). State changes by archive-and-recreate rather than in-place mutation, and any signatory must actively co-authorize a transition (Daml's propose-and-accept pattern). The design uses **contract keys** (reintroduced in [Canton 3.5.1+](https://github.com/digital-asset/canton/releases/tag/v3.5.1)) so the `Vault`, `PriceOracle`, `PauseState`, and the trusted-attester and trusted-issuer registries keep stable identities across those archive-and-recreate cycles. Note that 3.5.1 keys are **not unique**: the platform does not reject two contracts sharing a key, so uniqueness is an application-level obligation - here, the factory's creation check and each registry creating exactly one contract per key.
+State changes by archive-and-recreate rather than in-place mutation, with every signatory co-authorizing the transition (Daml's propose-and-accept pattern). That is why the design resolves the `Vault`, `PriceOracle`, `PauseState`, and the trusted-attester and trusted-issuer registries by **contract key** (reintroduced in [Canton 3.5.1+](https://github.com/digital-asset/canton/releases/tag/v3.5.1)): a key is the identity that survives each recreate. Keys are not unique - the platform accepts two contracts sharing one - so uniqueness stays an application obligation, here the factory's creation check plus one contract per registry key.
 
-Contract keys are the design target; they are not yet implemented in the current templates. The `[IMPLEMENTED]` experiment code sits on the workspace's pinned SDK baseline and is keyless: each choice takes a caller-supplied registry contract id and asserts that registry shares the factory's admin. The resolution by key, shown throughout, lands with the Canton 3.5.1+ SDK migration.
-
-The per-party projection model is why the design puts each **vault in its own contract**: instead of one pooled share-accounting contract, the protocol deploys a discrete, isolated `Vault` contract per position. A borrower's position is observable only to the borrower, the vault admin, the designated liquidators that police it, and any regulatory observer parties explicitly placed in the contract's observer set. Visibility is a precondition for action on Canton: a party can flag or liquidate a vault only if the vault is in its projection, which is why the liquidator set is declared as observers rather than left implicit.
+Keys are the design target, not what runs today. The experiment code sits on the workspace's pinned SDK baseline and is keyless, so each choice takes a caller-supplied registry contract id and asserts it shares the factory's admin. By-key resolution lands with the 3.5.1+ SDK migration.
 
 ---
 
@@ -286,6 +284,8 @@ Taking each element of the codeblock in turn:
 - **Restorable vault (`collateralRatio > 1 + liquidationBonus`).** Repaying `x` leaves debt `accruedDebt - x` and collateral value `collateralAmount · price - x · (1 + liquidationBonus)`; `restoreAmount` is the `x` that sets their ratio to exactly `minCollateralRatio`. In this regime every repaid unit improves the ratio, so a payment below the cap partially cures, a payment at the cap fully cures, and nothing beyond it can be taken (no overshoot). The target is `minCollateralRatio`, not `liquidationRatio`, so a cured vault does not restart on the liquidation boundary.
 - **Underwater vault (`collateralRatio <= 1 + liquidationBonus`).** No repayment can restore health, so the cap becomes what the remaining collateral can pay for: the pass seizes all of it, and the uncovered remainder is quantified as `badDebt`.
 - **Well-definedness.** Protocol configuration requires `minCollateralRatio > liquidationRatio > 1 + liquidationBonus`. The first gap is the margin-call buffer; the second keeps the restorable regime reachable, so a freshly flagged vault can still be partially cured; and the chain keeps `restoreAmount`'s denominator positive and its value within what the collateral supports.
+
+![Collateral ratio spectrum: full absorption below 1 + bonus, restorable up to the liquidation ratio, margin-call buffer up to the minimum collateral ratio, healthy above](images/liquidation-ratio-spectrum.svg)
 
 ### Data and State Flow
 

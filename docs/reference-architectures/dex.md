@@ -74,9 +74,6 @@ tables below distinguish its core design from adjacent architectural concerns.
 
 ### Educational Framing: How to Think About Building a DEX on Canton
 
-Moving from an EVM ecosystem to Canton requires a paradigm shift in state
-management, privacy boundaries, and trust topology.
-
 In traditional EVM AMMs, smart contracts are autonomous, globally visible state
 machines holding aggregate pool balances. A single trader transaction
 sequentially updates this global state, with all network nodes validating the
@@ -84,21 +81,25 @@ invariant math off an identical public state tree. Privacy is non-existent by
 design, and front-running / MEV extraction via the public mempool is a
 structural reality.
 
-Canton operates on a privacy-preserving, **per-party projection** model enforced
-by the Canton protocol. A Canton contract is an instance of a template, signed and authorized by a set of parties (signatories). A DEX on Canton cannot rely on a globally readable pool contract that any anonymous
-actor can unilaterally mutate. State changes by archive-and-recreate rather than
-in-place mutation, and any signatory must actively co-authorize a transition, so
-**two-step handshakes (Daml's propose-and-accept pattern) are a necessity, not a
-style choice**. The design uses **contract keys**
-(reintroduced in [Canton 3.5.1+](https://github.com/digital-asset/canton/releases/tag/v3.5.1))
-so the `Pool`, `PauseState`, and the trusted-attester and trusted-issuer registries
-keep stable, unique identities across those archive-and-recreate cycles.
+Canton enforces **per-party projection** instead: a contract is an instance of a
+template, signed by a set of parties (its signatories) and visible only to them
+and to any observers. A DEX on Canton therefore cannot rely on a globally
+readable pool contract that any anonymous actor can unilaterally mutate.
 
-Contract keys are the design target, not what runs today. The `[IMPLEMENTED]`
-experiment code sits on the workspace's pinned SDK baseline and is keyless: each
-choice takes a caller-supplied registry contract id and asserts that registry
-shares the factory's admin. The by-key resolution shown throughout lands with the
-Canton 3.5.1+ SDK migration.
+State changes by archive-and-recreate rather than in-place mutation, with every
+signatory co-authorizing the transition (Daml's propose-and-accept pattern). That
+is why the design resolves the `Pool`, `PauseState`, and the trusted-attester and
+trusted-issuer registries by **contract key** (reintroduced in
+[Canton 3.5.1+](https://github.com/digital-asset/canton/releases/tag/v3.5.1)): a
+key is the identity that survives each recreate. Keys are not unique - the
+platform accepts two contracts sharing one - so uniqueness stays an application
+obligation: the design must guarantee one `Pool` per instrument pair and one
+contract per registry key.
+
+Keys are the design target, not what runs today. The experiment code sits on the
+workspace's pinned SDK baseline and is keyless, so each choice takes a
+caller-supplied registry contract id and asserts it shares the factory's admin.
+By-key resolution lands with the 3.5.1+ SDK migration.
 
 To build a mathematically sound AMM in this privacy-first environment, the
 architecture reconciles the transparency needed for price discovery and
@@ -274,6 +275,8 @@ fee stays in the pool, the invariant is **non-decreasing**:
 ```text
 (reserveIn + amountInWithFee) · (reserveOut − Δout)  ≥  reserveIn · reserveOut
 ```
+
+![One swap on the constant-product curve: the tangent at the pre-swap reserves is the spot price, the chord to the post-swap reserves is the effective price, and the retained fee leaves the post-swap point above the curve](images/dex-constant-product-curve.svg)
 
 The target design binds the curve inputs to the trader's signed allocation: the
 sender side equals (`amountIn`, input instrument), the receiver side equals
