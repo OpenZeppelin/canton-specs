@@ -603,12 +603,31 @@ clear. All records used by that clear remain on one compatible synchronizer,
 and every involved participant supports the approved application and asset
 code.
 
+### 6.1 Traffic and Application Rewards
+
 On a traffic-controlled synchronizer, auction protocol messages consume traffic
 from the participant that sends them. Each participant's hosted parties and
 applications share its balance. Operators monitor and fund every participant
 required for opening, bidding, clearing, or recovery; an exhausted balance
 blocks its messages. See the
 [traffic documentation](https://docs.sync.global/deployment/traffic.html).
+
+For reward attribution, the auctioneer is the **app provider party**. Under
+[CIP-0104](https://github.com/canton-foundation/cips/blob/main/cip-0104/cip-0104.md),
+an active `FeaturedAppRight` lets that party earn traffic-based rewards from
+successful transaction views it confirms. Opening, bid acceptance, close, clear,
+and auctioneer-led recovery all use auctioneer authority and can therefore
+contribute; observation alone does not qualify. The network aggregates eligible
+activity by reward round into a coupon that the auctioneer or an assigned
+beneficiary can mint as Canton Coin before it expires.
+
+These rewards can help fund traffic and other operating costs. A quantitative
+analysis of the traffic costs incurred by the auction flows, the rewards accrued
+to the auctioneer, and the resulting net operating cost is outside the scope of
+this initial reference architecture. We will perform that analysis once the
+implemented flows can be measured under the target network configuration.
+
+### 6.2 Production Readiness
 
 We require the following production checks:
 
@@ -664,6 +683,8 @@ We make these decisions before opening a production round:
 
 Primary foundations include:
 
+- [CIP-0104 Traffic-Based App Rewards](https://github.com/canton-foundation/cips/blob/main/cip-0104/cip-0104.md)
+  for application activity attribution and reward accounting;
 - [CIP-0112 Token Standard V2](https://github.com/canton-foundation/cips/blob/main/cip-0112/cip-0112.md),
   especially its allocation and settlement factory model;
 - the pinned OpenZeppelin [reference token experiment](https://github.com/OpenZeppelin/canton-contracts/tree/7696749737885e25cd88422847105f890f03b00d/experiments/token/tokenCIP112-v1)
