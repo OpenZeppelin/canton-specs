@@ -44,14 +44,14 @@ The reference implementation favors simplicity and modular extensibility.
 | Feature Category | In-Scope Architectural Components |
 |---|---|
 | Atomic Settlement | Private on-Canton settlement of inbound stablecoin payments via `SettlementFactory_SettleBatch`. |
-| Cross-Chain Bridge | An inbound and outbound bridge **interface** (the Standardized Messaging Gateway) as a bounded, verifiable mock: attested inbound mint and attested outbound redemption. |
+| Cross-Chain Bridge | The Standardized Messaging Gateway: the component that carries the inbound and outbound boundary, with attested inbound mint and attested outbound redemption. No implementation of this architecture is complete without it. |
 | Compliance & Control | D1 attested settlement, D2 seizure to a preset custodian account, D3 single-synchronizer identity. |
 | Asset Representation | The gateway-minted `wTOK`, conforming to the CIP-0112 holding interfaces, and the integration to settle an existing native Canton stablecoin such as `USDCx` by interface. |
 | Component Integration | Direct reuse of `openzeppelin-access-control-v1`, `openzeppelin-ownable-v1`, and `openzeppelin-pausable-v1`, the CIP-0112 settlement spine, and patterns from [`canton-token-template`](https://github.com/OpenZeppelin/canton-token-template) and [`canton-stablecoin`](https://github.com/OpenZeppelin/canton-stablecoin). |
 
 | Feature Category | Out-of-Scope Architectural Components |
 |---|---|
-| Off-Canton Bridge Infrastructure | Everything behind the interface boundary: the relayer backend, the attester services, the source-chain lock escrow, external oracle infrastructure, source-chain validator sets, and cryptographic light-client proofs. The gateway's own Daml surface is in scope above; what runs off Canton to feed it is not. |
+| Off-Canton Bridge Infrastructure | Everything behind the interface boundary: the relayer backend, the attester services, the source-chain lock escrow, external oracle infrastructure, source-chain validator sets, and cryptographic light-client proofs. The gateway is in scope above; the services that feed it are not. |
 | Stablecoin Mechanism | The issuance, peg, and CDP mechanism itself; `USDCx` issuance and its native rail are external. |
 | Off-Ledger Compliance Shortcuts | Off-ledger caching of compliance status, probabilistic risk scoring, heuristic filtering. |
 | Legacy Standards | Any reliance on the superseded CIP-56 token standard or legacy V1 allocation paths. |
@@ -98,7 +98,7 @@ template ConsumedNonceRegistry
 
 The genesis version cannot name itself, because a contract id does not exist until its create commits, so `genesis` carries `None` on the first version exactly as `predecessor` does. A consumer that pinned the genesis id *g* therefore accepts a resolved registry when the resolved id is *g* itself or its `genesis` is `Some g`, and rejects everything else.
 
-Two constraints follow. `lookupByKey` requires authorization from **all** maintainers of the key, so the design resolves registries with `fetchByKey`, which like `fetch` needs authorization from one *stakeholder* of the contract it returns. That is a weaker rule but not a free one: a caller that resolves a registry another party signs must be a stakeholder of it ([section 4.1](#41-component-standardized-messaging-gateway-bounded-mock)). And the trusted-attester registry stays outside this scheme: pinning it by contract id on the settlement registry is the same anchoring idea without the key ([D1](#capability-gates-d1-d4)).
+Two constraints follow. `lookupByKey` requires authorization from **all** maintainers of the key, so the design resolves registries with `fetchByKey`, which like `fetch` needs authorization from one *stakeholder* of the contract it returns. That is a weaker rule but not a free one: a caller that resolves a registry another party signs must be a stakeholder of it ([section 4.1](#41-component-standardized-messaging-gateway)). And the trusted-attester registry stays outside this scheme: pinning it by contract id on the settlement registry is the same anchoring idea without the key ([D1](#capability-gates-d1-d4)).
 
 ### Status at a Glance
 
@@ -113,7 +113,7 @@ Six of the thirteen components below are, and the design's whole cross-chain bou
 | D4 per-action role binding | `[FUTURE]` | libraries in `canton-contracts` `experiments/access` | the wiring; the role and ownership primitives exist, this rail does not use them yet |
 | Access control, ownership handover, pausing | `[EXPERIMENT]` | `canton-contracts` `experiments/access` and `experiments/security` | nothing for access control and ownership; `PauseState` needs the observer entry that authorizes the gateway to read it `[GAP]` |
 | Holdings and standing `TransferPreapproval` | `[EVIDENCE]` | [`canton-token-template`](https://github.com/OpenZeppelin/canton-token-template) | `TransferPreapproval_AllocateInbound`, a delegated choice that allocates on the settlement spine under the recipient's standing signature; the template's own `TransferPreapproval_Send` only sends a transfer ([section 4.2](#42-component-inbound-dvp-via-delegated-accept)) |
-| Standardized Messaging Gateway | `[FUTURE]` | [section 4.1](#41-component-standardized-messaging-gateway-bounded-mock) | the whole implementation is deferred to other milestones |
+| Standardized Messaging Gateway | `[FUTURE]` | [section 4.1](#41-component-standardized-messaging-gateway) | the whole implementation is deferred to other milestones |
 | `LockAttestation` carrier and `ConsumedNonceRegistry` | `[FUTURE]` | [section 3](#reserve-and-lock-attestation-model) | the whole implementation is deferred to other milestones |
 | `wTOK` attested mint and redemption burn | `[FUTURE]` | [section 3](#reserve-and-lock-attestation-model) | the whole implementation is deferred to other milestones |
 | Contract keys on `PauseState` and the issuer registry | `[GAP]` | [section 1](#registry-uniqueness-under-non-unique-keys) | SDK support, Daml-LF 2.3 on Protocol Version 35, and a deploy-and-migrate path per template |
@@ -124,7 +124,7 @@ Six of the thirteen components below are, and the design's whole cross-chain bou
 
 ## 2. Architecture Overview
 
-The architecture composes reused OpenZeppelin Daml primitives, the CIP-0112 settlement spine as the engine for all asset movement, and a bounded gateway mock at the cross-chain boundary.
+The architecture composes reused OpenZeppelin Daml primitives, the CIP-0112 settlement spine as the engine for all asset movement, and the Standardized Messaging Gateway at the cross-chain boundary.
 
 ### Parties, Nodes, and Processes
 
@@ -256,7 +256,7 @@ Three properties follow from the layout:
 | Settlement Spine (`canton-contracts`) | `OpenZeppelin.TokenCIP112V1`: [`TokenRules`](https://github.com/OpenZeppelin/canton-contracts/blob/7696749737885e25cd88422847105f890f03b00d/experiments/token/tokenCIP112-v1/daml/OpenZeppelin/TokenCIP112V1/Registry.daml#L28), [`TokenAllocationRequest`](https://github.com/OpenZeppelin/canton-contracts/blob/7696749737885e25cd88422847105f890f03b00d/experiments/token/tokenCIP112-v1/daml/OpenZeppelin/TokenCIP112V1/AllocationRequest.daml#L18), [`TokenAllocation`](https://github.com/OpenZeppelin/canton-contracts/blob/7696749737885e25cd88422847105f890f03b00d/experiments/token/tokenCIP112-v1/daml/OpenZeppelin/TokenCIP112V1/Allocation.daml#L67), [`TokenHolding`](https://github.com/OpenZeppelin/canton-contracts/blob/7696749737885e25cd88422847105f890f03b00d/experiments/token/tokenCIP112-v1/daml/OpenZeppelin/TokenCIP112V1/Holding.daml#L17), [`TokenEventLog`](https://github.com/OpenZeppelin/canton-contracts/blob/7696749737885e25cd88422847105f890f03b00d/experiments/token/tokenCIP112-v1/daml/OpenZeppelin/TokenCIP112V1/Base.daml#L75), [`BurnerCapability`](https://github.com/OpenZeppelin/canton-contracts/blob/7696749737885e25cd88422847105f890f03b00d/experiments/token/tokenCIP112-v1/daml/OpenZeppelin/TokenCIP112V1/Allocation.daml#L52) | Core engine for all asset movement. `wTOK` holdings are `TokenHolding` contracts ([instrument naming](#instrument-naming-wtok-vs-usdcx)); an instrument issued elsewhere settles through the same interfaces. |
 | Identity Verification (this workspace) | `ShapeB`: [`KycClaim`](../../experiments/identity/hook-shape-b/daml/OpenZeppelin/Experimental/Identity/ShapeB.daml#L43), `TrustedIssuerRegistry` | D3: a recipient must hold a `KycClaim` from a trusted issuer to receive a compliance-gated inflow. |
 | Holdings & Preapproval | `OpenZeppelin/canton-token-template` (`SimpleToken.*`): `SimpleHolding`, `SimpleTokenRules`, `LockedSimpleHolding`, `TransferPreapproval` | Holds value, and lets a recipient agree in advance. The recipient signs a `TransferPreapproval` once, and the relayer acts under it later. The template's one choice, `TransferPreapproval_Send`, sends a transfer and cannot create an allocation on the settlement spine. The choice that can is ([section 4.2](#42-component-inbound-dvp-via-delegated-accept)). |
-| Messaging Gateway | `StandardizedMessagingGateway` (bounded mock, [section 4.1](#41-component-standardized-messaging-gateway-bounded-mock)) | The boundary with the external chain. It accepts a message that reports a lock on that chain, signed by the attesters, then starts a settlement on the spine. |
+| Messaging Gateway | `StandardizedMessagingGateway` ([section 4.1](#41-component-standardized-messaging-gateway)) | The boundary with the external chain. It accepts a message that reports a lock on that chain, signed by the attesters, then starts a settlement on the spine. |
 
 ### Per-Party Projection
 
@@ -548,7 +548,7 @@ Two limits matter. A template's `key` definition can be neither added nor remove
 
 - `openzeppelin-pausable-v1`, `openzeppelin-ownable-v1`, and `openzeppelin-access-control-v1` are plug-and-play: any template needing a circuit breaker, two-step handover, or role gating composes them without modification.
 - The atomic settlement primitive serves any system that needs multi-leg DvP. The DEX and Lending RIs ride the same entrypoint, with no parallel settlement path.
-- The Standardized Messaging Gateway is the pluggable bridge boundary: a production gateway, or an alternative bridge mode, replaces the mock without touching settlement or compliance.
+- The Standardized Messaging Gateway is the pluggable bridge boundary: an alternative bridge mode, or a different source-chain proof scheme, changes the gateway alone and leaves settlement and compliance untouched.
 - The `KycClaim` and `TrustedIssuerRegistry` identity hook is the substitution point for richer identity regimes, including the deferred cross-domain D3.
 
 ---
@@ -557,7 +557,7 @@ Two limits matter. A template's `key` definition can be neither added nor remove
 
 The snippets below are illustrative rather than production code. They exemplify the flows and omit non-essential detail such as basic checks, the `ensure` block, and most comments.
 
-### 4.1 Component: Standardized Messaging Gateway (bounded mock)
+### 4.1 Component: Standardized Messaging Gateway
 
 The gateway is the cross-chain boundary. Its single choice validates the relayer's role grant, resolves the pause state and the identity and nonce registries by key (each keyed by its own maintaining authority, so membership changes never leave a stale contract id) and checks each resolved registry against the genesis anchor it pins, reads the recipient's `KycClaim`, consumes the one-time attested carrier, records the nonce fail-closed, and creates an executor-signed allocation request whose amount is exactly the attested amount. The recipient-side allocation is deliberately not created here: the gateway carries no recipient authority, so binding the recipient happens in [section 4.2](#42-component-inbound-dvp-via-delegated-accept) under the recipient's own standing signature.
 
@@ -580,7 +580,7 @@ roleId : GatewayRole -> Text
 roleId Relayer = "BRIDGE_RELAYER_ROLE"
 roleId Seizer  = "CUSTODIAN_SEIZER_ROLE"
 
--- bounded mock of the gateway interface; no implementation exists.
+-- The cross-chain boundary component. No implementation exists yet.
 template StandardizedMessagingGateway
   with
     admin : Party
