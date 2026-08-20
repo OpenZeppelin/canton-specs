@@ -186,7 +186,7 @@ Duties are segregated across discrete Daml parties, with in-code role names carr
 - **Attesters** are independent parties in the `TrustedAttesterRegistry`. They sign the `LockAttestation` that authorizes an inbound mint, the per-settlement compliance attestation (D1), and the outbound redemption attestation. This is the trust role, deliberately separate from the relayer's transport role.
 - **Compliance Verifier** maintains the `TrustedIssuerRegistry` and issues the `KycClaim` used for D3.
 - **Custodian** holds the D2 seizure credential and owns the preset account that receives swept funds under mandate.
-- **Stablecoin Admin** is the issuing admin of `wTOK` and authors the mint leg of an inbound settlement. It holds no authority over an externally issued instrument such as `USDCx`: in the settled-native case there is no RI-side issuer role.
+- **Stablecoin Admin** is the issuing admin of `wTOK` and authors the mint leg of an inbound settlement.
 - **Recipient** is the treasury or end user receiving funds, optionally through a standing `TransferPreapproval`.
 
 Because Canton settles on per-party projection, the settlement fractures into bilateral requests: the relayer and the recipient are the only initial observers of the inbound `TokenAllocationRequest`, and no other recipient sees that traffic. A committed allocation locks the bridging funds until the settlement deadline, so the recipient knows the liquidity is reserved and cannot be double-spent or withdrawn before the DvP concludes.
