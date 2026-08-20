@@ -614,12 +614,14 @@ blocks its messages. See the
 
 For reward attribution, the auctioneer is the **app provider party**. Under
 [CIP-0104](https://github.com/canton-foundation/cips/blob/main/cip-0104/cip-0104.md),
-an active `FeaturedAppRight` lets that party earn traffic-based rewards from
-successful transaction views it confirms. Opening, bid acceptance, close, clear,
-and auctioneer-led recovery all use auctioneer authority and can therefore
-contribute; observation alone does not qualify. The network aggregates eligible
-activity by reward round into a coupon that the auctioneer or an assigned
-beneficiary can mint as Canton Coin before it expires.
+an active `FeaturedAppRight` naming the auctioneer lets it earn traffic-based
+rewards from successful auction transactions for which it confirms one or more
+views. Opening, bid acceptance, close, clear, and auctioneer-led recovery all use
+auctioneer authority and can therefore contribute; observation alone does not
+qualify. Eligible activity contributes to a reward calculated for each network
+reward round. When that reward meets the network threshold, the network issues a
+coupon that the auctioneer can redeem before it expires, directing some or all
+of the resulting Canton Coin to named beneficiaries.
 
 These rewards can help fund traffic and other operating costs. A quantitative
 analysis of the traffic costs incurred by the auction flows, the rewards accrued
@@ -641,7 +643,7 @@ We require the following production checks:
 | Time and retry | Publish the bidding and settlement deadlines together with preparation and recovery margins. Monitor the earliest dependency deadline, command completions, retries, and ledger-state changes. |
 | Recovery | Exercise clear rollback, auctioneer cancellation, withdrawal under each registry's authorization rules, backend outage, synchronizer outage, allocation changes, and every supported seizure outcome. |
 | Capacity | Test the largest allowed individual bid, accepted bid set, and winner set against applicable factory, transaction, signature, and participant traffic limits. Stop accepting bids at the published bid limit. |
-| Operations | Monitor round state, locked allocations, eligibility and approval status, approved code, party availability, confirmation latency, participant traffic balances, and unresolved recovery actions. |
+| Operations | Monitor round state, locked allocations, eligibility and approval status, approved code, party availability, confirmation latency, participant traffic balances, reward coupons and expiry, and unresolved recovery actions. |
 
 For interactive submission, the client waits for a definitive completion before
 treating an attempt as final. We give each prepared transaction a latest allowed
