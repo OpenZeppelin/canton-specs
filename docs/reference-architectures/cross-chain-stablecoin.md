@@ -568,7 +568,7 @@ The gateway is the cross-chain boundary. Its single choice validates the relayer
 ```daml
 module CrossChain.Gateway where
 
-import Splice.Api.Token.AllocationV2 (AllocationSpecification(..), SettlementInfo, TransferLegSide)
+import Splice.Api.Token.AllocationV2 (AllocationSpecification(..), SettlementInfo, TransferLegSide, TransferSide(..))
 import Splice.Api.Token.HoldingV2 (Account(..), InstrumentId)
 import OpenZeppelin.AccessControlV1 (RoleGrant, requireRole)
 import OpenZeppelin.TokenCIP112V1.AllocationRequest (TokenAllocationRequest(..))
@@ -619,9 +619,11 @@ template StandardizedMessagingGateway
         assertMsg "identity mismatch" (claim.subjectParty == recipient)
         assertMsg "issuer not trusted" (claim.declaredIssuer `elem` registry.trustedIssuers)
 
-        -- Bind to backing and replay-protect: the mint amount derives from the
-        -- signed LockAttestation, `InboundMessage_Consume` archives the one-time
-        -- carrier, and the nonce registry fails closed on a duplicate.
+        -- Bind to backing and replay-protect: every field of the mint leg
+        -- derives from the signed LockAttestation, `InboundMessage_Consume`
+        -- archives the one-time carrier, and the nonce registry fails closed on
+        -- a duplicate. `instrumentId` on a leg side is the id component only,
+        -- so the admin is checked against the attestation separately.
         now <- getTime
         att <- exercise inboundMessageCid InboundMessage_Consume
         assertMsg "attestation expired" (now <= att.expiry)
@@ -629,7 +631,8 @@ template StandardizedMessagingGateway
         assertMsg "instrument admin mismatch" (att.cantonInstrumentId.admin == stablecoinAdmin)
         assertMsg "account owner mismatch" (recipientAccount.owner == Some recipient)
         assertMsg "amount mismatch" (mintLegSide.amount == att.lockedAmount)
-        assertMsg "instrument mismatch" (mintLegSide.instrumentId == att.cantonInstrumentId)
+        assertMsg "instrument mismatch" (mintLegSide.instrumentId == att.cantonInstrumentId.id)
+        assertMsg "not the recipient's receive side" (mintLegSide.side == ReceiverSide)
         (nonceRegCid, nonceReg) <- fetchByKey @ConsumedNonceRegistry admin
         assertMsg "nonce registry off the pinned chain" (nonceReg.genesis == nonceRegistryGenesis)
         exercise nonceRegCid ConsumedNonceRegistry_Record with
