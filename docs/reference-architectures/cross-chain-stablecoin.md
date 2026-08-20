@@ -39,8 +39,6 @@ For institutional control, the design proposes four gates. **D1** through **D4**
 
 ### Operational Scope and Boundaries
 
-The reference implementation favors simplicity and modular extensibility.
-
 | Feature Category | In-Scope Architectural Components |
 |---|---|
 | Atomic Settlement | Private on-Canton settlement of inbound stablecoin payments via `SettlementFactory_SettleBatch`. |
@@ -72,33 +70,11 @@ Where a native rail exists (i.e. USDCx), the RI only aims to *settle* its mint o
 
 ### Registry Uniqueness Under Non-Unique Keys
 
-A Canton 3.x key is a lookup handle, not a uniqueness constraint, so the rail supplies uniqueness itself. The [contract-keys reference](https://docs.canton.network/appdev/modules/m3-contract-keys) states three properties this design has to work around:
+A [Canton 3.x key](https://docs.canton.network/appdev/modules/m3-contract-keys) does not enforce uniqueness, so this design has to supply it. The exposure is concrete: the Bridge Relayer builds every inbound submission and chooses, by disclosure, which of two same-key registries the gateway resolves. A nonce registry missing an entry lets an already-minted lock mint twice, and an issuer registry with a wider list passes a D3 check the narrower one refuses. A botched rotation that creates the successor before archiving the predecessor is enough to create the pair.
 
-- several active contracts of one template may share a key, so resolving by key does not on its own identify one contract;
-- negative lookups are not validated, so no check may rest on the *absence* of a key;
-- where duplicates exist, the submitter steers which one `fetchByKey` returns, because the [resolution order](https://github.com/digital-asset/canton/releases/tag/v3.5.1) takes contracts created inside the transaction first, then explicitly disclosed contracts, then contracts the participant already knows in recency order.
+**Decision.** Every keyed registry sits on an on-ledger successor chain. Each version pins the genesis contract id and consumes its predecessor, and each consumer checks a resolved registry against the genesis it pinned once. Catching a planted parallel registry then does not depend on an operator noticing.
 
-Only the maintainer can create a duplicate, but creating one is an ordinary rotation mistake: a migration that creates the successor before archiving the predecessor leaves both active. From that point the Bridge Relayer, which builds every inbound submission and holds no minting trust, picks which registry the gateway sees by disclosing it. A `ConsumedNonceRegistry` that lacks a given `(sourceChainId, nonce)` lets an already-minted lock mint a second time, and a `TrustedIssuerRegistry` with a wider `trustedIssuers` list passes a D3 check that the narrower one refuses.
-
-The RI therefore anchors every keyed registry to an on-ledger successor chain. Each version pins the genesis contract id and consumes its predecessor, so a consumer resolves by key and then checks the anchor it pinned once. A parallel registry that someone plants fails the anchor check, so catching it does not depend on an operator noticing.
-
-```daml
--- Uniqueness comes from the chain, not from the key.
-template ConsumedNonceRegistry
-  with
-    admin : Party
-    genesis : Optional (ContractId ConsumedNonceRegistry)      -- None only at genesis; pinned by every consumer
-    predecessor : Optional (ContractId ConsumedNonceRegistry)  -- None only at genesis
-    consumed : [Text]
-  where
-    signatory admin
-    key admin : Party        -- convenience lookup only; carries no uniqueness
-    maintainer key
-```
-
-The genesis version cannot name itself, because a contract id does not exist until its create commits, so `genesis` carries `None` on the first version exactly as `predecessor` does. A consumer that pinned the genesis id *g* therefore accepts a resolved registry when the resolved id is *g* itself or its `genesis` is `Some g`, and rejects everything else.
-
-Two constraints follow. `lookupByKey` requires authorization from **all** maintainers of the key, so the design resolves registries with `fetchByKey`, which like `fetch` needs authorization from one *stakeholder* of the contract it returns. That is a weaker rule but not a free one: a caller that resolves a registry another party signs must be a stakeholder of it ([section 4.1](#41-component-standardized-messaging-gateway)). And the trusted-attester registry stays outside this scheme: pinning it by contract id on the settlement registry is the same anchoring idea without the key ([D1](#capability-gates-d1-d4)).
+**Consequences.** The genesis version cannot name itself, so its pinned field is empty and a consumer accepts either the genesis id itself or a version pointing at it. The gateway resolves with `fetchByKey`, so it must be a stakeholder of every registry it reads ([section 4.1](#41-component-standardized-messaging-gateway)). No check may rest on the absence of a key. And the trusted-attester registry stays outside the scheme entirely: it is pinned by contract id on the settlement registry, which is the same anchoring without a key ([D1](#capability-gates-d1-d4)).
 
 ### Status at a Glance
 
@@ -248,15 +224,11 @@ Three properties follow from the layout:
 
 ### Per-Party Projection
 
-Because Canton settles on per-party projection, the settlement fractures into bilateral requests: the relayer and the recipient are the only initial observers of the inbound `TokenAllocationRequest`, and no other recipient sees that traffic. A committed allocation locks the bridging funds until the settlement deadline, so the recipient knows the liquidity is reserved and cannot be double-spent or withdrawn before the DvP concludes.
+The settlement fractures into bilateral requests: the relayer and the recipient are the only initial observers of the inbound `TokenAllocationRequest`, and no other recipient sees that traffic. A committed allocation locks the bridging funds until the settlement deadline, so the recipient knows the liquidity is reserved and cannot be withdrawn before the DvP concludes.
 
 ### Decentralization and Trust Topology
 
-Canton hosts a party on one or more nodes. The `PartyToParticipant` [confirmation threshold](https://docs.canton.network/overview/reference/decentralization) says how many of those nodes must confirm the party's transactions.
-
-A threshold above 1 stops one bad node from acting for the party. It also stops the party from sending Ledger API commands, because a command goes through a single node and carries no signature of the party. Such a party must let other parties submit for it, or sign its transactions externally.
-
-The hosting nodes are also the nodes that check Daml authorization for the party. If enough of them collude, they confirm a contract that the party never agreed to sign. So a 3-of-5 rule written in Daml is worth 3-of-5 only if the party's confirmation threshold is 3 or more.
+Two constraints bound every posture below. A quorum written in Daml is worth its stated N only if the role party's [`PartyToParticipant` confirmation threshold](https://docs.canton.network/overview/reference/decentralization) is at least N, because the hosting nodes are the nodes that check the party's authorization. And a party above threshold 1 cannot submit for itself, so it acts through another party's submission or through external signing.
 
 The **Stablecoin Admin** (it authors `wTOK` mint legs) and the **Custodian** (it can sweep locked value) hold value-critical authority, so no single key may exercise either role. Canton offers two routes to that N-of-M posture, and the choice between them is open ([section 7](#7-open-design-questions)):
 
@@ -418,26 +390,13 @@ The attestation's validity window must therefore cover the whole inbound path fr
 
 The flow above settles an inbound payment privately. What makes it a bridge is the binding between the Canton mint and the backing locked on the source chain. Without that binding the rail still settles privately, but it mints with no proof that anything backs the mint.
 
-**What is attested.** Every inbound mint is authorized by a typed `LockAttestation`, a Daml-visible record asserting that backing is locked on the source chain and is claimable only by minting the matching amount on Canton:
-
-```daml
--- RI-level type carried by `InboundMessage`.
-data LockAttestation = LockAttestation with
-  sourceChainId      : Text         -- e.g. "ethereum-mainnet"
-  lockTxId           : Text         -- the source-chain lock/escrow transaction
-  lockedAsset        : Text         -- source-chain asset locked (foreign reference, so Text)
-  lockedAmount       : Decimal      -- exact backing locked on the source chain
-  cantonRecipient    : Party        -- who may receive the minted wrapped asset
-  cantonInstrumentId : InstrumentId -- typed on-ledger identity bound to its issuing admin
-  nonce              : Text         -- replay-protection sequence id (one-time)
-  expiry             : Time         -- attestation validity window
-```
+**What is attested.** Every inbound mint is authorized by a typed `LockAttestation`, carried inside the `InboundMessage`. It asserts that backing is locked on the source chain and claimable only by minting the matching amount on Canton, and it identifies the lock, the amount, the Canton recipient, the target instrument, a one-time nonce, and its own expiry. The source-chain lock and asset are foreign references, so nothing on Canton can validate them; that is the trust the attester set carries.
 
 **Who signs it, and what binds.** Not a lone relayer: the attestation is verified on-ledger against the `TrustedAttesterRegistry`, which is what separates the relayer's transport role from the trust role. The target posture is a threshold N-of-M attester set ([section 2](#decentralization-and-trust-topology)). The mint binds every field it uses to the attestation - amount, recipient, and instrument - and requires the attestation to be registry-trusted, unexpired, and carrying an unconsumed nonce. Any failure fails the batch: no mint, no partial credit.
 
 **How the nonce is enforced.** Two layers. `InboundMessage_Consume` archives the carrier, so one carrier can never be processed twice. Because a *second* carrier could still be attested for the same lock, an admin-signed `ConsumedNonceRegistry` records `(sourceChainId, nonce)` at consumption and fails closed on a duplicate, which holds even if the attesters misbehave. The registry observes the attester set, so the parties who must not re-attest a used nonce can read the dedup state and witness any admin edit. Since `lockTxId` already identifies the lock, an implementation may key entries by `(sourceChainId, lockTxId)` instead.
 
-**Reserve invariant.** Minted wrapped supply never exceeds the sum of valid, unredeemed `LockAttestation`s: `mintedSupply <= sum of lockedAmount(unredeemed)`. Mint increments the claimed reserve and redemption decrements it. This is the on-ledger statement of 1:1 backing.
+**Reserve invariant.** Minted wrapped supply never exceeds the sum of the locked amounts of valid, unredeemed attestations. Mint increments the claimed reserve and redemption decrements it. This is the on-ledger statement of 1:1 backing.
 
 **Which choice has to enforce the binding.** Settlement conserves value at *settlement*, funding the recipient's leg from a sender's locked holdings, so the unbacked-issuance surface is the *creation* of the wrapped input holdings rather than the settle. An attested-mint choice (`Wtok_MintAttested`, co-authorized by the Stablecoin Admin) must therefore be the only creator of `wTOK` holdings: it re-verifies the checks above and creates the holdings that fund the admin's SenderSide leg. The mint is modeled as a funded transfer leg rather than a sibling create, because the minted amount must be conserved against custodied backing and must pass the same per-instrument conservation check as every other leg.
 
@@ -463,7 +422,7 @@ Nothing guarantees that the Canton-side settlement of an attested lock *executes
 
 ### Privacy and Visibility Model
 
-Canton guarantees reads only to a contract's signatories and observers; other parties see a contract only transiently, when a transaction they witness divulges it. Target visibility per template, all code in the `canton-contracts` settlement spine unless stated otherwise:
+Target visibility per template, all in the settlement spine unless stated otherwise. Anyone outside a row sees that contract only transiently, when a transaction they witness divulges it:
 
 | Contract | Signatories | Observers |
 |---|---|---|
@@ -507,217 +466,45 @@ The mark is bounded and reversible. It refuses a window past `maxSeizureExtensio
 
 ### Implementing Smart Contract Upgrades
 
-The SCU rules are Daml platform constraints; their application to this rail is. An existing choice's arguments must never be mutated to require a new field. Extensions travel through appended `Optional` fields, new serializable types, and new choices. A template can add a new interface, but an interface definition itself cannot change; only an interface *instance* can.
+Nothing in this rail has been upgraded yet; what follows is how the design intends to stay upgradeable. Cross-domain identity (D3, deferred) is the pattern: the settlement path is never mutated, and a new choice takes the proof as an appended optional argument, so existing relayers keep working. The identity-hook upgrade spike in this workspace is the evidence that the additive path holds.
 
-Cross-domain identity (D3, deferred) shows the pattern: the settlement path is not mutated, and instead a new choice such as `SettlementFactory_SettleBatchWithCrossDomainProof` accepts an `Optional CrossDomainProof`, so existing relayers keep working. This is the additive path proven in the `OpenZeppelin/canton-specs` identity-hook upgrade spike.
-
-Two limits matter. A template's `key` definition can be neither added nor removed in a later version, and package vetting rejects the upload rather than the compiler rejecting the build, so the key plan of [section 1](#registry-uniqueness-under-non-unique-keys) is a deploy-and-migrate path for `PauseState` and `TrustedIssuerRegistry`. And SCU extensions are not security retrofits: adding a stricter choice does not close the looser one. If the stricter path must become mandatory, the upgrade must also make the looser choice fail unconditionally and mark it `deprecated`.
+Two limits bind this design specifically. A template's `key` definition can be neither added nor removed in a later version, and package vetting rejects the upload rather than the compiler rejecting the build, so the key plan of [section 1](#registry-uniqueness-under-non-unique-keys) is a deploy-and-migrate path for `PauseState` and `TrustedIssuerRegistry`. And SCU extensions are not security retrofits: adding a stricter choice does not close the looser one. If the stricter path must become mandatory, the upgrade must also make the looser choice fail unconditionally and mark it `deprecated`.
 
 ### Extension Points
 
-- `openzeppelin-pausable-v1`, `openzeppelin-ownable-v1`, and `openzeppelin-access-control-v1` are plug-and-play: any template needing a circuit breaker, two-step handover, or role gating composes them without modification.
-- The atomic settlement primitive serves any system that needs multi-leg DvP. The DEX and Lending RIs ride the same entrypoint, with no parallel settlement path.
-- The Standardized Messaging Gateway is the pluggable bridge boundary: an alternative bridge mode, or a different source-chain proof scheme, changes the gateway alone and leaves settlement and compliance untouched.
-- The `KycClaim` and `TrustedIssuerRegistry` identity hook is the substitution point for richer identity regimes, including the deferred cross-domain D3.
+- The Standardized Messaging Gateway is the substitution point for the bridge boundary: an alternative bridge mode, or a different source-chain proof scheme, changes the gateway and leaves settlement and compliance untouched.
+- The `KycClaim` and `TrustedIssuerRegistry` identity hook is the substitution point for a richer identity regime, including the deferred cross-domain D3.
+- The DEX and Lending reference architectures settle through the same entrypoint, so none of them adds a parallel settlement path.
 
 ---
 
-## 4. Sample Component Structure
+## 4. Component Structure
 
-The snippets below are illustrative rather than production code. They exemplify the flows and omit non-essential detail such as basic checks, the `ensure` block, and most comments.
+Three components carry authority this design has to place deliberately. Each is stated as the parties it involves, the authority its choices need, and the order of its steps.
 
 ### 4.1 Component: Standardized Messaging Gateway
 
-The gateway is the cross-chain boundary. Its single choice validates the relayer's role grant, resolves the pause state and the identity and nonce registries by key (each keyed by its own maintaining authority, so membership changes never leave a stale contract id) and checks each resolved registry against the genesis anchor it pins, reads the recipient's `KycClaim`, consumes the one-time attested carrier, records the nonce fail-closed, and creates an executor-signed allocation request whose amount is exactly the attested amount. The recipient-side allocation is deliberately not created here: the gateway carries no recipient authority, so binding the recipient happens in [section 4.2](#42-component-inbound-dvp-via-delegated-accept) under the recipient's own standing signature.
+The gateway is a contract signed by its admin and its operator, with one nonconsuming choice that the relayer exercises. That choice validates the relayer's role grant, resolves the pause state and the identity and nonce registries by key and checks each against the genesis anchor it pins, reads the recipient's `KycClaim`, consumes the one-time attested carrier, records the nonce fail-closed, and creates an executor-signed allocation request. Every field of the mint leg it names is bound to the carrier's `LockAttestation`: amount, recipient, instrument, and the recipient's receive side of the leg.
 
-The choice runs with the gateway's `admin` and `operator` authority and nothing else, so every contract it reads must name the gateway's admin as an observer for the read to be authorized at all ([Privacy and Visibility Model](#privacy-and-visibility-model)). Only the nonce registry satisfies that today, because the gateway's own admin signs it.
+The choice runs with the gateway's admin and operator authority and nothing else. Each contract it reads must therefore name the gateway's admin as an observer for the read to be authorized ([Privacy and Visibility Model](#privacy-and-visibility-model)). Only the nonce registry satisfies that today, because the gateway's own admin signs it.
 
-```daml
-module CrossChain.Gateway where
-
-import Splice.Api.Token.AllocationV2 (AllocationSpecification(..), SettlementInfo, TransferLegSide, TransferSide(..))
-import Splice.Api.Token.HoldingV2 (Account(..), InstrumentId)
-import OpenZeppelin.AccessControlV1 (RoleGrant, requireRole)
-import OpenZeppelin.TokenCIP112V1.AllocationRequest (TokenAllocationRequest(..))
-import OpenZeppelin.Experimental.Identity.ShapeB (KycClaim, TrustedIssuerRegistry)
-import OpenZeppelin.PausableV1 (PauseState, whenNotPaused)
-import CrossChain.Inbound (ConsumedNonceRegistry(..), InboundMessage(..), LockAttestation(..))
-
-data GatewayRole = Relayer | Seizer deriving (Eq, Show)
-
-roleId : GatewayRole -> Text
-roleId Relayer = "BRIDGE_RELAYER_ROLE"
-roleId Seizer  = "CUSTODIAN_SEIZER_ROLE"
-
--- The cross-chain boundary component. No implementation exists yet.
-template StandardizedMessagingGateway
-  with
-    admin : Party
-    operator : Party
-    stablecoinAdmin : Party  -- issuing admin of the gateway-minted wTOK
-    pauser : Party           -- maintainer of the PauseState key
-    registryAdmin : Party    -- compliance verifier; maintainer of the issuer-registry key
-    issuerRegistryGenesis : ContractId TrustedIssuerRegistry  -- successor-chain anchors: the genesis
-                                                              -- ids themselves, so never Optional here
-    nonceRegistryGenesis : ContractId ConsumedNonceRegistry
-  where
-    signatory admin, operator
-
-    nonconsuming choice Gateway_ProcessInbound : ContractId TokenAllocationRequest
-      with
-        relayerGrant : ContractId RoleGrant
-        inboundMessageCid : ContractId InboundMessage
-        recipient : Party
-        recipientAccount : Account          -- the recipient's wTOK account; owner must be `recipient`
-        inboundSettlement : SettlementInfo  -- executors, reference id, and settle-before time
-        mintLegSide : TransferLegSide       -- the recipient's ReceiverSide of the mint leg
-        kycClaimCid : ContractId KycClaim
-      controller operator
-      do
-        grant <- fetch relayerGrant
-        requireRole operator (roleId Relayer) admin grant
-
-        -- Pause gate and D3 identity, resolved by key, then checked against the
-        -- pinned genesis anchor because a key carries no uniqueness (section 1).
-        -- `admin` authorizes each of these three reads, so the pause state, the
-        -- registry, and the claim must all name it as an observer.
-        (_, pause) <- fetchByKey @PauseState pauser
-        whenNotPaused pause
-        (registryCid, registry) <- fetchByKey @TrustedIssuerRegistry registryAdmin
-        assertMsg "issuer registry off the pinned chain"
-          (registryCid == issuerRegistryGenesis || registry.genesis == Some issuerRegistryGenesis)
-        claim <- fetch kycClaimCid
-        assertMsg "identity mismatch" (claim.subjectParty == recipient)
-        assertMsg "issuer not trusted" (claim.declaredIssuer `elem` registry.trustedIssuers)
-
-        -- Bind to backing and replay-protect: every field of the mint leg
-        -- derives from the signed LockAttestation, `InboundMessage_Consume`
-        -- archives the one-time carrier, and the nonce registry fails closed on
-        -- a duplicate. `instrumentId` on a leg side is the id component only,
-        -- so the admin is checked against the attestation separately.
-        now <- getTime
-        att <- exercise inboundMessageCid InboundMessage_Consume
-        assertMsg "attestation expired" (now <= att.expiry)
-        assertMsg "recipient mismatch" (recipient == att.cantonRecipient)
-        assertMsg "instrument admin mismatch" (att.cantonInstrumentId.admin == stablecoinAdmin)
-        assertMsg "account owner mismatch" (recipientAccount.owner == Some recipient)
-        assertMsg "amount mismatch" (mintLegSide.amount == att.lockedAmount)
-        assertMsg "instrument mismatch" (mintLegSide.instrumentId == att.cantonInstrumentId.id)
-        assertMsg "not the recipient's receive side" (mintLegSide.side == ReceiverSide)
-        (nonceRegCid, nonceReg) <- fetchByKey @ConsumedNonceRegistry admin
-        assertMsg "nonce registry off the pinned chain"
-          (nonceRegCid == nonceRegistryGenesis || nonceReg.genesis == Some nonceRegistryGenesis)
-        exercise nonceRegCid ConsumedNonceRegistry_Record with
-          sourceChainId = att.sourceChainId; nonce = att.nonce
-
-        -- The executor-signed request names the mint leg with exactly the attested
-        -- amount. `TokenAllocationRequest` carries no authorizer field: the
-        -- authorizer is the account on each allocation specification, and the
-        -- request's signatories are the settlement executors.
-        create TokenAllocationRequest with
-          settlement = inboundSettlement
-          allocations =
-            [ AllocationSpecification with
-                admin = att.cantonInstrumentId.admin
-                authorizer = recipientAccount
-                transferLegSides = [mintLegSide]
-                settlementDeadline = Some att.expiry
-                nextIterationFunding = None
-                committed = True
-            ]
-          requestedAt = now
-          settleAt = Some att.expiry
-```
+The recipient-side allocation is deliberately not created here. The gateway holds no recipient authority, so binding the recipient happens in 4.2 under the recipient's own standing signature.
 
 ### 4.2 Component: Inbound DvP via Delegated Accept
 
-The evidence template `TransferPreapproval` exposes only `TransferPreapproval_Send`. What the snippet relies on is the pattern, which is real: a recipient-signed standing contract whose choice body contributes the recipient's authority when a third party exercises it. The delegated choice exercised below, `TransferPreapproval_AllocateInbound`, is an RI-level design, and the snippet shows its call site rather than its body. Implementation consolidates it either as an SCU-additive choice on the evidence template or as a dedicated recipient-signed `DelegatedAcceptGrant` template. Both spine steps that need the recipient's signature run inside its body: creating the recipient's `AllocationFactory_Allocate` from the gateway's request, whose `actors` must carry the authorizer's own authority, and accepting it into a committed `TokenAllocation`.
+The recipient's co-authorization flows through a choice on a contract the recipient signed, which contributes their authority when the relayer exercises it. The relayer only triggers it: naming a party confers no authority.
 
-```daml
-module CrossChain.Orchestrator where
+The evidence template exposes only `TransferPreapproval_Send`, which sends a transfer and cannot allocate on the settlement spine. The delegated choice this design needs, `TransferPreapproval_AllocateInbound`, does not exist. Two shapes can carry it, and the choice between them is open: an SCU-additive choice on the evidence template, or a dedicated recipient-signed `DelegatedAcceptGrant` template. Either way both spine steps that need the recipient's signature run inside its body, creating the recipient's allocation from the gateway's request and accepting it into a committed allocation.
 
-import DA.TextMap qualified as TextMap
-import Splice.Api.Token.AllocationInstructionV2 (AllocationInstructionResult_Output(..))
-import Splice.Api.Token.AllocationV2 (FinalizedAllocation(..), SettlementFactory_SettleBatchResult)
-import Splice.Api.Token.MetadataV1 (AnyValue(..), ChoiceContext(..), ExtraArgs(..), emptyMetadata)
-import OpenZeppelin.TokenCIP112V1
-import OpenZeppelin.TokenCIP112V1.Base (d1AttestationContextKey)
-import SimpleToken.Preapproval (TransferPreapproval)
-
-template CrossChainDvP
-  with
-    executor : Party    -- the relayer, acting as authorized settlement executor
-  where
-    signatory executor
-
-    choice Execute_Inbound_Settlement : SettlementFactory_SettleBatchResult
-      with
-        requestCid : ContractId AllocationRequest  -- the gateway's executor-signed request
-        recipientPreapprovalCid : ContractId TransferPreapproval
-        issuerSendAllocationId : ContractId Allocation  -- issuer's SenderSide of the mint leg
-        batchFactoryCid : ContractId SettlementFactory
-        settlement : SettlementInfo
-        transferLegs : [TransferLeg]
-        attestationCid : ContractId ComplianceAttestation
-      controller executor
-      do
-        -- The recipient's co-authorization flows through a choice on their own
-        -- signed TransferPreapproval: its body runs AllocationFactory_Allocate
-        -- for the request's legs under the recipient's signature. The executor
-        -- only triggers it, since a party list confers no authority.
-        result <- exercise recipientPreapprovalCid TransferPreapproval_AllocateInbound with
-          requestCid; executor
-        allocationId <- case result.output of
-          AllocationInstructionResult_Completed with allocationCid = cid -> pure cid
-          _ -> fail "inbound allocation did not complete"
-
-        -- Atomic DvP: the issuer's SenderSide mint leg and the recipient's
-        -- ReceiverSide settle together or not at all. The D1 attestation rides the
-        -- choice context; the attester registry is pinned on TokenRules, so the
-        -- caller never names it.
-        let finalized cid = FinalizedAllocation with
-              allocationCid = cid
-              extraTransferLegSides = []
-              nextIterationFunding = None
-        exercise batchFactoryCid SettlementFactory_SettleBatch with
-          settlement; transferLegs
-          allocations = map finalized [issuerSendAllocationId, allocationId]
-          actors = settlement.executors
-          extraArgs = ExtraArgs with
-            context = ChoiceContext with
-              values = TextMap.fromList
-                [(d1AttestationContextKey, AV_ContractId (toAnyContractId attestationCid))]
-            meta = emptyMetadata
-```
+The relayer then settles the issuer's sender side and the recipient's receiver side in one batch, presenting the D1 attestation through the standard's extension slot. The attester registry is pinned on `TokenRules`, so the caller never names it.
 
 ### 4.3 Component: D2 Lock-and-Sweep
 
-D2 reuses the spine's real seizure mechanism; there is no bespoke seizure template.
-
-```daml
--- D2SeizureHook is a spine data record (seizureCaseRef, custodianDestination,
--- inFlightHandlingStatus), not a template, and BurnerCapability has no choices.
--- Seizure runs on the Allocation / holding:
---
---   in-flight allocation, inside the settlement deadline:
---     exercise allocationId TokenAllocation_MarkD2Seizure with seizureHook = ...
---     exercise allocationId TokenAllocation_SweepD2Seizure with burnerCap = burnerCapId
---   past the settlement deadline, lawful process only (SeizureOrder is signed by
---   a registry-listed authority, never by the admin):
---     exercise allocationId TokenAllocation_SweepD2WithLawfulProcess with
---       burner = custodian; burnerCap = burnerCapId; seizureOrderCid = orderId
---   settled / locked holding (the evidence template ships only _Unlock):
---     exercise lockedHoldingId LockedSimpleHolding_ForcedSweep with
---       burner = custodian; burnerCap = burnerCapId   -- swept to preset custodianDestination
---
--- Never burns the asset to nothing; never returns seized funds to sender.
-```
-
----
+D2 reuses the spine's seizure mechanism; there is no bespoke seizure template. The seizure hook is a data record on the allocation and `BurnerCapability` carries no choices, so seizure runs entirely through choices on the allocation or the holding. Which path applies depends on where the value sits and how late it is: an in-flight allocation inside the settlement deadline, an in-flight allocation past it under a `SeizureOrder`, or an already-settled locked holding, whose sweep does not exist yet. [Capability Gates](#capability-gates-d1-d4) states the authority each path needs.
 
 ## 5. Security & Auditability
 
-Security rests on Daml's authorization model, not on cryptography this design supplies. Per-party projection is what contains a compromise: a party that is not an informee of a view learns nothing from it.
+Security rests on Daml's authorization model and on per-party projection, not on cryptography this design supplies.
 
 ### 5.1 Security Invariants
 
@@ -729,11 +516,7 @@ Security rests on Daml's authorization model, not on cryptography this design su
 
 ### 5.2 Automated Validation Engine
 
-Three tiers, built on OpenZeppelin verification tools:
-
-1. [`daml-lint`](https://github.com/OpenZeppelin/daml-lint/commits/main/): static analysis through abstract-syntax-tree checks for decimal bounds, unguarded division, positivity, archive-before-execute, anti-patterns, and naming conventions.
-2. [`daml-props`](https://github.com/OpenZeppelin/daml-props): property-based testing that fuzzes state transitions to check conservation, supply, and balance invariants under extreme inputs.
-3. [`daml-verify`](https://github.com/OpenZeppelin/daml-verify): Z3-backed proofs asserting the logical impossibility of undesired states.
+Three tiers apply to the invariants above: [`daml-lint`](https://github.com/OpenZeppelin/daml-lint/commits/main/) for decimal bounds and archive-before-execute, [`daml-props`](https://github.com/OpenZeppelin/daml-props) for conservation and reserve backing under generated inputs, and [`daml-verify`](https://github.com/OpenZeppelin/daml-verify) for the narrow invariants a proof can close. None is wired to this rail yet.
 
 ### 5.3 Threat Model
 
@@ -785,11 +568,11 @@ A treasury reconciles its private Canton settlement against the inbound external
 
 ## 6. Network Economics: Traffic Costs and App Rewards
 
-Canton meters every ledger transaction as synchronizer traffic and pays apps back through Splice rewards.
+Who pays for the rail, and who earns from it, is not symmetric. Both follow from where the design puts submission and signing.
 
 ### 6.1 Traffic costs
 
-Traffic beyond a small free base rate is bought in Canton Coin and burned by the submitting participant's validator. Cost is proportional to serialized view bytes with read amplification per recipient (`writeCost * (1 + recipients * readFactor / 10^4)`, summed per envelope). The price is calibrated so a standard Canton Coin transfer burns about 1 USD ([CIP-0042](https://github.com/canton-foundation/cips/blob/main/cip-0042/cip-0042.pdf)); the current 60 USD/MB is set by the Tokenomics Committee under authority delegated by [CIP-0084](https://github.com/canton-foundation/cips/blob/main/cip-0084/cip-0084.md).
+Cost scales with serialized view bytes and with the number of recipients each view projects to ([CIP-0042](https://github.com/canton-foundation/cips/blob/main/cip-0042/cip-0042.pdf), [CIP-0084](https://github.com/canton-foundation/cips/blob/main/cip-0084/cip-0084.md)), which makes the projection choices of this design its cost model.
 
 - An inbound payment is roughly three relayer-submitted transactions, plus the attester's carrier and attestation and the issuer's mint-leg funding. The settle is the heaviest: it projects the batch outputs to the recipient, the relayer, and the Stablecoin Admin, and verifies the attestation and registry on the way.
 - The Bridge Relayer pays for nearly everything. Its own purchases mint `ValidatorRewardCoupon`s to its validator operator, a partial rebate.
@@ -799,11 +582,11 @@ Traffic beyond a small free base rate is bought in Canton Coin and burned by the
 
 ### 6.2 App rewards
 
-Since CIP-0078 only featured apps earn rewards, and rewards are traffic-based ([CIP-0104](https://github.com/canton-foundation/cips/blob/main/cip-0104/cip-0104.md)). The scheme is off until the super validators vote it on: `rewardConfigMintingVersion` must be set to `RewardVersion_TrafficBasedAppRewards`, and the default is still `RewardVersion_FeaturedAppMarkers`, so whether this subsection applies at M2 is a governance question before it is a design one.
+Traffic-based app rewards ([CIP-0104](https://github.com/canton-foundation/cips/blob/main/cip-0104/cip-0104.md)) are off until the super validators vote them on, so whether this subsection applies at all is a governance question before it is a design one. The assumption below is that they do.
 
-The natural holder of the `FeaturedAppRight` (granted jointly by the super validators, on application to the Global Synchronizer Foundation) is the party operating the gateway. The pipeline runs entirely off the application path, because super-validator automation measures activity from sequencer and mediator data and the app creates nothing on-ledger to earn. Each successful confirmation request credits its traffic cost to its **app confirmers**: featured parties that confirm the request's views, meaning they sign created contracts or sign or act on exercised ones. Contract and choice observers earn nothing, and each envelope's cost splits equally among its confirmers. Per round the DSO issues each party one `Splice.Amulet.RewardCouponV2` carrying a minting allowance, which is the traffic credit priced in CC, scaled by the issuance curve's `appRewardPercentage` tranche and diluted pro rata when oversubscribed. The provider's wallet automation mints against the coupon within `rewardCouponTimeToLive` (default 36 hours). Sharing rewards with the attesters or the Stablecoin Admin happens there: the provider accounts for the split off Scan's activity records and names beneficiaries out of its allowance (CIP-0073 minting delegations), because per-transaction beneficiary attribution is not supported.
+The party operating the gateway holds the `FeaturedAppRight`. Nothing about earning touches the application path: rewards accrue to the parties that *confirm* a successful request, not to the one that submits it, and the split between the gateway operator and the attesters or the Stablecoin Admin is settled off-ledger out of the provider's own allowance, because per-transaction beneficiary attribution does not exist.
 
-Two tensions are specific to this RI. A `FeaturedAppRight` names one provider party, so featuring a single relayer sits poorly with permissionless relay ([section 2](#decentralization-and-trust-topology)): the relay set either shares one party or leaves most relayers unrewarded. And the earn rule pays signers rather than submitters. The relayer signs only the `TokenAllocationRequest`, while the Stablecoin Admin signs the instructions, allocations, and holdings, so most of the credit for relayer-funded transactions accrues to the admin if the admin is featured, and to nobody if only the relayer is.
+Two tensions follow, both specific to this design. A `FeaturedAppRight` names one provider party, so featuring a single relayer sits poorly with permissionless relay ([section 2](#decentralization-and-trust-topology)): the relay set either shares one party or leaves most relayers unrewarded. And the earn rule pays signers rather than submitters. The relayer signs only the `TokenAllocationRequest`, while the Stablecoin Admin signs the instructions, allocations, and holdings, so most of the credit for relayer-funded transactions accrues to the admin if the admin is featured, and to nobody if only the relayer is.
 
 | Transaction | Who pays traffic | Confirms, so earns (if featured) |
 | --- | --- | --- |
