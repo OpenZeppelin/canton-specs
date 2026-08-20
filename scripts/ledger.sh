@@ -375,6 +375,17 @@ localnet_mint_token() {
 	LEDGER_TOKEN="$(cat "$LEDGER_TOKEN_FILE")"
 }
 
+# Whether a checkout can serve the containers. LocalNet bind-mounts sixteen of
+# its files into containers that run as their own users, so a file which only
+# its owner can read stops the container that mounts it: the postgres container
+# cannot run its mounted entrypoint, and Docker Compose reports exit code 126.
+# A gate that sets a restrictive umask for its own secrets produces such a
+# checkout, so treat one as absent and fetch it again.
+localnet_checkout_usable() {
+	[ -f "$LOCALNET_DIR/compose.yaml" ] || return 1
+	[ -z "$(find "$LOCALNET_DIR" -type f ! -perm -004 -print 2>/dev/null | head -n 1)" ]
+}
+
 # The LocalNet Docker Compose directory, pinned to the Splice release that also
 # provides the container images.
 localnet_resolve_dir() {
@@ -382,6 +393,8 @@ localnet_resolve_dir() {
 		LOCALNET_DIR="$OZ_LOCALNET_DIR"
 		[ -f "$LOCALNET_DIR/compose.yaml" ] ||
 			ledger_die "$LOCALNET_DIR is not a LocalNet directory"
+		localnet_checkout_usable ||
+			ledger_die "$LOCALNET_DIR holds files that only their owner can read; the LocalNet containers cannot read them"
 		ledger_log "using the LocalNet directory $LOCALNET_DIR"
 		return
 	fi
@@ -389,17 +402,25 @@ localnet_resolve_dir() {
 	ledger_require_command git
 	local checkout="$LEDGER_ROOT/.cache/splice-localnet/$LOCALNET_SPLICE_VERSION"
 	LOCALNET_DIR="$checkout/cluster/compose/localnet"
-	if [ ! -f "$LOCALNET_DIR/compose.yaml" ]; then
+	if ! localnet_checkout_usable; then
 		ledger_log "fetching the LocalNet files of Splice $LOCALNET_SPLICE_VERSION"
 		rm -rf "$checkout"
-		mkdir -p "$(dirname "$checkout")"
-		git clone --depth 1 --filter=blob:none --sparse \
-			--branch "$LOCALNET_SPLICE_VERSION" "$LOCALNET_SPLICE_REPO" "$checkout" \
-			>"$LEDGER_LOG_DIR/splice-clone.log" 2>&1 ||
+		# Both commands write files that the containers read, so both run under
+		# a umask of the checkout instead of the umask of the gate.
+		(
+			umask 022
+			mkdir -p "$(dirname "$checkout")"
+			git clone --depth 1 --filter=blob:none --sparse \
+				--branch "$LOCALNET_SPLICE_VERSION" "$LOCALNET_SPLICE_REPO" "$checkout"
+		) >"$LEDGER_LOG_DIR/splice-clone.log" 2>&1 ||
 			ledger_die "cannot fetch Splice $LOCALNET_SPLICE_VERSION; see $LEDGER_LOG_DIR/splice-clone.log"
-		(cd "$checkout" && git sparse-checkout set cluster/compose/localnet) \
-			>>"$LEDGER_LOG_DIR/splice-clone.log" 2>&1 ||
+		(
+			umask 022
+			cd "$checkout" && git sparse-checkout set cluster/compose/localnet
+		) >>"$LEDGER_LOG_DIR/splice-clone.log" 2>&1 ||
 			ledger_die "cannot check out the LocalNet files; see $LEDGER_LOG_DIR/splice-clone.log"
+		localnet_checkout_usable ||
+			ledger_die "the LocalNet checkout holds files that only their owner can read; the LocalNet containers cannot read them"
 	fi
 	ledger_log "using the LocalNet directory $LOCALNET_DIR"
 }
@@ -440,14 +461,46 @@ localnet_require_no_foreign_network() {
 	done
 }
 
+# The container state and the container logs of a start that failed. Docker
+# Compose reports only that a dependency did not start, and the teardown of the
+# run removes the containers together with their logs, so a gate that saved
+# nothing left no evidence of the fault behind.
+#
+# These logs carry the LocalNet configuration, and that configuration includes
+# the unsafe HS256 secret of the participant. They suit the evidence of a
+# disposable network. Do not publish them for a participant that holds a real
+# secret.
+localnet_capture_diagnostics() {
+	local attempt="${1:?attempt required}"
+	local state_log="$LEDGER_LOG_DIR/localnet-state-$attempt.log"
+	local container_log="$LEDGER_LOG_DIR/localnet-containers-$attempt.log"
+	ledger_log "saving the state of the failed start (logs: $state_log, $container_log)"
+	localnet_compose ps --all >"$state_log" 2>&1 || true
+	localnet_compose logs --no-color >"$container_log" 2>&1 || true
+}
+
+# A LocalNet that does not start leaves a partial network behind, and the
+# participant databases must be fresh, so the second attempt recreates the
+# network from nothing. One retry absorbs a runner which pulls a broken image
+# layer. A second failure is a fault of the change under test.
 localnet_start() {
 	localnet_resolve_dir
 	localnet_require_no_foreign_network
 	ledger_log "starting LocalNet $LOCALNET_SPLICE_VERSION (log: $LEDGER_START_LOG)"
 	localnet_compose down --volumes --remove-orphans >"$LEDGER_START_LOG" 2>&1 || true
 	LEDGER_STARTED=1
-	localnet_compose up --detach --wait >>"$LEDGER_START_LOG" 2>&1 ||
-		ledger_die "LocalNet did not start; see $LEDGER_START_LOG"
+	local attempt
+	for attempt in 1 2; do
+		if localnet_compose up --detach --wait >>"$LEDGER_START_LOG" 2>&1; then
+			return 0
+		fi
+		localnet_capture_diagnostics "$attempt"
+		if [ "$attempt" = 1 ]; then
+			ledger_log "LocalNet did not start; recreating the network for one more attempt"
+			localnet_compose down --volumes --remove-orphans >>"$LEDGER_START_LOG" 2>&1 || true
+		fi
+	done
+	ledger_die "LocalNet did not start after two attempts; see $LEDGER_START_LOG and the container logs in $LEDGER_LOG_DIR"
 }
 
 localnet_stop() {
