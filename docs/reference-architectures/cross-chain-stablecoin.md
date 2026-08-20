@@ -66,7 +66,6 @@ Every flow in this report mints, settles, and redeems `wTOK`, a generic gateway-
 
 Where a native rail exists (i.e. USDCx), the RI only aims to *settle* its mint output by interface and takes no issuer role; the gateway is the reference rail for assets that lack a native Canton path.
 
-`wTOK` is an instrument name and not a template name. Its holdings are [`TokenHolding`](https://github.com/OpenZeppelin/canton-contracts/blob/7696749737885e25cd88422847105f890f03b00d/experiments/token/tokenCIP112-v1/daml/OpenZeppelin/TokenCIP112V1/Holding.daml#L17) contracts whose issuing admin is the Stablecoin Admin.
 
 ### Target Ecosystem Participants
 
