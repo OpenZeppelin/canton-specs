@@ -18,9 +18,7 @@ Where this report links a CIP-0112 choice name into `tokenCIP112-v1`, the target
 
 Institutional participants accept value that reaches Canton from an external chain, either as an already-native Canton stablecoin such as `USDCx` or as a gateway-minted wrapped instrument (written `wTOK` throughout), while the settlement amount, the payer and payee identities, and the compliance markers project only to explicitly authorized parties.
 
-The report writes **inbound** for the direction that moves value from the external chain to Canton (**lock-and-mint**), and **outbound** for the direction that moves it back (**burn-and-release**). Neither name describes a direction between parties inside Canton. 
-
-Paying a recipient from pre-positioned destination-side liquidity (_lock-and-unlock_), is not supported ([section 3](#3-target-design)).
+The report writes **inbound** for the direction that moves value from the external chain to Canton, and **outbound** for the direction that moves it back. Neither name describes a direction between parties inside Canton.
 
 Such a rail must credit the recipient with exactly the attested amount or nothing at all, and no intermediary may hold the assets in transit. Settlement therefore centers on the [CIP-0112](https://github.com/canton-foundation/cips/blob/main/cip-0112/cip-0112.md) [committed allocation](https://github.com/canton-foundation/cips/blob/main/cip-0112/cip-0112.md#416-committed-allocations-for-prefunded-trading-and-iterated-settlement): each leg's amount is fixed on-ledger by the allocation side its authorizer signed, and one all-or-nothing transaction settles them. A signed side makes an amount non-repudiable, not *correct*, so tying the inbound amount, recipient, and instrument to the attesters' `LockAttestation` `[FUTURE]` falls to the explicit binding checks of [section 3](#reserve-and-lock-attestation-model-future).
 
