@@ -100,7 +100,7 @@ In the [ERC-4626](https://docs.openzeppelin.com/contracts/5.x/erc4626) lineage, 
 
 Canton enforces **per-party projection** instead: a contract is an instance of a template, signed by a set of parties (its signatories) and visible only to them and to any observers. That is why each **vault is its own contract** rather than a share in a pool. A position is visible only to the borrower, the vault admin, the liquidators that police it, and any regulatory observers - and because visibility is a precondition for action, the liquidator set is declared as observers rather than left implicit.
 
-State changes by archive-and-recreate rather than in-place mutation, with every signatory co-authorizing the transition (Daml's propose-and-accept pattern). That is why the design resolves the `Vault`, `PriceOracle`, `PauseState`, and the trusted-attester and trusted-issuer registries by **contract key** (reintroduced in [Canton 3.5.1+](https://github.com/digital-asset/canton/releases/tag/v3.5.1)): a key is the identity that survives each recreate. Keys are not unique - the platform accepts two contracts sharing one - so uniqueness stays an application obligation, here the factory's creation check plus one contract per registry key.
+State changes by archive-and-recreate rather than in-place mutation, with every signatory co-authorizing the transition (Daml's propose-and-accept pattern). That is why the design resolves the `Vault`, `PriceOracle`, `PauseState`, and the trusted-attester and trusted-issuer registries by **contract key** (reintroduced in [Canton 3.5.1+](https://github.com/digital-asset/canton/releases/tag/v3.5.1)): a key is the identity that survives each recreate. Keys are not unique - the platform accepts two contracts sharing one - so uniqueness stays an application obligation. The vault creation should perform checks against duplicate positions.
 
 Keys are the design target, not what runs today. The experiment code sits on the workspace's pinned SDK baseline and is keyless, so each choice takes a caller-supplied registry contract id and asserts it shares the factory's admin. By-key resolution lands with the 3.5.1+ SDK migration.
 
@@ -229,7 +229,7 @@ EVM equivalent of an N-of-M multisig: no single key may exercise the party's
 authority. Canton offers two ways to implement the multisig; selecting one remains an open question ([section 7](#7-open-design-questions)):
 
 - **On-ledger approval workflow** - the multisig is written in Daml ([Multiple Party Agreement](https://docs.canton.network/appdev/modules/m3-design-patterns#multiple-party-agreement)): approvers record approvals as contracts, and the final choice executes under the role party's inherited authority only once a threshold of approvals exists. Approvals are durable, named, and auditable on-ledger.
-- **External party with threshold signing keys** - the role party's transactions require signatures from N of M keys (`PartyToKeyMapping`), held by independent organizations. Invisible to the Daml code and a single ledger transaction per action, but the signing ceremony must complete within the prepared transaction's validity window, and the approval record stays off-ledger. The implementation could leverage something like the [Bitsafe decentralization-manager](https://github.com/DLC-link/decentralization-manager).
+- **External party with threshold signing keys** - the role party's transactions require signatures from N of M keys (`PartyToParticipant`), held by independent organizations. Invisible to the Daml code and a single ledger transaction per action, but the signing ceremony must complete within the prepared transaction's validity window, and the approval record stays off-ledger. The implementation could leverage something like the [Bitsafe decentralization-manager](https://github.com/DLC-link/decentralization-manager).
 
 We envision the vault custody account as a registry `Account`
 with the borrower as owner and the vault admin as provider, so every holding
@@ -278,14 +278,14 @@ repayCap = if collateralRatio > 1 + liquidationBonus
 debtRepaid <= repayCap
 ```
 
+![Collateral ratio spectrum: full absorption below 1 + bonus, restorable up to the liquidation ratio, margin-call buffer up to the minimum collateral ratio, healthy above](images/liquidation-ratio-spectrum.svg)
+
 Taking each element of the codeblock in turn:
 
 - **Proportional seizure.** `debtRepaid` is the amount the liquidator's own exercise burns in the same transaction, never the vault's full accrued debt, so a liquidator can never take more collateral than their payment (plus bonus) buys.
 - **Restorable vault (`collateralRatio > 1 + liquidationBonus`).** Repaying `x` leaves debt `accruedDebt - x` and collateral value `collateralAmount · price - x · (1 + liquidationBonus)`; `restoreAmount` is the `x` that sets their ratio to exactly `minCollateralRatio`. In this regime every repaid unit improves the ratio, so a payment below the cap partially cures, a payment at the cap fully cures, and nothing beyond it can be taken (no overshoot). The target is `minCollateralRatio`, not `liquidationRatio`, so a cured vault does not restart on the liquidation boundary.
 - **Underwater vault (`collateralRatio <= 1 + liquidationBonus`).** No repayment can restore health, so the cap becomes what the remaining collateral can pay for: the pass seizes all of it, and the uncovered remainder is quantified as `badDebt`.
 - **Well-definedness.** Protocol configuration requires `minCollateralRatio > liquidationRatio > 1 + liquidationBonus`. The first gap is the margin-call buffer; the second keeps the restorable regime reachable, so a freshly flagged vault can still be partially cured; and the chain keeps `restoreAmount`'s denominator positive and its value within what the collateral supports.
-
-![Collateral ratio spectrum: full absorption below 1 + bonus, restorable up to the liquidation ratio, margin-call buffer up to the minimum collateral ratio, healthy above](images/liquidation-ratio-spectrum.svg)
 
 ### Data and State Flow
 
@@ -647,7 +647,10 @@ template VaultFactory
         -- interface choice has no attestation field; the registry fails closed.
         _ <- exercise settlementFactoryCid SettlementFactory_SettleBatch with
           settlement; transferLegs
-          allocationCids = [allocationCid]
+          allocations = [FinalizedAllocation with
+            allocationCid
+            extraTransferLegSides = []
+            nextIterationFunding = None]
           actors = [borrower]
           extraArgs = ExtraArgs with
             context = ChoiceContext with
@@ -692,7 +695,7 @@ template Vault
     liquidationFlaggedAt : Optional Time
   where
     signatory vaultAdmin, borrower
-    observer params.liquidators
+    observer params.liquidators, params.insuranceFund
     key (vaultAdmin, borrower, vaultId) : (Party, Party, Text)
     maintainer key._1
 

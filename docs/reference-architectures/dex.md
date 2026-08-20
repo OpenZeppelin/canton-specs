@@ -637,7 +637,7 @@ A trader-facing wallet must support, per CIP-0112:
   `settlementDeadline` before signing;
 - exercising the unilateral withdraw once the deadline lapses;
 - accepting disclosed contracts (quotes, `Pool` reserve verification);
-- tracking swap status off the completion stream (pending step, owing party,
+- tracking swap status of the completion stream (pending step, owing party,
   deadline).
 
 ### Deployment and Bootstrap
@@ -1030,7 +1030,7 @@ path, in three steps:
    default 24h from creation); coupons from several rounds can batch into one
    mint. Collection is validator wallet automation. Reward
    sharing with the LP token issuer or instrument registrars happens here:
-   the venue accounts for the split itself of Scan's activity records, then
+   the venue accounts for the split itself off Scan's activity records, then
    names beneficiaries and CC amounts out of its allowance (CIP-0073 minting
    delegations). Per-transaction beneficiary attribution is not supported.
 
