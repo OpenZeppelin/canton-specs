@@ -32,10 +32,10 @@ For institutional control, the design proposes 4 gates:
 |---|---|---|---|---|
 | **D1** Compliance | a single-use attestation from a registry-listed attester, bound to this settlement's own legs and never cached | [`SettlementFactory_SettleBatch`](https://github.com/OpenZeppelin/canton-contracts/blob/7696749737885e25cd88422847105f890f03b00d/experiments/token/tokenCIP112-v1/daml/OpenZeppelin/TokenCIP112V1/Registry.daml#L79), against the [`TrustedAttesterRegistry`](https://github.com/OpenZeppelin/canton-contracts/blob/7696749737885e25cd88422847105f890f03b00d/experiments/token/tokenCIP112-v1/daml/OpenZeppelin/TokenCIP112V1/D1.daml#L22) pinned on `TokenRules` | `[EXPERIMENT]` (`canton-contracts`) | no valid attestation, no settlement |
 | **D2** Seizure | mark the allocation, then sweep its locked holdings to a preset custodian account | [`TokenAllocation_MarkD2Seizure`](https://github.com/OpenZeppelin/canton-contracts/blob/7696749737885e25cd88422847105f890f03b00d/experiments/token/tokenCIP112-v1/daml/OpenZeppelin/TokenCIP112V1/Allocation.daml#L158) plus one of two sweep choices | `[EXPERIMENT]` (`canton-contracts`) | never burns the asset, never returns seized funds to the sender, and the freeze window is bounded and releasable |
-| **D3** Identity | the recipient holds a `KycClaim` from an issuer listed in the `TrustedIssuerRegistry` | the gateway, at request time, before any allocation exists | templates `[EXPERIMENT]` (this workspace, ShapeB); the enforcing choice `[FUTURE]` | no valid claim from a listed issuer, no allocation request |
+| **D3** Identity | the recipient holds a `KycClaim` from an issuer listed in the `TrustedIssuerRegistry` | the gateway, at request time, before any allocation exists | the `ShapeB` file `[EXPERIMENT]` from this workspace | no valid claim from a listed issuer, no interaction with the system |
 | **D4** Authority | every privileged action binds to a named role rather than to one admin | [`openzeppelin-access-control-v1`](https://github.com/OpenZeppelin/canton-contracts/tree/cec416d6e3c2118551c761d5598c403ab27ee342/experiments/access/access-control-v1) role administration and `openzeppelin-ownable-v1` two-step handover | `[FUTURE]` | privileges are granted, transferred, and revoked without redeploying, and each traces to a role |
 
-**Privacy scope (explicit non-goal).** The privacy guarantee covers the Canton side only. The source-chain lock is a public transaction on its own chain, and it necessarily encodes enough routing data for the attesters to produce the `LockAttestation`. An external observer of the source chain can therefore link a public lock of amount *N* to the fact that some identified Canton recipient will be credited *N*. Canton's per-party projection hides everything downstream: the settled holding, the settlement events, the compliance markers, and every subsequent private transfer. Hiding the source-chain linkage itself, through hashed commitments, shielded payloads, or relayer-side blinding, is out of scope.
+**Privacy scope.** The privacy guarantee covers the Canton side only. The source-chain lock is a public transaction on its own chain, and it necessarily encodes enough routing data for the transfer to be correctly routed on Canton. An external observer of the source chain can therefore link a public lock of amount *N* to the fact that some identified Canton recipient will be credited *N*. Canton's per-party projection hides everything downstream: the settled holding, the settlement events, the compliance markers, and every subsequent private transfer. Hiding the source-chain linkage itself, through hashed commitments, shielded payloads, or relayer-side blinding, is out of scope.
 
 ### Operational Scope and Boundaries
 
@@ -44,21 +44,19 @@ The reference implementation favors simplicity and modular extensibility.
 | Feature Category | In-Scope Architectural Components |
 |---|---|
 | Atomic Settlement | Private on-Canton settlement of inbound stablecoin payments via `SettlementFactory_SettleBatch` `[UPSTREAM]`. |
-| Cross-Chain Bridge `[FUTURE]` | An inbound and outbound bridge **interface** (the Standardized Messaging Gateway) as a bounded, verifiable mock: attested inbound mint and attested outbound redemption. |
-| Compliance & Control `[EXPERIMENT]` | D1 attested settlement, D2 seizure to a preset custodian account, D3 single-synchronizer identity. |
-| Asset Representation `[FUTURE]` | The gateway-minted `wTOK`, conforming to the CIP-0112 holding interfaces, and the integration **shape** for settling an existing native Canton stablecoin such as `USDCx` by interface. |
-| Component Integration | Direct reuse of `openzeppelin-access-control-v1`, `openzeppelin-ownable-v1`, and `openzeppelin-pausable-v1` (all `[EXPERIMENT]` in `canton-contracts` `experiments/`, none yet a released package), the CIP-0112 settlement spine, and patterns from [`canton-token-template`](https://github.com/OpenZeppelin/canton-token-template) and [`canton-stablecoin`](https://github.com/OpenZeppelin/canton-stablecoin). |
+| Cross-Chain Bridge | An inbound and outbound bridge **interface** (the Standardized Messaging Gateway) as a bounded, verifiable mock: attested inbound mint and attested outbound redemption. |
+| Compliance & Control | D1 attested settlement, D2 seizure to a preset custodian account, D3 single-synchronizer identity. |
+| Asset Representation | The gateway-minted `wTOK`, conforming to the CIP-0112 holding interfaces, and the integration to settle an existing native Canton stablecoin such as `USDCx` by interface. |
+| Component Integration | Direct reuse of `openzeppelin-access-control-v1`, `openzeppelin-ownable-v1`, and `openzeppelin-pausable-v1`, the CIP-0112 settlement spine, and patterns from [`canton-token-template`](https://github.com/OpenZeppelin/canton-token-template) and [`canton-stablecoin`](https://github.com/OpenZeppelin/canton-stablecoin). |
 
 | Feature Category | Out-of-Scope Architectural Components |
 |---|---|
 | Production Bridge Infrastructure | Production bridge and relayer services, external oracle infrastructure, validator networks, cryptographic light-client proofs. |
 | Stablecoin Mechanism | The issuance, peg, and CDP mechanism itself; `USDCx` issuance and its native rail are external. |
-| Cross-Domain Identity | Cross-domain identity resolution (ONCHAINID, ERC-3643, Chainlink CCID); deferred, kept SCU-forward-compatible only. |
 | Off-Ledger Compliance Shortcuts | Off-ledger caching of compliance status, probabilistic risk scoring, heuristic filtering. |
 | Legacy Standards | Any reliance on the superseded CIP-56 token standard or legacy V1 allocation paths. |
 | Cross-Synchronizer Operation | The RI is cross-chain but single-synchronizer on Canton. Cross-synchronizer settlement and identity are out of scope. |
 
-Narrowing scope to the standardized interface boundary means a production gateway can replace the mock later without modifying the settlement spine or the compliance logic.
 
 ### Instrument Naming: `wTOK` vs `USDCx` `[UPSTREAM]`
 
@@ -123,7 +121,7 @@ Six of the thirteen components below are `[FUTURE]`, and the design's whole cros
 | Holdings and standing `TransferPreapproval` | `[EVIDENCE]` | [`canton-token-template`](https://github.com/OpenZeppelin/canton-token-template) | the spine-aware delegated allocate-and-accept choice |
 | Standardized Messaging Gateway | `[FUTURE]` | [section 4.1](#41-component-standardized-messaging-gateway-bounded-mock-future) | the whole implementation is deferred to other milestones |
 | `LockAttestation` carrier and `ConsumedNonceRegistry` | `[FUTURE]` | [section 3](#reserve-and-lock-attestation-model-future) | the whole implementation is deferred to other milestones |
-| `wTOK` attested mint and redemption burn | `[FUTURE]` | [section 3](#reserve-and-lock-attestation-model-future) | all of it, including closing the spine's ungated admin mint |
+| `wTOK` attested mint and redemption burn | `[FUTURE]` | [section 3](#reserve-and-lock-attestation-model-future) | the whole implementation is deferred to other milestones |
 | Contract keys on `PauseState` and the issuer registry | `[GAP]` | [section 1](#registry-uniqueness-under-non-unique-keys-gap) | SDK support, Daml-LF 2.3 on Protocol Version 35, and a deploy-and-migrate path per template |
 | Token Standard V2 interfaces | `[UPSTREAM]` | Splice `splice-api-token-*`, vendored as pinned DARs | nothing; consumed by interface |
 | `daml-lint`, `daml-props`, `daml-verify` | `[FUTURE]` | [section 5.2](#52-automated-validation-engine-future) | the whole validation pipeline for this rail |
@@ -248,7 +246,10 @@ flowchart TB
     NRec <-->|"confirm, receive projection"| Sync
 ```
 
-Three properties follow from the layout. The relayer is the only block on both sides of the boundary, so it pays nearly all the traffic ([section 6.1](#61-traffic-costs)) and its validator running out of traffic halts the rail ([section 5.4](#54-failure-modes-and-recovery)). Each participant sees only the views its own parties are informees of, so no single block holds a whole settlement. And every participant hosting an informee must have vetted the DAR version the submitter selects, which makes the vetted package set a per-node deployment property rather than a property of this repository.
+Three properties follow from the layout:
+1. The relayer is the only block on both sides of the boundary, so it pays nearly all the traffic ([section 6.1](#61-traffic-costs)) and its validator running out of traffic halts the rail ([section 5.4](#54-failure-modes-and-recovery)). 
+2. Each participant sees only the views its own parties are informees of, so no single block holds a whole settlement. 
+3. Every participant hosting an informee must have vetted the DAR version the submitter selects, which makes the vetted package set a per-node deployment property.
 
 ### Core Components and Library Mapping
 
@@ -277,7 +278,7 @@ The hosting nodes are also the nodes that check Daml authorization for the party
 The **Stablecoin Admin** (it authors `wTOK` mint legs) and the **Custodian** (it can sweep locked value) hold value-critical authority, so no single key may exercise either role. Canton offers two routes to that N-of-M posture, and the choice between them is open ([section 7](#7-open-design-questions)):
 
 - **On-ledger approval workflow.** The multisig is written in Daml ([Multiple Party Agreement](https://docs.canton.network/appdev/modules/m3-design-patterns#multiple-party-agreement)): approvers record approvals as contracts, and the final choice executes under the role party's inherited authority once a threshold exists. Approvals are durable, named, and auditable on-ledger. The price is a hosting rule and a setup rule. The role party must sit at a confirmation threshold of N or more, or the Daml quorum counts for nothing. And a party above threshold 1 can only build on the state it created while still at threshold 1, so an unplanned change needs a smart contract upgrade or a temporary return to threshold 1.
-- **External party with threshold signing keys.** The role party's transactions require N of M keys held by independent organizations. This is invisible to the Daml code and costs one ledger transaction per action, but the signing ceremony must finish inside the prepared transaction's validity window and the approval record stays off-ledger. Since [Canton 3.5](https://github.com/digital-asset/canton/releases/tag/v3.5.1) `[UPSTREAM]` the threshold and keys live on `PartyToParticipant`, which effectively deprecates `PartyToKeyMapping`, and a party carrying keys in both takes the `PartyToParticipant` keys, so migrating an existing party means moving them rather than leaving the old mapping in place. The [Bitsafe decentralization-manager](https://github.com/DLC-link/decentralization-manager) is one candidate implementation.
+- **External party with threshold signing keys.** The role party's transactions require N of M keys held by independent organizations. This is invisible to the Daml code and costs one ledger transaction per action, but the signing ceremony must finish inside the prepared transaction's validity window and the approval record stays off-ledger. Since [Canton 3.5](https://github.com/digital-asset/canton/releases/tag/v3.5.1). The [Bitsafe decentralization-manager](https://github.com/DLC-link/decentralization-manager) is one candidate implementation.
 
 | Role | Target posture | Why |
 |---|---|---|
@@ -293,7 +294,7 @@ The `[EXPERIMENT]` spine does not meet the attester row yet: it verifies one att
 
 ## 3. Target Design
 
-The inbound payment is the primary critical path: a deterministic sequence of state transitions on the CIP-0112 spine, from an attested source-chain lock to a privately projected Canton credit. Steps 2 and 4 run on the `[EXPERIMENT]` spine; everything at the cross-chain boundary is `[FUTURE]`.
+The inbound payment is the primary critical path: a deterministic sequence of state transitions on the CIP-0112 spine, from an attested source-chain lock to a privately projected Canton credit.
 
 **Bridge mode `[FUTURE]`.** The design rejects lock-and-unlock because it adds a liquidity-provider role and an inventory-imbalance surface that a reference rail does not need. The gateway interface is the seam where an alternative mode plugs in.
 
