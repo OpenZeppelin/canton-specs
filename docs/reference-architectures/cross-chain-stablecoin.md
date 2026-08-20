@@ -2,7 +2,7 @@
 
 This document is a *reference design* for private, atomic settlement on Canton of stablecoin payments that originate on external blockchains. It composes the OpenZeppelin Canton components in this workspace with the Canton Network Token Standard V2.
 
-Every claim carries a source tag, and [status at a glance](#status-at-a-glance) states once, per component, what exists and what an implementer must still build. Tags then mark an item at its first mention in a section rather than at every mention.
+Every claim carries a source tag, and [status at a glance](#status-at-a-glance) states once, per component, what exists and what needs to be built. Tags then mark an item at its first mention in a section rather than at every mention.
 
 | Tag | Meaning |
 |---|---|
