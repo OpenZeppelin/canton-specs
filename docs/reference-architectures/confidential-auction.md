@@ -37,8 +37,6 @@ or cancel it. A settlement executor controls when those choices are invoked;
 executor status does not provide the sender or receiver account authority
 required for a final movement.
 
-The auction uses committed Token Standard allocations to lock the issuer's
-offered tokens and each bidder's maximum payment before the result is known.
 These initial allocations reserve the assets without authorizing payment or
 delivery to another account. Separate signed auction records, the accepted bid
 and issuer sale authority, authorize only the final movements permitted by the
@@ -221,36 +219,28 @@ compatible admin and factory, all inside the same Daml transaction.
 
 ### 2.1 Privacy and Result Trust
 
-Each party receives a **transaction projection**: the transaction branches that
-party is entitled to see. Each bidder and every party that signs its accepted
-bid sees that complete bid. The auctioneer and issuer also see every accepted
-bid. A competing bidder sees another bid or private outcome only when another
-role entitles the same Canton party to see that application record.
+Each party receives a **transaction projection** containing only the branches
+it is entitled to see. A bidder and every party that signs its accepted bid see
+that bid in full. The issuer and auctioneer see every accepted bid. A competing
+bidder sees only its own application records unless the same Canton party also
+holds another role that grants access.
 
-Asset roles have separate visibility. Each instrument admin sees settlement
-data for the instrument it administers, and an account provider sees every
-holding and asset movement for the account it services. Neither role alone
-reveals the complete accepted bid or its private application outcome.
+Asset roles have separate views. Each instrument admin sees settlement legs for
+its instruments, and an account provider sees every holding and asset movement
+for the accounts it services. These roles do not by themselves reveal an
+accepted bid or private outcome. With privacy-compatible assets, each bidder
+sees only its own settlement legs and outcome, while the issuer and auctioneer
+see the complete clear. Canton Coin publishes all transfer legs, so using it for
+either asset exposes those movements even when the application outcome record
+remains private.
 
-Private outcomes depend on the transaction shape and the selected asset
-implementations' visibility rules. With privacy-compatible assets, each
-bidder's projection contains only that bidder's accepted bid action, settlement
-legs, and outcome. The issuer and auctioneer see the complete clear. Each asset
-implementation must also keep the settlement legs for that account private. An
-asset that publishes settlement legs cannot provide this privacy. Canton Coin
-publishes all transfer legs, so its payment or delivery movements are public
-even when the application outcome record is private.
-
-The auctioneer calculates the result off-ledger, and the clear recomputes the
-published rule for the accepted bids the auctioneer supplies. This verifies the
-calculation, but bidders trust the auctioneer to protect bid data, include
-every accepted bid, and attempt clearing on time.
-
-The application records an aggregate result for the issuer and auctioneer and a
-private outcome for each bidder. An auditor with authorized access to the
-accepted bids and outcomes can recompute the result. The audit can detect an
-incorrect calculation, while completeness of the bid set depends on the
-auctioneer.
+The clear recomputes the published rule for the accepted bids supplied by the
+auctioneer. This prevents an incorrect calculation from settling, but it cannot
+prove that every accepted bid was supplied. Bidders therefore trust the
+auctioneer to submit the complete set and clear on time, and they trust the
+issuer and auctioneer to keep bids confidential. An auditor with authorized
+disclosures can recompute the disclosed set, but cannot prove that it is
+complete.
 
 ### 2.2 Business Roles
 
