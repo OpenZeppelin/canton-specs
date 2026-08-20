@@ -65,6 +65,10 @@
 # delta-based, so repeated runs against the same parties stay green.
 
 set -euo pipefail
+# The gate writes the gateway config that carries the participant secret, the
+# wallet's signing store, and the Ledger API token, so its own files stay
+# owner-only. `scripts/ledger.sh` fetches the LocalNet files under a umask of
+# their own, because the LocalNet containers must read what they mount.
 umask 077
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
