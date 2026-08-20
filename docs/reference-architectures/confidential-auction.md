@@ -1,6 +1,6 @@
 # Confidential auction reference architecture
 
-A single-round sealed-bid auction on Canton distributes a fungible token. The
+This report defines a reference architecture for a single-round sealed-bid auction on Canton, that distributes a fungible token. The
 application keeps bids private from competitors, locks the issuer's
 supply and each bidder's maximum payment before clearing, calculates one
 clearing price, and settles payment and token delivery atomically.
