@@ -18,11 +18,13 @@ reward that the network computes from them.
    mode, so the validator wallet API does this without an approval. Scan confirms
    the right. A fresh validator holds no synchronizer traffic and buys it from the
    SV on its own interval, so this first call waits for that traffic.
-2. An SV vote sets `rewardConfig.mintingVersion` to
-   `RewardVersion_TrafficBasedAppRewards` and lowers `appRewardCouponThreshold`
-   far below its 0.5 USD default, because the reward of a run this small stays
-   under that default and a round below the threshold mints no coupon. LocalNet
-   has one SV and a voting threshold of 1, so the vote of the requester carries.
+2. An SV vote writes the `rewardConfig` of the amulet rules. LocalNet founds its
+   network without one, so the vote supplies the complete value: it sets
+   `mintingVersion` to `RewardVersion_TrafficBasedAppRewards` and lowers
+   `appRewardCouponThreshold` far below its 0.5 USD default, because the reward of
+   a run this small stays under that default and a round below the threshold mints
+   no coupon. LocalNet has one SV and a voting threshold of 1, so the vote of the
+   requester carries.
 3. The app-provider settles three USD transfers as the settlement executor. These
    settlements are the traffic, and the harness records the ledger record time of
    each settle transaction. On the third batch a party that the settlement does
