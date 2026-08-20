@@ -51,7 +51,7 @@ The reference implementation favors simplicity and modular extensibility.
 
 | Feature Category | Out-of-Scope Architectural Components |
 |---|---|
-| Production Bridge Infrastructure | Production bridge and relayer services, external oracle infrastructure, validator networks, cryptographic light-client proofs. |
+| Off-Canton Bridge Infrastructure | Everything behind the interface boundary: the relayer backend, the attester services, the source-chain lock escrow, external oracle infrastructure, source-chain validator sets, and cryptographic light-client proofs. The gateway's own Daml surface is in scope above; what runs off Canton to feed it is not. |
 | Stablecoin Mechanism | The issuance, peg, and CDP mechanism itself; `USDCx` issuance and its native rail are external. |
 | Off-Ledger Compliance Shortcuts | Off-ledger caching of compliance status, probabilistic risk scoring, heuristic filtering. |
 | Legacy Standards | Any reliance on the superseded CIP-56 token standard or legacy V1 allocation paths. |
