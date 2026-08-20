@@ -135,6 +135,41 @@ Six of the thirteen components below are `[FUTURE]`, and the design's whole cros
 
 The architecture composes reused OpenZeppelin Daml primitives, the CIP-0112 settlement spine as the engine for all asset movement, and a bounded gateway mock at the cross-chain boundary.
 
+### Node and Hosting Topology
+
+The parties above are Daml identities. The blocks below are the nodes that host them, and the postures in their labels are the targets that the next subsection argues for. The `[FUTURE]` cross-chain boundary sits outside the synchronizer entirely, and every other diagram in this report sits one plane below it, on contracts and choices rather than nodes.
+
+```mermaid
+flowchart TB
+    subgraph Off["Off-Canton (FUTURE)"]
+        direction LR
+        Chain[("Source chain<br/>lock escrow")]
+        Backend["Relayer backend<br/>one state machine per nonce"]
+    end
+
+    subgraph Canton["One Canton synchronizer - cross-synchronizer out of scope"]
+        direction TB
+        NRel["Relayer validators<br/>hosts Bridge Relayer<br/>multi-hosted, threshold 1"]
+        NAtt["Attester participants<br/>host the Attesters<br/>independent operators, N-of-M"]
+        NIss["Issuer participant<br/>hosts Stablecoin Admin, Compliance Verifier<br/>admin value-critical, N-of-M open"]
+        NCus["Custodian participant<br/>hosts Custodian<br/>value-critical, N-of-M open"]
+        NRec["Recipient validator<br/>hosts Recipient<br/>own keys only"]
+        Sync{{"Sequencer + Mediator<br/>ordering; mediator verdict = finality"}}
+    end
+
+    Chain -.->|"finalized lock observed"| Backend
+    Backend -.->|"release claim"| Chain
+    Backend ==>|"Ledger API: 3 submissions per payment"| NRel
+
+    NRel <==>|"submit, confirm, pay traffic"| Sync
+    NAtt <-->|"confirm"| Sync
+    NIss <-->|"confirm"| Sync
+    NCus <-->|"confirm"| Sync
+    NRec <-->|"confirm, receive projection"| Sync
+```
+
+Three properties follow from the layout. The relayer is the only block on both sides of the boundary, so it pays nearly all the traffic ([section 6.1](#61-traffic-costs)) and its validator running out of traffic halts the rail ([section 5.4](#54-failure-modes-and-recovery)). Each participant sees only the views its own parties are informees of, so no single block holds a whole settlement. And every participant hosting an informee must have vetted the DAR version the submitter selects, which makes the vetted package set a per-node deployment property rather than a property of this repository.
+
 ### Core Components and Library Mapping
 
 | Component Suite | Applied Templates and Libraries | Architectural Function |
