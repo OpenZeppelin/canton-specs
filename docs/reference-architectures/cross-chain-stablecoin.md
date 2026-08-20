@@ -7,7 +7,7 @@ Every claim carries a source tag, and [status at a glance](#status-at-a-glance) 
 | Tag | Meaning |
 |---|---|
 | `[EXPERIMENT]` | experimental code, in this workspace or in the `experiments/` folder of the `OpenZeppelin/canton-contracts` repository |
-| `[EVIDENCE]` | code in the [`OpenZeppelin/canton-token-template`](https://github.com/OpenZeppelin/canton-token-template) evidence repository, outside the M1 surface |
+| `[EVIDENCE]` | code in the [`OpenZeppelin/canton-token-template`](https://github.com/OpenZeppelin/canton-token-template) repository, outside the M1 surface |
 | `[UPSTREAM]` | Splice, CIP, or external-ecosystem reference, including the CIP-0112 interface choices whose argument records the standard fixes ([section 3](#the-upstream-choice-surface-upstream)) |
 | `[FUTURE]` | proposed RI-level design, not built in M1 scope |
 | `[GAP]` | a required change to code that already exists, and therefore a blocker for the claim it sits under rather than something a later milestone adds |
