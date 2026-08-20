@@ -149,3 +149,12 @@ Write for that reader:
 - Mark every open question, assumption, and rejected alternative. The reviewer
   must be able to accept or reject each one.
 - Do not add benefit summaries, marketing language, or tutorial material.
+- Do not add filler text that brings no new information, context or
+  clarification.
+- Use simple English.
+
+## Commit rules
+
+- prefer single sentence commit messages (1 line), unless more is meaningful
+- do not add the `Co-Authored-By Claude`, or whatever phrasing, to the commit messages
+ 
