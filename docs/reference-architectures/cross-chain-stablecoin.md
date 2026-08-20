@@ -626,6 +626,8 @@ template StandardizedMessagingGateway
         assertMsg "recipient mismatch" (recipient == att.cantonRecipient)
         assertMsg "instrument admin mismatch" (att.cantonInstrumentId.admin == stablecoinAdmin)
         assertMsg "account owner mismatch" (recipientAccount.owner == Some recipient)
+        assertMsg "amount mismatch" (mintLegSide.amount == att.lockedAmount)
+        assertMsg "instrument mismatch" (mintLegSide.instrumentId == att.cantonInstrumentId)
         (nonceRegCid, nonceReg) <- fetchByKey @ConsumedNonceRegistry admin
         assertMsg "nonce registry off the pinned chain" (nonceReg.genesis == nonceRegistryGenesis)
         exercise nonceRegCid ConsumedNonceRegistry_Record with
