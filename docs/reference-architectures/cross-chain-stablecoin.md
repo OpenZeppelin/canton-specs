@@ -16,7 +16,9 @@ Where this report links a CIP-0112 choice name into `tokenCIP112-v1`, the target
 
 ## 1. Product Definition
 
-Institutional participants accept an inbound asset representation on Canton, either an already-native Canton stablecoin such as `USDCx` or a gateway-minted wrapped instrument (written `wTOK` throughout), while the settlement amount, the payer and payee identities, and the compliance markers project only to explicitly authorized parties.
+Institutional participants accept value that reaches Canton from an external chain, either as an already-native Canton stablecoin such as `USDCx` or as a gateway-minted wrapped instrument (written `wTOK` throughout), while the settlement amount, the payer and payee identities, and the compliance markers project only to explicitly authorized parties.
+
+The report writes **inbound** for the direction that moves value from the external chain to Canton, and **outbound** for the direction that moves it back. Neither name describes a direction between parties inside Canton.
 
 Such a rail must credit the recipient with exactly the attested amount or nothing at all, and no intermediary may hold the assets in transit. Settlement therefore centers on the [CIP-0112](https://github.com/canton-foundation/cips/blob/main/cip-0112/cip-0112.md) [committed allocation](https://github.com/canton-foundation/cips/blob/main/cip-0112/cip-0112.md#416-committed-allocations-for-prefunded-trading-and-iterated-settlement): each leg's amount is fixed on-ledger by the allocation side its authorizer signed, and one all-or-nothing transaction settles them. A signed side makes an amount non-repudiable, not *correct*, so tying the inbound amount, recipient, and instrument to the attesters' `LockAttestation` `[FUTURE]` falls to the explicit binding checks of [section 3](#reserve-and-lock-attestation-model-future).
 
@@ -377,7 +379,7 @@ The flow above shows *how* an inbound payment settles privately. The core of a b
 **What is attested.** Every inbound mint is authorized by a typed `LockAttestation`, a Daml-visible record asserting that backing is locked on the source chain and is claimable only by minting the matching amount on Canton:
 
 ```daml
--- [FUTURE] RI-level type carried by the inbound message.
+-- [FUTURE] RI-level type carried by `InboundMessage`.
 data LockAttestation = LockAttestation with
   sourceChainId      : Text         -- e.g. "ethereum-mainnet"
   lockTxId           : Text         -- the source-chain lock/escrow transaction
@@ -483,7 +485,7 @@ The snippets below are illustrative rather than production code. They exemplify 
 
 ### 4.1 Component: Standardized Messaging Gateway (bounded mock) `[FUTURE]`
 
-The gateway is the cross-chain boundary. Its single inbound choice validates the relayer's role grant, resolves the pause state and the identity and nonce registries by key (each keyed by its own maintaining authority, so membership changes never leave a stale contract id) and checks each resolved registry against the genesis anchor it pins, consumes the one-time attested carrier, records the nonce fail-closed, and creates an executor-signed allocation request whose amount is exactly the attested amount. The recipient-side allocation is deliberately not created here: the gateway carries no recipient authority, so binding the recipient happens in [section 4.2](#42-component-inbound-dvp-via-delegated-accept-future) under the recipient's own standing signature.
+The gateway is the cross-chain boundary. Its single choice validates the relayer's role grant, resolves the pause state and the identity and nonce registries by key (each keyed by its own maintaining authority, so membership changes never leave a stale contract id) and checks each resolved registry against the genesis anchor it pins, consumes the one-time attested carrier, records the nonce fail-closed, and creates an executor-signed allocation request whose amount is exactly the attested amount. The recipient-side allocation is deliberately not created here: the gateway carries no recipient authority, so binding the recipient happens in [section 4.2](#42-component-inbound-dvp-via-delegated-accept-future) under the recipient's own standing signature.
 
 ```daml
 module CrossChain.Gateway where
@@ -684,7 +686,7 @@ Three tiers, built on OpenZeppelin verification tools:
 |---|---|---|
 | Malicious relayer routing | Routes valid inbound funds to an unauthorized or sanctioned account. | `[FUTURE]` The signed `LockAttestation` pins `cantonRecipient`, and D3 requires a `KycClaim` whose `subjectParty` matches it. The relayer cannot spoof the destination. |
 | Unbacked mint | A relayer, or anyone without attester authorization, mints `wTOK` with no real source-chain lock. | `[FUTURE]` Amount and instrument derive only from a registry-trusted, unexpired, single-use `LockAttestation`, and a lone relayer holds transport authority rather than trust authority. This also requires the `wTOK` registry to close the spine's admin mint; against a compromised Stablecoin Admin key on the registry as shipped, it does not hold. Residual risk concentrates in the attester set. |
-| Replay of a used lock | A consumed inbound message, or a second carrier for the same lock, is submitted again to mint twice. | `[FUTURE]` One-time carrier consumption plus the consumed-nonce registry: a duplicate `(sourceChainId, nonce)` fails closed even if the attesters misbehave, provided the resolved registry sits on the pinned successor chain. |
+| Replay of a used lock | A consumed `InboundMessage`, or a second carrier for the same lock, is submitted again to mint twice. | `[FUTURE]` One-time carrier consumption plus the consumed-nonce registry: a duplicate `(sourceChainId, nonce)` fails closed even if the attesters misbehave, provided the resolved registry sits on the pinned successor chain. |
 | Delegated spend on `wTOK` | A spender draws on a CIP-86 allowance to move a holder's balance without a fresh signature. | `[EXPERIMENT]` An allowance ([`TokenRules_ApproveAllowance`](https://github.com/OpenZeppelin/canton-contracts/blob/7696749737885e25cd88422847105f890f03b00d/experiments/token/tokenCIP112-v1/daml/OpenZeppelin/TokenCIP112V1/Registry.daml#L195), [`TokenRules_TransferFrom`](https://github.com/OpenZeppelin/canton-contracts/blob/7696749737885e25cd88422847105f890f03b00d/experiments/token/tokenCIP112-v1/daml/OpenZeppelin/TokenCIP112V1/Registry.daml#L236)) is created only by the owner's own account parties and is capped by `remaining`. Whether `wTOK` exposes the surface at all is the same decision as closing the admin mint ([section 7](#7-open-design-questions)). |
 | Shadowing registry duplicate | A rotation leaves two `ConsumedNonceRegistry` or `TrustedIssuerRegistry` contracts active under one key, and the submitter discloses whichever suits it. | `[FUTURE]` The key prevents nothing, because Canton 3.x keys are not unique. Each consumer checks the resolved registry against the genesis anchor it pins and fails closed when the registry is off that chain. |
 | Toxic or spam inflow | A sender forces a settlement onto an unwilling recipient. | `[EXPERIMENT]` Without the recipient's accept, live or through their standing `TransferPreapproval` `[EVIDENCE]`, the allocation never commits; unsettled allocations expire and return to sender. |
@@ -722,7 +724,7 @@ The mitigation is sharding the registry, one per `sourceChainId` or per source-c
 
 ### 5.6 Off-Ledger Reconciliation `[UPSTREAM]`
 
-A treasury reconciles its private Canton settlement against the inbound external-chain event without parsing raw transaction trees: the Token Standard V2 transfer-events API (`Splice.Api.Token.TransferEventsV2`) emits holdings-change events the recipient correlates with the gateway's inbound message id, giving a 1:1 audit linkage between the external lock or burn and the Canton credit. This is an upstream API surface, not vendored here, and the linkage is a reference pattern; the report makes no reconciliation-completeness, accounting-standard, or audit-readiness claim.
+A treasury reconciles its private Canton settlement against the inbound external-chain event without parsing raw transaction trees: the Token Standard V2 transfer-events API (`Splice.Api.Token.TransferEventsV2`) emits holdings-change events the recipient correlates with the id of the gateway's `InboundMessage`, giving a 1:1 audit linkage between the external lock or burn and the Canton credit. This is an upstream API surface, not vendored here, and the linkage is a reference pattern; the report makes no reconciliation-completeness, accounting-standard, or audit-readiness claim.
 
 ---
 
