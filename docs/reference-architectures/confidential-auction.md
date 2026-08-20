@@ -60,7 +60,7 @@ price** is the lowest maximum unit price among bids that receive a fill. When
 demand exceeds supply, it is the price band where demand exceeds the remaining
 supply.
 
-The terms include:
+The auction terms include:
 
 - the payment asset and offered token;
 - the offered quantity and reserve price;
