@@ -26,7 +26,7 @@ The cross-chain transfer must credit the recipient with exactly the intended amo
 
 `OpenZeppelin/canton-contracts` holds an [experimental implementation of that settlement](https://github.com/OpenZeppelin/canton-contracts/tree/7696749737885e25cd88422847105f890f03b00d/experiments/token/tokenCIP112-v1/daml/OpenZeppelin/TokenCIP112V1) `[EXPERIMENT]`. Its privacy property is per-party projection: a counterparty sees only the legs on which it sends or receives, so one recipient's payment is never visible to another. The issuing admin of the settled instrument is the deliberate exception, because it signs that instrument's holdings and allocations and therefore sits inside the trust boundary ([Privacy and Visibility Model](#privacy-and-visibility-model)).
 
-For institutional control, the design proposes 4 gates:
+For institutional control, the design proposes four gates. **D1** through **D4** are shorthand shared with the sibling reference architectures, not Canton or CIP-0112 requirements.
 
 | Gate | Mechanism | Where enforced | Tag | Invariant |
 |---|---|---|---|---|
