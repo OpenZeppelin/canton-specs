@@ -131,6 +131,89 @@ Six of the thirteen components below are `[FUTURE]`, and the design's whole cros
 
 The architecture composes reused OpenZeppelin Daml primitives, the CIP-0112 settlement spine as the engine for all asset movement, and a bounded gateway mock at the cross-chain boundary.
 
+### Parties, Nodes, and Processes
+
+Parties exist only on Canton. The source chain has addresses and keys, and neither ledger records that a given address and a given party belong together. What links them is one off-Canton process holding both credentials, so the pairing is a deployment fact rather than a protocol guarantee.
+
+That makes "the attesters sign" two different things. Inbound, the attester party is a signatory of the `InboundMessage` and the source chain never sees the signature. Outbound, the escrow cannot read Canton, so the `RedemptionAttestation` needs a signature the escrow's own verifier accepts, and each attester holds a source-chain key as well as a Canton party.
+
+| Name | Kind | What it does |
+|---|---|---|
+| Bridge Relayer | party | settlement executor; signs the `TokenAllocationRequest`; holds `BRIDGE_RELAYER_ROLE`, which the gateway's `operator` field checks |
+| Attesters, M of them | party | signs the `InboundMessage` `[FUTURE]`, the `ComplianceAttestation` `[EXPERIMENT]`, and the `RedemptionAttestation` `[FUTURE]`; listed in the `TrustedAttesterRegistry` |
+| Stablecoin Admin | party | `wTOK` issuing admin; signs its holdings, allocations, and mint legs |
+| Compliance Verifier | party | `TrustedIssuerRegistry` admin; issues the `KycClaim` |
+| Custodian | party | `BurnerCapability` assignee; owns the preset sweep account |
+| Recipient, or Holder outbound | party | signs the receiving allocation, live or through a standing `TransferPreapproval` |
+| Pause Authority | party | signs the `PauseState` and maintains its key |
+| Gateway Admin `[FUTURE]` | party | the gateway's `admin`; maintains the `ConsumedNonceRegistry` key |
+| Redemption operator `[FUTURE]` | party | holds the `RedemptionBurnCapability` |
+| Lawful-process authority | party | signs the `SeizureOrder`; registry-listed, and never the admin |
+| Participant, or validator | Canton node | hosts parties, vets the DAR versions their transactions select, and buys the traffic they burn |
+| Sequencer and Mediator | Canton node | ordering, and the verdict that makes a transaction final; hosts no application party |
+| Scan | Canton node | the activity records the reward accounting reads ([section 6.2](#62-app-rewards)); off the application path |
+| Relayer backend `[FUTURE]` | off-Canton process | watches the source chain, one state machine per nonce, and submits every inbound command as the Bridge Relayer |
+| Attester services `[FUTURE]` | off-Canton process | M independent operators on M participants; each submits as its own attester party |
+| Recipient wallet | off-Canton process | creates the standing `TransferPreapproval` and submits as the Recipient |
+| Validator wallet automation | off-Canton process | mints reward coupons; node automation, not a party |
+| Lock escrow `[FUTURE]` | source-chain contract | holds the backing, and releases it against a verified `RedemptionAttestation` |
+
+The gateway, the registries, and the capabilities are contracts, not services. `StandardizedMessagingGateway` is a template with one choice the relayer exercises. `PauseState`, `TrustedAttesterRegistry`, `TrustedIssuerRegistry`, and `ConsumedNonceRegistry` are single contracts a caller fetches. `BurnerCapability` and `RedemptionBurnCapability` carry no choices, and the sweep and burn choices fetch and validate them. `LockAttestation` and `D2SeizureHook` are data records inside other contracts.
+
+```mermaid
+flowchart TB
+    subgraph Ext["Source chain - no Canton parties (FUTURE)"]
+        Escrow[("Lock escrow")]
+    end
+
+    subgraph Proc["Off-Canton processes - no ledger identity"]
+        direction LR
+        RelaySvc["Relayer backend<br/>one state machine per nonce"]
+        AttSvc["Attester services x M"]
+        Wallet["Recipient wallet"]
+    end
+
+    subgraph Nodes["Canton nodes - host parties, vet DARs, pay traffic"]
+        direction LR
+        PRel["Relayer participants"]
+        PAtt["Attester participants x M"]
+        PIss["Issuer participant"]
+        PCus["Custodian participant"]
+        PRec["Recipient validator"]
+        PDep["Hosts assigned at deployment"]
+        Sync{{"Sequencer + Mediator<br/>hosts no application party"}}
+    end
+
+    subgraph Parties["Daml parties"]
+        direction LR
+        PtyRel([Bridge Relayer])
+        PtyAtt([Attesters])
+        PtyAdm([Stablecoin Admin])
+        PtyCV([Compliance Verifier])
+        PtyGW([Gateway Admin])
+        PtyPause([Pause Authority])
+        PtyCus([Custodian])
+        PtyRec([Recipient])
+    end
+
+    Escrow -.->|"lock read off the chain"| RelaySvc
+    Escrow -.->|"lock read off the chain"| AttSvc
+    RelaySvc -.->|"release claim, source-chain key"| Escrow
+
+    RelaySvc ==>|"Ledger API"| PRel
+    AttSvc ==>|"Ledger API"| PAtt
+    Wallet ==>|"Ledger API"| PRec
+
+    PRel -->|hosts| PtyRel
+    PAtt -->|hosts| PtyAtt
+    PIss -->|hosts| PtyAdm
+    PIss -->|hosts| PtyCV
+    PCus -->|hosts| PtyCus
+    PRec -->|hosts| PtyRec
+    PDep -->|hosts| PtyGW
+    PDep -->|hosts| PtyPause
+```
+
 ### Node and Hosting Topology
 
 The parties above are Daml identities. The blocks below are the nodes that host them, and the postures in their labels are the targets that the next subsection argues for. The `[FUTURE]` cross-chain boundary sits outside the synchronizer entirely, and every other diagram in this report sits one plane below it, on contracts and choices rather than nodes.
