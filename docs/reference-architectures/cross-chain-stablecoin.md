@@ -178,8 +178,6 @@ Three properties follow from the layout. The relayer is the only block on both s
 | Holdings & Preapproval `[EVIDENCE]` | `OpenZeppelin/canton-token-template` (`SimpleToken.*`): `SimpleHolding`, `SimpleTokenRules`, `LockedSimpleHolding`, `TransferPreapproval` | Holds value, and lets a recipient agree in advance. The recipient signs a `TransferPreapproval` once, and the relayer acts under it later. The template's one choice, `TransferPreapproval_Send`, sends a transfer and cannot create an allocation on the settlement spine. The choice that can is `[FUTURE]` ([section 4.2](#42-component-inbound-dvp-via-delegated-accept-future)). |
 | Messaging Gateway `[FUTURE]` | `StandardizedMessagingGateway` (bounded mock, [section 4.1](#41-component-standardized-messaging-gateway-bounded-mock-future)) | The boundary with the external chain. It accepts a message that reports a lock on that chain, signed by the attesters, then starts a settlement on the spine. |
 
-The RI integrates with the Splice Token Standard V2 interfaces `[UPSTREAM]` for interoperability. The spine's factory choices *are* those interfaces, so their argument records belong to the CIP and neither the registry nor a caller may extend them ([section 3](#the-upstream-choice-surface-upstream)). `USDCx` is consumed by interface only, as a settled instrument.
-
 ### Party and Role Model Topology
 
 Duties are segregated across discrete Daml parties, with in-code role names carried by `roleId` wrappers such as `BRIDGE_RELAYER_ROLE`:
