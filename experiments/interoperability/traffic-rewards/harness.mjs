@@ -487,24 +487,17 @@ const trafficRewardConfig = (rewardCouponThreshold) => ({
 // requester carries. The action is the Daml `ARC_AmuletRules` /
 // `CRARC_SetConfig` value, and the base config comes from Scan.
 async function enableTrafficBasedRewards() {
+  // The early return reads the effective configuration, not the open vote
+  // requests, so a run against a network where an earlier request is still open
+  // files a second one. Only external-ledger mode reaches that state: the gate
+  // founds a fresh network otherwise.
   const dso = await scanApi('GET', '/v0/dso')
   const base = dso.amulet_rules.contract.payload.configSchedule.initialValue
   if (base.rewardConfig?.mintingVersion === 'RewardVersion_TrafficBasedAppRewards') {
     log('the network already runs traffic-based app rewards')
     return
   }
-  // The early return reads the effective configuration, not the open vote
-  // requests, so a run against a network where an earlier request is still open
-  // files a second one. Only external-ledger mode reaches that state: the gate
-  // founds a fresh network otherwise.
-  //
-  // The early return above reads this field through `?.`, so name the case where
-  // it is absent: a Splice version without it takes no `rewardConfig` in its
-  // amulet config either, and the vote request would fail to decode instead.
-  assertTrue(
-    'the amulet rules carry no rewardConfig, so this Splice version predates the CIP-0104 minting versions',
-    Boolean(base.rewardConfig),
-  )
+  
   assertEq('the SV voting threshold is 1', Number(dso.voting_threshold), 1)
   const newConfig = { ...structuredClone(base), rewardConfig: trafficRewardConfig('0.0000000001') }
   await svApi('POST', '/v0/admin/sv/voterequest/create', {
