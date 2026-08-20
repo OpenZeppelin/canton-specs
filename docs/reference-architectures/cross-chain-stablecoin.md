@@ -221,7 +221,7 @@ The postures in the labels below are the targets that [Decentralization and Trus
 
 ```mermaid
 flowchart TB
-    subgraph Off["Off-Canton (FUTURE)"]
+    subgraph Off["Off-Canton"]
         direction LR
         Chain[("Source chain<br/>lock escrow")]
         Backend["Relayer backend<br/>one state machine per nonce"]
