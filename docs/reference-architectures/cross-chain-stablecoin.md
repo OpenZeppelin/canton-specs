@@ -95,7 +95,7 @@ The RI therefore anchors every keyed registry to an on-ledger successor chain. E
 template ConsumedNonceRegistry
   with
     admin : Party
-    genesis : ContractId ConsumedNonceRegistry                 -- self at genesis; pinned by every consumer
+    genesis : Optional (ContractId ConsumedNonceRegistry)      -- None only at genesis; pinned by every consumer
     predecessor : Optional (ContractId ConsumedNonceRegistry)  -- None only at genesis
     consumed : [Text]
   where
@@ -103,6 +103,8 @@ template ConsumedNonceRegistry
     key admin : Party        -- convenience lookup only; carries no uniqueness
     maintainer key
 ```
+
+The genesis version cannot name itself, because a contract id does not exist until its create commits, so `genesis` carries `None` on the first version exactly as `predecessor` does. A consumer that pinned the genesis id *g* therefore accepts a resolved registry when the resolved id is *g* itself or its `genesis` is `Some g`, and rejects everything else.
 
 Two constraints follow. `lookupByKey` requires authorization from **all** maintainers of the key, so the design resolves registries with `fetchByKey`, which like `fetch` needs authorization from one *stakeholder* of the contract it returns. That is a weaker rule but not a free one: a caller that resolves a registry another party signs must be a stakeholder of it ([section 4.1](#41-component-standardized-messaging-gateway-bounded-mock-future)). And the trusted-attester registry stays outside this scheme: pinning it by contract id on the settlement registry is the same anchoring idea without the key ([D1](#capability-gates-d1-d4)).
 
@@ -593,7 +595,8 @@ template StandardizedMessagingGateway
     stablecoinAdmin : Party  -- issuing admin of the gateway-minted wTOK
     pauser : Party           -- maintainer of the PauseState key
     registryAdmin : Party    -- compliance verifier; maintainer of the issuer-registry key
-    issuerRegistryGenesis : ContractId TrustedIssuerRegistry  -- successor-chain anchors, pinned once
+    issuerRegistryGenesis : ContractId TrustedIssuerRegistry  -- successor-chain anchors: the genesis
+                                                              -- ids themselves, so never Optional here
     nonceRegistryGenesis : ContractId ConsumedNonceRegistry
   where
     signatory admin, operator
@@ -618,8 +621,9 @@ template StandardizedMessagingGateway
         -- registry, and the claim must all name it as an observer [GAP].
         (_, pause) <- fetchByKey @PauseState pauser
         whenNotPaused pause
-        (_, registry) <- fetchByKey @TrustedIssuerRegistry registryAdmin
-        assertMsg "issuer registry off the pinned chain" (registry.genesis == issuerRegistryGenesis)
+        (registryCid, registry) <- fetchByKey @TrustedIssuerRegistry registryAdmin
+        assertMsg "issuer registry off the pinned chain"
+          (registryCid == issuerRegistryGenesis || registry.genesis == Some issuerRegistryGenesis)
         claim <- fetch kycClaimCid
         assertMsg "identity mismatch" (claim.subjectParty == recipient)
         assertMsg "issuer not trusted" (claim.declaredIssuer `elem` registry.trustedIssuers)
@@ -639,7 +643,8 @@ template StandardizedMessagingGateway
         assertMsg "instrument mismatch" (mintLegSide.instrumentId == att.cantonInstrumentId.id)
         assertMsg "not the recipient's receive side" (mintLegSide.side == ReceiverSide)
         (nonceRegCid, nonceReg) <- fetchByKey @ConsumedNonceRegistry admin
-        assertMsg "nonce registry off the pinned chain" (nonceReg.genesis == nonceRegistryGenesis)
+        assertMsg "nonce registry off the pinned chain"
+          (nonceRegCid == nonceRegistryGenesis || nonceReg.genesis == Some nonceRegistryGenesis)
         exercise nonceRegCid ConsumedNonceRegistry_Record with
           sourceChainId = att.sourceChainId; nonce = att.nonce
 
