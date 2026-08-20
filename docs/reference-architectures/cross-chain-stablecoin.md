@@ -152,7 +152,8 @@ That makes "the attesters sign" two different things. Inbound, the attester part
 | Gateway Admin `[FUTURE]` | party | the gateway's `admin`; maintains the `ConsumedNonceRegistry` key |
 | Redemption operator `[FUTURE]` | party | holds the `RedemptionBurnCapability` |
 | Lawful-process authority | party | signs the `SeizureOrder`; registry-listed, and never the admin |
-| Participant, or validator | Canton node | hosts parties, vets the DAR versions their transactions select, and buys the traffic they burn |
+| Participant | Canton node | hosts parties, confirms their transactions, and vets the DAR versions those transactions select |
+| Validator | Canton node | the Splice deployment that runs a participant and buys the traffic it burns; the report writes *participant* for hosting and confirming, and *validator* only where traffic or rewards are the subject |
 | Sequencer and Mediator | Canton node | ordering, and the verdict that makes a transaction final; hosts no application party |
 | Relayer backend `[FUTURE]` | off-Canton process | watches the source chain, one state machine per nonce, and submits every inbound command as the Bridge Relayer |
 | Attester services `[FUTURE]` | off-Canton process | M independent operators on M participants; each submits as its own attester party |
@@ -180,7 +181,7 @@ flowchart TB
         PAtt["Attester participants x M"]
         PIss["Issuer participant"]
         PCus["Custodian participant"]
-        PRec["Recipient validator"]
+        PRec["Recipient participant"]
         PDep["Hosts assigned at deployment"]
         Sync{{"Sequencer + Mediator<br/>hosts no application party"}}
     end
@@ -229,11 +230,11 @@ flowchart TB
 
     subgraph Canton["One Canton synchronizer - cross-synchronizer out of scope"]
         direction TB
-        NRel["Relayer validators<br/>multi-hosted, threshold 1"]
+        NRel["Relayer participants<br/>multi-hosted, threshold 1"]
         NAtt["Attester participants<br/>independent operators, N-of-M"]
         NIss["Issuer participant<br/>admin value-critical, N-of-M open"]
         NCus["Custodian participant<br/>value-critical, N-of-M open"]
-        NRec["Recipient validator<br/>own keys only"]
+        NRec["Recipient participant<br/>own keys only"]
         Sync{{"Sequencer + Mediator<br/>ordering; mediator verdict = finality"}}
     end
 
@@ -285,10 +286,10 @@ The **Stablecoin Admin** (it authors `wTOK` mint legs) and the **Custodian** (it
 | Role | Target posture | Why |
 |---|---|---|
 | Attesters | several independent parties in the `TrustedAttesterRegistry`, threshold N-of-M, never all-of-M | one unavailable or unvetted attester must not halt the rail, and one malicious attester must not mint |
-| Bridge Relayer | multi-hosted on several validators, confirmation threshold 1 | it holds no minting trust and is the most submission-heavy role in the design; integrity comes from the attester split, and relay should ultimately be permissionless so no single party gates liveness |
+| Bridge Relayer | multi-hosted on several participants, confirmation threshold 1 | it holds no minting trust and is the most submission-heavy role in the design; integrity comes from the attester split, and relay should ultimately be permissionless so no single party gates liveness |
 | Pause authority | multi-hosted, confirmation threshold 1 | an emergency stop must be instant, and a quorum would slow it down; the price is a griefing window where a malicious pauser stalls settlement until deadlines lapse, capped by the sender's right to reclaim committed funds |
 | Compliance Verifier | several independent issuers in the `TrustedIssuerRegistry` | a recipient needs a `KycClaim` from only one listed issuer, so no single issuer can block onboarding; the flip side is that the registry is only as strict as its most permissive issuer, which makes the choice of who to list a governance decision |
-| Recipients | no rail-side decentralization | nothing binds a recipient without their own signature, live or through their standing `TransferPreapproval`, so they trust only their own keys and validator |
+| Recipients | no rail-side decentralization | nothing binds a recipient without their own signature, live or through their standing `TransferPreapproval`, so they trust only their own keys and participant |
 
 The `[EXPERIMENT]` spine does not meet the attester row yet: it verifies one attestation, and the choice that would verify a quorum is a `[GAP]` ([section 7](#7-open-design-questions)).
 
