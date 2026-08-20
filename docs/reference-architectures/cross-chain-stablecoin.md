@@ -281,10 +281,10 @@ The **Stablecoin Admin** (it authors `wTOK` mint legs) and the **Custodian** (it
 | Attesters | several independent parties in the `TrustedAttesterRegistry`, threshold N-of-M, never all-of-M | one unavailable or unvetted attester must not halt the rail, and one malicious attester must not mint |
 | Bridge Relayer | multi-hosted on several validators, confirmation threshold 1 | it holds no minting trust and is the most submission-heavy role in the design; integrity comes from the attester split, and relay should ultimately be permissionless so no single party gates liveness |
 | Pause authority | multi-hosted, confirmation threshold 1 | an emergency stop must be instant, and a quorum would slow it down; the price is a griefing window where a malicious pauser stalls settlement until deadlines lapse, capped by the sender's right to reclaim committed funds |
-| Compliance Verifier | several independent issuers in the `TrustedIssuerRegistry` | no single issuer may halt onboarding; compliance is then only as strict as the weakest listed issuer, so membership is a policy decision |
+| Compliance Verifier | several independent issuers in the `TrustedIssuerRegistry` | a recipient needs a `KycClaim` from only one listed issuer, so no single issuer can block onboarding; the flip side is that the registry is only as strict as its most permissive issuer, which makes the choice of who to list a governance decision |
 | Recipients | no rail-side decentralization | nothing binds a recipient without their own signature, live or through their standing `TransferPreapproval`, so they trust only their own keys and validator |
 
-The spine's current typed path verifies a **single** registry-rooted attestation, consumed single-use and bound to the exact transfer-leg set. It is not an N-of-M quorum: quorum verification `[GAP]` needs an aggregated-attestation or M-attestation-verifying choice, and it is the design target rather than the current guarantee.
+The `[EXPERIMENT]` spine does not meet the attester row yet: it verifies one attestation, and the choice that would verify a quorum is a `[GAP]` ([section 7](#7-open-design-questions)).
 
 ---
 
