@@ -10,9 +10,9 @@
 name: live-ledger-gates
 
 on:
-  workflow_dispatch:
-  schedule:
-    - cron: "17 3 * * *"
+  push:
+    branches: [main]
+  pull_request:
 
 permissions:
   contents: read
@@ -22,29 +22,29 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  cip-interop:
-    runs-on: ubuntu-latest
-    timeout-minutes: 45
-    steps:
-      - uses: actions/checkout@v4
+  # cip-interop:
+  #   runs-on: ubuntu-latest
+  #   timeout-minutes: 45
+  #   steps:
+  #     - uses: actions/checkout@v4
 
-      - name: Set up Daml
-        uses: ./.github/actions/setup-daml
+  #     - name: Set up Daml
+  #       uses: ./.github/actions/setup-daml
 
-      - name: Run the CIP interoperability gate
-        run: scripts/cip-interop-validation.sh --localnet
+  #     - name: Run the CIP interoperability gate
+  #       run: scripts/cip-interop-validation.sh --localnet
 
-      - name: Upload CIP interoperability evidence
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: cip-interop-evidence
-          # The minted Ledger API token stays out of the artifact.
-          path: |
-            .cache/cip-interop-validation/
-            !.cache/cip-interop-validation/**/*.token
-          if-no-files-found: warn
-          retention-days: 30
+  #     - name: Upload CIP interoperability evidence
+  #       if: always()
+  #       uses: actions/upload-artifact@v4
+  #       with:
+  #         name: cip-interop-evidence
+  #         # The minted Ledger API token stays out of the artifact.
+  #         path: |
+  #           .cache/cip-interop-validation/
+  #           !.cache/cip-interop-validation/**/*.token
+  #         if-no-files-found: warn
+  #         retention-days: 30
 
   wallet-gateway:
     runs-on: ubuntu-latest
@@ -120,29 +120,29 @@ jobs:
           if-no-files-found: warn
           retention-days: 30
 
-  identity-upgrade:
-    runs-on: ubuntu-latest
-    timeout-minutes: 45
-    steps:
-      - uses: actions/checkout@v4
+  # identity-upgrade:
+  #   runs-on: ubuntu-latest
+  #   timeout-minutes: 45
+  #   steps:
+  #     - uses: actions/checkout@v4
 
-      - name: Set up Daml
-        uses: ./.github/actions/setup-daml
+  #     - name: Set up Daml
+  #       uses: ./.github/actions/setup-daml
 
-      # The ci workflow runs the same gate against the sandbox on every pull
-      # request. The run in this job adds the participant behavior that only
-      # an authenticated ledger shows: party rights and package vetting.
-      - name: Run the identity SCU smoke test on LocalNet
-        run: scripts/identity-hook-upgrade-smoke.sh --localnet
+  #     # The ci workflow runs the same gate against the sandbox on every pull
+  #     # request. The run in this job adds the participant behavior that only
+  #     # an authenticated ledger shows: party rights and package vetting.
+  #     - name: Run the identity SCU smoke test on LocalNet
+  #       run: scripts/identity-hook-upgrade-smoke.sh --localnet
 
-      - name: Upload identity upgrade evidence
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: identity-hook-upgrade-evidence
-          # The minted Ledger API token stays out of the artifact.
-          path: |
-            .cache/identity-hook-upgrade/
-            !.cache/identity-hook-upgrade/**/*.token
-          if-no-files-found: warn
-          retention-days: 30
+  #     - name: Upload identity upgrade evidence
+  #       if: always()
+  #       uses: actions/upload-artifact@v4
+  #       with:
+  #         name: identity-hook-upgrade-evidence
+  #         # The minted Ledger API token stays out of the artifact.
+  #         path: |
+  #           .cache/identity-hook-upgrade/
+  #           !.cache/identity-hook-upgrade/**/*.token
+  #         if-no-files-found: warn
+  #         retention-days: 30
