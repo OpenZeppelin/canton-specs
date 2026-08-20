@@ -84,7 +84,7 @@ A Canton 3.x key is a lookup handle, not a uniqueness constraint, so the rail su
 
 - several active contracts of one template may share a key, and `DA.ContractKeys` ships `lookupNByKey` and `lookupAllByKey` for exactly that case;
 - negative lookups are not validated, so no check may rest on the *absence* of a key;
-- where duplicates exist, `fetchByKey` resolution order is not guaranteed and the submitter can steer it, because command submission prioritizes disclosed contracts over known contracts.
+- where duplicates exist, the submitter steers which one `fetchByKey` returns, because the [resolution order](https://github.com/digital-asset/canton/releases/tag/v3.5.1) takes contracts created inside the transaction first, then explicitly disclosed contracts, then contracts the participant already knows in recency order.
 
 Only the maintainer can create a duplicate, but creating one is an ordinary rotation mistake: a migration that creates the successor before archiving the predecessor leaves both active. From that point the Bridge Relayer, which builds every inbound submission and holds no minting trust, picks which registry the gateway sees by disclosing it. A `ConsumedNonceRegistry` that lacks a given `(sourceChainId, nonce)` lets an already-minted lock mint a second time, and a `TrustedIssuerRegistry` with a wider `trustedIssuers` list passes a D3 check that the narrower one refuses.
 
