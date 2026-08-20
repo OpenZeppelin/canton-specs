@@ -72,12 +72,6 @@ Where a native rail exists (i.e. USDCx), the RI only aims to *settle* its mint o
 - **Wallet and client integrators** validate delegated-accept inbound flows, where a standing `TransferPreapproval` supplies an offline treasury's co-authorization, against a working reference.
 - **Security and assurance auditors** evaluate the reserve invariant, the explicit authority boundaries, and the proposed validation workflow (`daml-lint`, `daml-props`, `daml-verify`).
 
-### Canton Mechanics the Design Depends On
-
-For the gateway to cannot credit a holding to a recipient, it needs the recipient's own authority, live or delegated, so Daml's propose-and-accept pattern is used.
-
-The design uses [contract keys](https://github.com/digital-asset/canton/releases/tag/v3.5.1) `[GAP]` so the `PauseState`, the trusted-issuer registry, and the consumed-nonce registry have stable contract references.
-
 ### Registry Uniqueness Under Non-Unique Keys `[GAP]`
 
 A Canton 3.x key is a lookup handle, not a uniqueness constraint, so the rail supplies uniqueness itself. The [contract-keys reference](https://docs.canton.network/appdev/modules/m3-contract-keys) `[UPSTREAM]` states three properties the design must absorb:
