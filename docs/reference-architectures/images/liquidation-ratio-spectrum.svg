@@ -1,0 +1,83 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 720 156" role="img" aria-label="Number line of collateralRatio showing four zones: full absorption below 1.10, restorable liquidation from 1.10 to 1.30, margin-call buffer from 1.30 to 1.50, healthy above 1.50">
+  <style>
+    text { font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; }
+    .ink    { fill: #1A2028; }
+    .muted  { fill: #5B6572; }
+    .good   { fill: #177245; }
+    .warn   { fill: #B45309; }
+    .danger { fill: #B3261E; }
+    .s-ink    { stroke: #1A2028; }
+    .s-muted  { stroke: #5B6572; }
+    .s-danger { stroke: #B3261E; }
+    .band-danger  { fill: #B3261E; fill-opacity: .13; }
+    .band-warn    { fill: #B45309; fill-opacity: .14; }
+    .band-neutral { fill: #5B6572; fill-opacity: .13; }
+    .band-good    { fill: #177245; fill-opacity: .13; }
+    @media (prefers-color-scheme: dark) {
+      .ink    { fill: #E6EAF0; }
+      .muted  { fill: #98A2B0; }
+      .good   { fill: #46C381; }
+      .warn   { fill: #E8A33D; }
+      .danger { fill: #EF7B74; }
+      .s-ink    { stroke: #E6EAF0; }
+      .s-muted  { stroke: #98A2B0; }
+      .s-danger { stroke: #EF7B74; }
+      .band-danger  { fill: #EF7B74; fill-opacity: .15; }
+      .band-warn    { fill: #E8A33D; fill-opacity: .16; }
+      .band-neutral { fill: #98A2B0; fill-opacity: .15; }
+      .band-good    { fill: #46C381; fill-opacity: .15; }
+    }
+  </style>
+
+  <!-- zone bands -->
+  <rect class="band-danger"  x="40"  y="62" width="160" height="22"/>
+  <rect class="band-warn"    x="200" y="62" width="160" height="22"/>
+  <rect class="band-neutral" x="360" y="62" width="160" height="22"/>
+  <rect class="band-good"    x="520" y="62" width="160" height="22"/>
+
+  <!-- axis -->
+  <line class="s-ink" x1="40" y1="84" x2="690" y2="84" stroke-width="1.5"/>
+  <polygon class="ink" points="690,84 682,80 682,88"/>
+
+  <!-- threshold ticks -->
+  <g class="s-ink" stroke-width="1.5">
+    <line x1="200" y1="56" x2="200" y2="92"/>
+    <line x1="360" y1="56" x2="360" y2="92"/>
+    <line x1="520" y1="56" x2="520" y2="92"/>
+  </g>
+  <line class="s-muted" x1="120" y1="76" x2="120" y2="92" stroke-width="1"/>
+
+  <!-- zone labels -->
+  <g font-size="11.5" font-weight="600">
+    <text class="danger" x="120" y="48" text-anchor="middle">full absorption</text>
+    <text class="warn"   x="280" y="48" text-anchor="middle">restorable</text>
+    <text class="muted"  x="440" y="48" text-anchor="middle">margin-call buffer</text>
+    <text class="good"   x="600" y="48" text-anchor="middle">healthy</text>
+  </g>
+
+  <!-- zone sublabels -->
+  <g font-size="10" class="muted">
+    <text x="120" y="30" text-anchor="middle">seize all, badDebt</text>
+    <text x="280" y="30" text-anchor="middle">cap = restoreAmount</text>
+    <text x="440" y="30" text-anchor="middle">no new borrowing</text>
+    <text x="600" y="30" text-anchor="middle">borrow / withdraw ok</text>
+  </g>
+
+  <!-- threshold labels -->
+  <g font-size="11" class="ink">
+    <text x="200" y="110" text-anchor="middle">1 + bonus</text>
+    <text x="360" y="110" text-anchor="middle">liquidationRatio</text>
+    <text x="520" y="110" text-anchor="middle">minCollateralRatio</text>
+  </g>
+  <g font-size="10.5" class="muted">
+    <text x="120" y="110" text-anchor="middle">1.00</text>
+    <text x="200" y="126" text-anchor="middle">1.10</text>
+    <text x="360" y="126" text-anchor="middle">1.30</text>
+    <text x="520" y="126" text-anchor="middle">1.50</text>
+    <text x="700" y="110" text-anchor="end">collateralRatio</text>
+  </g>
+
+  <!-- flaggable underline -->
+  <line class="s-danger" x1="40" y1="142" x2="360" y2="142" stroke-width="1.5" stroke-dasharray="4 3"/>
+  <text class="danger" x="200" y="136" text-anchor="middle" font-size="10">flaggable, then grace period, then liquidatable</text>
+</svg>

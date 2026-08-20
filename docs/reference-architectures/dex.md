@@ -74,9 +74,6 @@ tables below distinguish its core design from adjacent architectural concerns.
 
 ### Educational Framing: How to Think About Building a DEX on Canton
 
-Moving from an EVM ecosystem to Canton requires a paradigm shift in state
-management, privacy boundaries, and trust topology.
-
 In traditional EVM AMMs, smart contracts are autonomous, globally visible state
 machines holding aggregate pool balances. A single trader transaction
 sequentially updates this global state, with all network nodes validating the
@@ -84,21 +81,25 @@ invariant math off an identical public state tree. Privacy is non-existent by
 design, and front-running / MEV extraction via the public mempool is a
 structural reality.
 
-Canton operates on a privacy-preserving, **per-party projection** model enforced
-by the Canton protocol. A Canton contract is an instance of a template, signed and authorized by a set of parties (signatories). A DEX on Canton cannot rely on a globally readable pool contract that any anonymous
-actor can unilaterally mutate. State changes by archive-and-recreate rather than
-in-place mutation, and any signatory must actively co-authorize a transition, so
-**two-step handshakes (Daml's propose-and-accept pattern) are a necessity, not a
-style choice**. The design uses **contract keys**
-(reintroduced in [Canton 3.5.1+](https://github.com/digital-asset/canton/releases/tag/v3.5.1))
-so the `Pool`, `PauseState`, and the trusted-attester and trusted-issuer registries
-keep stable, unique identities across those archive-and-recreate cycles.
+Canton enforces **per-party projection** instead: a contract is an instance of a
+template, signed by a set of parties (its signatories) and visible only to them
+and to any observers. A DEX on Canton therefore cannot rely on a globally
+readable pool contract that any anonymous actor can unilaterally mutate.
 
-Contract keys are the design target, not what runs today. The `[IMPLEMENTED]`
-experiment code sits on the workspace's pinned SDK baseline and is keyless: each
-choice takes a caller-supplied registry contract id and asserts that registry
-shares the factory's admin. The by-key resolution shown throughout lands with the
-Canton 3.5.1+ SDK migration.
+State changes by archive-and-recreate rather than in-place mutation, with every
+signatory co-authorizing the transition (Daml's propose-and-accept pattern). That
+is why the design resolves the `Pool`, `PauseState`, and the trusted-attester and
+trusted-issuer registries by **contract key** (reintroduced in
+[Canton 3.5.1+](https://github.com/digital-asset/canton/releases/tag/v3.5.1)): a
+key is the identity that survives each recreate. Keys are not unique - the
+platform accepts two contracts sharing one - so uniqueness stays an application
+obligation: the design must guarantee one `Pool` per instrument pair and one
+contract per registry key.
+
+Keys are the design target, not what runs today. The experiment code sits on the
+workspace's pinned SDK baseline and is keyless, so each choice takes a
+caller-supplied registry contract id and asserts it shares the factory's admin.
+By-key resolution lands with the 3.5.1+ SDK migration.
 
 To build a mathematically sound AMM in this privacy-first environment, the
 architecture reconciles the transparency needed for price discovery and
@@ -274,6 +275,8 @@ fee stays in the pool, the invariant is **non-decreasing**:
 ```text
 (reserveIn + amountInWithFee) · (reserveOut − Δout)  ≥  reserveIn · reserveOut
 ```
+
+![One swap on the constant-product curve: the tangent at the pre-swap reserves is the spot price, the chord to the post-swap reserves is the effective price, and the retained fee leaves the post-swap point above the curve](images/dex-constant-product-curve.svg)
 
 The target design binds the curve inputs to the trader's signed allocation: the
 sender side equals (`amountIn`, input instrument), the receiver side equals
@@ -634,7 +637,7 @@ A trader-facing wallet must support, per CIP-0112:
   `settlementDeadline` before signing;
 - exercising the unilateral withdraw once the deadline lapses;
 - accepting disclosed contracts (quotes, `Pool` reserve verification);
-- tracking swap status off the completion stream (pending step, owing party,
+- tracking swap status of the completion stream (pending step, owing party,
   deadline).
 
 ### Deployment and Bootstrap
@@ -680,8 +683,7 @@ appends):
   curve check in the swap choice changes.
 - **Protocol-fee switch.** An `Optional` operator share on the `Pool` routes a
   fraction of `feeBps` to a venue account instead of reserves, giving the
-  operator on-ledger revenue ([section 6](#6-network-economics-traffic-costs-and-app-rewards)
-  currently assumes venue fees without a collection mechanism).
+  operator on-ledger revenue.
 - **TWAP price feed.** The `Pool` accumulates a time-weighted price and
   publishes it through the committee-attested oracle of the
   [lending design](./lending.md), making the DEX the lending protocol's price
@@ -766,14 +768,20 @@ template Pool
         assertMsg "output side mismatch"
           (outSide.amount == dOut && outSide.instrumentId == outInstrument.id && outSide.otherside == poolAccount)
 
-        -- Atomic DvP: settle the trader's input and the pool's output in one batch,
-        -- presenting the signed compliance attestation. The factory resolves its
-        -- TrustedAttesterRegistry by key, so no caller-supplied registry is trusted.
+        -- Atomic DvP: settle the trader's input and the pool's output in one
+        -- batch. The attestation rides the choice context - `SettleBatch` is a
+        -- fixed Token Standard interface choice - and the factory verifies it
+        -- against its own attester registry, resolved by key, so no
+        -- caller-supplied registry is trusted.
         receipts <- exercise settlementFactoryId SettlementFactory_SettleBatch with
           settlement; transferLegs
           allocationCids = [traderAllocationId, poolAllocationId]
           actors = [venueOperator]
-          attestationCid
+          extraArgs = ExtraArgs with
+            context = ChoiceContext with
+              values = TextMap.fromList
+                [(d1AttestationContextKey, AV_ContractId (toAnyContractId attestationCid))]
+            meta = emptyMetadata
         let (newBase, newQuote) =
               if baseToQuote then (baseReserves + amountIn, quoteReserves - dOut)
                              else (baseReserves - dOut, quoteReserves + amountIn)
@@ -791,27 +799,47 @@ through `SettlementFactory_SettleBatch`, which is given a signed
 The factory verifies and **consumes** the attestation before settling (single-use,
 no replay). It resolves its `TrustedAttesterRegistry` **by key** (keyed by the
 factory admin), so the attester must be trusted by the factory's own registry, not
-one the caller supplies. The attestation must also cover this settlement, bind to
-the batch's exact transfer-leg set, and be within its validity window.
+one the caller supplies; the keyless `[IMPLEMENTED]` experiment pins the registry
+cid on the rules contract (`requiredAttesterRegistryCid`) and asserts its admin
+instead. The attestation must also cover this settlement, be issued to these exact
+executors, bind to the batch's exact transfer-leg set, and sit within a validity
+window bounded by the registry's `maxAttestationValidity`.
 
 ```daml
--- Executors settle by presenting the attestation.
+-- Executors present the attestation in the choice context: the interface's
+-- argument record is fixed by the Token Standard, so extensions ride
+-- `extraArgs` under the documented key.
 exercise factoryCid SettlementFactory_SettleBatch with
   settlement; transferLegs; allocationCids; actors
-  attestationCid
+  extraArgs = ExtraArgs with
+    context = ChoiceContext with
+      values = TextMap.fromList
+        [(d1AttestationContextKey, AV_ContractId (toAnyContractId attestationCid))]
+    meta = emptyMetadata
 
--- The factory calls the attestation's consuming verify, passing its own admin:
+-- The factory calls the attestation's consuming verify, passing its own
+-- admin and its policy bound on validity windows:
 choice ComplianceAttestation_Verify : Text
   with
     settlement : SettlementInfo; transferLegs : [TransferLeg]
     factoryAdmin : Party
-  controller settlement.executors
+    maxValidity : RelTime
+  controller authorizedExecutors  -- pinned at issuance, checked below
   do
     (_, registry) <- fetchByKey @TrustedAttesterRegistry factoryAdmin
     assertMsg "attester not trusted" (attester `elem` registry.attesters)
-    assertMsg "wrong settlement"     (settlementRef == settlement.settlementRef.id)
-    -- also: bound to this batch's exact leg set; now within [issuedAt, expiresAt]
-    pure claimKind
+    assertMsg "wrong settlement"     (settlementId == settlement.id)
+    assertMsg "issued to different executors"
+      (dedupSort authorizedExecutors == dedupSort settlement.executors)
+    assertMsg "legs not the attested set"
+      (dedupSort boundTransferLegs == dedupSort transferLegs)
+    assertMsg "claim kind not accepted by the registry"
+      (claimKind `elem` registry.acceptedClaimKinds)
+    assertMsg "validity window exceeds the registry cap"
+      (expiresAt <= issuedAt `addRelTime` maxValidity)
+    now <- getTime
+    assertMsg "attestation not currently valid" (now >= issuedAt && now <= expiresAt)
+    pure complianceReference
 ```
 
 ---
