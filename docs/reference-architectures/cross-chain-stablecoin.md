@@ -62,7 +62,9 @@ Narrowing scope to the standardized interface boundary means a production gatewa
 
 ### Instrument Naming: `wTOK` vs `USDCx` `[UPSTREAM]`
 
-Every flow in this report mints, settles, and redeems `wTOK`, a generic gateway-minted wrapped instrument whose issuing admin is this RI's Stablecoin Admin. `USDCx` is not that instrument. Circle already issues it on Canton through its own first-party rail, [xReserve](https://www.circle.com/blog/usdcx-on-canton-now-available-via-circle-xreserve): `USDC` deposited into the Ethereum xReserve contract stays locked there and `USDCx` mints 1:1 on Canton, which is lock-and-mint with Circle as the issuing authority. (Circle Gateway and CCTP sit beside that rail to keep `USDCx` interoperable with native `USDC` elsewhere; CCTP is burn-and-mint and is not the `USDCx` mint path.) Routing `USDCx` through this gateway would re-bridge an already-bridged asset and add trust surface. Where a native rail exists, the RI only *settles* its mint output by interface and takes no issuer role; the gateway is the reference rail for assets that lack a native Canton path. The general rule for that choice is an open question ([section 7](#7-open-design-questions)).
+Every flow in this report mints, settles, and redeems `wTOK`, a generic gateway-minted wrapped instrument, whose holdings are [`TokenHolding`](https://github.com/OpenZeppelin/canton-contracts/blob/7696749737885e25cd88422847105f890f03b00d/experiments/token/tokenCIP112-v1/daml/OpenZeppelin/TokenCIP112V1/Holding.daml#L17) contracts, issued by the Stablecoin Admin. 
+
+Where a native rail exists (i.e. USDCx), the RI only aims to *settle* its mint output by interface and takes no issuer role; the gateway is the reference rail for assets that lack a native Canton path.
 
 `wTOK` is an instrument name and not a template name. Its holdings are [`TokenHolding`](https://github.com/OpenZeppelin/canton-contracts/blob/7696749737885e25cd88422847105f890f03b00d/experiments/token/tokenCIP112-v1/daml/OpenZeppelin/TokenCIP112V1/Holding.daml#L17) contracts whose issuing admin is the Stablecoin Admin.
 
