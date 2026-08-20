@@ -76,7 +76,7 @@ Where a native rail exists (i.e. USDCx), the RI only aims to *settle* its mint o
 
 A Canton 3.x key is a lookup handle, not a uniqueness constraint, so the rail supplies uniqueness itself. The [contract-keys reference](https://docs.canton.network/appdev/modules/m3-contract-keys) `[UPSTREAM]` states three properties the design must absorb:
 
-- several active contracts of one template may share a key, and `DA.ContractKeys` ships `lookupNByKey` and `lookupAllByKey` for exactly that case;
+- several active contracts of one template may share a key, so resolving by key does not on its own identify one contract;
 - negative lookups are not validated, so no check may rest on the *absence* of a key;
 - where duplicates exist, the submitter steers which one `fetchByKey` returns, because the [resolution order](https://github.com/digital-asset/canton/releases/tag/v3.5.1) takes contracts created inside the transaction first, then explicitly disclosed contracts, then contracts the participant already knows in recency order.
 
