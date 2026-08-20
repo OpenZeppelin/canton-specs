@@ -104,20 +104,20 @@ template ConsumedNonceRegistry
     maintainer key
 ```
 
-Two constraints follow. `lookupByKey` requires authorization from **all** maintainers of the key, which bounds where such a lookup can be written at all. And the trusted-attester registry stays outside this scheme: pinning it by contract id on the settlement registry is the same anchoring idea without the key ([D1](#capability-gates-d1-d4)).
+Two constraints follow. `lookupByKey` requires authorization from **all** maintainers of the key, so the design resolves registries with `fetchByKey`, which like `fetch` needs authorization from one *stakeholder* of the contract it returns. That is a weaker rule but not a free one: a caller that resolves a registry another party signs must be a stakeholder of it ([section 4.1](#41-component-standardized-messaging-gateway-bounded-mock-future)). And the trusted-attester registry stays outside this scheme: pinning it by contract id on the settlement registry is the same anchoring idea without the key ([D1](#capability-gates-d1-d4)).
 
 ### Status at a Glance
 
-Six of the thirteen components below are `[FUTURE]`, and the design's whole cross-chain boundary is among them. The four `[GAP]` marks are the sharper list: changes to code that already exists, without which the claims above them do not hold.
+Six of the thirteen components below are `[FUTURE]`, and the design's whole cross-chain boundary is among them. The five `[GAP]` marks are the sharper list: changes to code that already exists, without which the claims above them do not hold.
 
 | Component | Tag | Location | What is missing |
 |---|---|---|---|
 | CIP-0112 settlement spine (`TokenRules`, `TokenAllocation`, `TokenHolding`, event log) | `[EXPERIMENT]` | [`canton-contracts` `tokenCIP112-v1`](https://github.com/OpenZeppelin/canton-contracts/tree/7696749737885e25cd88422847105f890f03b00d/experiments/token/tokenCIP112-v1) | nothing for settlement itself; the `wTOK` registry must still close `TokenRules_Mint` `[GAP]` |
 | D1 attestation path (`TrustedAttesterRegistry`, `ComplianceAttestation`) | `[EXPERIMENT]` | same package, `D1.daml` | the N-of-M quorum choice `[GAP]` |
 | D2 seizure path (mark, two sweeps, `BurnerCapability`, `SeizureOrder`) | `[EXPERIMENT]` | same package, `Allocation.daml` and `D1.daml` | capability revocation or rotation |
-| D3 identity hook (`KycClaim`, `TrustedIssuerRegistry`) | `[EXPERIMENT]` | this workspace, [`experiments/identity/hook-shape-b`](../../experiments/identity/hook-shape-b/) | the choice that enforces the check on the inbound path |
+| D3 identity hook (`KycClaim`, `TrustedIssuerRegistry`) | `[EXPERIMENT]` | this workspace, [`experiments/identity/hook-shape-b`](../../experiments/identity/hook-shape-b/) | the choice that enforces the check on the inbound path, and the observer entries that authorize the gateway to read the claim and the registry `[GAP]` |
 | D4 per-action role binding | `[FUTURE]` | libraries in `canton-contracts` `experiments/access` | the wiring; the role and ownership primitives exist, this rail does not use them yet |
-| Access control, ownership handover, pausing | `[EXPERIMENT]` | `canton-contracts` `experiments/access` and `experiments/security` | nothing; composed as-is |
+| Access control, ownership handover, pausing | `[EXPERIMENT]` | `canton-contracts` `experiments/access` and `experiments/security` | nothing for access control and ownership; `PauseState` needs the observer entry that authorizes the gateway to read it `[GAP]` |
 | Holdings and standing `TransferPreapproval` | `[EVIDENCE]` | [`canton-token-template`](https://github.com/OpenZeppelin/canton-token-template) | the spine-aware delegated allocate-and-accept choice |
 | Standardized Messaging Gateway | `[FUTURE]` | [section 4.1](#41-component-standardized-messaging-gateway-bounded-mock-future) | the whole implementation is deferred to other milestones |
 | `LockAttestation` carrier and `ConsumedNonceRegistry` | `[FUTURE]` | [section 3](#reserve-and-lock-attestation-model-future) | the whole implementation is deferred to other milestones |
@@ -511,14 +511,15 @@ Canton guarantees reads only to a contract's signatories and observers; other pa
 | `TrustedAttesterRegistry` | the factory admin | listed attesters |
 | `SeizureOrder` | the lawful-process authority | the instrument admin |
 | [`TokenAllowance`](https://github.com/OpenZeppelin/canton-contracts/blob/7696749737885e25cd88422847105f890f03b00d/experiments/token/tokenCIP112-v1/daml/OpenZeppelin/TokenCIP112V1/Allowance.daml#L73) | the instrument admin, the owner's account parties | the spender |
-| `KycClaim`, `TrustedIssuerRegistry` `[EXPERIMENT]` (this workspace) | the issuing party / the registry admin | the claim's subject / none |
-| `PauseState` `[EXPERIMENT]`, gateway and nonce registry `[FUTURE]` | the pauser / the gateway's admin and operator | none |
+| `KycClaim`, `TrustedIssuerRegistry` `[EXPERIMENT]` (this workspace) | the issuing party / the registry admin | the claim's subject and the gateway's admin `[GAP]` / the gateway's admin `[GAP]` |
+| `PauseState` `[EXPERIMENT]`, gateway and nonce registry `[FUTURE]` | the pauser / the gateway's admin and operator / the gateway's admin | the gateway's admin `[GAP]` / none / the attester set |
 
 Consequences:
 
 - **No recipient sees another recipient's legs.** Each `TokenAllocation` carries only the legs its authorizer sends or receives, so a batch carrying several inbound payments does not cross-disclose them. This is the privacy claim the spine actually enforces.
 - **The Stablecoin Admin sees every `wTOK` payment.** It signs the instrument's holdings and allocations, and a leg's `meta` payload travels into the emitted event log, so amounts, accounts, and memos are readable by construction. This is a trust assumption rather than a leak to be closed: an issuer that authors the mint leg cannot also be blind to it, and CIP-0112 places the instrument admin on those contracts. Anyone whose memo must stay private from the issuer of the asset they are paid in should not use a gateway-minted instrument. The boundary follows the instrument, not this RI: for `USDCx` settled by interface, the party in that position is Circle, so a `wTOK` rail adds one reader to the set that exists for any Canton-native instrument.
 - **The relayer and the attesters see what they handle.** The relayer is an executor and therefore an observer of every allocation it assembles, so its transport-only role bounds its authority rather than its visibility. Attesters see the legs of the settlements they attest, which makes registry membership a privacy decision on top of the compliance one. The Custodian sees nothing until a seizure, because `custodianDestination` is a data field on the D2 hook rather than an observer entry.
+- **A gate the gateway runs makes the gateway a stakeholder `[GAP]`.** `fetch` and `fetchByKey` need authorization from one stakeholder of the contract they return, and `Gateway_ProcessInbound` carries only the gateway's own `admin` and `operator` authority. The pause state, the issuer registry, and every `KycClaim` the gateway checks must therefore name the gateway's admin as an observer, which is a required change to three templates that already exist. Naming the admin rather than the operator keeps durable registry and claim visibility off the relayer, whose set the design wants to open ([section 2](#decentralization-and-trust-topology)). The submitting relayer still witnesses the claim transiently, because a fetch divulges to whoever witnesses the exercise.
 - **Settlement outcomes arrive as events, not as a queryable log contract.** `withTempEventLog` creates and archives the host inside one transaction, and the event data lives in the exercise node its observers witness. Integrators ingest the transfer-events stream ([section 5.6](#56-off-ledger-reconciliation-upstream)) rather than the ACS, and the durable evidence of a settled payment is the recipient's holding.
 - **No PII on ledger.** A `KycClaim` carries an issuer reference, not personal attributes; the data stays with the issuer off-ledger.
 
@@ -563,7 +564,9 @@ The snippets below are illustrative rather than production code. They exemplify 
 
 ### 4.1 Component: Standardized Messaging Gateway (bounded mock) `[FUTURE]`
 
-The gateway is the cross-chain boundary. Its single choice validates the relayer's role grant, resolves the pause state and the identity and nonce registries by key (each keyed by its own maintaining authority, so membership changes never leave a stale contract id) and checks each resolved registry against the genesis anchor it pins, consumes the one-time attested carrier, records the nonce fail-closed, and creates an executor-signed allocation request whose amount is exactly the attested amount. The recipient-side allocation is deliberately not created here: the gateway carries no recipient authority, so binding the recipient happens in [section 4.2](#42-component-inbound-dvp-via-delegated-accept-future) under the recipient's own standing signature.
+The gateway is the cross-chain boundary. Its single choice validates the relayer's role grant, resolves the pause state and the identity and nonce registries by key (each keyed by its own maintaining authority, so membership changes never leave a stale contract id) and checks each resolved registry against the genesis anchor it pins, reads the recipient's `KycClaim`, consumes the one-time attested carrier, records the nonce fail-closed, and creates an executor-signed allocation request whose amount is exactly the attested amount. The recipient-side allocation is deliberately not created here: the gateway carries no recipient authority, so binding the recipient happens in [section 4.2](#42-component-inbound-dvp-via-delegated-accept-future) under the recipient's own standing signature.
+
+The choice runs with the gateway's `admin` and `operator` authority and nothing else, so every contract it reads must name the gateway's admin as an observer for the read to be authorized at all ([Privacy and Visibility Model](#privacy-and-visibility-model)). Only the nonce registry satisfies that today, because the gateway's own admin signs it.
 
 ```daml
 module CrossChain.Gateway where
@@ -611,6 +614,8 @@ template StandardizedMessagingGateway
 
         -- Pause gate and D3 identity, resolved by key, then checked against the
         -- pinned genesis anchor because a key carries no uniqueness (section 1).
+        -- `admin` authorizes each of these three reads, so the pause state, the
+        -- registry, and the claim must all name it as an observer [GAP].
         (_, pause) <- fetchByKey @PauseState pauser
         whenNotPaused pause
         (_, registry) <- fetchByKey @TrustedIssuerRegistry registryAdmin
