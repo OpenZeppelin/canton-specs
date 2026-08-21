@@ -449,7 +449,7 @@ Beyond the adversarial vectors sit liveness failures: parties that crash, stall,
 
 ### 5.5 Throughput and Contention
 
-Every inbound mint records its nonce in one admin-keyed `ConsumedNonceRegistry`, and each settlement archives and recreates that contract. Inbound settlements for the rail therefore serialize. The contention is per rail, and it follows from the consuming nonce record rather than from any global ledger bottleneck.
+Every inbound mint records its nonce in one admin-keyed `ConsumedNonceRegistry`, and each settlement archives and recreates that contract. Inbound settlements for the rail therefore serialize. The contention is per rail, and it follows from the consuming nonce record.
 
 Sharding the registry is the mitigation, one shard per `sourceChainId` or per source-chain escrow contract. That restores parallelism across sources, and each shard keeps its own fail-closed dedup guarantee. Independent rails settle in parallel, and several allocations can ride one `SettlementFactory_SettleBatch`.
 
