@@ -12,8 +12,6 @@ A tag marks each component where it first appears. [Status at a glance](#status-
 | `[FUTURE]` | proposed design with no implementation |
 | `[GAP]` | a required change to code that already exists, and therefore a blocker for the claim it sits under |
 
-Where this report links a CIP-0112 choice name into `tokenCIP112-v1`, the target is the registry's `*Impl` method, because that is where the behaviour lives; the choice itself is declared upstream.
-
 ## 1. Product Definition
 
 Institutional participants accept value that reaches Canton from an external chain. The value arrives either as a Canton-native stablecoin such as `USDCx`, or as a gateway-minted wrapped instrument, written `wTOK` throughout. The settlement amount, the payer and payee identities, and the compliance markers project only to parties the design authorizes explicitly.
