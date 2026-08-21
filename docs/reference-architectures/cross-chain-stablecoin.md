@@ -329,11 +329,7 @@ Redemption mirrors the inbound flow:
 
 ### Inbound Delivery Guarantees and Recovery
 
-Nothing guarantees that the Canton-side settlement of an attested lock *executes*: delivery liveness is bounded by the trusted relayer and attester set. The design adds no automatic cross-chain recovery protocol. Compensating messages back to the source chain would need multi-round message passing, with its own delay, cost, and failure surface. The guarantees are structural and fail-closed:
-
-- **Before the gateway step, nothing is credited.** A stalled relayer leaves the source-chain backing locked and the Canton side untouched. Once `Gateway_ProcessInbound` commits, the nonce is spent, so a failed settlement cannot be re-driven on Canton and recovery falls to the source-chain refund.
-- **On Canton, stalled committed value is recoverable.** Once the settlement deadline passes, the executors may cancel and the authorizer may withdraw. Both return the locked holdings, and a D2 seizure in flight blocks both. An allocation with no deadline could never be released, so the spine refuses to create one. The finite deadline is structural, not policy this design sets.
-- **The source-chain lock itself** is outside Canton's authority. A timeout and forced refund at the escrow would reclaim it after a permanently failed inbound flow. That belongs to the gateway contract and is an open question ([section 7](#7-open-design-questions)).
+Nothing guarantees that the Canton-side settlement of an attested lock *executes*: delivery liveness is bounded by the trusted relayer and attester set. The design adds no automatic cross-chain recovery protocol. Compensating messages back to the source chain would need multi-round message passing, with its own delay, cost, and failure surface. What remains is structural and fail-closed ([section 5.4](#54-failure-modes-and-recovery)). The source-chain lock is outside Canton's authority either way, so a timeout and forced refund at the escrow belongs to the gateway contract and is an open question ([section 7](#7-open-design-questions)).
 
 ### Privacy and Visibility Model
 
