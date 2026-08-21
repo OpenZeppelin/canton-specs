@@ -292,7 +292,7 @@ Each flow therefore derives its own deadline, between the slowest required actor
 
 ### Reserve and Lock-Attestation Model
 
-The flow above settles an inbound payment privately. What makes it a bridge is the binding between the Canton mint and the backing locked on the source chain. Without that binding the rail still settles privately, but it mints with no proof that anything backs the mint.
+The flow above settles an inbound payment privately. What makes it a bridge is the binding between the Canton mint and the backing locked on the source chain.
 
 **What is attested.** Every inbound mint is authorized by a typed `LockAttestation`, carried inside the `InboundMessage`. It asserts that backing is locked on the source chain, and that the backing is claimable only by minting the matching amount on Canton. It identifies the lock, the amount, the Canton recipient, the target instrument, a one-time nonce, and its own expiry. The lock and the asset are foreign references, so nothing on Canton can validate them. That is the trust the attester set carries.
 
