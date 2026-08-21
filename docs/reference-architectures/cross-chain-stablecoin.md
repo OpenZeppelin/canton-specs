@@ -51,7 +51,7 @@ Where a native rail already exists, as it does for `USDCx`, this design only *se
 
 ### Registry Uniqueness Under Non-Unique Keys
 
-A [Canton 3.x key](https://docs.canton.network/appdev/modules/m3-contract-keys) does not enforce uniqueness, so this design has to supply it. The exposure is concrete. The Bridge Relayer builds every inbound submission, and its disclosures decide which of two same-key registries the gateway resolves. A nonce registry that lacks an entry lets an already-minted lock mint twice. An issuer registry with a wider list passes a D3 check that the narrower one refuses. One botched rotation creates the pair: the successor goes on the ledger before the predecessor is archived.
+A [Canton 3.x key](https://docs.canton.network/appdev/modules/m3-contract-keys) does not enforce uniqueness, so this design has to supply it. The Bridge Relayer builds every inbound submission, and its disclosures decide which of two same-key registries the gateway resolves. A nonce registry that lacks an entry lets an already-minted lock mint twice. An issuer registry with a wider list passes a D3 check that the narrower one refuses. One botched rotation creates the pair: the successor goes on the ledger before the predecessor is archived.
 
 **Decision.** Every keyed registry sits on an on-ledger successor chain. Each version pins the genesis contract id and consumes its predecessor. Each consumer checks a resolved registry against the genesis it pinned once. A planted parallel registry then fails a check, and no operator has to notice it.
 
