@@ -81,8 +81,6 @@ Six of the thirteen components below are not built, the cross-chain boundary amo
 
 ## 2. Architecture Overview
 
-The architecture has three parts: reused OpenZeppelin Daml primitives, the CIP-0112 settlement spine as the engine for all asset movement, and the Standardized Messaging Gateway at the cross-chain boundary.
-
 ### Parties, Nodes, and Processes
 
 Parties exist only on Canton. The source chain has addresses and keys, and neither ledger records that an address and a party belong together. One off-Canton process holds both credentials, and that is the only thing that links them. The pairing is therefore a deployment fact, not a protocol guarantee.
