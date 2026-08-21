@@ -90,7 +90,7 @@ among them.
 | Identity credential hook (D3) | This workspace, [`experiments/identity/hook-shape-b`](../../experiments/identity/hook-shape-b/) | The gateway action that runs the check, and the observer entries that let the gateway read the credential and the trusted-issuer list |
 | Per-action role binding (D4) | Libraries in `canton-contracts` `experiments/access` | The wiring. The primitives exist, and this rail does not use them |
 | Access control, ownership handover, and pausing | `canton-contracts` `experiments/access` and `experiments/security` | Nothing for access control and ownership. The pause state needs the observer entry that lets the gateway read it |
-| Holdings and the standing receive authorization | [`canton-token-template`](https://github.com/OpenZeppelin/canton-token-template) | The delegated accept that allocates under the recipient's standing signature. The template's own action only sends a transfer ([section 4.2](#42-inbound-credit-under-a-standing-authorization)) |
+| Holdings and the receive preapproval | [`canton-token-template`](https://github.com/OpenZeppelin/canton-token-template) | The delegated accept that allocates under the recipient's preapproval. The template's own action only sends a transfer ([section 4.2](#42-inbound-credit-under-a-receive-preapproval)) |
 | Messaging gateway | [Section 4.1](#41-messaging-gateway) | The whole implementation |
 | Lock-attestation carrier and consumed-nonce registry | [Section 3.2](#32-reserve-and-lock-attestation) | The whole implementation |
 | Attested mint and redemption burn | [Section 3.2](#32-reserve-and-lock-attestation) | The whole implementation |
@@ -135,7 +135,7 @@ flowchart TB
     Services -->|"credential and<br/>trusted-issuer list"| Gateway
     Relayer -->|"process the attested message"| Gateway
     Gateway ==>|"allocation request for<br/>the attested amount only"| Settle
-    Recipient -->|"standing receive authorization"| Settle
+    Recipient -->|"receive preapproval"| Settle
     Admin -->|"attested mint funds<br/>the sender side"| Settle
     Attesters -->|"compliance attestation<br/>gates the settle"| Settle
     Settle ==>|"private credit"| Recipient
@@ -199,14 +199,14 @@ the escrow's own verifier accepts.
 | Stablecoin Admin | Instrument admin for wTOK. It signs the instrument's holdings and allocations and authors the attested mint, so it sees every wTOK payment. |
 | Compliance Verifier | Administers the trusted-issuer list and issues the identity credential. It observes no settlement leg. |
 | Custodian | Holds the seizure capability and owns the preset sweep account. It sees nothing until a seizure. |
-| Recipient, or Holder outbound | Signs the receiving allocation, live or through a standing receive authorization. |
+| Recipient, or Holder outbound | Signs the receiving allocation, live or through a receive preapproval. |
 | Pause authority | Signs the pause state and maintains its key. |
 | Gateway admin | Administers the gateway and the consumed-nonce registry. It reads the pause state, the trusted-issuer list, and each credential the gateway checks. |
 | Redemption operator | Holds the redemption burn capability. |
 | Lawful-process authority | Signs the seizure order that a sweep past the settlement deadline requires. The attester registry lists it, and it is never the instrument admin. |
 | Relayer backend | Off-Canton process. It watches the source chain and submits every inbound command as the bridge relayer. |
 | Attester services | M independent operators on M participants. Each submits as its own attester party. |
-| Recipient wallet | Off-Canton process. It creates the standing receive authorization and submits as the recipient. |
+| Recipient wallet | Off-Canton process. It creates the receive preapproval and submits as the recipient. |
 | Lock escrow | Source-chain contract. It holds the backing and releases it against a verified redemption attestation. |
 
 The gateway and the registries are contracts, not services. The gateway has one
@@ -309,7 +309,7 @@ is open ([section 7](#7-open-design-questions)):
 | Bridge relayer | Multi-hosted on several participants, confirmation threshold 1 | It holds no minting trust and is the most submission-heavy role in the design. Integrity comes from the attester split, and relay should ultimately be permissionless, so no single party gates liveness |
 | Pause authority | Multi-hosted, confirmation threshold 1 | An emergency stop must be instant, and a quorum would slow it down. The price is a griefing window where a malicious pauser stalls settlement until the deadlines lapse, capped by the sender's right to reclaim committed funds |
 | Compliance Verifier | Several independent issuers on the trusted-issuer list | A recipient needs a credential from only one listed issuer, so no single issuer can block onboarding. The list is only as strict as its most permissive issuer, which makes the choice of whom to list a governance decision |
-| Recipients | No rail-side decentralization | Nothing binds a recipient without its own signature, live or standing, so it trusts only its own keys and participant |
+| Recipients | No rail-side decentralization | Nothing binds a recipient without its own signature, live or preapproved, so it trusts only its own keys and participant |
 
 The relayer is the only party on both sides of the cross-chain boundary. It pays
 nearly all the traffic ([section 6.1](#61-traffic-costs)), and the rail halts
@@ -345,7 +345,7 @@ sequenceDiagram
     App->>App: Consume the message and record the nonce
     App->>Assets: Create the allocation request<br/>for the attested amount
     Note over Relayer,Assets: Delegated accept transaction
-    Relayer->>Recipient: Exercise the standing receive authorization
+    Relayer->>Recipient: Exercise the receive preapproval
     Recipient->>Assets: Create the recipient's allocation<br/>and accept the request
     rect rgba(255, 255, 255, .1)
         Note over Admin,Assets: Atomic settlement. All legs commit or all roll back.
@@ -383,9 +383,9 @@ does not need. The messaging gateway is the seam where another mode plugs in.
    an unexpired credential from a listed issuer. That is D3. The settle later
    needs a separate compliance attestation.
 3. **Recipient authorization.** An offline corporate treasury cannot sign
-   interactively, so its wallet pre-establishes a **standing receive
-   authorization** for the wrapped instrument. The relayer exercises it through a
-   delegated accept ([section 4.2](#42-inbound-credit-under-a-standing-authorization)).
+   interactively, so its wallet pre-establishes a **receive preapproval** for
+   the wrapped instrument. The relayer exercises it through a delegated accept
+   ([section 4.2](#42-inbound-credit-under-a-receive-preapproval)).
    That one submission creates the recipient's committed allocation and consumes
    the request, so the payment leaves no residue.
 4. **Settlement.** The relayer submits the committed allocations as one
@@ -676,20 +676,20 @@ the lock attestation: amount, recipient, instrument, and the recipient's receive
 side.
 
 Binding the recipient happens in
-[section 4.2](#42-inbound-credit-under-a-standing-authorization), under the
-recipient's own standing signature, because the gateway holds no recipient
-authority.
+[section 4.2](#42-inbound-credit-under-a-receive-preapproval), under the
+signature the recipient's preapproval carries, because the gateway holds no
+recipient authority.
 
-### 4.2 Inbound Credit Under a Standing Authorization
+### 4.2 Inbound Credit Under a Receive Preapproval
 
 The recipient's co-authorization flows through an action on a contract the
 recipient signed. That action contributes the recipient's authority when the
 relayer exercises it.
 
-The standing receive authorization exposes only a send, which cannot allocate
-on the settlement spine. The delegated accept this design needs does not exist.
-Two shapes can carry it, and the choice between them is open: an additive action
-on the standing receive authorization, or a dedicated recipient-signed grant.
+The receive preapproval exposes only a send, which cannot allocate on the
+settlement spine. The delegated accept this design needs does not exist. Two
+shapes can carry it, and the choice between them is open: an additive action on
+the receive preapproval, or a dedicated recipient-signed grant.
 Either way, both spine steps that need the recipient's signature run inside its
 body. Those steps create the recipient's allocation from the gateway's request,
 then accept it into a committed allocation.
@@ -715,7 +715,7 @@ enforces from what stays trusted.
 | 1:1 reserve backing | Minted wrapped supply never exceeds the sum of valid, unredeemed lock attestations. This is blocked on closing the spine's admin mint ([section 3.2](#32-reserve-and-lock-attestation)). |
 | Replay protection | One source-chain lock can credit Canton at most once, through one-time message consumption and then the consumed-nonce registry. It holds provided that registry sits on its anchored successor chain ([section 3.4](#34-registry-uniqueness-under-non-unique-keys)). |
 | Privacy partitioning | The amount, payer, and memo of a settled leg project only to that leg's counterparties, the executing relayer, the attester whose attestation gates the settle, and the instrument admin. The Compliance Verifier observes no settlement leg. The per-authorizer allocation is what enforces this. |
-| Non-custodial recipient binding | No allocation binds a recipient without its signature, live or standing. Committed value is recoverable once the settlement deadline passes, and the spine refuses to create an allocation that has no deadline at all. |
+| Non-custodial recipient binding | No allocation binds a recipient without its signature, live or preapproved. Committed value is recoverable once the settlement deadline passes, and the spine refuses to create an allocation that has no deadline at all. |
 
 ### 5.2 Trust Boundaries
 
@@ -768,7 +768,7 @@ finite window and a lawful-process reference.
 | The relayer crashes before the gateway transaction | Nothing consumed | Any relayer resubmits, because the message is standing | Nothing |
 | The relayer crashes after the gateway transaction | The nonce is spent, and the settlement is pending | Complete the allocate and settle on restart. If the deadline lapses, the funds unlock and the nonce stays spent | Settlement deadline |
 | The attestation expires before the settle | The settle is blocked, and fails closed | Re-attest within the window, or let the deadline lapse and withdraw | Settlement deadline |
-| The recipient has no standing authorization | The delegated accept fails, and nothing is locked | The recipient establishes the authorization, and the relayer retries | Nothing |
+| The recipient has no receive preapproval | The delegated accept fails, and nothing is locked | The recipient establishes the preapproval, and the relayer retries | Nothing |
 | A pause during an in-flight settlement | The settle is blocked by the pause check | Unpause, or let the deadline lapse and withdraw ([section 2.3](#23-decentralization-and-trust-topology)) | Settlement deadline |
 | The relayer validator runs out of traffic | The rail halts, because every inbound submission is relayer-paid | Top up the traffic, and monitor it ([section 6.1](#61-traffic-costs)) | Settlement deadline |
 | Synchronizer outage | The ledger is halted, so no one can settle and no one can withdraw | Service resumes. An allocation whose deadline lapsed during the outage is withdraw-only | Outage duration plus settlement deadline |
