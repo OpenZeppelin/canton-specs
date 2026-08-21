@@ -455,7 +455,7 @@ Sharding the registry is the mitigation, one shard per `sourceChainId` or per so
 
 ### 5.6 Off-Ledger Reconciliation
 
-A treasury reconciles its private Canton settlement against the external-chain event without parsing raw transaction trees. The Token Standard V2 transfer-events API emits holdings-change events, and the recipient correlates them with the id of the gateway's `InboundMessage`. That gives a 1:1 linkage between the external lock or burn and the Canton credit. The API is upstream and not vendored here, and the linkage is a reference pattern. This report makes no claim about reconciliation completeness, accounting standards, or audit readiness.
+The Token Standard V2 transfer-events API emits holdings-change events, and the recipient correlates them with the id of the gateway's `InboundMessage`. That gives a 1:1 linkage between the external lock or burn and the Canton credit. The API is upstream and not vendored here, and the linkage is a reference pattern.
 
 ---
 
