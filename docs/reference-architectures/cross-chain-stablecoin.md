@@ -103,7 +103,6 @@ Parties exist only on Canton. The source chain has addresses and keys, and neith
 | Gateway Admin | party | the gateway's `admin`; maintains the `ConsumedNonceRegistry` key |
 | Redemption operator | party | holds the `RedemptionBurnCapability` |
 | Lawful-process authority | party | signs the `SeizureOrder`; registry-listed, and never the admin |
-| Participant | Canton node | hosts parties, confirms their transactions, and vets the DAR versions those transactions select |
 | Sequencer and Mediator | Canton node | ordering, and the verdict that makes a transaction final; hosts no application party |
 | Relayer backend | off-Canton process | watches the source chain, one state machine per nonce, and submits every inbound command as the Bridge Relayer |
 | Attester services | off-Canton process | M independent operators on M participants; each submits as its own attester party |
