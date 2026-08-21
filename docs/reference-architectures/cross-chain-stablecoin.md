@@ -274,7 +274,7 @@ flowchart TD
 
 ### Execution Model
 
-Only the settle is atomic. The inbound path is three relayer-submitted ledger commands, orchestrated off-ledger by the relayer's backend: a submission returns once accepted, and the outcome arrives on the completion stream, correlated by command id.
+Only the settle is atomic. The inbound path is three relayer-submitted ledger commands, orchestrated off-ledger by the relayer's backend.
 
 Command deduplication (24h) makes those three commands safe to resubmit after a crash: resubmitting cannot double-execute. A stalled workflow blocks only this rail, since inbound settlements serialize on the per-rail nonce registry ([section 5.5](#55-throughput-and-contention)).
 
