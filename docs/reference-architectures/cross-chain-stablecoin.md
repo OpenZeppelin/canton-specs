@@ -320,7 +320,7 @@ Redemption mirrors the inbound flow:
 2. **Attest.** A registry-trusted attester signs the `RedemptionAttestation` through the same `TrustedAttesterRegistry` path.
 3. **Release on the source chain.** The signed attestation is submitted to the source-chain escrow, which releases `amount` to `sourceChainDestination`, and the reserve is decremented. The burn references and draws down specific unredeemed `LockAttestation`s, so `sum of lockedAmount(unredeemed)` and actual supply cannot drift under partial burns.
 
-**Cross-chain atomicity.** The source-chain release is not in the same Daml transaction as the Canton burn, because no protocol spans both ledgers atomically. The design is therefore burn-first and attested-release: the Canton burn is the irreversible commit, and the foreign release is gated on the signed burn attestation. If the release stalls, the burn is already final, so the reserve accounting stays sound. The redemption becomes a standing, replay-protected claim, and the holder or any relayer can resubmit it until the escrow releases. The failure mode is delayed release, never double-spend or unbacked supply.
+**Cross-chain atomicity.** The source-chain release is not in the same Daml transaction as the Canton burn. The design is therefore burn-first and attested-release: the Canton burn is the irreversible commit, and the foreign release is gated on the signed burn attestation. If the release stalls, the burn is already final, so the reserve accounting stays sound. The redemption becomes a standing, replay-protected claim, and the holder or any relayer can resubmit it until the escrow releases. The failure mode is delayed release, never double-spend or unbacked supply.
 
 ### Inbound Delivery Guarantees and Recovery
 
