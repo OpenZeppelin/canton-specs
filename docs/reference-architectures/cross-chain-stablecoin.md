@@ -62,11 +62,11 @@ CIP-0112 requirements.
 
 ### 1.2 Scope
 
-| Bridge scope | Separate designs |
+| Bridge scope | Out of scope |
 |---|---|
 | The Canton side of the bridge: attested mint, private settlement, and attested burn | The relayer backend, the attester services, the source-chain lock escrow, external oracles, source-chain validator sets, and light-client proofs |
 | Settlement of the wrapped instrument this design mints | The issuance, peg, and collateral mechanism of any stablecoin, and any asset that already has a native Canton rail |
-| On-ledger compliance and identity checks that fail closed | Off-ledger caching of compliance status, probabilistic risk scoring, and heuristic filtering |
+| On-ledger compliance and identity checks that deny the action when the attestation or the credential is absent or invalid | Any gate that reads a stored compliance flag, a risk score, or a threshold |
 | CIP-0112 allocations and settlement batches | The superseded CIP-56 token standard and legacy allocation paths |
 | One Canton synchronizer, with a cross-chain boundary outside it | Cross-synchronizer settlement and cross-synchronizer identity |
 
@@ -86,7 +86,7 @@ among them.
 |---|---|---|
 | Settlement spine: registry rules, allocations, holdings, and the event host | [`canton-contracts` `tokenCIP112-v1`](https://github.com/OpenZeppelin/canton-contracts/tree/7696749737885e25cd88422847105f890f03b00d/experiments/token/tokenCIP112-v1) | Nothing for settlement itself. The wTOK registry must still close the [admin mint](https://github.com/OpenZeppelin/canton-contracts/blob/7696749737885e25cd88422847105f890f03b00d/experiments/token/tokenCIP112-v1/daml/OpenZeppelin/TokenCIP112V1/Registry.daml#L149), which consumes no attestation and can therefore issue unbacked supply ([section 3.2](#32-reserve-and-lock-attestation)) |
 | Compliance attestation path (D1) | Same package, `D1.daml` | The verification of an N-of-M attester quorum, in place of the single attestation the registry verifies today ([section 2.3](#23-decentralization-and-trust-topology)) |
-| Seizure path (D2): mark, two sweeps, seizure capability, lawful-process order | Same package, `Allocation.daml` and `D1.daml` | The sweep for an already-settled holding, since the evidence template ships only an unlock; and capability revocation or rotation |
+| Seizure path (D2): mark, two sweeps, seizure capability, lawful-process order | Same package, `Allocation.daml` and `D1.daml` | The sweep for an already-settled holding, since the seizure capability ships only an unlock; and capability revocation or rotation |
 | Identity credential hook (D3) | This workspace, [`experiments/identity/hook-shape-b`](../../experiments/identity/hook-shape-b/) | The gateway action that runs the check, and the observer entries that let the gateway read the credential and the trusted-issuer list |
 | Per-action role binding (D4) | Libraries in `canton-contracts` `experiments/access` | The wiring. The primitives exist, and this rail does not use them |
 | Access control, ownership handover, and pausing | `canton-contracts` `experiments/access` and `experiments/security` | Nothing for access control and ownership. The pause state needs the observer entry that lets the gateway read it |
@@ -596,7 +596,7 @@ registry rules, because the contract id is stamped on them.
 **D2.** Seizure is a strict lock-and-sweep. A mark locks the allocation, and a
 sweep then moves the locked holdings to the preset custodian account. The
 equivalent sweep for an already-settled holding does not exist yet, because the
-evidence template ships only an unlock.
+seizure capability ships only an unlock.
 
 The two sweep paths differ in authority. The in-flight sweep needs the admin's
 mark plus the Custodian's capability, and it must land inside both the settlement
@@ -686,13 +686,13 @@ The recipient's co-authorization flows through an action on a contract the
 recipient signed. That action contributes the recipient's authority when the
 relayer exercises it.
 
-The evidence template exposes only a send, which cannot allocate on the
-settlement spine. The delegated accept this design needs does not exist. Two
-shapes can carry it, and the choice between them is open: an additive action on
-the evidence template, or a dedicated recipient-signed grant. Either way, both
-spine steps that need the recipient's signature run inside its body. Those steps
-create the recipient's allocation from the gateway's request, then accept it into
-a committed allocation.
+The standing receive authorization exposes only a send, which cannot allocate
+on the settlement spine. The delegated accept this design needs does not exist.
+Two shapes can carry it, and the choice between them is open: an additive action
+on the standing receive authorization, or a dedicated recipient-signed grant.
+Either way, both spine steps that need the recipient's signature run inside its
+body. Those steps create the recipient's allocation from the gateway's request,
+then accept it into a committed allocation.
 
 The relayer then settles the issuer's sender side and the recipient's receiver
 side in one batch. It presents the compliance attestation through the standard's
