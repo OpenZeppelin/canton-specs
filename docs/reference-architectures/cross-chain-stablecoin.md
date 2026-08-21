@@ -9,10 +9,9 @@ transit.
 ## 1. Product Definition
 
 Institutional participants accept value that reaches Canton from an external
-chain. The value arrives either as a Canton-native stablecoin, such as USDCx, or
-as a gateway-minted **wrapped instrument**, written wTOK. The settlement amount,
-the payer and payee identities, and the compliance markers project only to the
-parties this design authorizes.
+chain. The value arrives as a gateway-minted **wrapped instrument**, written
+wTOK. The settlement amount, the payer and payee identities, and the compliance
+markers project only to the parties this design authorizes.
 
 **Inbound** moves value from the external chain to Canton, by **lock-and-mint**.
 **Outbound** moves it back, by **burn-and-release**.
@@ -67,7 +66,7 @@ CIP-0112 requirements.
 | Bridge scope | Separate designs |
 |---|---|
 | The Canton side of the bridge: attested mint, private settlement, and attested burn | The relayer backend, the attester services, the source-chain lock escrow, external oracles, source-chain validator sets, and light-client proofs |
-| Settlement of the wrapped instrument this design mints, and settlement of a native instrument's output by interface | The issuance, peg, and collateral mechanism of any stablecoin, including USDCx issuance and its native rail |
+| Settlement of the wrapped instrument this design mints | The issuance, peg, and collateral mechanism of any stablecoin, and any asset that already has a native Canton rail |
 | On-ledger compliance and identity checks that fail closed | Off-ledger caching of compliance status, probabilistic risk scoring, and heuristic filtering |
 | CIP-0112 allocations and settlement batches | The superseded CIP-56 token standard and legacy allocation paths |
 | One Canton synchronizer, with a cross-chain boundary outside it | Cross-synchronizer settlement and cross-synchronizer identity |
@@ -75,11 +74,9 @@ CIP-0112 requirements.
 ### 1.3 Instrument Scope
 
 Every flow in this document mints, settles, and redeems wTOK, a generic
-gateway-minted wrapped instrument. The Stablecoin Admin issues its holdings.
-
-Where a native rail already exists, as it does for USDCx, this design settles
-its output by interface and takes no issuer role. The gateway is the rail for an
-asset that has no native Canton path.
+gateway-minted wrapped instrument. The Stablecoin Admin issues its holdings. The
+gateway is the rail for an asset that has no native Canton path, so this design
+never re-bridges an asset that a native rail already carries.
 
 ### 1.4 Status at a Glance
 
@@ -250,8 +247,8 @@ Consequences:
   into the event stream, so amounts, accounts, and memos are readable by
   construction. This is a trust assumption and not a leak to close. An issuer
   that authors the mint leg cannot also be blind to it. The boundary follows the
-  instrument and not this design: for USDCx, the party in that position is
-  Circle.
+  instrument and not this design: any issued instrument puts its own issuer in
+  that position.
 - **The relayer and the attesters see what they handle.** The relayer's
   transport-only role bounds its authority, not its visibility. Attester
   membership is therefore a privacy decision as well as a compliance one. The
