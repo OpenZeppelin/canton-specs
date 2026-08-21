@@ -274,8 +274,6 @@ Only the settle is atomic. The inbound path is three relayer-submitted ledger co
 
 Command deduplication (24h) makes those three commands safe to resubmit after a crash: resubmitting cannot double-execute. A stalled workflow blocks only this rail, since inbound settlements serialize on the per-rail nonce registry ([section 5.5](#55-throughput-and-contention)).
 
-The relayer backend tracks each inbound payment as a state machine keyed by nonce and command id. Every step either lands on the completion stream, or times out against its deadline and marks the workflow stuck.
-
 ### Time Model and Deadlines
 
 CIP-0112 defines the deadline fields and no values. `settlementDeadline` stops a settle and makes a committed allocation withdrawable, and a registry-set `expiresAt` handles hygiene expiry. Enforcement sits in each token registry, so with a third-party token the policy is that registry's (`Amulet` caps allocation lifetimes at 90 days).
