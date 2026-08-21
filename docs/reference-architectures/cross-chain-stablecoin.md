@@ -447,8 +447,6 @@ Beyond the adversarial vectors sit liveness failures: parties that crash, stall,
 | Synchronizer outage | ledger halted: no one can settle, and no one can withdraw | service resumes; if `settlementDeadline` lapsed during the outage the allocation is withdraw-only | outage duration plus `settlementDeadline` |
 | D2 marked, never swept | settle, withdraw, and cancel all blocked | `TokenAllocation_UnmarkD2Seizure` by the admin, or `TokenAllocation_ReleaseLapsedD2Seizure` by any stakeholder once the window lapses | seizure window end, itself capped by `maxSeizureExtension` |
 
-Each row becomes a Daml Script test in the reference implementation's test suite. Bounded custody caps the loss but not the delay: a recipient whose relayer stalls waits out `settlementDeadline`, and a stranded nonce costs a fresh attestation round-trip.
-
 ### 5.5 Throughput and Contention
 
 Every inbound mint records its nonce in one admin-keyed `ConsumedNonceRegistry`, and each settlement archives and recreates that contract. Inbound settlements for the rail therefore serialize. The contention is per rail, and it follows from the consuming nonce record rather than from any global ledger bottleneck.
