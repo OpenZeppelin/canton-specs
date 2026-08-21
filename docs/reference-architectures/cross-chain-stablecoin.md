@@ -481,7 +481,7 @@ The party operating the gateway holds the `FeaturedAppRight`. Rewards accrue to 
 
 Two tensions follow, both specific to this design. First, a `FeaturedAppRight` names one provider party, which sits poorly with permissionless relay ([section 2](#decentralization-and-trust-topology)). The relay set either shares one party, or leaves most relayers unrewarded. Second, the earn rule pays signers and not submitters. The relayer signs only the `TokenAllocationRequest`, while the Stablecoin Admin signs the instructions, allocations, and holdings. Most of the credit for relayer-funded transactions therefore goes to the admin if the admin is featured, and to nobody if only the relayer is.
 
-The report defines no fee model, so there is no revenue for rewards to rebate: the credit is an issuance-scaled fraction of each transaction's own burn and cannot carry the rail by itself. Who charges for orchestration, and how, stays with the business design. A precise calculation of application rewards and traffic cost under CIP-0104 accounting waits for the implementation and its DevNet simulations.
+The report defines no fee model, so there is no revenue for rewards to rebate: the credit is an issuance-scaled fraction of each transaction's own burn and cannot carry the rail by itself.
 
 ---
 
