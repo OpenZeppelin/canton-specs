@@ -300,7 +300,7 @@ The flow above settles an inbound payment privately. What makes it a bridge is t
 
 **How the nonce is enforced.** Two layers. `InboundMessage_Consume` archives the carrier, so one carrier can never be processed twice. A *second* carrier could still be attested for the same lock. An admin-signed `ConsumedNonceRegistry` therefore records `(sourceChainId, nonce)` at consumption and fails closed on a duplicate, which holds even if the attesters misbehave. The registry observes the attester set, so the parties who must not re-attest a used nonce can read the dedup state and witness any admin edit. Since `lockTxId` already identifies the lock, an implementation may key entries by `(sourceChainId, lockTxId)` instead.
 
-**Reserve invariant.** Minted wrapped supply never exceeds the sum of the locked amounts of valid, unredeemed attestations. Mint increments the claimed reserve and redemption decrements it. This is the on-ledger statement of 1:1 backing.
+**Reserve invariant.** Minted wrapped supply never exceeds the sum of the locked amounts of valid, unredeemed attestations. Mint increments the claimed reserve and redemption decrements it.
 
 **Which choice has to enforce the binding.** Settlement conserves value at settle time, and it funds the recipient's leg from a sender's locked holdings. The exposure to unbacked issuance is therefore the *creation* of those wrapped holdings, not the settle. One attested-mint choice, co-authorized by the Stablecoin Admin, must be the only creator of `wTOK` holdings. It re-verifies the checks above and creates the holdings that fund the admin's sender-side leg. The mint is a funded transfer leg and not a sibling create, so the minted amount passes the same per-instrument conservation check as every other leg.
 
