@@ -37,17 +37,9 @@ For institutional control, the design proposes four gates. **D1** through **D4**
 
 ### Operational Scope and Boundaries
 
-| Feature Category | In-Scope Architectural Components |
-|---|---|
-| Atomic Settlement | Private on-Canton settlement of inbound stablecoin payments via `SettlementFactory_SettleBatch`. |
-| Cross-Chain Bridge | The Standardized Messaging Gateway: the component that carries the inbound and outbound boundary, with attested inbound mint and attested outbound redemption. No implementation of this architecture is complete without it. |
-| Compliance and Control | D1 attested settlement, D2 seizure to a preset custodian account, D3 single-synchronizer identity. |
-| Asset Representation | The gateway-minted `wTOK`, conforming to the CIP-0112 holding interfaces, and the integration to settle an existing native Canton stablecoin such as `USDCx` by interface. |
-| Component Integration | Direct reuse of `openzeppelin-access-control-v1`, `openzeppelin-ownable-v1`, and `openzeppelin-pausable-v1`, the CIP-0112 settlement spine, and patterns from [`canton-token-template`](https://github.com/OpenZeppelin/canton-token-template) and [`canton-stablecoin`](https://github.com/OpenZeppelin/canton-stablecoin). |
-
 | Feature Category | Out-of-Scope Architectural Components |
 |---|---|
-| Off-Canton Bridge Infrastructure | Everything behind the interface boundary: the relayer backend, the attester services, the source-chain lock escrow, external oracle infrastructure, source-chain validator sets, and cryptographic light-client proofs. The gateway is in scope above; the services that feed it are not. |
+| Off-Canton Bridge Infrastructure | Everything behind the interface boundary: the relayer backend, the attester services, the source-chain lock escrow, external oracle infrastructure, source-chain validator sets, and cryptographic light-client proofs. |
 | Stablecoin Mechanism | The issuance, peg, and CDP mechanism itself; `USDCx` issuance and its native rail are external. |
 | Off-Ledger Compliance Shortcuts | Off-ledger caching of compliance status, probabilistic risk scoring, heuristic filtering. |
 | Legacy Standards | Any reliance on the superseded CIP-56 token standard or legacy V1 allocation paths. |
