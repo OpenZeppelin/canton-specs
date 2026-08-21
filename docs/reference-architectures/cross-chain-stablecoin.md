@@ -56,7 +56,7 @@ CIP-0112 requirements.
 | ID | Control | Mechanism | Where enforced | Invariant |
 |---|---|---|---|---|
 | **D1** | Compliance | A single-use attestation from a registry-listed attester, bound to this settlement's own legs and never cached. | The [settle entrypoint](https://github.com/OpenZeppelin/canton-contracts/blob/7696749737885e25cd88422847105f890f03b00d/experiments/token/tokenCIP112-v1/daml/OpenZeppelin/TokenCIP112V1/Registry.daml#L79), against the [attester registry](https://github.com/OpenZeppelin/canton-contracts/blob/7696749737885e25cd88422847105f890f03b00d/experiments/token/tokenCIP112-v1/daml/OpenZeppelin/TokenCIP112V1/D1.daml#L22) pinned on the registry rules. | No valid attestation, no settlement. |
-| **D2** | Seizure | Mark the allocation, then sweep its locked holdings to a preset custodian account. | The [mark](https://github.com/OpenZeppelin/canton-contracts/blob/7696749737885e25cd88422847105f890f03b00d/experiments/token/tokenCIP112-v1/daml/OpenZeppelin/TokenCIP112V1/Allocation.daml#L158) on the allocation, plus one of the two sweep paths ([section 3.6](#36-control-enforcement)). | The asset is never burned, seized funds never return to the sender, and the freeze window is bounded and releasable. |
+| **D2** | Seizure | Mark the allocation, then sweep its locked holdings to a preset custodian account. | The [mark](https://github.com/OpenZeppelin/canton-contracts/blob/7696749737885e25cd88422847105f890f03b00d/experiments/token/tokenCIP112-v1/daml/OpenZeppelin/TokenCIP112V1/Allocation.daml#L158) on the allocation, plus one of the two sweep paths ([section 3.6](#36-control-enforcement)). | The asset is never burned, seized funds never return to the sender through the seizure path, and the freeze window is bounded and releasable. |
 | **D3** | Identity | The recipient holds a credential from an issuer on the trusted-issuer list. | The gateway, at request time, before any allocation exists. | No valid credential from a listed issuer, no allocation request. |
 | **D4** | Authority | Every privileged action binds to a named role rather than to one admin. | [Role administration](https://github.com/OpenZeppelin/canton-contracts/tree/7696749737885e25cd88422847105f890f03b00d/experiments/access/access-control-v1) and two-step ownership handover. | Privileges are granted, transferred, and revoked without a redeploy, and each traces to a role. |
 
@@ -602,17 +602,21 @@ The two sweep paths differ in authority. The in-flight sweep needs the admin's
 mark plus the Custodian's capability, and it must land inside both the settlement
 deadline and the seizure window. Only one path reaches past the settlement
 deadline. It needs a seizure order signed by a non-admin party that the attester
-registry lists. That order binds the case reference, the subject account, and
-the custodian destination. The admin cannot sign it.
+registry lists. That order binds the case reference, the account it sweeps, and
+the preset custodian account. The admin cannot sign it.
 
 The mark is bounded and reversible. It refuses a window past the maximum seizure
 extension, the admin can lift it, and any stakeholder can release it once it
 lapses. An abandoned mark therefore cannot strand funds. The capability is a
 witness and not an actor, so a sweep validates it before it archives any
-holding. D2 never burns the asset and never returns seized funds to the sender,
-though an ordinary transfer failure does return to sender. Revocation today
-means the admin archives the capability, and a rotation path is open
-([section 7](#7-open-design-questions)).
+holding. D2 never burns the asset, and the seizure path has no reverse path: a
+sweep lands only at the preset custodian account, and no D2 action moves value
+from there back to the account it swept. An ordinary transfer failure does
+return to sender, which is a different route. Restitution after a case that
+ends without forfeiture is therefore a custodian action outside D2, and its
+authority is open ([section 7](#7-open-design-questions)).
+Revocation today means the admin archives the capability, and a rotation path
+is open there too.
 
 **D3.** Identity is single-synchronizer. Both templates live in this workspace,
 and the gateway action that enforces the check does not. The gate is therefore
@@ -875,6 +879,7 @@ the question belongs to someone else by construction.
 | **Closing the admin mint.** Open: whether wTOK gets a purpose-built registry template that omits the admin mint and the allowance surface, or the shared registry rules gain an attestation gate and keep allowances, and which the upgrade path can deliver on a live rail. | A purpose-built registry template that omits both ([section 3.2](#32-reserve-and-lock-attestation)) | The wTOK registry template, and with it the reserve invariant | **High**, the headline economic claim rests on it | Internal team |
 | **Registry uniqueness enforcement.** Open: who pins the genesis contract id and how it reaches each consumer, how a rotation keeps predecessor and successor from being active together, and whether keying the pause state earns a new package lineage at all. | An anchored successor chain, checked once per read against the pinned genesis ([section 3.4](#34-registry-uniqueness-under-non-unique-keys)) | The gateway's registry resolution, and the keying work | **High**, replay protection and the identity gate both rest on it | Internal team |
 | **Capability lifecycle.** Open: the additive revoke and rotate shape for the seizure capability, either a single contract or a registry of capabilities, and the holder and co-authorization model for the redemption burn capability. | The admin archives a capability to revoke it | Any public authority surface, and the outbound burn gate | Medium | Internal team |
+| **Restitution after a sweep.** A sweep leaves the value in the Custodian's account, and no action returns it. Open: whether the return gets its own action, bound to the case reference and to the account the sweep took from, and whether it needs the same non-admin authority that the past-deadline sweep needs. | The Custodian moves the funds out of the preset account like any other holding, with nothing tying the return to the case ([section 3.6](#36-control-enforcement)) | The Custodian's runbook, and the audit trail for a returned seizure | Medium, an unbound return can land anywhere and proves nothing | Internal team |
 | **Outbound-redemption atomicity.** Open: the standing-claim resubmission protocol and service level for a stalled release, and whether a bounded grace window before the burn suits specific source chains. | Burn first, then attested release, with a standing resubmittable claim ([section 3.3](#33-outbound-redemption)) | The redemption operator's runbook and service level | Medium | Internal team |
 | **Synchrony and time assumptions.** Open: the values for the allocation-lifetime, attestation-validity, and seizure-extension ceilings, the margin between source-chain finality and Canton ledger time, attester turnaround ceilings, and whether the nonce should be recorded at settlement rather than at the gateway. | The registry stamps its ceilings at creation, and the gateway records the nonce ([section 3.5](#35-time-and-deadlines)) | Every deployment, because those ceilings are stamped once | Medium | Internal team |
 | **Expired inbound-allocation lifecycle.** Open: who runs the post-deadline reclaim for a dead inbound flow, since an automated handler needs executor or authorizer authority, and how the local lifecycle aligns with the upstream allocation lifecycle once imported. | The allocation becomes withdrawable after the deadline, with no automated handler | The reclaim automation and its authority model | Medium | Internal team |
