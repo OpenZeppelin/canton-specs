@@ -475,7 +475,7 @@ Cost scales with serialized view bytes, and with the number of recipients each v
 
 ### 6.2 App Rewards
 
-Traffic-based app rewards ([CIP-0104](https://github.com/canton-foundation/cips/blob/main/cip-0104/cip-0104.md)) are off until the super validators vote them on. Whether this subsection applies at all is therefore a governance question before it is a design one. The analysis below assumes they vote it on.
+Traffic-based app rewards ([CIP-0104](https://github.com/canton-foundation/cips/blob/main/cip-0104/cip-0104.md)) are off until the super validators vote them on. The analysis below assumes they vote it on.
 
 The party operating the gateway holds the `FeaturedAppRight`. Nothing about earning touches the application path. Rewards accrue to the parties that *confirm* a successful request, not to the one that submits it. Per-transaction beneficiary attribution does not exist, so the gateway operator settles any split with the attesters or the Stablecoin Admin off-ledger, out of its own allowance.
 
