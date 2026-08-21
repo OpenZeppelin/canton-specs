@@ -168,8 +168,6 @@ The **Stablecoin Admin** authors `wTOK` mint legs and the **Custodian** can swee
 | Compliance Verifier | several independent issuers in the `TrustedIssuerRegistry` | a recipient needs a `KycClaim` from only one listed issuer, so no single issuer can block onboarding; the flip side is that the registry is only as strict as its most permissive issuer, which makes the choice of who to list a governance decision |
 | Recipients | no rail-side decentralization | nothing binds a recipient without their own signature, live or through their standing `TransferPreapproval`, so they trust only their own keys and participant |
 
-The spine does not meet the attester row yet. It verifies one attestation, and the choice that would verify a quorum does not exist ([section 7](#7-open-design-questions)).
-
 ---
 
 ## 3. Target Design
