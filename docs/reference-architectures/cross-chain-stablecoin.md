@@ -477,7 +477,7 @@ Cost scales with serialized view bytes, and with the number of recipients each v
 
 Traffic-based app rewards ([CIP-0104](https://github.com/canton-foundation/cips/blob/main/cip-0104/cip-0104.md)) are off until the super validators vote them on. The analysis below assumes they vote it on.
 
-The party operating the gateway holds the `FeaturedAppRight`. Nothing about earning touches the application path. Rewards accrue to the parties that *confirm* a successful request, not to the one that submits it. Per-transaction beneficiary attribution does not exist, so the gateway operator settles any split with the attesters or the Stablecoin Admin off-ledger, out of its own allowance.
+The party operating the gateway holds the `FeaturedAppRight`. Rewards accrue to the parties that *confirm* a successful request, not to the one that submits it. Per-transaction beneficiary attribution does not exist, so the gateway operator settles any split with the attesters or the Stablecoin Admin off-ledger, out of its own allowance.
 
 Two tensions follow, both specific to this design. First, a `FeaturedAppRight` names one provider party, which sits poorly with permissionless relay ([section 2](#decentralization-and-trust-topology)). The relay set either shares one party, or leaves most relayers unrewarded. Second, the earn rule pays signers and not submitters. The relayer signs only the `TokenAllocationRequest`, while the Stablecoin Admin signs the instructions, allocations, and holdings. Most of the credit for relayer-funded transactions therefore goes to the admin if the admin is featured, and to nobody if only the relayer is.
 
