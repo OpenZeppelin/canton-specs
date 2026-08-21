@@ -59,13 +59,6 @@ Every flow in this report mints, settles, and redeems `wTOK`, a generic gateway-
 
 Where a native rail already exists, as it does for `USDCx`, this design only *settles* its output by interface and takes no issuer role. The gateway is the rail for assets that have no native Canton path.
 
-### Target Ecosystem Participants
-
-- **Regulated financial institutions and corporate treasuries** accept inbound liquidity from public networks without exposing treasury flows, payment detail, or counterparty relationships.
-- **Bridge and gateway builders** replace the messaging integration behind the interface boundary and reuse the settlement and compliance layers unchanged.
-- **Wallet and client integrators** get a reference for the delegated-accept inbound flow, where a standing `TransferPreapproval` supplies an offline treasury's co-authorization.
-- **Security and assurance auditors** evaluate the reserve invariant, the explicit authority boundaries, and the proposed validation workflow (`daml-lint`, `daml-props`, `daml-verify`).
-
 ### Registry Uniqueness Under Non-Unique Keys
 
 A [Canton 3.x key](https://docs.canton.network/appdev/modules/m3-contract-keys) does not enforce uniqueness, so this design has to supply it. The exposure is concrete. The Bridge Relayer builds every inbound submission, and its disclosures decide which of two same-key registries the gateway resolves. A nonce registry that lacks an entry lets an already-minted lock mint twice. An issuer registry with a wider list passes a D3 check that the narrower one refuses. One botched rotation creates the pair: the successor goes on the ledger before the predecessor is archived.
