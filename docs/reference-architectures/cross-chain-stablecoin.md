@@ -55,7 +55,7 @@ A [Canton 3.x key](https://docs.canton.network/appdev/modules/m3-contract-keys) 
 
 **Decision.** Every keyed registry sits on an on-ledger successor chain. Each version pins the genesis contract id and consumes its predecessor. Each consumer checks a resolved registry against the genesis it pinned once. A planted parallel registry then fails a check, and no operator has to notice it.
 
-**Consequences.** The genesis version cannot name itself, so its pinned field is empty. A consumer therefore accepts the genesis id itself, or any version that points at it. The gateway resolves with `fetchByKey`, so it must be a stakeholder of every registry it reads ([section 4.1](#41-component-standardized-messaging-gateway)). No check may rest on the absence of a key. The trusted-attester registry stays outside the scheme: the settlement registry pins it by contract id, which is the same anchoring without a key ([D1](#capability-gates-d1-d4)).
+**Consequences.** The genesis version cannot name itself, so its pinned field is empty. A consumer therefore accepts the genesis id itself, or any version that points at it. The gateway resolves with `fetchByKey`, so it must be a stakeholder of every registry it reads ([Privacy and Visibility Model](#privacy-and-visibility-model)). No check may rest on the absence of a key. The trusted-attester registry stays outside the scheme: the settlement registry pins it by contract id, which is the same anchoring without a key ([D1](#capability-gates-d1-d4)).
 
 ### Status at a Glance
 
