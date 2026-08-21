@@ -16,7 +16,7 @@ A tag marks each component where it first appears. [Status at a glance](#status-
 
 Institutional participants accept value that reaches Canton from an external chain. The value arrives either as a Canton-native stablecoin such as `USDCx`, or as a gateway-minted wrapped instrument, written `wTOK` throughout. The settlement amount, the payer and payee identities, and the compliance markers project only to parties the design authorizes explicitly.
 
-**Inbound** moves value from the external chain to Canton, by **lock-and-mint**. **Outbound** moves it back, by **burn-and-release**. Neither name describes a direction between parties inside Canton.
+**Inbound** moves value from the external chain to Canton, by **lock-and-mint**. **Outbound** moves it back, by **burn-and-release**.
 
 The cross-chain transfer must credit the recipient with exactly the intended amount or nothing at all, and no intermediary may hold the assets in transit. Settlement therefore centers on the [CIP-0112](https://github.com/canton-foundation/cips/blob/main/cip-0112/cip-0112.md) [committed allocation](https://github.com/canton-foundation/cips/blob/main/cip-0112/cip-0112.md#416-committed-allocations-for-prefunded-trading-and-iterated-settlement): each leg's amount is fixed on-ledger by the allocation side its authorizer signed, and one all-or-nothing transaction settles them. A signed side makes an amount non-repudiable. It does not make the amount *correct*. The binding checks of [section 3](#reserve-and-lock-attestation-model) are what tie the inbound amount, recipient, and instrument to the attestation.
 
