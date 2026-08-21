@@ -216,7 +216,7 @@ flowchart TD
     AttReg -->|"pinned as requiredAttesterRegistryCid; attester trusted?"| Settle
 ```
 
-**B. Inbound mint settlement.** The attesters sign the one-time carrier; the gateway consumes it, records the nonce, and creates the executor-signed request whose amount is exactly the attested amount. The recipient's standing `TransferPreapproval` supplies their authority to commit the receiving allocation, and the mint leg and the credit settle in one transaction.
+**B. Inbound mint settlement.**
 
 ```mermaid
 flowchart TD
@@ -279,17 +279,9 @@ flowchart TD
 
 ### Execution Model
 
-Only the settle is atomic. The inbound path is three relayer-submitted ledger commands, orchestrated off-ledger by the relayer's backend: a submission returns once accepted, and the outcome arrives on the completion stream, correlated by command id.
+Only the settle is atomic, and it is final at the mediator verdict. The inbound path is three relayer-submitted ledger commands, orchestrated off-ledger by the relayer's backend: a submission returns once accepted, and the outcome arrives on the completion stream, correlated by command id.
 
-| # | Step | Submitter | Kind |
-|---|---|---|---|
-| 1 | Source-chain lock observed | relayer | off-Canton |
-| 2 | Carrier and compliance attestation | attester | async ledger commands, automated |
-| 3 | `Gateway_ProcessInbound` | bridge relayer | async ledger command; consumes the nonce |
-| 4 | Delegated allocate and accept, on the recipient's `TransferPreapproval` | bridge relayer | one atomic submission under the recipient's preapproval |
-| 5 | `SettlementFactory_SettleBatch` | bridge relayer | one atomic transaction; final at the mediator verdict, seconds |
-
-Command deduplication (24h) makes relayer crash-restart safe for its three ledger steps, 3 to 5: resubmitting cannot double-execute. A stalled workflow blocks only this rail, since inbound settlements serialize on the per-rail nonce registry ([section 5.5](#55-throughput-and-contention)).
+Command deduplication (24h) makes those three commands safe to resubmit after a crash: resubmitting cannot double-execute. A stalled workflow blocks only this rail, since inbound settlements serialize on the per-rail nonce registry ([section 5.5](#55-throughput-and-contention)).
 
 The relayer backend tracks each inbound payment as a state machine keyed by nonce and command id. Every step either lands on the completion stream, or times out against its deadline and marks the workflow stuck. A stuck workflow raises an operator alert that names the pending step and the deadline after which the funds unlock. [Section 5.4](#54-failure-modes-and-recovery) enumerates the stuck states and their exits.
 
