@@ -274,7 +274,7 @@ Only the settle is atomic. The inbound path is three relayer-submitted ledger co
 
 Command deduplication (24h) makes those three commands safe to resubmit after a crash: resubmitting cannot double-execute. A stalled workflow blocks only this rail, since inbound settlements serialize on the per-rail nonce registry ([section 5.5](#55-throughput-and-contention)).
 
-The relayer backend tracks each inbound payment as a state machine keyed by nonce and command id. Every step either lands on the completion stream, or times out against its deadline and marks the workflow stuck. A stuck workflow raises an operator alert that names the pending step and the deadline after which the funds unlock. [Section 5.4](#54-failure-modes-and-recovery) enumerates the stuck states and their exits.
+The relayer backend tracks each inbound payment as a state machine keyed by nonce and command id. Every step either lands on the completion stream, or times out against its deadline and marks the workflow stuck.
 
 ### Time Model and Deadlines
 
