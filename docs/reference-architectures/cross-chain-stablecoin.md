@@ -413,7 +413,7 @@ Two limits bind this design specifically. A template's `key` definition can be n
 
 ## 4. Component Structure
 
-Three components carry authority this design has to place deliberately. Each is stated as the parties it involves, the authority its choices need, and the order of its steps.
+Two components carry authority this design has to place deliberately. Each is stated as the parties it involves, the authority its choices need, and the order of its steps.
 
 ### 4.1 Component: Standardized Messaging Gateway
 
@@ -430,10 +430,6 @@ The recipient's co-authorization flows through a choice on a contract the recipi
 The evidence template exposes only `TransferPreapproval_Send`, which sends a transfer and cannot allocate on the settlement spine. The delegated choice this design needs, `TransferPreapproval_AllocateInbound`, does not exist. Two shapes can carry it, and the choice between them is open: an SCU-additive choice on the evidence template, or a dedicated recipient-signed `DelegatedAcceptGrant` template. Either way, both spine steps that need the recipient's signature run inside its body. Those steps create the recipient's allocation from the gateway's request, then accept it into a committed allocation.
 
 The relayer then settles the issuer's sender side and the recipient's receiver side in one batch. It presents the D1 attestation through the standard's extension slot. The attester registry is pinned on `TokenRules`, so the caller never names it.
-
-### 4.3 Component: D2 Lock-and-Sweep
-
-D2 reuses the spine's seizure mechanism, and there is no bespoke seizure template. The seizure hook is a data record on the allocation, and `BurnerCapability` carries no choices. Seizure therefore runs entirely through choices on the allocation or the holding. Which path applies depends on where the value sits and how late it is. There are three: an in-flight allocation inside the settlement deadline, an in-flight allocation past it under a `SeizureOrder`, and an already-settled locked holding, whose sweep does not exist yet. [Capability Gates](#capability-gates-d1-d4) states the authority each path needs.
 
 ## 5. Security and Auditability
 
