@@ -213,10 +213,6 @@ Three properties follow from the layout:
 2. Each participant sees only the views its own parties are informees of, so no single participant holds a whole settlement.
 3. Every participant that hosts an informee must have vetted the DAR version the submitter selects. The vetted package set is therefore a per-node deployment property.
 
-### Per-Party Projection
-
-The settlement fractures into bilateral requests. The relayer and the recipient are the only initial observers of the inbound `TokenAllocationRequest`, so no other recipient sees that traffic. A committed allocation locks the bridging funds until the settlement deadline. The recipient therefore knows the liquidity is reserved and nobody can withdraw it before the DvP concludes.
-
 ### Decentralization and Trust Topology
 
 Two constraints bound every posture below. First, a quorum written in Daml is worth its stated N only if the role party's [`PartyToParticipant` confirmation threshold](https://docs.canton.network/overview/reference/decentralization) is at least N. The hosting nodes are the nodes that check the party's authorization. Second, a party above threshold 1 cannot submit for itself. It acts through another party's submission, or through external signing.
