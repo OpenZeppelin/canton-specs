@@ -182,7 +182,7 @@ Registry-specific arguments travel in the standard's own extension slot, `ExtraA
 
 Keyed contracts are marked with their key.
 
-**A. Compliance and identity (D1 + D3).** The registries list several independent attesters and issuers, with one of each shown. The gates fire at different points: D3 identity at **request** time in the gateway, D1 compliance at **settlement** time. They are also reached differently. The gateway resolves the issuer registry by key. The attester registry is pinned on `TokenRules` instead, so the settling caller supplies only the attestation. `ComplianceAttestation_Verify` also checks `registry.admin == factoryAdmin`, but on a registry the caller never named.
+**A. Compliance and identity (D1 + D3).** The registries list several independent attesters and issuers. The gates fire at different points: D3 identity at **request** time in the gateway, D1 compliance at **settlement** time. They are also reached differently. The gateway resolves the issuer registry by key. The attester registry is pinned on `TokenRules` instead, so the settling caller supplies only the attestation. `ComplianceAttestation_Verify` also checks `registry.admin == factoryAdmin`, but on a registry the caller never named.
 
 ```mermaid
 flowchart TD
