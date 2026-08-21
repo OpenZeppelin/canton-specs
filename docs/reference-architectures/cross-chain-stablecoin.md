@@ -290,8 +290,6 @@ Each flow therefore derives its own deadline, between the slowest required actor
 | Outbound redemption | attester | `settlementDeadline`, hours | burn-first; the source-chain claim is standing and replay-protected, so slow release costs latency, not funds |
 | D1 attestation | attester | the attestation's own `expiresAt`, capped by `maxAttestationValidity` | verified at settle, so the window must span gateway processing through settle; the registry cap stops an attester issuing a permanent pass |
 
-The attestation's validity window must therefore cover the whole inbound path from gateway processing to settle, and staying inside it is the relayer's operational responsibility.
-
 ### Reserve and Lock-Attestation Model
 
 The flow above settles an inbound payment privately. What makes it a bridge is the binding between the Canton mint and the backing locked on the source chain. Without that binding the rail still settles privately, but it mints with no proof that anything backs the mint.
