@@ -121,60 +121,6 @@ Parties exist only on Canton. The source chain has addresses and keys, and neith
 
 The gateway and the registries are contracts, not services. `StandardizedMessagingGateway` is a template with one choice that the relayer exercises. `PauseState`, `TrustedAttesterRegistry`, `TrustedIssuerRegistry`, and `ConsumedNonceRegistry` are single contracts that a caller fetches. `LockAttestation` is a data record inside the `InboundMessage`, not a contract of its own, so an attester signs the carrier and not the lock attestation.
 
-```mermaid
-flowchart TB
-    subgraph Ext["Source chain - no Canton parties (FUTURE)"]
-        Escrow[("Lock escrow")]
-    end
-
-    subgraph Proc["Off-Canton processes - no ledger identity"]
-        direction LR
-        RelaySvc["Relayer backend<br/>one state machine<br/>per nonce"]
-        AttSvc["Attester services x M"]
-        Wallet["Recipient wallet"]
-    end
-
-    subgraph Nodes["Canton nodes - host parties, vet DARs, pay traffic"]
-        direction LR
-        PRel["Relayer participants"]
-        PAtt["Attester participants x M"]
-        PIss["Issuer participant"]
-        PCus["Custodian participant"]
-        PRec["Recipient participant"]
-        PDep["Hosts assigned at deployment"]
-        Sync{{"Sequencer + Mediator<br/>hosts no application party"}}
-    end
-
-    subgraph Parties["Daml parties"]
-        direction LR
-        PtyRel([Bridge Relayer])
-        PtyAtt([Attesters])
-        PtyAdm([Stablecoin Admin])
-        PtyCV([Compliance Verifier])
-        PtyGW([Gateway Admin])
-        PtyPause([Pause Authority])
-        PtyCus([Custodian])
-        PtyRec([Recipient])
-    end
-
-    Escrow -.->|"lock read off the chain"| RelaySvc
-    Escrow -.->|"lock read off the chain"| AttSvc
-    RelaySvc -.->|"release claim, source-chain key"| Escrow
-
-    RelaySvc ==>|"Ledger API"| PRel
-    AttSvc ==>|"Ledger API"| PAtt
-    Wallet ==>|"Ledger API"| PRec
-
-    PRel -->|hosts| PtyRel
-    PAtt -->|hosts| PtyAtt
-    PIss -->|hosts| PtyAdm
-    PIss -->|hosts| PtyCV
-    PCus -->|hosts| PtyCus
-    PRec -->|hosts| PtyRec
-    PDep -->|hosts| PtyGW
-    PDep -->|hosts| PtyPause
-```
-
 ### Node and Hosting Topology
 
 The postures in the labels below are the targets that [Decentralization and Trust Topology](#decentralization-and-trust-topology) argues for. The cross-chain boundary sits outside the synchronizer. Every later diagram shows contracts and choices rather than nodes.
