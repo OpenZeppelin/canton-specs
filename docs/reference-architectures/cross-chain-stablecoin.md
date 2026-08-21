@@ -385,8 +385,6 @@ Two components carry authority this design has to place deliberately.
 
 The gateway is a contract signed by its admin and its operator, with one nonconsuming choice that the relayer exercises. That choice does six things. It validates the relayer's role grant. It resolves the pause state and the identity and nonce registries by key, and checks each against the genesis anchor it pins. It reads the recipient's `KycClaim`. It consumes the one-time attested carrier. It records the nonce fail-closed. And it creates an executor-signed allocation request. Every field of the mint leg it names binds to the carrier's `LockAttestation`: amount, recipient, instrument, and the recipient's receive side of the leg.
 
-The choice runs with the gateway's admin and operator authority and nothing else. Each contract it reads must therefore name the gateway's admin as an observer for the read to be authorized ([Privacy and Visibility Model](#privacy-and-visibility-model)). Only the nonce registry satisfies that today, because the gateway's own admin signs it.
-
 Binding the recipient happens in 4.2, under the recipient's own standing signature, because the gateway holds no recipient authority.
 
 ### 4.2 Component: Inbound DvP via Delegated Accept
