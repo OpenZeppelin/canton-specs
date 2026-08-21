@@ -53,12 +53,12 @@ We use D1 through D4 as local shorthand for four institutional controls. They
 are shared with the sibling reference architectures, and they are not Canton or
 CIP-0112 requirements.
 
-| Control | Mechanism | Where enforced | Invariant |
-|---|---|---|---|
-| Compliance (**D1**) | A single-use attestation from a registry-listed attester, bound to this settlement's own legs and never cached. | The [settle entrypoint](https://github.com/OpenZeppelin/canton-contracts/blob/7696749737885e25cd88422847105f890f03b00d/experiments/token/tokenCIP112-v1/daml/OpenZeppelin/TokenCIP112V1/Registry.daml#L79), against the [attester registry](https://github.com/OpenZeppelin/canton-contracts/blob/7696749737885e25cd88422847105f890f03b00d/experiments/token/tokenCIP112-v1/daml/OpenZeppelin/TokenCIP112V1/D1.daml#L22) pinned on the registry rules. | No valid attestation, no settlement. |
-| Seizure (**D2**) | Mark the allocation, then sweep its locked holdings to a preset custodian account. | The [mark](https://github.com/OpenZeppelin/canton-contracts/blob/7696749737885e25cd88422847105f890f03b00d/experiments/token/tokenCIP112-v1/daml/OpenZeppelin/TokenCIP112V1/Allocation.daml#L158) on the allocation, plus one of two sweeps. | The asset is never burned, seized funds never return to the sender, and the freeze window is bounded and releasable. |
-| Identity (**D3**) | The recipient holds a credential from an issuer on the trusted-issuer list. | The gateway, at request time, before any allocation exists. | No valid credential from a listed issuer, no allocation request. |
-| Authority (**D4**) | Every privileged action binds to a named role rather than to one admin. | [Role administration](https://github.com/OpenZeppelin/canton-contracts/tree/7696749737885e25cd88422847105f890f03b00d/experiments/access/access-control-v1) and two-step ownership handover. | Privileges are granted, transferred, and revoked without a redeploy, and each traces to a role. |
+| ID | Control | Mechanism | Where enforced | Invariant |
+|---|---|---|---|---|
+| **D1** | Compliance | A single-use attestation from a registry-listed attester, bound to this settlement's own legs and never cached. | The [settle entrypoint](https://github.com/OpenZeppelin/canton-contracts/blob/7696749737885e25cd88422847105f890f03b00d/experiments/token/tokenCIP112-v1/daml/OpenZeppelin/TokenCIP112V1/Registry.daml#L79), against the [attester registry](https://github.com/OpenZeppelin/canton-contracts/blob/7696749737885e25cd88422847105f890f03b00d/experiments/token/tokenCIP112-v1/daml/OpenZeppelin/TokenCIP112V1/D1.daml#L22) pinned on the registry rules. | No valid attestation, no settlement. |
+| **D2** | Seizure | Mark the allocation, then sweep its locked holdings to a preset custodian account. | The [mark](https://github.com/OpenZeppelin/canton-contracts/blob/7696749737885e25cd88422847105f890f03b00d/experiments/token/tokenCIP112-v1/daml/OpenZeppelin/TokenCIP112V1/Allocation.daml#L158) on the allocation, plus one of two sweeps. | The asset is never burned, seized funds never return to the sender, and the freeze window is bounded and releasable. |
+| **D3** | Identity | The recipient holds a credential from an issuer on the trusted-issuer list. | The gateway, at request time, before any allocation exists. | No valid credential from a listed issuer, no allocation request. |
+| **D4** | Authority | Every privileged action binds to a named role rather than to one admin. | [Role administration](https://github.com/OpenZeppelin/canton-contracts/tree/7696749737885e25cd88422847105f890f03b00d/experiments/access/access-control-v1) and two-step ownership handover. | Privileges are granted, transferred, and revoked without a redeploy, and each traces to a role. |
 
 ### 1.2 Scope
 
