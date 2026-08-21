@@ -178,7 +178,7 @@ The inbound payment is the critical path: an attested source-chain lock becomes 
 
 ### Upstream Choice Surface
 
-Steps 3 and 4 call CIP-0112 interface choices, not choices this design owns. `AllocationFactory_Allocate`, `AllocationRequest_Accept`, `SettlementFactory_SettleBatch`, `Allocation_Cancel`, and `Allocation_Withdraw` are declared in `Splice.Api.Token.*`, and the settlement registry supplies the `*Impl` method behind each one. The argument record of such a choice is fixed by the CIP, so a registry cannot append a field and a caller cannot pass one.
+Steps 3 and 4 call CIP-0112 interface choices, not choices this design owns. `AllocationFactory_Allocate`, `AllocationRequest_Accept`, `SettlementFactory_SettleBatch`, `Allocation_Cancel`, and `Allocation_Withdraw` are declared in `Splice.Api.Token.*`, and the settlement registry supplies the `*Impl` method behind each one.
 
 Registry-specific arguments travel in the standard's own extension slot, `ExtraArgs`. The D1 attestation reaches the settlement factory that way, and a settle that omits it fails instead of passing ungated. The registry threads its own per-batch authorization through the same slot. That is what makes the conservation check and the D1 gate unavoidable instead of conventional. Settlement returns a result per allocation and no receipt contract, so there is nothing on-ledger to query afterwards.
 
