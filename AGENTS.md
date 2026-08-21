@@ -129,3 +129,45 @@ this repository's coverage gate.
 The CI-only discovery scripts validate all declared packages. Public and
 contributor documentation shows native DPM commands instead of presenting those
 scripts as the development interface.
+
+## Audience for reference architectures
+
+Each document in `docs/reference-architectures/` is a proposal under review. The
+reader is a reviewer with deep Canton knowledge. That reviewer leaves feedback
+and then approves the proposal, so implementation can start.
+
+Write for that reader:
+
+- Keep the document at the architecture level. Show the parties, the
+  responsibility of each component, the authority that each action needs, the
+  trust and privacy boundaries, and the order of the operations.
+- Name a component by its business responsibility, not by a Daml template,
+  choice, module, or field. Write "accepted bid", not `AcceptedBid` or
+  `Bid_Accept`. Implementation selects the identifiers.
+- Leave record fields, function bodies, type signatures, and error text to the
+  implementation phase.
+- Name each external dependency exactly, and link it: the party role, the
+  standard, the CIP, the pinned upstream package, and the local experiment.
+- Define a term in bold when you first use it, then use that same term
+  everywhere.
+- State the design decision and its consequence. Do not explain Canton, Daml, or
+  Splice concepts that the reviewer already knows.
+- Give the reviewer something to accept or reject. Include a scope table that
+  names the separate designs, a trust-boundary table that states what fails when
+  a trusted party misbehaves, and a production-decision table that puts the
+  design default beside each open choice.
+- Use a table for parallel information. Use a diagram for structure and order:
+  one business-flow diagram, one dependency diagram, and one lifecycle sequence
+  diagram. A diagram shows parties, components, and order, not identifiers.
+- Do not add benefit summaries, marketing language, or tutorial material.
+- Do not add filler text that brings no new information, context or
+  clarification.
+- Remove a paragraph that does not change a reviewer decision. The shorter
+  proposal is the better proposal.
+- Use simple English.
+
+## Commit rules
+
+- prefer single sentence commit messages (1 line), unless more is meaningful
+- do not add the `Co-Authored-By Claude`, or whatever phrasing, to the commit messages
+ 
