@@ -289,7 +289,7 @@ Only the settle is atomic. The inbound path is three relayer-submitted ledger co
 | 4 | Delegated allocate and accept, on the recipient's `TransferPreapproval` | bridge relayer | one atomic submission under the recipient's preapproval |
 | 5 | `SettlementFactory_SettleBatch` | bridge relayer | one atomic transaction; final at the mediator verdict, seconds |
 
-Command deduplication (24h) makes relayer crash-restart safe for its three ledger steps, 3 to 5: resubmitting cannot double-execute. Step 3 differs in what a later failure costs, not in how it is protected. Once `Gateway_ProcessInbound` commits, the nonce is spent, so a settlement that stalls after it needs a fresh attestation before anything can be re-driven. A stalled workflow blocks only this rail, since inbound settlements serialize on the per-rail nonce registry ([section 5.5](#55-throughput-and-contention)).
+Command deduplication (24h) makes relayer crash-restart safe for its three ledger steps, 3 to 5: resubmitting cannot double-execute. A stalled workflow blocks only this rail, since inbound settlements serialize on the per-rail nonce registry ([section 5.5](#55-throughput-and-contention)).
 
 The relayer backend tracks each inbound payment as a state machine keyed by nonce and command id. Every step either lands on the completion stream, or times out against its deadline and marks the workflow stuck. A stuck workflow raises an operator alert that names the pending step and the deadline after which the funds unlock. [Section 5.4](#54-failure-modes-and-recovery) enumerates the stuck states and their exits.
 
@@ -463,7 +463,7 @@ Beyond the adversarial vectors sit liveness failures: parties that crash, stall,
 |---|---|---|---|
 | Attester never signs the carrier | nothing on Canton | reclaiming the source-chain lock is an open question ([section 7](#7-open-design-questions)) | nothing locked on Canton |
 | Relayer crashes before `Gateway_ProcessInbound` | nothing consumed | any relayer resubmits; the carrier is standing | nothing locked |
-| Relayer crashes after `Gateway_ProcessInbound` | nonce spent, settlement pending | complete allocate and settle on restart (deduplication-safe); if the deadline lapses, funds unlock but the nonce stays spent and a fresh attestation is required | `settlementDeadline` |
+| Relayer crashes after `Gateway_ProcessInbound` | nonce spent, settlement pending | complete allocate and settle on restart (deduplication-safe); if the deadline lapses, funds unlock but the nonce stays spent | `settlementDeadline` |
 | Attestation expires before the settle | settle blocked, fail closed | re-attest within the window, else deadline lapse and withdraw | `settlementDeadline` |
 | Recipient has no `TransferPreapproval` | delegated accept fails, nothing locked | recipient establishes the preapproval; relayer retries | nothing locked |
 | Pause during in-flight settlement | settle blocked by `whenNotPaused` | unpause, or deadline lapse and withdraw (the griefing window of [section 2](#decentralization-and-trust-topology)) | `settlementDeadline` |
