@@ -129,3 +129,31 @@ this repository's coverage gate.
 The CI-only discovery scripts validate all declared packages. Public and
 contributor documentation shows native DPM commands instead of presenting those
 scripts as the development interface.
+
+## Audience for reference architectures
+
+Each document in `docs/reference-architectures/` is a proposal under review. The
+reader is a reviewer with deep Canton knowledge. That reviewer leaves feedback
+and then approves the proposal, so implementation can start.
+
+Write for that reader:
+
+- Keep the document at the architecture level. Show the parties, the contracts
+  they hold, the authority that each choice needs, the trust boundaries, and the
+  order of the operations. Leave record fields, function bodies, type
+  signatures, and error text to the implementation phase.
+- State the design decision and its consequence. Do not explain Canton, Daml, or
+  Splice concepts that the reviewer already knows.
+- Make each claim reviewable. Name the template, choice, party, and standard that
+  the design depends on.
+- Mark every open question, assumption, and rejected alternative. The reviewer
+  must be able to accept or reject each one.
+- Do not add benefit summaries, marketing language, or tutorial material.
+- Do not add filler text that brings no new information, context or
+  clarification.
+- Use simple English.
+
+## Commit rules
+
+- prefer single sentence commit messages (1 line), unless more is meaningful
+- do not add the `Co-Authored-By Claude`, or whatever phrasing, to the commit messages
