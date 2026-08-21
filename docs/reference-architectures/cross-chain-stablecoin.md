@@ -457,7 +457,7 @@ Each row becomes a Daml Script test in the reference implementation's test suite
 
 ### 5.5 Throughput and Contention
 
-Every inbound mint records its nonce in one admin-keyed `ConsumedNonceRegistry`, and each settlement archives and recreates that contract. Inbound settlements for the rail therefore serialize. Two concurrent mints consume the same registry contract, the synchronizer commits one, and the other retries against the new state. The contention is per rail, and it follows from the consuming nonce record rather than from any global ledger bottleneck.
+Every inbound mint records its nonce in one admin-keyed `ConsumedNonceRegistry`, and each settlement archives and recreates that contract. Inbound settlements for the rail therefore serialize. The contention is per rail, and it follows from the consuming nonce record rather than from any global ledger bottleneck.
 
 Sharding the registry is the mitigation, one shard per `sourceChainId` or per source-chain escrow contract. That restores parallelism across sources, and each shard keeps its own fail-closed dedup guarantee. Independent rails settle in parallel, and several allocations can ride one `SettlementFactory_SettleBatch`.
 
