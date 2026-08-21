@@ -103,7 +103,7 @@ Parties exist only on Canton. The source chain has addresses and keys, and neith
 | Gateway Admin | party | the gateway's `admin`; maintains the `ConsumedNonceRegistry` key |
 | Redemption operator | party | holds the `RedemptionBurnCapability` |
 | Lawful-process authority | party | signs the `SeizureOrder`; registry-listed, and never the admin |
-| Sequencer and Mediator | Canton node | ordering, and the verdict that makes a transaction final; hosts no application party |
+| Sequencer and Mediator | Canton node | hosts no application party |
 | Relayer backend | off-Canton process | watches the source chain, one state machine per nonce, and submits every inbound command as the Bridge Relayer |
 | Attester services | off-Canton process | M independent operators on M participants; each submits as its own attester party |
 | Recipient wallet | off-Canton process | creates the standing `TransferPreapproval` and submits as the Recipient |
@@ -277,7 +277,7 @@ flowchart TD
 
 ### Execution Model
 
-Only the settle is atomic, and it is final at the mediator verdict. The inbound path is three relayer-submitted ledger commands, orchestrated off-ledger by the relayer's backend: a submission returns once accepted, and the outcome arrives on the completion stream, correlated by command id.
+Only the settle is atomic. The inbound path is three relayer-submitted ledger commands, orchestrated off-ledger by the relayer's backend: a submission returns once accepted, and the outcome arrives on the completion stream, correlated by command id.
 
 Command deduplication (24h) makes those three commands safe to resubmit after a crash: resubmitting cannot double-execute. A stalled workflow blocks only this rail, since inbound settlements serialize on the per-rail nonce registry ([section 5.5](#55-throughput-and-contention)).
 
