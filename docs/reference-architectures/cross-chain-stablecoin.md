@@ -379,7 +379,7 @@ Two limits bind this design specifically. A template's `key` definition can be n
 
 ## 4. Component Structure
 
-Two components carry authority this design has to place deliberately. Each is stated as the parties it involves, the authority its choices need, and the order of its steps.
+Two components carry authority this design has to place deliberately.
 
 ### 4.1 Component: Standardized Messaging Gateway
 
