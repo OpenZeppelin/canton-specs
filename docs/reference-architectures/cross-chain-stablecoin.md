@@ -11,7 +11,7 @@ transit.
 Institutional participants accept value that reaches Canton from an external
 chain. The value arrives as a gateway-minted **wrapped instrument**, written
 wTOK. The settlement amount, the payer and payee identities, and the compliance
-markers project only to the parties this design authorizes.
+markers project only to the authorized parties.
 
 **Inbound** moves value from the external chain to Canton, by **lock-and-mint**.
 **Outbound** moves it back, by **burn-and-release**.
@@ -26,8 +26,7 @@ on-ledger. One all-or-nothing **settlement batch** settles the committed sides
 together.
 
 No Daml transaction spans both chains. The cross-chain hop is therefore
-lock-then-attested-mint, and not an atomic exchange. A signed side makes an
-amount non-repudiable. It does not make the amount correct. The binding checks
+lock-then-attested-mint, and not an atomic exchange. The binding checks
 of [section 3.2](#32-reserve-and-lock-attestation) tie the inbound amount,
 recipient, and instrument to the attestation.
 
@@ -59,7 +58,7 @@ CIP-0112 requirements.
 | Compliance (**D1**) | A single-use attestation from a registry-listed attester, bound to this settlement's own legs and never cached. | The [settle entrypoint](https://github.com/OpenZeppelin/canton-contracts/blob/7696749737885e25cd88422847105f890f03b00d/experiments/token/tokenCIP112-v1/daml/OpenZeppelin/TokenCIP112V1/Registry.daml#L79), against the [attester registry](https://github.com/OpenZeppelin/canton-contracts/blob/7696749737885e25cd88422847105f890f03b00d/experiments/token/tokenCIP112-v1/daml/OpenZeppelin/TokenCIP112V1/D1.daml#L22) pinned on the registry rules. | No valid attestation, no settlement. |
 | Seizure (**D2**) | Mark the allocation, then sweep its locked holdings to a preset custodian account. | The [mark](https://github.com/OpenZeppelin/canton-contracts/blob/7696749737885e25cd88422847105f890f03b00d/experiments/token/tokenCIP112-v1/daml/OpenZeppelin/TokenCIP112V1/Allocation.daml#L158) on the allocation, plus one of two sweeps. | The asset is never burned, seized funds never return to the sender, and the freeze window is bounded and releasable. |
 | Identity (**D3**) | The recipient holds a credential from an issuer on the trusted-issuer list. | The gateway, at request time, before any allocation exists. | No valid credential from a listed issuer, no allocation request. |
-| Authority (**D4**) | Every privileged action binds to a named role rather than to one admin. | [Role administration](https://github.com/OpenZeppelin/canton-contracts/tree/cec416d6e3c2118551c761d5598c403ab27ee342/experiments/access/access-control-v1) and two-step ownership handover. | Privileges are granted, transferred, and revoked without a redeploy, and each traces to a role. |
+| Authority (**D4**) | Every privileged action binds to a named role rather than to one admin. | [Role administration](https://github.com/OpenZeppelin/canton-contracts/tree/7696749737885e25cd88422847105f890f03b00d/experiments/access/access-control-v1) and two-step ownership handover. | Privileges are granted, transferred, and revoked without a redeploy, and each traces to a role. |
 
 ### 1.2 Scope
 
