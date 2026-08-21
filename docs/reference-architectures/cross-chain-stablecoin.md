@@ -109,7 +109,7 @@ The gateway and the registries are contracts, not services. `StandardizedMessagi
 
 ### Node and Hosting Topology
 
-The postures in the labels below are the targets that [Decentralization and Trust Topology](#decentralization-and-trust-topology) argues for. The cross-chain boundary sits outside the synchronizer. Every later diagram shows contracts and choices rather than nodes.
+The postures in the labels below are the targets that [Decentralization and Trust Topology](#decentralization-and-trust-topology) argues for. The cross-chain boundary sits outside the synchronizer.
 
 ```mermaid
 flowchart TB
