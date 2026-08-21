@@ -397,7 +397,7 @@ Binding the recipient happens in 4.2, under the recipient's own standing signatu
 
 ### 4.2 Component: Inbound DvP via Delegated Accept
 
-The recipient's co-authorization flows through a choice on a contract the recipient signed, which contributes their authority when the relayer exercises it. The relayer only triggers it: naming a party confers no authority.
+The recipient's co-authorization flows through a choice on a contract the recipient signed, which contributes their authority when the relayer exercises it.
 
 The evidence template exposes only `TransferPreapproval_Send`, which sends a transfer and cannot allocate on the settlement spine. The delegated choice this design needs, `TransferPreapproval_AllocateInbound`, does not exist. Two shapes can carry it, and the choice between them is open: an SCU-additive choice on the evidence template, or a dedicated recipient-signed `DelegatedAcceptGrant` template. Either way, both spine steps that need the recipient's signature run inside its body. Those steps create the recipient's allocation from the gateway's request, then accept it into a committed allocation.
 
