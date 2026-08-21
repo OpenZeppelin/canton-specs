@@ -348,7 +348,7 @@ Consequences:
 
 ### Capability Gates D1-D4
 
-The four gates and their invariants are tabled in [section 1](#1-product-definition). This section carries what that table cannot: where each gate is weaker or stronger than its one-line statement.
+The four gates and their invariants are tabled in [section 1](#1-product-definition).
 
 **D1.** The check runs on `SettlementFactory_SettleBatch`, which requires an attestation covering this specific settlement from a registry-listed attester. Attestations are single-use, so none can be cached or reused. The trust anchor is a pinned contract id, not a key and not a caller argument: `requireD1Attestation` reads `requiredAttesterRegistryCid` from `TokenRules`, and the caller supplies only the attestation through the choice context.
 
