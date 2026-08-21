@@ -126,7 +126,7 @@ flowchart TB
         NIss["Issuer participant<br/>admin value-critical, N-of-M open"]
         NCus["Custodian participant<br/>value-critical, N-of-M open"]
         NRec["Recipient participant<br/>own keys only"]
-        Sync{{"Sequencer + Mediator<br/>ordering; mediator verdict = finality"}}
+        Sync{{"Sequencer + Mediator"}}
     end
 
     Chain -.->|"finalized lock observed"| Backend
