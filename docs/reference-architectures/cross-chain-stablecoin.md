@@ -144,10 +144,7 @@ flowchart TB
     NRec <-->|"confirm, receive projection"| Sync
 ```
 
-Three properties follow from the layout:
-1. The relayer is the only party on both sides of the boundary. It pays nearly all the traffic ([section 6.1](#61-traffic-costs)), and the rail halts if its validator runs out ([section 5.4](#54-failure-modes-and-recovery)).
-2. Each participant sees only the views its own parties are informees of, so no single participant holds a whole settlement.
-3. Every participant that hosts an informee must have vetted the DAR version the submitter selects. The vetted package set is therefore a per-node deployment property.
+The relayer is the only party on both sides of the boundary. It pays nearly all the traffic ([section 6.1](#61-traffic-costs)), and the rail halts if its validator runs out ([section 5.4](#54-failure-modes-and-recovery)).
 
 ### Decentralization and Trust Topology
 
