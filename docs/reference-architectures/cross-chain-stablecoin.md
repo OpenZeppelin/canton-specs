@@ -389,7 +389,6 @@ Two limits bind this design specifically. A template's `key` definition can be n
 
 - The Standardized Messaging Gateway is the substitution point for the bridge boundary: an alternative bridge mode, or a different source-chain proof scheme, changes the gateway and leaves settlement and compliance untouched.
 - The `KycClaim` and `TrustedIssuerRegistry` identity hook is the substitution point for a richer identity regime, including the deferred cross-domain D3.
-- The DEX and Lending reference architectures settle through the same entrypoint, so none of them adds a parallel settlement path.
 
 ---
 
