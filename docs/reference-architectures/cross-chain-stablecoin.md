@@ -59,7 +59,7 @@ A [Canton 3.x key](https://docs.canton.network/appdev/modules/m3-contract-keys) 
 
 ### Status at a Glance
 
-Six of the thirteen components below are not built, the cross-chain boundary among them. The six `[GAP]` marks are narrower: each is a change to code that already exists, and the claim above it does not hold until that change lands.
+Six of the thirteen components below are not built, the cross-chain boundary among them.
 
 | Component | Tag | Location | What is missing |
 |---|---|---|---|
