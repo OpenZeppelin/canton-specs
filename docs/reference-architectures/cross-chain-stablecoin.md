@@ -65,19 +65,12 @@ CIP-0112 requirements.
 | Bridge scope | Out of scope |
 |---|---|
 | The Canton side of the bridge: attested mint, private settlement, and attested burn | The relayer backend, the attester services, the source-chain lock escrow, external oracles, source-chain validator sets, and light-client proofs |
-| Settlement of the wrapped instrument this design mints | The issuance, peg, and collateral mechanism of any stablecoin, and any asset that already has a native Canton rail |
+| Settlement of wTOK, the wrapped instrument this design mints | The issuance, peg, and collateral mechanism of any stablecoin, and any asset that already has a native Canton rail |
 | On-ledger compliance and identity checks that deny the action when the attestation or the credential is absent or invalid | Any gate that reads a stored compliance flag, a risk score, or a threshold |
 | CIP-0112 allocations and settlement batches | The superseded CIP-56 token standard and legacy allocation paths |
 | One Canton synchronizer, with a cross-chain boundary outside it | Cross-synchronizer settlement and cross-synchronizer identity |
 
-### 1.3 Instrument Scope
-
-Every flow in this document mints, settles, and redeems wTOK, a generic
-gateway-minted wrapped instrument. The Stablecoin Admin issues its holdings. The
-gateway is the rail for an asset that has no native Canton path, so this design
-never re-bridges an asset that a native rail already carries.
-
-### 1.4 Status at a Glance
+### 1.3 Status at a Glance
 
 Six of the thirteen components below are not built, the cross-chain boundary
 among them.
@@ -884,7 +877,7 @@ the question belongs to someone else by construction.
 | **Synchrony and time assumptions.** Open: the values for the allocation-lifetime, attestation-validity, and seizure-extension ceilings, the margin between source-chain finality and Canton ledger time, attester turnaround ceilings, and whether the nonce should be recorded at settlement rather than at the gateway. | The registry stamps its ceilings at creation, and the gateway records the nonce ([section 3.5](#35-time-and-deadlines)) | Every deployment, because those ceilings are stamped once | Medium | Internal team |
 | **Expired inbound-allocation lifecycle.** Open: who runs the post-deadline reclaim for a dead inbound flow, since an automated handler needs executor or authorizer authority, and how the local lifecycle aligns with the upstream allocation lifecycle once imported. | The allocation becomes withdrawable after the deadline, with no automated handler | The reclaim automation and its authority model | Medium | Internal team |
 | **Gateway behavior under source-chain reorgs.** Open: how inbound attestations are sequenced if the origin chain deep-reorgs, and whether the gateway manages confirmation delays internally or the relayer uses a time-locked allocation against rollback risk. | The gateway processes a lock the attester calls finalized, and holds no finality policy of its own | The production gateway's finality policy | Medium | Whoever builds the production gateway |
-| **Aligning gateway scope with native rails.** Open: a general rule for when an inbound asset already has a native Canton rail, so the architecture never re-bridges an already-bridged asset. | The gateway carries only an asset with no native Canton path ([section 1.3](#13-instrument-scope)) | Which assets the rail onboards, and no code | Low, a scope rule and not a mechanism | Internal team |
+| **Aligning gateway scope with native rails.** Open: a general rule for when an inbound asset already has a native Canton rail, so the architecture never re-bridges an already-bridged asset. | The gateway carries only an asset with no native Canton path ([section 1.2](#12-scope)) | Which assets the rail onboards, and no code | Low, a scope rule and not a mechanism | Internal team |
 | **Cross-domain identity proof injection.** Open: whether the trusted-issuer list ingests external state proofs through an oracle, or relies on a cross-chain identity protocol synchronized across the global synchronizer. | Single-synchronizer identity, deferred and additive ([section 3.6](#36-control-enforcement)) | D3 beyond one synchronizer, and nothing in the scope above | Low, explicitly deferred | Internal team, then an audit of the proof-injection trust model |
 
 **Composability with the other reference architectures** needs no new mechanism.
