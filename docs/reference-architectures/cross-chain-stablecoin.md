@@ -677,10 +677,11 @@ parallel, and several allocations can be part of a single settlement batch.
 
 ### 4.6 Off-Ledger Reconciliation
 
-The Token Standard V2 transfer-events API emits holdings-change events, and the
-recipient correlates them with the id of the gateway's attested message. That
-gives a 1:1 linkage between the external lock or burn and the Canton credit. The
-API is upstream and not vendored here, and the linkage is a reference pattern.
+The Token Standard V2 transfer-events API reports each change to a holding. The
+recipient matches an event to the id of the attested message that caused it, so
+one external lock or burn maps to one Canton credit. The API is upstream and not
+vendored here, and this match is a reference pattern, not a rule the rail
+enforces.
 
 ### 4.7 Automated Validation
 
