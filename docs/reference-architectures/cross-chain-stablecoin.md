@@ -265,7 +265,8 @@ is open ([section 7](#7-open-design-questions)):
 
 The relayer is the only party on both sides of the cross-chain boundary. It pays
 nearly all the traffic ([section 6.1](#61-traffic-costs)), and the rail halts
-when its validator runs out ([section 5.4](#54-failure-modes-and-recovery)).
+when its validator runs out of traffic
+([section 5.4](#54-failure-modes-and-recovery)).
 
 ---
 
