@@ -263,9 +263,10 @@ Consequences:
   the legs its own authorizer sends or receives. A batch of several inbound
   payments therefore discloses nothing to recipients of other payments.
 - **The Stablecoin Admin sees every wTOK payment.** A leg's metadata travels
-  into the event stream, so amounts, accounts, and the leg metadata are readable by
-  construction. This is a trust assumption and not a leak to close. An issuer
-  that authors the mint leg cannot also be blind to it. Any issued instrument puts its own issuer in this position.
+  into the event stream, so amounts, accounts, and the leg metadata are readable
+  by construction. This is a trust assumption and not a leak to close. An issuer
+  that authors the mint leg cannot also be blind to it. Any issued instrument
+  puts its own issuer in this position.
 - **The relayer and the attesters see what they handle.** The relayer's
   transport-only role bounds its authority, not what it sees. Attester
   membership is therefore a privacy decision as well as a compliance one.
@@ -275,7 +276,8 @@ Consequences:
   authorization from one stakeholder of the record it returns. The gateway
   action carries only its own admin authority. The pause state, the
   trusted-issuer list, and every credential the gateway checks must therefore
-  name the gateway admin as an observer. The admin carries those entries, which keeps durable visibility off the relayer, whose set this design wants to
+  name the gateway admin as an observer. The admin carries those entries, which
+  keeps durable visibility off the relayer, whose set this design wants to
   open ([section 2.3](#23-decentralization-and-trust-topology)). The submitting
   relayer still witnesses the credential transiently, because a fetch divulges
   to whoever witnesses the exercise.
