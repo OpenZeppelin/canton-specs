@@ -97,7 +97,7 @@ The wrapped instrument has one Token Standard V2 registry that creates and
 settles its allocations. Institutional services supply the compliance
 attestation and the identity credential.
 
-**Business flow**
+**Inbound flow: lock to credit**
 
 ```mermaid
 flowchart TB
@@ -122,17 +122,43 @@ flowchart TB
 
     Sender -->|"lock the backing"| Escrow
     Escrow -.->|"finalized lock"| Attesters
-    Attesters -->|"sign the lock attestation"| Gateway
+    Attesters -->|"sign the attested message<br/>carrying the lock attestation"| Gateway
     Services -->|"credential and<br/>trusted-issuer list"| Gateway
     Relayer -->|"process the attested message"| Gateway
     Gateway ==>|"allocation request for<br/>the attested amount only"| Settle
-    Recipient -->|"receive preapproval"| Settle
+    Relayer -->|"delegated accept:<br/>exercise the preapproval"| Recipient
+    Recipient -->|"committed allocation<br/>accepts the request"| Settle
     Admin -->|"attested mint funds<br/>the sender side"| Settle
-    Attesters -->|"compliance attestation<br/>gates the settle"| Settle
+    Attesters -.->|"compliance attestation"| Relayer
+    Relayer ==>|"settle the batch,<br/>presenting the attestation"| Settle
     Settle ==>|"private credit"| Recipient
-    Recipient -->|"redeem: burn the credit"| Settle
-    Settle ==>|"redemption attestation"| Escrow
-    Escrow ==>|"release the backing"| Recipient
+```
+
+**Outbound flow: burn to release**
+
+```mermaid
+flowchart TB
+    Holder([RECIPIENT AND HOLDER])
+    Operator([REDEMPTION OPERATOR])
+    Attesters([ATTESTERS])
+    Relayer([BRIDGE RELAYER])
+
+    subgraph Assets["Token Standard V2 settlement registry"]
+        Burn["Redemption burn and<br/>supply decrement"]
+    end
+
+    subgraph Source["Source chain"]
+        Escrow[("Lock escrow")]
+        Destination["Source-chain<br/>destination"]
+    end
+
+    Holder -->|"request redemption and<br/>co-authorize the burn"| Operator
+    Operator ==>|"burn under the redemption<br/>burn capability"| Burn
+    Burn -.->|"redemption attestation: draws down<br/>named lock attestations"| Attesters
+    Attesters ==>|"signed attestation:<br/>standing release claim"| Escrow
+    Holder -.->|"resubmit the standing claim"| Escrow
+    Relayer -.->|"resubmit the standing claim"| Escrow
+    Escrow ==>|"release the backing and<br/>decrement the reserve"| Destination
 ```
 
 The gateway records the attested message, the replay state, and the identity
