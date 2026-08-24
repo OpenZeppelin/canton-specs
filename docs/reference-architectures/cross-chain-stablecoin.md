@@ -97,48 +97,6 @@ The wrapped instrument has one Token Standard V2 registry that creates and
 settles its allocations. Institutional services supply the compliance
 attestation and the identity credential.
 
-**Bridge lifecycle**
-
-```mermaid
-sequenceDiagram
-    autonumber
-    actor Attesters as ATTESTERS
-    actor Relayer as BRIDGE RELAYER
-    actor Recipient as RECIPIENT AND HOLDER
-    actor Admin as STABLECOIN ADMIN
-    actor Operator as REDEMPTION OPERATOR
-    participant App as Bridge application
-    participant Registry as Settlement registry
-    participant Chain as Source chain (escrow)
-
-    Note over Attesters,Chain: Inbound bridging.
-    Chain-->>Attesters: Finalized lock
-    Attesters->>App: Sign the attested message<br/>carrying the lock attestation
-    Note over Relayer,Registry: Gateway transaction.
-    Relayer->>App: Process the attested message
-    App->>App: Check the pause state, the relayer role, and each<br/>resolved registry against the anchor it pins
-    App->>App: Read the recipient's credential
-    App->>App: Consume the message and record the nonce
-    App->>Registry: Create the allocation request<br/>for the attested amount
-    Note over Relayer,Registry: Delegated accept transaction.
-    Relayer->>Recipient: Exercise the receive preapproval
-    Recipient->>Registry: Create the recipient's allocation and<br/>accept it into a committed allocation
-    Attesters->>Relayer: Sign the compliance attestation<br/>covering this settlement
-    rect rgba(255, 255, 255, .1)
-        Note over Relayer,Registry: Settlement transaction.<br/>All legs commit or all roll back.
-        Admin->>Registry: Attested mint creates the holdings<br/>that fund the admin's sender leg
-        Relayer->>Registry: Settle the batch, presenting the attestation
-        Registry->>Registry: Verify the attestation, check conservation,<br/>and archive the locked inputs
-        Registry-->>Recipient: Private credit and settlement events
-    end
-    Note over Attesters,Chain: Outbound bridging.
-    Recipient->>Operator: Request redemption and name<br/>the source-chain destination
-    Operator->>Registry: Burn under the redemption burn capability
-    Registry-->>Attesters: Redemption attestation
-    Attesters->>Chain: Submit the standing release claim
-    Chain->>Chain: Release the backing to the named destination<br/>and decrement the reserve
-```
-
 ### 2.1 Business Roles
 
 Canton identifies an actor by a party. The source chain identifies it by an
@@ -276,6 +234,48 @@ Only the settle is atomic, and only on Canton. The inbound path is three
 relayer-submitted transactions, orchestrated off-ledger by the relayer backend.
 The attesters sign the attested message and the compliance attestation in
 transactions of their own.
+
+**Bridge lifecycle**
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor Attesters as ATTESTERS
+    actor Relayer as BRIDGE RELAYER
+    actor Recipient as RECIPIENT AND HOLDER
+    actor Admin as STABLECOIN ADMIN
+    actor Operator as REDEMPTION OPERATOR
+    participant App as Bridge application
+    participant Registry as Settlement registry
+    participant Chain as Source chain (lock escrow)
+
+    Note over Attesters,Chain: Inbound bridging.
+    Chain-->>Attesters: Finalized lock
+    Attesters->>App: Sign the attested message<br/>carrying the lock attestation
+    Note over Relayer,Registry: Gateway transaction.
+    Relayer->>App: Process the attested message
+    App->>App: Check the pause state, the relayer role, and each<br/>resolved registry against the anchor it pins
+    App->>App: Read the recipient's credential
+    App->>App: Consume the message and record the nonce
+    App->>Registry: Create the allocation request<br/>for the attested amount
+    Note over Relayer,Registry: Delegated accept transaction.
+    Relayer->>Recipient: Exercise the receive preapproval
+    Recipient->>Registry: Create the recipient's allocation and<br/>accept it into a committed allocation
+    Attesters->>Relayer: Sign the compliance attestation<br/>covering this settlement
+    rect rgba(255, 255, 255, .1)
+        Note over Relayer,Registry: Settlement transaction.<br/>All legs commit or all roll back.
+        Admin->>Registry: Attested mint creates the holdings<br/>that fund the admin's sender leg
+        Relayer->>Registry: Settle the batch, presenting the attestation
+        Registry->>Registry: Verify the attestation, check conservation,<br/>and archive the locked inputs
+        Registry-->>Recipient: Private credit and settlement events
+    end
+    Note over Attesters,Chain: Outbound bridging.
+    Recipient->>Operator: Request redemption and name<br/>the source-chain destination
+    Operator->>Registry: Burn under the redemption burn capability
+    Registry-->>Attesters: Redemption attestation
+    Attesters->>Chain: Submit the standing release claim
+    Chain->>Chain: Release the backing to the named destination<br/>and decrement the reserve
+```
 
 ### 3.1 Inbound Credit
 
