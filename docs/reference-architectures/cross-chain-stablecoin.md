@@ -340,8 +340,9 @@ when its validator runs out ([section 5.4](#54-failure-modes-and-recovery)).
 ## 3. Target Design
 
 Only the settle is atomic, and only on Canton. The inbound path is three
-relayer-submitted transactions after the attester's own, orchestrated
-off-ledger by the relayer backend.
+relayer-submitted transactions, orchestrated off-ledger by the relayer backend.
+The attesters sign the attested message and the compliance attestation in
+transactions of their own.
 
 **Bridge lifecycle**
 
@@ -352,34 +353,37 @@ sequenceDiagram
     actor Relayer as BRIDGE RELAYER
     actor Recipient as RECIPIENT AND HOLDER
     actor Admin as STABLECOIN ADMIN
-    participant Chain as Source chain
+    actor Operator as REDEMPTION OPERATOR
     participant App as Bridge application
-    participant Assets as Settlement registry
+    participant Registry as Settlement registry
+    participant Chain as Source chain
 
+    Note over Attesters,Chain: Inbound bridging.
     Chain-->>Attesters: Finalized lock
     Attesters->>App: Sign the attested message<br/>carrying the lock attestation
-    Note over Relayer,Assets: Gateway transaction
+    Note over Relayer,Registry: Gateway transaction.
     Relayer->>App: Process the attested message
     App->>App: Check the pause state, the relayer role, and each<br/>resolved registry against the anchor it pins
     App->>App: Read the recipient's credential
     App->>App: Consume the message and record the nonce
-    App->>Assets: Create the allocation request<br/>for the attested amount
-    Note over Relayer,Assets: Delegated accept transaction
+    App->>Registry: Create the allocation request<br/>for the attested amount
+    Note over Relayer,Registry: Delegated accept transaction.
     Relayer->>Recipient: Exercise the receive preapproval
-    Recipient->>Assets: Create the recipient's allocation<br/>and accept the request
+    Recipient->>Registry: Create the recipient's allocation and<br/>accept it into a committed allocation
+    Attesters->>Relayer: Sign the compliance attestation<br/>covering this settlement
     rect rgba(255, 255, 255, .1)
-        Note over Admin,Assets: Atomic settlement. All legs commit or all roll back.
-        Admin->>Assets: Attested mint funds the sender side
-        Attesters->>Relayer: Compliance attestation
-        Relayer->>Assets: Settle the batch, presenting the attestation
-        Assets->>Assets: Verify the attestation, check conservation,<br/>and archive the locked inputs
-        Assets-->>Recipient: Private credit and settlement events
+        Note over Relayer,Registry: Settlement transaction.<br/>All legs commit or all roll back.
+        Admin->>Registry: Attested mint creates the holdings<br/>that fund the admin's sender leg
+        Relayer->>Registry: Settle the batch, presenting the attestation
+        Registry->>Registry: Verify the attestation, check conservation,<br/>and archive the locked inputs
+        Registry-->>Recipient: Private credit and settlement events
     end
-    Note over Recipient,Chain: Outbound. The burn is the irreversible commit.
-    Recipient->>Assets: Redeem, co-authorizing the burn
-    Assets-->>Attesters: Redemption attestation
+    Note over Attesters,Chain: Outbound bridging.
+    Recipient->>Operator: Request redemption and name<br/>the source-chain destination
+    Operator->>Registry: Burn under the redemption burn capability
+    Registry-->>Attesters: Redemption attestation
     Attesters->>Chain: Submit the standing release claim
-    Chain-->>Recipient: Release the backing
+    Chain->>Chain: Release the backing to the named destination<br/>and decrement the reserve
 ```
 
 ### 3.1 Inbound Credit
@@ -519,7 +523,10 @@ Redemption mirrors the inbound flow.
    attestation names the instrument the burn removed supply from. It lists the
    lock attestations the burn draws against, with the amount taken from each,
    and it bounds the standing source-chain claim. Without all three, the reserve
-   arithmetic has nothing on-ledger to bind to. The burn gate is not the D2
+   arithmetic has nothing on-ledger to bind to. The holder names the
+   source-chain destination in the redemption request, and the burn binds that
+   destination into the attestation, so the escrow releases only to an address
+   the holder signed for. The burn gate is not the D2
    seizure capability, which is the Custodian's credential and must never be
    reused for a user-initiated redemption. A separate redemption burn capability
    gates this burn. It has the same witness shape, the redemption operator holds
