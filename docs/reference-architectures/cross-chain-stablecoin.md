@@ -293,13 +293,15 @@ Consequences:
 ### 2.3 Decentralization and Trust Topology
 
 Two constraints bound every posture below. First, a quorum written in Daml is
-worth its stated N only if the role party's
+worth its stated N only if N independent participants must confirm it. That
+means N parties on disjoint participants that separate organizations operate,
+or one party whose
 [confirmation threshold](https://docs.canton.network/overview/reference/decentralization)
 is at least N. Second, a party above threshold 1 cannot submit for itself. It
 acts through another party's submission, or through external signing.
 
 The Stablecoin Admin authors wTOK mint legs, and the Custodian can sweep locked
-value. Both hold value-critical authority, so no single key may exercise either
+value. Both hold critical authority, so no single key may exercise either
 role. Canton offers two routes to an N-of-M posture, and the choice between them
 is open ([section 7](#7-open-design-questions)):
 
