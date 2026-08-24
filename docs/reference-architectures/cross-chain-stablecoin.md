@@ -1,4 +1,4 @@
-# Canton-side stablecoin bridge
+# Cross-Chain Stablecoin Payment Orchestration on Canton
 
 This reference architecture defines the Canton side of a stablecoin bridge. An
 attested lock on an external chain mints a wrapped instrument on Canton, and a
