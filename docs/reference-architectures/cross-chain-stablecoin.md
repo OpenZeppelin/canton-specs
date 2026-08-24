@@ -25,7 +25,7 @@ for one asset movement, and a committed allocation fixes that movement's amount
 on-ledger. One all-or-nothing **settlement batch** settles the committed sides
 together.
 
-No Daml transaction spans both chains. The cross-chain hop is therefore
+No transaction spans both chains. The cross-chain hop is therefore
 lock-then-attested-mint, and not an atomic exchange. The binding checks
 of [section 3.2](#32-reserve-and-lock-attestation) tie the inbound amount,
 recipient, and instrument to the attestation.
@@ -44,14 +44,12 @@ transfer on Canton. An observer of the source chain can therefore link a public
 lock of amount *N* to a named Canton recipient who will receive *N*. Canton's
 per-party projection hides everything downstream: the settled holding, the
 settlement events, the compliance markers, and every later private transfer.
-Hiding the link itself is out of scope, whether through hashed commitments,
-shielded payloads, or relayer-side blinding.
+Hiding the link itself (hashed commitments,
+shielded payloads, or relayer-side blinding) is out of scope.
 
 ### 1.1 Institutional Controls
 
-We use D1 through D4 as local shorthand for four institutional controls. They
-are shared with the sibling reference architectures, and they are not Canton or
-CIP-0112 requirements.
+We use D1 through D4 as local shorthand for four institutional controls. They are shared with the sibling reference architectures, and they are not Canton or CIP-0112 requirements.
 
 | ID | Control | Mechanism | Where enforced | Invariant |
 |---|---|---|---|---|
