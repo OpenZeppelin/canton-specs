@@ -96,13 +96,13 @@ The compliance and control terms above are this report's names for four control 
 
 ### Educational Framing: How to Think About Building a Lending Protocol on Canton
 
-In the [ERC-4626](https://docs.openzeppelin.com/contracts/5.x/erc4626) lineage, one globally visible contract manages pooled liquidity, debt shares, and interest accrual for every participant, broadcasting each one's collateral balance and liquidation threshold publicly.
+In the [ERC-4626](https://docs.openzeppelin.com/contracts/5.x/erc4626) lineage, one globally visible contract manages pooled liquidity, debt shares, and interest accrual for every party, broadcasting each one's collateral balance and liquidation threshold publicly.
 
 Canton enforces **per-party projection** instead: a contract is an instance of a template, signed by a set of parties (its signatories) and visible only to them and to any observers. That is why each **vault is its own contract** rather than a share in a pool. A position is visible only to the borrower, the vault admin, the liquidators that police it, and any regulatory observers - and because visibility is a precondition for action, the liquidator set is declared as observers rather than left implicit.
 
 State changes by archive-and-recreate rather than in-place mutation, with every signatory co-authorizing the transition (Daml's propose-and-accept pattern). That is why the design resolves the `Vault`, `PriceOracle`, `PauseState`, and the trusted-attester and trusted-issuer registries by **contract key** (reintroduced in [Canton 3.5.1+](https://github.com/digital-asset/canton/releases/tag/v3.5.1)): a key is the identity that survives each recreate. Keys are not unique - the platform accepts two contracts sharing one - so uniqueness stays an application obligation. The vault creation should perform checks against duplicate positions.
 
-Keys are the design target, not what runs today. The experiment code sits on the workspace's pinned SDK baseline and is keyless, so each choice takes a caller-supplied registry contract id and asserts it shares the factory's admin. By-key resolution lands with the 3.5.1+ SDK migration.
+Contract keys are supported on the network today and our production implementation will use them throughout. The experiment code referenced here predates the workspace's move to the 3.5.1+ SDK and is still keyless, so choices may taks a caller-supplied registry contract id and assert it shares the factory's admin. The experiments and the existing components (such as `PauseState`) will migrate to by-key resolution with the SDK upgrade.
 
 ---
 
@@ -115,8 +115,7 @@ architecture; the table that follows maps each block to its source. Solid
 edges are runtime interactions, dashed edges are standing governance or
 trust relationships, and keyed contracts are marked with their key.
 
-The first diagram shows the actors and the lending application's own
-contracts:
+The first diagram shows the actors, the lending application's own contracts, and the rail-side components they touch:
 
 ```mermaid
 flowchart TB
@@ -131,6 +130,8 @@ flowchart TB
         Custody[("Vault custody account<br/>joint: admin + borrower")]
     end
 
+    Registries["CIP-0112 registries<br/>(stablecoin + collateral)"]
+    Custodian([CUSTODIAN])
     Fund([INSURANCE_FUND])
     Custody ~~~ Fund
     Attester([Compliance attester])
@@ -145,6 +146,9 @@ flowchart TB
     Fund -->|"collect fees"| Vault
     Vault -->|"fresh price"| Oracle
     Vault ==>|"release collateral<br/>(joint authority)"| Custody
+    Vault -->|"mint, burn,<br/>drive settlement"| Registries
+    Registries -->|"deliver committed<br/>collateral deposit"| Custody
+    Registries -.->|"seizure sweep of<br/>in-flight allocations"| Custodian
 ```
 
 The second shows the components the vault choices depend on, grouped by
@@ -207,9 +211,9 @@ Duties are segregated and mapped to discrete Daml parties:
 
 - **Vault Admin / Stablecoin Issuer (`VAULT_ADMIN`)** - underwrites the **stablecoin (debt) token**: operates the `VaultFactory`, configures `VaultParams`, the `TrustedIssuerRegistry` (accepted KYC issuers), and the `TrustedAttesterRegistry` (accepted compliance attesters), and issues the grants that authorize custodian seizure sweeps. The admin can mint the stablecoin, never the collateral, and only inside the vault choices ([section 3](#3-target-design)). The protocol gives the vault admin no path to issuing unbacked stablecoin.
 - **Borrower (`BORROWER`)** - the entity locking collateral and drawing debt. Only the borrower can lock their own holdings into an allocation. To interact with the protocol, the borrower must hold a valid `KycClaim`, verified at vault creation and fetched live by each value-moving vault choice. Visibility is limited to the borrower's own vaults and the public configuration contracts.
-- **Liquidator (`LIQUIDATOR`)** - a role granted via `openzeppelin-access-control-v1`. Each granted liquidator is placed in the observer set of the vaults it polices, so it can monitor the `PriceOracle` and vault solvency off-ledger from its own projection; authorized to liquidate only after the margin-call grace period has elapsed on a flagged, still-unhealthy vault, and only proportionally to the stablecoin it repays.
+- **Liquidator (`LIQUIDATOR`)** - a role granted via `openzeppelin-access-control-v1`. Each liquidator is an observer of the vaults it polices, so it can monitor the `PriceOracle` and vault solvency, from his own off-ledger projection; It may only liquidate a vault that is still unhealthy after the margin-call grace period, and only in proportion to the stablecoin it repays.
 - **Oracle Operator(s) (`ORACLE_PROVIDER`)** - the implementation-defined party set that updates the `PriceOracle`, bound by the interface requirements ([section 4](#43-component-price-oracle-interface)): no single party, not even the vault admin, should be able to move or stall the published price.
-- **Insurance Fund (`INSURANCE_FUND`)** - the party that collects protocol revenue: it mints the interest revenue against the vaults' `feeReceivable` records; the accumulated fund is the first absorber of recognized bad debt.
+- **Insurance Fund (`INSURANCE_FUND`)** - the party that collects the protocol's interest revenue in full: it mints the interest revenue against the vaults' `feeReceivable` records; the accumulated fund is the first absorber of recognized bad debt.
 - **Custodian (`CUSTODIAN`)** - owns the preset account that receives funds swept by a custodian seizure.
 - **Vault Custody Account** - owns the collateral holdings that back a vault; there is **one custody account per vault**, so collateral is never commingled across positions. It is held under the vault's **joint authority** ([trust topology](#decentralization-and-trust-topology)), and collateral leaves it only through the choices that release it (withdrawal, close, liquidation).
 
@@ -238,7 +242,7 @@ choices would therefore require the borrower plus the admin quorum; inside
 the vault's choices both signatures arrive automatically, inherited from the
 `Vault`'s own signatories.
 
-For roles that need to submit routinely (the insurance fund collecting fees), we envision keeping the confirmation threshold at 1, with each such role's powers bounded on-ledger.
+For roles that need to submit routinely and are not of critical importance, we envision keeping the confirmation threshold at 1, with each such role's powers bounded on-ledger. The insurance fund accumulates the protocol's revenue, so its confirmation threshold is above 1: no single compromised key or participant node can act for it.
 
 Whatever update mechanism the **oracle operators** run ([section 4](#43-component-price-oracle-interface)), an all-of-M quorum should be deliberately avoided: a single offline member, or one whose participant node has unvetted the protocol DAR, would stall every price update until the staleness guard freezes the protocol.
 
