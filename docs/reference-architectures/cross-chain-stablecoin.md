@@ -664,15 +664,16 @@ and a lawful-process reference.
 
 ### 4.5 Throughput and Contention
 
-Every inbound mint records its nonce in one admin-keyed consumed-nonce registry,
-and each settlement archives and recreates that contract. Inbound settlements
-for the rail therefore serialize. The contention is per rail, and it follows
-from the consuming nonce record.
+Every inbound mint records its nonce in one consumed-nonce registry, and each
+settlement archives and recreates that contract. Inbound settlements for the
+rail therefore serialize. The contention is per rail, and it follows from the
+consuming nonce record.
 
-Sharding the registry is the mitigation, with one shard per source chain or per
-source-chain escrow contract. That restores parallelism across sources, and each
-shard keeps its own fail-closed dedup guarantee. Independent rails settle in
-parallel, and several allocations can ride one settlement batch.
+The mitigation is sharding the registry, with one shard per source chain or per
+source-chain escrow contract. Replay protection is unaffected: a nonce is unique
+only inside its own source chain, so each shard sees every message it must check,
+and it still rejects a nonce it cannot prove is new. Independent rails settle in
+parallel, and several allocations can be part of a single settlement batch.
 
 ### 4.6 Off-Ledger Reconciliation
 
