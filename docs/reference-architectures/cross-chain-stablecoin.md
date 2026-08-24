@@ -535,7 +535,10 @@ mark plus the Custodian's capability, and it must land inside both the settlemen
 deadline and the seizure window. Only one path reaches past the settlement
 deadline. It needs a seizure order signed by a non-admin party that the attester
 registry lists. That order binds the case reference, the account it sweeps, and
-the preset custodian account. The admin cannot sign it.
+the preset custodian account. The admin cannot sign it. The deadline is the
+split because it is where the owner's right to reclaim starts
+([section 4.4](#44-failure-modes-and-recovery)), and an override of that right
+needs authority outside the operator set.
 
 The mark is bounded and reversible. It refuses a window past the maximum seizure
 extension, the admin can lift it, and any stakeholder can release it once it
