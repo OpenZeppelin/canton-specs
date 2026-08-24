@@ -717,16 +717,17 @@ The projection choices of this design are therefore its cost model.
 
 ### 5.2 App Rewards
 
-Traffic-based app rewards
-([CIP-0104](https://github.com/canton-foundation/cips/blob/main/cip-0104/cip-0104.md))
-are off until the super validators vote them on. The analysis below assumes they
-vote it on.
+This rail earns through traffic-based app rewards
+([CIP-0104](https://github.com/canton-foundation/cips/blob/main/cip-0104/cip-0104.md)),
+and through no other path. The super validators must vote them on first, so the
+rail earns nothing before that vote.
 
 The gateway admin holds the `FeaturedAppRight`. Rewards accrue to
 the parties that confirm a successful request, and not to the one that submits
-it. Per-transaction beneficiary attribution does not exist. The gateway admin
-therefore settles any split with the attesters or the Stablecoin Admin
-off-ledger, out of its own allowance.
+it. CIP-0104 records no per-transaction beneficiary, so the holder assigns
+beneficiaries on-ledger per reward round, before it mints. An external party,
+whether the holder or a beneficiary, needs an active minting delegation to mint
+its share ([section 2.3](#23-decentralization-and-trust-topology)).
 
 Two tensions follow, both specific to this design. First, a `FeaturedAppRight`
 names one provider party, which sits poorly with permissionless relay
@@ -737,9 +738,10 @@ the Stablecoin Admin signs the instructions, the allocations, and the holdings.
 Most of the credit for relayer-funded transactions therefore goes to the
 Stablecoin Admin if it is featured, and to nobody if only the relayer is.
 
-This document defines no fee model, so there is no revenue for rewards to
-rebate. The credit is an issuance-scaled fraction of each transaction's own
-burn, and it cannot carry the rail by itself.
+This document defines no fee model, so the reward is the only income. Network
+issuance parameters that the super validators set decide how much of the traffic
+cost it returns, and a round below the reward minimum returns nothing. The rail
+therefore needs a fee or an operator subsidy.
 
 ---
 
@@ -764,6 +766,7 @@ the question belongs to someone else by construction.
 | **Synchrony and time assumptions.** Open: the values for the allocation-lifetime, attestation-validity, and seizure-extension ceilings, the margin between source-chain finality and Canton ledger time, attester turnaround ceilings, and whether the nonce should be recorded at settlement rather than at the gateway. | The registry stamps its ceilings at creation, and the gateway records the nonce ([section 3.5](#35-time-and-deadlines)) | Every deployment, because those ceilings are stamped once | Medium | Internal team |
 | **Expired inbound-allocation lifecycle.** Open: who runs the post-deadline reclaim for a dead inbound flow, since an automated handler needs executor or authorizer authority, and how the local lifecycle aligns with the upstream allocation lifecycle once imported. | The allocation becomes withdrawable after the deadline, with no automated handler | The reclaim automation and its authority model | Medium | Internal team |
 | **Gateway behavior under source-chain reorgs.** Open: how inbound attestations are sequenced if the origin chain deep-reorgs, and whether the gateway manages confirmation delays internally or the relayer uses a time-locked allocation against rollback risk. | The gateway processes a lock the attester calls finalized, and holds no finality policy of its own | The production gateway's finality policy | Medium | Whoever builds the production gateway |
+| **Featured app right holder under CIP-0104.** CIP-0104 credits the parties that confirm a request, and the gateway admin confirms only the gateway transaction. Open: whether the right sits with the gateway admin, the Stablecoin Admin, or the relay set, and how the holder assigns each round's beneficiaries to the parties that pay the traffic. | The gateway admin holds the right, and the rail earns nothing until the vote passes ([section 5.2](#52-app-rewards)) | Who earns each round, and no code | Low, an attribution choice and not a mechanism | Internal team, and the super validators for the activation vote |
 | **Aligning gateway scope with native rails.** Open: a general rule for when an inbound asset already has a native Canton rail, so the architecture never re-bridges an already-bridged asset. | The gateway carries only an asset with no native Canton path ([section 1.2](#12-scope)) | Which assets the rail onboards, and no code | Low, a scope rule and not a mechanism | Internal team |
 | **Cross-synchronizer identity proof injection.** Open: whether the trusted-issuer list ingests external state proofs through an oracle, or relies on a cross-chain identity protocol synchronized across the global synchronizer. | Single-synchronizer identity, deferred and additive ([section 3.6](#36-control-enforcement)) | D3 beyond one synchronizer, and nothing in the scope above | Low, explicitly deferred | Internal team, then an audit of the proof-injection trust model |
 
