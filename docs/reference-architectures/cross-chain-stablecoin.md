@@ -692,10 +692,9 @@ where the design puts submission and signing.
 
 ### 5.1 Traffic Costs
 
-Cost scales with serialized view bytes, and with the number of recipients each
-view projects to
-([CIP-0042](https://github.com/canton-foundation/cips/blob/main/cip-0042/cip-0042.pdf),
-[CIP-0084](https://github.com/canton-foundation/cips/blob/main/cip-0084/cip-0084.md)).
+Cost scales with the serialized byte size of each sequenced message, plus a
+per-recipient delivery surcharge
+([traffic accounting](https://docs.canton.network/overview/reference/tokenomics-of-gs)).
 The projection choices of this design are therefore its cost model.
 
 - An inbound payment is roughly three relayer-submitted transactions, plus the
@@ -705,10 +704,10 @@ The projection choices of this design are therefore its cost model.
   registry on the way.
 - The bridge relayer pays for nearly everything. Its own purchases mint validator
   reward coupons to its validator operator, which is a partial rebate.
-- A failed transaction burns traffic and earns no reward, because CIP-0104
+- A failed transaction burns traffic and earns no reward, because [CIP-0104](https://github.com/canton-foundation/cips/blob/main/cip-0104/cip-0104.md)
   credits only a successful confirmation request. The loser of two concurrent
-  inbound mints retries and pays twice. Sharding the nonce registry bounds that
-  waste as well as the contention
+  inbound mints retries and pays twice. Sharding the nonce registry reduces the
+  chance for waste to occur, as well as the contention
   ([section 4.5](#45-throughput-and-contention)).
 - Several allocations can ride one settlement batch, which shares one
   confirmation round-trip and one set of views.
