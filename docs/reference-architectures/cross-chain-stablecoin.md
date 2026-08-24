@@ -214,20 +214,20 @@ the escrow's own verifier accepts.
 
 | Participant | Responsibility and visibility |
 |---|---|
+| Lock escrow | Source-chain contract. It holds the backing and releases it against a verified redemption attestation. |
 | Bridge relayer | Settlement executor. It signs the allocation request and holds the relayer role that the gateway checks. Its authority covers transport and liveness, so a relayer without an attestation cannot mint. It observes every allocation it assembles. |
+| Relayer backend | Off-Canton process. It watches the source chain and submits every inbound command as the bridge relayer. |
 | Attesters, M of them | The trust role, separate from the relayer's transport role. They sign the lock attestation, the compliance attestation, and the redemption attestation. The attester registry lists them, and they see the legs of the settlements they attest. |
+| Attester services | M independent operators on M participants. Each submits as its own attester party. |
 | Stablecoin Admin | Instrument admin for wTOK. It signs the instrument's holdings and allocations and authors the attested mint, so it sees every wTOK payment. |
 | Compliance Verifier | Administers the trusted-issuer list and issues the identity credential. It observes no settlement leg. |
 | Custodian | Holds the seizure capability and owns the preset sweep account. It sees nothing until a seizure. |
-| Recipient, or Holder outbound | Signs the receiving allocation, live or through a receive preapproval. |
-| Pause authority | Signs the pause state and maintains its key. |
-| Gateway admin | Administers the gateway and the consumed-nonce registry. It reads the pause state, the trusted-issuer list, and each credential the gateway checks. |
-| Redemption operator | Holds the redemption burn capability. |
 | Lawful-process authority | Signs the seizure order that a sweep past the settlement deadline requires. The attester registry lists it, and it is never the instrument admin. |
-| Relayer backend | Off-Canton process. It watches the source chain and submits every inbound command as the bridge relayer. |
-| Attester services | M independent operators on M participants. Each submits as its own attester party. |
+| Recipient, or Holder outbound | Signs the receiving allocation, live or through a receive preapproval. |
 | Recipient wallet | Off-Canton process. It creates the receive preapproval and submits as the recipient. |
-| Lock escrow | Source-chain contract. It holds the backing and releases it against a verified redemption attestation. |
+| Pause authority | Signs the pause state and maintains its key. |
+| Gateway admin | Sole signatory of the gateway and the consumed-nonce registry, and the party that operates the gateway. It submits nothing and holds the `FeaturedAppRight`. It reads the pause state, the trusted-issuer list, and each credential the gateway checks. |
+| Redemption operator | Holds the redemption burn capability. |
 
 The gateway and the registries are contracts, not services. The gateway has one
 action that the relayer exercises. The pause state, the attester registry, the
@@ -254,7 +254,7 @@ transiently, when a transaction it witnesses divulges it.
 | Identity credential (this workspace) | The issuing party | The subject and the gateway admin |
 | Trusted-issuer list (this workspace) | The registry admin | The gateway admin |
 | Pause state | The pause authority | The gateway admin |
-| Messaging gateway | The gateway admin and the operator | None |
+| Messaging gateway | The gateway admin | None |
 | Consumed-nonce registry | The gateway admin | The attester set |
 
 Consequences:
@@ -275,11 +275,11 @@ Consequences:
   destination as a data field and not as an observer entry.
 - **A gate the gateway runs makes the gateway a stakeholder.** A fetch needs
   authorization from one stakeholder of the record it returns. The gateway
-  action carries only its own admin and operator authority. The pause state, the
+  action carries only its own admin authority. The pause state, the
   trusted-issuer list, and every credential the gateway checks must therefore
   name the gateway admin as an observer. That is a required change to three
-  templates that already exist. The admin carries it rather than the operator,
-  which keeps durable visibility off the relayer, whose set this design wants to
+  templates that already exist. The admin carries those entries, which keeps
+  durable visibility off the relayer, whose set this design wants to
   open ([section 2.3](#23-decentralization-and-trust-topology)). The submitting
   relayer still witnesses the credential transiently, because a fetch divulges
   to whoever witnesses the exercise.
@@ -686,7 +686,7 @@ Two components carry authority this design has to place deliberately.
 
 ### 4.1 Messaging Gateway
 
-The gateway is a contract signed by its admin and its operator, with one
+The gateway is a contract signed by its admin, with one
 nonconsuming action that the relayer exercises. That action does six things. It
 validates the relayer's role grant. It resolves the pause state, the
 trusted-issuer list, and the nonce registry by key, and checks each against the
@@ -864,9 +864,9 @@ Traffic-based app rewards
 are off until the super validators vote them on. The analysis below assumes they
 vote it on.
 
-The party operating the gateway holds the `FeaturedAppRight`. Rewards accrue to
+The gateway admin holds the `FeaturedAppRight`. Rewards accrue to
 the parties that confirm a successful request, and not to the one that submits
-it. Per-transaction beneficiary attribution does not exist. The gateway operator
+it. Per-transaction beneficiary attribution does not exist. The gateway admin
 therefore settles any split with the attesters or the Stablecoin Admin
 off-ledger, out of its own allowance.
 
@@ -876,8 +876,8 @@ names one provider party, which sits poorly with permissionless relay
 shares one party, or leaves most relayers unrewarded. Second, the earn rule pays
 signers and not submitters. The relayer signs only the allocation request, while
 the Stablecoin Admin signs the instructions, the allocations, and the holdings.
-Most of the credit for relayer-funded transactions therefore goes to the admin
-if the admin is featured, and to nobody if only the relayer is.
+Most of the credit for relayer-funded transactions therefore goes to the
+Stablecoin Admin if it is featured, and to nobody if only the relayer is.
 
 This document defines no fee model, so there is no revenue for rewards to
 rebate. The credit is an issuance-scaled fraction of each transaction's own
