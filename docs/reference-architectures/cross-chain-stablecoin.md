@@ -156,8 +156,9 @@ flowchart TB
     Operator ==>|"burn under the redemption<br/>burn capability"| Burn
     Burn -.->|"redemption attestation: draws down<br/>named lock attestations"| Attesters
     Attesters ==>|"signed attestation:<br/>standing release claim"| Escrow
-    Holder -.->|"resubmit the standing claim"| Escrow
-    Relayer -.->|"resubmit the standing claim"| Escrow
+    Operator -.->|"retry the standing claim"| Escrow
+    Holder -.->|"permissionless resubmit"| Escrow
+    Relayer -.->|"permissionless resubmit"| Escrow
     Escrow ==>|"release the backing and<br/>decrement the reserve"| Destination
 ```
 
@@ -534,8 +535,9 @@ transaction as the Canton burn. The design is therefore burn-first and
 attested-release. The Canton burn is the irreversible commit, and the foreign
 release is gated on the signed burn attestation. If the release stalls, the burn
 is already final, so the reserve accounting stays sound. The redemption becomes
-a standing, replay-protected claim, and the holder or any relayer can resubmit
-it until the escrow releases. The failure mode is a delayed release, and never a
+a standing, replay-protected claim. The redemption operator owns the retry, and
+the claim is permissionless, so the holder or any relayer can also resubmit it
+until the escrow releases. The failure mode is a delayed release, and never a
 double-spend or unbacked supply.
 
 ### 3.4 Registry Uniqueness Under Non-Unique Keys
