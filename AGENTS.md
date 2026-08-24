@@ -152,13 +152,6 @@ Write for that reader:
   everywhere.
 - State the design decision and its consequence. Do not explain Canton, Daml, or
   Splice concepts that the reviewer already knows.
-- Give the reviewer something to accept or reject. Include a scope table that
-  names the separate designs, a trust-boundary table that states what fails when
-  a trusted party misbehaves, and a production-decision table that puts the
-  design default beside each open choice.
-- Use a table for parallel information. Use a diagram for structure and order:
-  one business-flow diagram, one dependency diagram, and one lifecycle sequence
-  diagram. A diagram shows parties, components, and order, not identifiers.
 - Do not add benefit summaries, marketing language, or tutorial material.
 - Do not add filler text that brings no new information, context or
   clarification.
