@@ -153,6 +153,7 @@ transiently, when a transaction it witnesses divulges it.
 | Identity credential | The issuing party | The subject and the gateway admin |
 | Trusted-issuer list | The registry admin | The gateway admin |
 | Pause state | The pause authority | The gateway admin |
+| Attested message | The attester | The bridge relayer |
 | Messaging gateway | The gateway admin | None |
 | Consumed-nonce registry | The gateway admin | The attester set |
 
