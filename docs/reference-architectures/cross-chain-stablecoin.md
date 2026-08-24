@@ -261,13 +261,11 @@ Consequences:
 
 - **No recipient sees another recipient's legs.** Each allocation carries only
   the legs its own authorizer sends or receives. A batch of several inbound
-  payments therefore discloses nothing across them.
+  payments therefore discloses nothing to recipients of other payments.
 - **The Stablecoin Admin sees every wTOK payment.** A leg's metadata travels
-  into the event stream, so amounts, accounts, and memos are readable by
+  into the event stream, so amounts, accounts, and the leg metadata are readable by
   construction. This is a trust assumption and not a leak to close. An issuer
-  that authors the mint leg cannot also be blind to it. The boundary follows the
-  instrument and not this design: any issued instrument puts its own issuer in
-  that position.
+  that authors the mint leg cannot also be blind to it. Any issued instrument puts its own issuer in this position.
 - **The relayer and the attesters see what they handle.** The relayer's
   transport-only role bounds its authority, not its visibility. Attester
   membership is therefore a privacy decision as well as a compliance one. The
@@ -735,7 +733,7 @@ enforces from what stays trusted.
 | Conservation of funds | Settlement cannot output more value than its input allocations. Every settle path archives the locked inputs and asserts, per instrument, that they cover the authorizer's sender-side amounts. Any surplus returns as one change holding. |
 | 1:1 reserve backing | Minted wrapped supply never exceeds the sum of valid, unredeemed lock attestations. This is blocked on closing the spine's admin mint ([section 3.2](#32-reserve-and-lock-attestation)). |
 | Replay protection | One source-chain lock can credit Canton at most once, through one-time message consumption and then the consumed-nonce registry. It holds provided that registry sits on its anchored successor chain ([section 3.4](#34-registry-uniqueness-under-non-unique-keys)). |
-| Privacy partitioning | The amount, payer, and memo of a settled leg project only to that leg's counterparties, the executing relayer, the attester whose attestation gates the settle, and the instrument admin. The Compliance Verifier observes no settlement leg. The per-authorizer allocation is what enforces this. |
+| Privacy partitioning | The amount, payer, and the metadata of a settled leg project only to that leg's counterparties, the executing relayer, the attester whose attestation gates the settle, and the instrument admin. The Compliance Verifier observes no settlement leg. The per-authorizer allocation is what enforces this. |
 | Non-custodial recipient binding | No allocation binds a recipient without its signature, live or preapproved. Committed value is recoverable once the settlement deadline passes, and the spine refuses to create an allocation that has no deadline at all. |
 
 ### 5.2 Trust Boundaries
