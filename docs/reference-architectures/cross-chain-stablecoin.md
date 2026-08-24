@@ -200,10 +200,12 @@ flowchart TB
 
 ### 2.1 Business Roles
 
-Parties exist only on Canton. The source chain has addresses and keys, and
-neither ledger records that an address and a party belong together. One
-off-Canton process holds both credentials, so the pairing is a deployment fact
-and not a protocol guarantee.
+Canton identifies an actor by a party. The source chain identifies it by an
+address. Neither chain records that one address and one party are the same
+actor, so no on-ledger check can validate the pairing. An operator that acts on
+both chains holds both credentials, and configuration is what keeps them
+aligned. The lock attestation therefore names the Canton recipient explicitly,
+and the attester set carries the trust that the name is correct.
 
 "The attesters sign" means two different things. Inbound, the attester party
 signs on Canton, and the source chain never sees that signature. Outbound, the
