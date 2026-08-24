@@ -610,8 +610,8 @@ This section separates what the ledger enforces from what stays trusted.
 | Trusted party or system | Required behavior and consequence |
 |---|---|
 | Attester set | Attests only a finalized lock, with the true amount, recipient, and instrument, and never re-attests a spent lock. A quorum that attests a lock which does not exist mints unbacked supply. This is the largest trust surface in the design. |
-| Bridge relayer | Submits every attested message, and submits it once. It cannot change the amount or the recipient, so a faulty relayer delays a credit rather than misdirecting it. It does decide which registry contract each submission discloses ([section 3.4](#34-registry-uniqueness-under-non-unique-keys)). |
-| Stablecoin Admin | Authors a mint leg only against a valid attestation. A compromised key can issue supply until the multisig posture lands. |
+| Bridge relayer | Submits every attested message, and submits it once. It cannot change the amount or the recipient, so a faulty relayer delays a credit rather than misdirecting it. It does select the registry contracts that a submission discloses, and a key lookup alone would let it point the gateway at a planted registry. The pinned successor chain removes that ([section 3.4](#34-registry-uniqueness-under-non-unique-keys)). |
+| Stablecoin Admin | Authors a mint leg only against a valid attestation. A compromised key can issue unbacked supply; the multisig design mitigates this. |
 | Custodian and lawful-process authority | Sweep only under a bounded mark and, past the settlement deadline, only under a lawful-process order. A colluding pair can move locked value to the preset account inside the deadline window. |
 | Credential issuers | Bind a credential to the recipient and maintain expiry and revocation. The trusted-issuer list is only as strict as its most permissive issuer. |
 | Pause authority | Pauses for an incident, and not to grief. A malicious pauser stalls inbound settlement until the deadlines lapse, and the senders then reclaim. |
