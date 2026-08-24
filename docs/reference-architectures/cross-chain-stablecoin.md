@@ -75,7 +75,7 @@ among them.
 
 | Component | Location | What is missing |
 |---|---|---|
-| Settlement spine: registry rules, allocations, holdings, and the event host | [`canton-contracts` `tokenCIP112-v1`](https://github.com/OpenZeppelin/canton-contracts/tree/7696749737885e25cd88422847105f890f03b00d/experiments/token/tokenCIP112-v1) | Nothing for settlement itself. The wTOK registry must still close the [admin mint](https://github.com/OpenZeppelin/canton-contracts/blob/7696749737885e25cd88422847105f890f03b00d/experiments/token/tokenCIP112-v1/daml/OpenZeppelin/TokenCIP112V1/Registry.daml#L149), which consumes no attestation and can therefore issue unbacked supply ([section 3.2](#32-reserve-and-lock-attestation)) |
+| Settlement spine: registry rules, allocations, holdings, and the event host | [`canton-contracts` `tokenCIP112-v1`](https://github.com/OpenZeppelin/canton-contracts/tree/7696749737885e25cd88422847105f890f03b00d/experiments/token/tokenCIP112-v1) | Nothing for settlement itself. The spine's [admin mint](https://github.com/OpenZeppelin/canton-contracts/blob/7696749737885e25cd88422847105f890f03b00d/experiments/token/tokenCIP112-v1/daml/OpenZeppelin/TokenCIP112V1/Registry.daml#L149) consumes no attestation and can therefore issue unbacked supply, so the wTOK registry must not expose it ([section 3.2](#32-reserve-and-lock-attestation)) |
 | Compliance attestation path (D1) | Same package, `D1.daml` | The verification of an N-of-M attester quorum, in place of the single attestation the registry verifies today ([section 2.3](#23-decentralization-and-trust-topology)) |
 | Seizure path (D2): mark, two sweeps, seizure capability, lawful-process order | Same package, `Allocation.daml` and `D1.daml` | The sweep for an already-settled holding, since the seizure capability ships only an unlock; and capability revocation or rotation |
 | Identity credential check (D3) | This workspace, [`experiments/identity/hook-shape-b`](../../experiments/identity/hook-shape-b/) | The gateway action that runs the check, and the observer entries that let the gateway read the credential and the trusted-issuer list |
@@ -85,7 +85,7 @@ among them.
 | Messaging gateway | [Section 3.1](#31-inbound-credit) | The whole implementation |
 | Lock-attestation carrier and consumed-nonce registry | [Section 3.2](#32-reserve-and-lock-attestation) | The whole implementation |
 | Attested mint and redemption burn | [Section 3.2](#32-reserve-and-lock-attestation) | The whole implementation |
-| Contract keys on the pause state and the trusted-issuer list | [Section 3.4](#34-registry-uniqueness-under-non-unique-keys) | SDK support, Daml-LF 2.3 on Protocol Version 35, and a deploy-and-migrate path per template |
+| Contract keys on the pause state and the trusted-issuer list | [Section 3.4](#34-registry-uniqueness-under-non-unique-keys) | SDK support, Daml-LF 2.3 on Protocol Version 35, and a key definition in each template before that template first deploys |
 | Token Standard V2 interfaces | Splice `splice-api-token-*`, vendored as pinned DARs | Nothing. They are consumed by interface |
 | Validation tooling | [`daml-lint`](https://github.com/OpenZeppelin/daml-lint), [`daml-props`](https://github.com/OpenZeppelin/daml-props), [`daml-verify`](https://github.com/OpenZeppelin/daml-verify) | The whole validation pipeline |
 
@@ -286,8 +286,8 @@ attester submits step 1, and the relayer submits the three that follow.
 1. **Attested message.** The external chain finalizes a locked deposit. An
    attester signs a message that carries the typed **lock attestation**: the
    locked amount, the Canton recipient, the target instrument, a one-time nonce,
-   and an expiry. The message has one attester signatory, which matches the
-   single attestation the registry verifies today. An N-of-M quorum aggregated
+   and an expiry. A single attester signatory would match the single
+   attestation the registry verifies today. An N-of-M quorum aggregated
    onto the message is the target
    ([section 2.3](#23-decentralization-and-trust-topology)).
 2. **Request and identity gate.** The gateway consumes the message and creates
@@ -407,14 +407,15 @@ sender side. The mint is a funded transfer leg and not a sibling create. The
 minted amount therefore passes the same per-instrument conservation check as
 every other leg.
 
-That supply-creation rule is a required change to the registry, and not a
-property of it. The spine ships an admin mint that checks only a positive
+That supply-creation rule is something the wTOK registry has to add, and not a
+property of the spine. The spine ships an admin mint that checks only a positive
 amount and a regular target account, and consumes no attestation. The wTOK
-registry must close it, either through a registry template that omits the
-action or by gating the action on the same attestation. Appending a stricter
-action is not enough, because a stricter action does not close a looser one
-([section 3.7](#37-upgrade-path)). Closing it removes the unattested path from
-the registry surface, so no relayer, attester, or operator can mint without an
+registry must not expose that action, either through a registry template that
+omits it or by gating it on the same attestation. Appending a stricter action is
+not enough, because a stricter action does not close a looser one, and an
+upgrade cannot drop an action once the registry is deployed
+([section 3.7](#37-upgrade-path)). A registry surface without the unattested
+path leaves no relayer, attester, or operator able to mint without an
 attestation. It does not make the reserve invariant hold by construction. The
 instrument admin signs every holding of its own instrument, so it can create
 one directly, and no template shape closes that. The residual exposure is
@@ -582,7 +583,7 @@ sits on a separate role grant, so a change of holder recreates no contract.
 The design extends through additive Smart Contract Upgrade: an existing action
 keeps its fields and its meaning, and a new capability arrives as a new action or
 as an appended optional argument. 
-The keyed registries of [section 3.4](#34-registry-uniqueness-under-non-unique-keys) cannot take that path at all, because an upgrade can neither add nor remove a key definition, so the pause state and the trusted-issuer list need a deploy-and-migrate path per template.
+The keyed registries of [section 3.4](#34-registry-uniqueness-under-non-unique-keys) cannot take that path at all, because an upgrade can neither add nor remove a key definition, so the pause state and the trusted-issuer list must carry their final key definition in the package that first deploys them.
 
 ### 3.8 Extension Points
 
@@ -604,7 +605,7 @@ This section separates what the ledger enforces from what stays trusted.
 | Property | Enforcement |
 |---|---|
 | Conservation of funds | Settlement cannot output more value than its input allocations. Every settle path archives the locked inputs and asserts, per instrument, that they cover the authorizer's sender-side amounts. Any surplus returns as one change holding. |
-| 1:1 reserve backing | Minted wrapped supply never exceeds the total amount locked against the valid, unredeemed lock attestations. Blocked on closing the spine's admin mint. Even then, the Stablecoin Admin signs every holding and can create one directly, so this row binds every party except that admin ([section 3.2](#32-reserve-and-lock-attestation)). |
+| 1:1 reserve backing | Minted wrapped supply never exceeds the total amount locked against the valid, unredeemed lock attestations. Blocked on a wTOK registry that excludes the spine's unattested admin mint. Even then, the Stablecoin Admin signs every holding and can create one directly, so this row binds every party except that admin ([section 3.2](#32-reserve-and-lock-attestation)). |
 | Replay protection | One source-chain lock can credit Canton at most once, through one-time message consumption and then the consumed-nonce registry. It holds provided that registry is part of a successor chain anchored on the genesis contract id ([section 3.4](#34-registry-uniqueness-under-non-unique-keys)). |
 | Privacy partitioning | The amount, payer, and the metadata of a settled leg project only to that leg's counterparties, the executing relayer, the attester whose attestation gates the settle, and the instrument admin. The Compliance Verifier observes no settlement leg. |
 | Non-custodial recipient binding | No allocation binds a recipient without its signature, live or preapproved. Committed value is recoverable once the settlement deadline passes, and the spine refuses to create an allocation that has no deadline at all. |
@@ -634,8 +635,8 @@ This section separates what the ledger enforces from what stays trusted.
 | Shadowing registry duplicate | A rotation leaves two nonce registries or trusted-issuer lists active under one key, and the submitter discloses whichever suits it. | The key prevents nothing, because Canton 3.x keys are not unique. Each consumer checks the resolved registry against the genesis anchor it pins, and rejects the transaction when the registry is off that chain. |
 | Toxic or spam inflow | A sender forces a settlement onto an unwilling recipient. | The allocation never commits without the recipient's approval ([section 4.1](#41-ledger-enforced-properties)). An unsettled allocation expires and returns to sender. |
 | Compromised admin key | A compromised Stablecoin Admin or Custodian key attempts arbitrary expropriation. | A sweep is hardcoded to the preset custodian destination, and a sweep past the settlement deadline needs an order the admin cannot sign. An in-flight seizure inside the deadline needs no such order, so that window is the residual exposure. Supply-changing authority is mitigated by N-of-M multisig. |
-| D1 deployed unset | The wTOK registry is created with no attester registry pinned, so every settle passes with no attestation. | The spine offers no mitigation, because an unset field is a silent no-op. The reference implementation sets and asserts the field at deployment. |
-| Upgrade breaks in-flight allocations | A poorly executed upgrade changes how existing contracts are interpreted, so existing allocations can no longer settle. | Programmatic adherence to the upgrade rule: optional appends and new actions only. Existing actions stay operable, and in-flight settlements conclude before users transition. |
+| D1 deployed unset | The wTOK registry is created with no attester registry pinned, so every settle passes with no attestation. | The spine offers no mitigation, because an unset field is a silent no-op. The wTOK deployment has to set the field and assert it before the rail accepts a settle. |
+| Upgrade breaks in-flight allocations | An upgrade of a deployed rail changes how its live contracts are interpreted, so an allocation created under the previous version can no longer settle. | Programmatic adherence to the upgrade rule: optional appends and new actions only. Each deployed action stays operable, and a pending settlement concludes before its parties move to the new version. |
 | Package unvetting | A participant that hosts a stakeholder party unvets the rail's package, which blocks every action on the contracts that party is a stakeholder of. | Unvetting freezes contracts rather than freeing them. The holder cannot move the asset either, and the locked value stays sweepable once re-vetted. If one attester unvets the package, the remaining attesters still reach the threshold. Holder-side unvetting is an inherent Canton vetting property with no protocol-level bypass. |
 
 ### 4.4 Failure Modes and Recovery
@@ -664,12 +665,11 @@ and a lawful-process reference.
 
 ### 4.5 Throughput and Contention
 
-Every inbound mint records its nonce in one consumed-nonce registry, and each
-settlement archives and recreates that contract. Inbound settlements for the
-rail therefore serialize. The contention is per rail, and it follows from the
-consuming nonce record.
+A single consumed-nonce registry serializes every inbound mint of the rail,
+because each record archives and recreates that one contract. The contention is
+per rail, and it follows from the consuming nonce record.
 
-The mitigation is sharding the registry, with one shard per source chain or per
+Sharding the registry avoids it, with one shard per source chain or per
 source-chain escrow contract. Replay protection is unaffected: a nonce is unique
 only inside its own source chain, so each shard sees every message it must check,
 and it still rejects a nonce it cannot prove is new. Independent rails settle in
@@ -757,13 +757,13 @@ the question belongs to someone else by construction.
 |---|---|---|---|---|
 | **Attester set and quorum shape.** The attesters carry the trust that a source-chain lock is real. Open: the set size M, the threshold N, and who admits or removes a member. Open too: whether the quorum check reads one combined attestation or M separate ones. | One attester signs the message, and N-of-M is the target ([section 2.3](#23-decentralization-and-trust-topology)) | The quorum check, and any production attester set | **High**, the largest trust surface in the design | Internal team |
 | **Shape of the delegated accept.** CIP-0112 makes the recipient sign an allocation for the leg it receives, and an offline recipient cannot sign it live. The receive preapproval carries the recipient's signature, but its only action sends a transfer, so nothing lets the relayer allocate under it. Open: whether that action is added to the receive preapproval, or a separate recipient-signed grant supplies it. | Neither exists, so the capability is unbuilt ([section 3.1](#31-inbound-credit)) | The whole inbound path, because no credit commits without the recipient's signature | **High**, every inbound settlement rests on it | Internal team |
-| **Multisig for the Stablecoin Admin and the Custodian.** The admin can mint supply, and the Custodian can sweep locked value. Open: whether each role uses the on-ledger approval workflow or an external party with threshold signing keys. The N, M, and confirmation threshold per role are open too. | A single key holds each role | Party onboarding for both roles | **High**, one stolen key is enough today | Internal team |
-| **Closing the admin mint.** The shared registry rules ship a mint that needs no attestation, so wTOK has to remove that path. Open: whether wTOK gets its own registry template without the admin mint and the allowance actions, or the shared rules gain an attestation gate and keep allowances. An upgrade cannot drop an action, so the answer also decides how the change reaches a live rail. | wTOK gets its own registry template, without either action ([section 3.2](#32-reserve-and-lock-attestation)) | The wTOK registry template, and with it the reserve invariant | **High**, the 1:1 backing claim rests on it | Internal team |
+| **Multisig for the Stablecoin Admin and the Custodian.** The admin can mint supply, and the Custodian can sweep locked value. Open: whether each role uses the on-ledger approval workflow or an external party with threshold signing keys. The N, M, and confirmation threshold per role are open too. | A single key holds each role | Party onboarding for both roles | **High**, one stolen key is enough under the default | Internal team |
+| **Closing the admin mint.** The shared registry rules ship a mint that needs no attestation, so the wTOK registry must not expose that path. Open: whether wTOK gets its own registry template without the admin mint and the allowance actions, or the shared rules gain an attestation gate and keep allowances. An upgrade cannot drop an action, so the answer has to land before the first deployment. | wTOK gets its own registry template, without either action ([section 3.2](#32-reserve-and-lock-attestation)) | The wTOK registry template, and with it the reserve invariant | **High**, the 1:1 backing claim rests on it | Internal team |
 | **Registry uniqueness enforcement.** The successor chain is decided, and the rules around it are not. Open: who sets the genesis contract id, how each consumer receives it, and how a rotation avoids two live versions. | Each consumer checks a resolved registry against the genesis id it pinned ([section 3.4](#34-registry-uniqueness-under-non-unique-keys)) | The gateway's registry lookups, and the keying work | **High**, replay protection and the identity gate both rest on it | Internal team |
 | **Capability revoke and rotate.** The seizure capability names one holder and cannot move to another. The redemption burn capability is unbuilt and needs the same answer. Open: whether revoke and rotate arrive as new actions on one capability contract, or a registry of capabilities holds them. | The admin archives a capability to revoke it, and no action rotates a holder ([section 3.6](#36-control-enforcement)) | Any deployment where a capability holder can change | Medium | Internal team |
 | **Restitution after a sweep.** A sweep leaves the value in the Custodian's account, and no action returns it. Open: whether the return gets its own action, tied to the case reference and to the account the sweep emptied. Open too: whether that action needs the non-admin authority that a past-deadline sweep needs. | The Custodian moves the funds like any other holding, and nothing ties the return to the case ([section 3.6](#36-control-enforcement)) | The Custodian's runbook, and the audit trail for a returned seizure | Medium, an unbound return can land in any account and proves nothing | Internal team |
 | **Deadline values, and where the nonce is recorded.** Section 3.5 names the ceilings and sets no values. Open: the allocation lifetime, the attestation validity, the seizure extension, the margin between source-chain finality and Canton ledger time, and the attester turnaround. Open too: whether the nonce is recorded at the settle instead of at the gateway. A gateway-recorded nonce stays spent when the deadline lapses. | The registry stamps its ceilings at creation, and the gateway records the nonce ([section 3.5](#35-time-and-deadlines)) | Every deployment, because those ceilings are stamped once | Medium | Internal team |
-| **Reclaim after an expired inbound flow.** An inbound allocation becomes withdrawable when the settlement deadline lapses, and nobody withdraws it today. Open: who runs that reclaim, because an automated handler needs the authority of the executor or of the leg's authorizer. | The allocation becomes withdrawable after the deadline, with no automated handler | The reclaim automation and its authority model | Medium | Internal team |
+| **Reclaim after an expired inbound flow.** An inbound allocation becomes withdrawable when the settlement deadline lapses, and no component of this design withdraws it. Open: who runs that reclaim, because an automated handler needs the authority of the executor or of the leg's authorizer. | The allocation becomes withdrawable after the deadline, with no automated handler | The reclaim automation and its authority model | Medium | Internal team |
 | **Who holds the featured app right.** CIP-0104 pays the parties that confirm a request, and the gateway admin confirms only the gateway transaction. Open: whether the right sits with the gateway admin, the Stablecoin Admin, or the relay set. Open too: how the holder points each round's rewards at the parties that paid the traffic. | The gateway admin holds the right, and the rail earns nothing until the vote passes ([section 5.2](#52-app-rewards)) | Who earns each round, and no code | Low, an attribution choice and not a mechanism | Internal team, and the super validators for the activation vote |
 
 **Composability with the other reference architectures** needs no new mechanism.
