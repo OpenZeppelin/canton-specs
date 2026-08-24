@@ -87,7 +87,7 @@ among them.
 | Attested mint and redemption burn | [Section 3.2](#32-reserve-and-lock-attestation) | The whole implementation |
 | Contract keys on the pause state and the trusted-issuer list | [Section 3.4](#34-registry-uniqueness-under-non-unique-keys) | SDK support, Daml-LF 2.3 on Protocol Version 35, and a deploy-and-migrate path per template |
 | Token Standard V2 interfaces | Splice `splice-api-token-*`, vendored as pinned DARs | Nothing. They are consumed by interface |
-| Validation tooling | [Section 4.7](#47-automated-validation) | The whole validation pipeline for this rail |
+| Validation tooling | [`daml-lint`](https://github.com/OpenZeppelin/daml-lint), [`daml-props`](https://github.com/OpenZeppelin/daml-props), [`daml-verify`](https://github.com/OpenZeppelin/daml-verify) | The whole validation pipeline |
 
 ---
 
@@ -682,16 +682,6 @@ recipient matches an event to the id of the attested message that caused it, so
 one external lock or burn maps to one Canton credit. The API is upstream and not
 vendored here, and this match is a reference pattern, not a rule the rail
 enforces.
-
-### 4.7 Automated Validation
-
-Three tiers apply to the properties above:
-[`daml-lint`](https://github.com/OpenZeppelin/daml-lint/commits/main/) for
-decimal bounds and archive-before-execute,
-[`daml-props`](https://github.com/OpenZeppelin/daml-props) for conservation and
-reserve backing under generated inputs, and
-[`daml-verify`](https://github.com/OpenZeppelin/daml-verify) for the narrow
-invariants a proof can close. None is wired to this rail yet.
 
 ---
 
