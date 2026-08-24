@@ -129,8 +129,3 @@ this repository's coverage gate.
 The CI-only discovery scripts validate all declared packages. Public and
 contributor documentation shows native DPM commands instead of presenting those
 scripts as the development interface.
-
-## Commit rules
-
-- prefer single sentence commit messages (1 line), unless more is meaningful
-- do not add the `Co-Authored-By Claude`, or whatever phrasing, to the commit messages
