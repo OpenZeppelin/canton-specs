@@ -249,7 +249,7 @@ transiently, when a transaction it witnesses divulges it.
 | wTOK holding | The instrument admin and the account's parties | The lock's observers, while locked |
 | Compliance attestation | The attester | The executor that verifies it |
 | Attester registry | The settlement factory's admin | The listed attesters |
-| Seizure order | The lawful-process authority | The instrument admin |
+| Seizure order | The lawful-process authority | The instrument admin and the Custodian |
 | Allowance | The instrument admin and the owner's account parties | The spender |
 | Identity credential | The issuing party | The subject and the gateway admin |
 | Trusted-issuer list | The registry admin | The gateway admin |
@@ -267,17 +267,15 @@ Consequences:
   construction. This is a trust assumption and not a leak to close. An issuer
   that authors the mint leg cannot also be blind to it. Any issued instrument puts its own issuer in this position.
 - **The relayer and the attesters see what they handle.** The relayer's
-  transport-only role bounds its authority, not its visibility. Attester
-  membership is therefore a privacy decision as well as a compliance one. The
-  Custodian sees nothing until a seizure, because the seizure hook holds its
+  transport-only role bounds its authority, not what it sees. Attester
+  membership is therefore a privacy decision as well as a compliance one.
+- **The Custodian sees nothing until a seizure.** The seizure hook holds its
   destination as a data field and not as an observer entry.
 - **A gate the gateway runs makes the gateway a stakeholder.** A fetch needs
   authorization from one stakeholder of the record it returns. The gateway
   action carries only its own admin authority. The pause state, the
   trusted-issuer list, and every credential the gateway checks must therefore
-  name the gateway admin as an observer. That is a required change to three
-  templates that already exist. The admin carries those entries, which keeps
-  durable visibility off the relayer, whose set this design wants to
+  name the gateway admin as an observer. The admin carries those entries, which keeps durable visibility off the relayer, whose set this design wants to
   open ([section 2.3](#23-decentralization-and-trust-topology)). The submitting
   relayer still witnesses the credential transiently, because a fetch divulges
   to whoever witnesses the exercise.
