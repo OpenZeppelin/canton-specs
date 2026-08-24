@@ -640,30 +640,26 @@ This section separates what the ledger enforces from what stays trusted.
 ### 4.4 Failure Modes and Recovery
 
 Beyond the adversarial vectors sit liveness failures: parties that crash, stall,
-or never appear, and the infrastructure they depend on. One invariant governs
-them.
+or never appear, and the infrastructure they depend on.
 
-**Bounded custody.** Every locked holding has a unilateral, time-bounded exit
-for its owner that does not depend on the workflow contract surviving. A
-committed allocation becomes withdrawable after the settlement deadline. Once
-the funding lock expires, the account parties can reclaim the holding directly,
-which covers the case where the admin already collected the referencing
-allocation. The non-recoverable resource is not funds but the consumed nonce. A
-settlement that lapses after the gateway transaction needs a fresh attestation
-to re-drive. The sole custody exception is an active D2 seizure, which has a
-finite window and a lawful-process reference.
-
+One invariant governs them - **bounded custody.**
+Every locked holding has a unilateral, time-bounded exit for its owner that does
+not depend on the workflow contract surviving.
+  
 | Failure | Effect while pending | Recovery path | Funds locked at most |
 |---|---|---|---|
 | The attester never signs the message | Nothing on Canton | Reclaiming the source-chain lock is open ([section 6](#6-open-design-questions)) | Nothing on Canton |
 | The relayer crashes before the gateway transaction | Nothing consumed | Any relayer resubmits, because the message is standing | Nothing |
-| The relayer crashes after the gateway transaction | The nonce is spent, and the settlement is pending | Complete the allocate and settle on restart. If the deadline lapses, the funds unlock and the nonce stays spent | Settlement deadline |
+| The relayer crashes after the gateway transaction | The nonce is spent, and the settlement is pending | Complete the allocation and settle on restart. If the deadline lapses, the funds unlock and the nonce stays spent | Settlement deadline |
 | The attestation expires before the settle | The settle is blocked | Re-attest within the window, or let the deadline lapse and withdraw | Settlement deadline |
 | The recipient has no receive preapproval | The delegated accept fails, and nothing is locked | The recipient establishes the preapproval, and the relayer retries | Nothing |
 | A pause during an in-flight settlement | The settle is blocked by the pause check | Unpause, or let the deadline lapse and withdraw ([section 2.3](#23-decentralization-and-trust-topology)) | Settlement deadline |
 | The relayer validator runs out of traffic | The rail halts, because every inbound submission is relayer-paid | Top up the traffic, and monitor it ([section 5.1](#51-traffic-costs)) | Settlement deadline |
 | Synchronizer outage | The ledger is halted, so no one can settle and no one can withdraw | Service resumes. An allocation whose deadline lapsed during the outage is withdraw-only | Outage duration plus settlement deadline |
 | Marked for seizure, never swept | The settle, the withdraw, and the cancel are all blocked | The admin lifts the mark, or any stakeholder releases it once the window lapses | Seizure window end, itself capped by the maximum seizure extension |
+
+The sole custody exception is an active D2 seizure, which has a finite window
+and a lawful-process reference.
 
 ### 4.5 Throughput and Contention
 
