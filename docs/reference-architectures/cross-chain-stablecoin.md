@@ -116,7 +116,7 @@ the escrow's own verifier accepts.
 
 | Participant | Responsibility and visibility |
 |---|---|
-| Lock escrow | Source-chain contract. It holds the backing and releases it against a verified redemption attestation. |
+| Lock escrow | Source-chain contract. It holds the backing and releases it against a verified redemption attestation. Any submitter can present that attestation ([section 3.3](#33-outbound-redemption)). |
 | Bridge relayer | Settlement executor. It signs the allocation request and holds the relayer role that the gateway checks. Its authority covers transport and liveness, so a relayer without an attestation cannot mint. It observes every allocation it assembles. |
 | Relayer backend | Off-Canton process. It watches the source chain and submits every inbound command as the bridge relayer. |
 | Attesters, M of them | The trust role, separate from the relayer's transport role. They sign the lock attestation, the compliance attestation, and the redemption attestation. The attester registry lists them, and they see the legs of the settlements they attest. |
@@ -452,13 +452,34 @@ Redemption mirrors the inbound flow.
 
 **Cross-chain atomicity.** The source-chain release is not in the same Daml
 transaction as the Canton burn. The design is therefore burn-first and
-attested-release. The Canton burn is the irreversible commit, and the foreign
-release is gated on the signed burn attestation. If the release stalls, the burn
-is already final, so the reserve accounting stays sound. The redemption becomes
-a standing, replay-protected claim. The redemption operator owns the retry, and
-the claim is permissionless, so the holder or any relayer can also resubmit it
-until the escrow releases. The failure mode is a delayed release, and never a
+attested-release, and it assumes a source chain where any submitter can claim
+the release against escrow state that the escrow committed before the burn. The
+Canton burn is the irreversible commit, and the foreign release is gated on the
+signed burn attestation. Under that assumption a stalled release leaves the burn
+final and the reserve accounting sound, and the redemption becomes a standing,
+replay-protected claim. The redemption operator owns the retry, and the claim is
+permissionless, so the holder or any relayer can also resubmit it until the
+escrow releases. The failure mode is then a delayed release, and never a
 double-spend or unbacked supply.
+
+**Chains that cannot gate the payout.** On a UTXO chain without contracts the
+release is a plain threshold-signed transaction, so the payout exists only if
+the signer quorum produces it. A quorum that stalls or refuses is then
+indistinguishable from loss, and in a burn-first design, the redeemer ends up
+holding neither asset. A permissioned release on a chain with contracts fails
+the same way, because the holder cannot submit the claim itself.
+The sound ordering there inverts to burn-last: lock the wrapped holding,
+authorize on-ledger against the pinned input and output sets of the payout,
+sign, broadcast, confirm, and burn last.
+The reserve invariant then needs to take into account the in-flight window,
+because the backing is spent while the wrapped holding still exists, and 1:1
+monitoring would otherwise read an honest redemption as under-collateralized.
+
+Burn-last is a different trust model, and not a variant of the ordering above.
+It needs an attested claim that the payout confirmed, and it needs the unlock
+path and the burn path to exclude each other. This design does not cover it, and
+a bridge to a chain that cannot gate the payout must not inherit the burn-first
+claim.
 
 ### 3.4 Registry Uniqueness Under Non-Unique Keys
 
