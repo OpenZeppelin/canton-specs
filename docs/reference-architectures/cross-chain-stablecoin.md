@@ -83,12 +83,12 @@ unbuilt.
 | Seizure path (D2): mark, two sweeps, seizure capability, lawful-process order | Same package, `Allocation.daml` and `D1.daml` | The sweep for an already-settled holding, since the seizure capability ships only an unlock; and capability revocation or rotation |
 | Identity credential check (D3) | This workspace, [`experiments/identity/hook-shape-b`](../../experiments/identity/hook-shape-b/) | The gateway action that runs the check, and the observer entries that let the gateway read the credential and the trusted-issuer list |
 | Per-action role binding (D4) | Libraries in `canton-contracts` `experiments/access` | The wiring. The primitives exist, and this rail has to call them |
-| Access control, ownership handover, and the pause switch | `canton-contracts` `experiments/access` and `experiments/security` | Nothing for access control and ownership. The pause switch needs the observer entry that lets the gateway read it |
+| Access control, ownership handover, and the pause state | `canton-contracts` `experiments/access` and `experiments/security` | Nothing for access control and ownership. The pause state needs the observer entry that lets the gateway read it |
 | Holdings and the receive preapproval | [`canton-token-template`](https://github.com/OpenZeppelin/canton-token-template) | The delegated accept that allocates under the recipient's preapproval, since the template's own action only sends a transfer ([section 6](#6-open-design-questions)) |
 | Messaging gateway | [Section 3.1](#31-inbound-credit) | The whole implementation |
 | Lock-attestation carrier and consumed-nonce registry | [Section 3.2](#32-reserve-and-lock-attestation) | The whole implementation |
 | Attested mint and redemption burn | [Section 3.2](#32-reserve-and-lock-attestation) | The whole implementation |
-| Contract keys on the pause switch and the trusted-issuer list | [Section 3.4](#34-registry-uniqueness-under-non-unique-keys) | SDK support, Daml-LF 2.3 on Protocol Version 35, and a key definition in each template before that template first deploys |
+| Contract keys on the pause state and the trusted-issuer list | [Section 3.4](#34-registry-uniqueness-under-non-unique-keys) | SDK support, Daml-LF 2.3 on Protocol Version 35, and a key definition in each template before that template first deploys |
 | Token Standard V2 interfaces | Splice `splice-api-token-*`, vendored as pinned DARs | Nothing. They are consumed by interface |
 | Validation tooling | [`daml-lint`](https://github.com/OpenZeppelin/daml-lint), [`daml-props`](https://github.com/OpenZeppelin/daml-props), [`daml-verify`](https://github.com/OpenZeppelin/daml-verify) | The whole validation pipeline |
 
@@ -127,12 +127,12 @@ the escrow's own verifier accepts.
 | Lawful-process authority | Signs the seizure order that a sweep past the settlement deadline requires. The attester registry lists it, and it is never the instrument admin. |
 | Recipient, or Holder outbound | Signs the receiving allocation, live or through a receive preapproval. |
 | Recipient wallet | Off-Canton process. It creates the receive preapproval and submits as the recipient. |
-| Pause authority | Signs the pause switch and maintains its key. |
-| Gateway admin | Sole signatory of the gateway and the consumed-nonce registry, and the party that operates the gateway. It submits nothing and holds the `FeaturedAppRight`. It reads the pause switch, the trusted-issuer list, and each credential the gateway checks. |
+| Pause authority | Signs the pause state and maintains its key. |
+| Gateway admin | Sole signatory of the gateway and the consumed-nonce registry, and the party that operates the gateway. It submits nothing and holds the `FeaturedAppRight`. It reads the pause state, the trusted-issuer list, and each credential the gateway checks. |
 | Redemption operator | Holds the redemption burn capability. |
 
 The gateway and the registries are contracts, not services. The gateway has one
-action that the relayer exercises. The pause switch, the attester registry, the
+action that the relayer exercises. The pause state, the attester registry, the
 trusted-issuer list, and the consumed-nonce registry are single contracts that a
 caller resolves. The lock attestation is a data record inside the attested
 message, so an attester signs the message and not a standalone attestation.
@@ -155,7 +155,7 @@ transiently, when a transaction it witnesses divulges it.
 | Allowance | The instrument admin and the owner's account parties | The spender |
 | Identity credential | The issuing party | The subject and the gateway admin |
 | Trusted-issuer list | The registry admin | The gateway admin |
-| Pause switch | The pause authority | The gateway admin |
+| Pause state | The pause authority | The gateway admin |
 | Attested message | The attester | The bridge relayer |
 | Messaging gateway | The gateway admin | None |
 | Consumed-nonce registry | The gateway admin | The attester set |
@@ -177,7 +177,7 @@ Consequences:
   custodian destination as a data field and not as an observer entry.
 - **A gate the gateway runs makes the gateway a stakeholder.** A fetch needs
   authorization from one stakeholder of the record it returns. The gateway
-  action carries only its own admin authority. The pause switch, the
+  action carries only its own admin authority. The pause state, the
   trusted-issuer list, and every credential the gateway checks must therefore
   name the gateway admin as an observer. The admin carries those entries, which
   keeps durable visibility off the relayer, whose set this design wants to
@@ -258,7 +258,7 @@ sequenceDiagram
     Attesters->>App: Sign the attested message<br/>carrying the lock attestation
     Note over Relayer,Registry: Gateway transaction.
     Relayer->>App: Process the attested message
-    App->>App: Check the pause switch, the relayer role, and each<br/>resolved registry against the anchor it pins
+    App->>App: Check the pause state, the relayer role, and each<br/>resolved registry against the anchor it pins
     App->>App: Read the recipient's credential
     App->>App: Consume the message and record the nonce
     App->>Registry: Create the allocation request<br/>for the attested amount
@@ -607,7 +607,7 @@ keeps its fields and its meaning, and a new capability arrives as a new action o
 as an appended optional argument. The keyed registries of
 [section 3.4](#34-registry-uniqueness-under-non-unique-keys) cannot take that
 path at all, because an upgrade can neither add nor remove a key definition, so
-the pause switch and the trusted-issuer list must carry their final key
+the pause state and the trusted-issuer list must carry their final key
 definition in the package that first deploys them.
 
 ### 3.8 Extension Points
@@ -644,7 +644,7 @@ This section separates what the ledger enforces from what stays trusted.
 | Stablecoin Admin | Authors a mint leg only against a valid attestation. A compromised key can issue unbacked supply; the multisig design mitigates this. |
 | Custodian and lawful-process authority | Sweep only under a bounded mark and, past the settlement deadline, only under a lawful-process order. A colluding pair can move locked value to the preset account inside the deadline window. |
 | Credential issuers | Bind a credential to the recipient and maintain expiry and revocation. The trusted-issuer list is only as strict as its most permissive issuer. |
-| Pause authority | Sets the pause switch for an incident, and not to grief. A malicious pause authority stalls inbound settlement until the deadlines lapse, and the senders then reclaim. |
+| Pause authority | Sets the pause state for an incident, and not to grief. A malicious pause authority stalls inbound settlement until the deadlines lapse, and the senders then reclaim. |
 | Gateway admin | Maintains the registry anchors and the consumed-nonce record. An admin that edits that record can re-open a spent lock, and the attester set witnesses the edit. |
 | Lock escrow | Holds the backing and releases only against a verified redemption attestation. A broken escrow strands a redemption, and the Canton burn is already final. |
 | Canton infrastructure | Keeps the required parties hosted, the packages vetted, and transactions confirmable inside each deadline ([section 4.3](#43-threat-model)). |
@@ -681,7 +681,7 @@ not depend on the workflow contract surviving.
 | The relayer crashes after the gateway transaction | The nonce is spent, and the settlement is pending | Complete the allocation and settle on restart. If the deadline lapses, the funds unlock and the nonce stays spent | Settlement deadline |
 | The attestation expires before the settle | The settle is blocked | Re-attest within the window, or let the deadline lapse and withdraw | Settlement deadline |
 | The recipient has no receive preapproval | The delegated accept fails, and nothing is locked | The recipient establishes the preapproval, and the relayer retries | Nothing |
-| The pause switch is set during an in-flight settlement | The settle is blocked by the pause switch | Clear the pause switch, or let the deadline lapse and withdraw ([section 2.3](#23-decentralization-and-trust-topology)) | Settlement deadline |
+| The pause state is set during an in-flight settlement | The settle is blocked by the pause state | Clear the pause state, or let the deadline lapse and withdraw ([section 2.3](#23-decentralization-and-trust-topology)) | Settlement deadline |
 | The relayer validator runs out of traffic | The rail halts, because every inbound submission is relayer-paid | Top up the traffic, and monitor it ([section 5.1](#51-traffic-costs)) | Settlement deadline |
 | Synchronizer outage | The ledger is halted, so no one can settle and no one can withdraw | Service resumes. An allocation whose deadline lapsed during the outage is withdraw-only | Outage duration plus settlement deadline |
 | Marked for seizure, never swept | The settle, the withdraw, and the cancel are all blocked | The admin lifts the mark, or any stakeholder releases it once the window lapses | Seizure window end, itself capped by the maximum seizure extension |
