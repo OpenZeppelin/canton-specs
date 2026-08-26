@@ -130,7 +130,8 @@ key that the escrow's own verifier accepts.
 | Attesters, M of them | The trust role, separate from the relayer's transport role. They sign the lock attestation, the compliance attestation, and the redemption attestation. The attester registry lists them, and they see the legs of the settlements they attest. |
 | Attester services | M independent operators on M participants. Each submits as its own attester party. |
 | Stablecoin Admin | Instrument admin for wTOK. It signs the instrument's holdings and allocations and authors the attested mint, so it sees every wTOK payment. |
-| Compliance Verifier | Administers the trusted-issuer list and issues the identity credential. It observes no settlement leg. |
+| KYC issuers | They sign the identity credential that D3 checks, and they maintain its expiry and revocation. The trusted-issuer list names them. Each observes no settlement leg. |
+| Trusted-issuer list admin | Sole signatory of the trusted-issuer list, and the party that decides which issuers it names. It issues no credential and observes no settlement leg. |
 | Custodian | Holds the seizure capability and owns the preset sweep account. It sees nothing until a seizure. |
 | Lawful-process authority | Signs the seizure order that a sweep past the settlement deadline requires. The attester registry lists it, and it is never the instrument admin. |
 | Recipient, or Holder outbound | Signs the receiving allocation, live or through a receive preapproval. |
@@ -160,8 +161,8 @@ transiently, when a transaction it witnesses divulges it.
 | Compliance attestation | The attester | The bridge relayer the attestation is issued to |
 | Attester registry | The settlement factory's admin | The listed attesters |
 | Seizure order | The lawful-process authority | The instrument admin and the Custodian |
-| Identity credential | The issuing party | The subject and the gateway admin |
-| Trusted-issuer list | The registry admin | The gateway admin |
+| Identity credential | The KYC issuer that signs it | The subject and the gateway admin |
+| Trusted-issuer list | The trusted-issuer list admin | The gateway admin |
 | Pause state | The pause authority | The gateway admin |
 | Attested message | The attester | The bridge relayer |
 | Messaging gateway | The gateway admin | None |
@@ -231,7 +232,7 @@ is open ([section 6](#6-open-design-questions)):
 | Attesters | Several independent parties in the attester registry, threshold N-of-M, never all-of-M | One unavailable or unvetted attester must not halt the rail, and one malicious attester must not mint |
 | Bridge relayer | Multi-hosted on several participants, confirmation threshold 1 | It holds no minting trust and is the most submission-heavy role in the design. Integrity comes from the attester split, and relay should ultimately be permissionless, so no single party gates liveness |
 | Pause authority | Multi-hosted, confirmation threshold 1 | A pause must be instant, and a quorum would slow it down. The price is a griefing window where a malicious pause authority stalls settlement until the deadlines lapse, capped by the sender's right to reclaim committed funds |
-| Compliance Verifier | Several independent issuers on the trusted-issuer list | A recipient needs a credential from only one listed issuer, so no single issuer can block onboarding. The list is only as strict as its most permissive issuer, which makes the choice of whom to list a governance decision |
+| KYC issuers | Several independent issuers on the trusted-issuer list | A recipient needs a credential from only one listed issuer, so no single issuer can block onboarding. The list is only as strict as its most permissive issuer, which makes the choice of whom to list a governance decision |
 | Recipients | No rail-side decentralization | Nothing binds a recipient without its own signature, live or preapproved, so it trusts only its own keys and participant |
 
 The relayer is the only party on both sides of the cross-chain boundary. It pays
@@ -615,7 +616,7 @@ single-synchronizer, deferred and additive.
 **D4.** No single admin holds every privilege. Each action sits with the role
 responsible for it: relay with the relayer role grant, mint-leg authoring with
 the Stablecoin Admin, seizure with the Custodian's capability witness, and
-trusted-issuer list with the Compliance Verifier. A permission whose holder never
+the trusted-issuer list with its own admin. A permission whose holder never
 changes sits on the contract itself. A permission that must move or be revoked
 sits on a separate role grant, so a change of holder recreates no contract.
 
@@ -651,7 +652,7 @@ This section separates what the ledger enforces from what stays trusted.
 | Conservation of funds | Settlement cannot output more value than its input allocations. Every settle path archives the locked inputs and asserts, per instrument, that they cover the authorizer's sender-side amounts. Any surplus returns as one change holding. |
 | 1:1 reserve backing | Minted wrapped supply never exceeds the total amount locked against the valid, unredeemed lock attestations. Blocked on a wTOK registry that excludes the settlement package's unattested admin mint. Even then, the Stablecoin Admin signs every holding and can create one directly, so this row binds every party except that admin ([section 3.2](#32-reserve-and-lock-attestation)). |
 | Replay protection | One external-chain lock can credit Canton at most once, through one-time message consumption and then the consumed-nonce registry. It holds provided that registry is part of a successor chain anchored on the genesis contract id ([section 3.4](#34-registry-uniqueness-under-non-unique-keys)). |
-| Privacy partitioning | The amount, payer, and the metadata of a settled leg project only to that leg's counterparties, the executing relayer, the attester whose attestation gates the settle, and the instrument admin. The Compliance Verifier observes no settlement leg. |
+| Privacy partitioning | The amount, payer, and the metadata of a settled leg project only to that leg's counterparties, the executing relayer, the attester whose attestation gates the settle, and the instrument admin. No KYC issuer observes a settlement leg. |
 | Non-custodial recipient binding | No allocation binds a recipient without its signature, live or preapproved. Committed value is recoverable once the settlement deadline passes, and no allocation can be created without a deadline. |
 
 ### 4.2 Trust Boundaries
@@ -662,7 +663,7 @@ This section separates what the ledger enforces from what stays trusted.
 | Bridge relayer | Submits every attested message, and submits it once. It cannot change the amount or the recipient, so a faulty relayer delays a credit rather than misdirecting it. It does select the registry contracts that a submission discloses, and a key lookup alone would let it point the gateway at a planted registry. The pinned successor chain removes that ([section 3.4](#34-registry-uniqueness-under-non-unique-keys)). |
 | Stablecoin Admin | Authors a mint leg only against a valid attestation. A compromised key can issue unbacked supply; the multisig design mitigates this. |
 | Custodian and lawful-process authority | Sweep only under a bounded mark and, past the settlement deadline, only under a lawful-process order. A colluding pair can move locked value to the preset account inside the deadline window. |
-| Credential issuers | Bind a credential to the recipient and maintain expiry and revocation. The trusted-issuer list is only as strict as its most permissive issuer. |
+| KYC issuers | Bind a credential to the recipient and maintain expiry and revocation. The trusted-issuer list is only as strict as its most permissive issuer. |
 | Pause authority | Sets the pause state for an incident, and not to grief. A malicious pause authority stalls inbound settlement until the deadlines lapse, and the senders then reclaim. |
 | Gateway admin | Maintains the registry anchors and the consumed-nonce record. An admin that edits that record can re-open a spent lock, and the attester set witnesses the edit. |
 | Lock escrow | Holds the backing and releases only against a verified redemption attestation. A broken escrow strands a redemption, and the Canton burn is already final. |
