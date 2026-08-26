@@ -585,8 +585,9 @@ registry rules pin once
 ([section 3.4](#34-registry-uniqueness-under-non-unique-keys)). The caller
 supplies the attestation, and its disclosures decide which roster version the
 settle resolves. The settle rejects any version off that chain, so no caller
-input decides which roster the attestation is checked against. The check sits on the only path that reaches a
-settlement, so a settle that omits the attestation fails. The attester
+input decides which roster the attestation is checked against. The check sits
+on the only path that reaches a settlement, so a settle that omits the
+attestation fails. The attester
 registry's admin must be the settlement factory's admin, so one party governs
 both the roster and the settlement rules.
 
@@ -596,50 +597,50 @@ anchor verify nothing, and every settle then passes without an attestation
 chain, and it recreates no registry rules.
 
 **D2.** Seizure is a strict lock-and-sweep. A mark locks the allocation, and a
-sweep then moves the locked holdings to the preset custodian account. The same
-sweep reaches a holding that already settled.
+sweep moves the locked holdings to the preset custodian account. The same sweep
+reaches a holding that already settled. The settlement deadline separates two
+sweep paths:
 
-The two sweep paths differ in authority. The in-flight sweep needs the admin's
-mark plus the Custodian's capability, and it must land inside both the settlement
-deadline and the seizure window. Only one path reaches past the settlement
-deadline. It needs a seizure order signed by a non-admin party that the attester
-registry lists. That order binds the case reference, the account it sweeps, and
-the preset custodian account. The admin cannot sign it. The deadline is the
-split because it is where the owner's right to reclaim starts
-([section 4.4](#44-failure-modes-and-recovery)), and an override of that right
-needs authority outside the operator set.
+- **Inside the deadline.** The admin's mark plus the Custodian's capability.
+- **Past the deadline.** The same authority, plus a seizure order that names the
+  case and the account it sweeps. A non-admin party that the attester registry
+  lists signs that order.
+
+Either sweep must land inside the seizure window. The deadline is the split
+because it is where the owner's right to reclaim starts
+([section 4.4](#44-failure-modes-and-recovery)), and overriding that right needs
+authority outside the operator set.
 
 The mark is bounded and reversible. It refuses a window past the maximum seizure
 extension, the admin can lift it, and any stakeholder can release it once it
 lapses, so an abandoned mark cannot strand funds.
 
-D2 never burns the asset, and the seizure path has no reverse: a sweep lands
-only at the preset custodian account, and no D2 action moves value from there
-back to the account it swept. Restitution after a case that ends without
-forfeiture is therefore a custodian action outside D2, and its authority is open
-([section 6](#6-open-design-questions)). Revocation means the admin archives the
-capability, and a rotation path is open there too.
+D2 never burns the asset, and a sweep lands only at the preset custodian
+account. Returning swept value is a custodian action outside D2, and revoking a
+capability means the admin archives it. The authority for each is open
+([section 6](#6-open-design-questions)).
 
-**D3.** The check runs under the authority of the party that runs it. That
-party has to be a stakeholder of the credential and of the trusted-issuer list
+**D3.** The gate binds the credential's subject to the recipient that the lock
+attestation names, so a relayer cannot route a credit to an account that holds
+no credential.
+
+The check runs under the authority of the party that runs it, and that party has
+to be a stakeholder of the credential and of the trusted-issuer list
 ([section 2.2](#22-privacy-and-visibility)). The default places the check in the
-gateway transaction, which is why both records name the gateway admin as an
-observer. Another placement moves those entries
-([section 6](#6-open-design-questions)). The gate binds the credential's subject
-to the recipient that the lock attestation names, so a relayer cannot route a
-credit to an account that holds no credential.
+gateway transaction, so both records name the gateway admin as an observer.
+Another placement moves those entries ([section 6](#6-open-design-questions)).
 
-Two limits follow from where the check binds. First, it binds at request
-time, and no later action re-reads the credential, so a revocation or an expiry
-before the settle still credits the recipient. The exposure is one settlement
-deadline. The rejected alternative is a second read at the settle. It would
-make a settlement-side party an observer of every credential, which is the
-durable visibility that [section 2.2](#22-privacy-and-visibility) keeps off the
-relayer set, and it would still leave the settled holding ungated. Second, D3
-is an entry condition and not a transfer restriction. A settled wTOK holding
+The check binds at request time, and no later action re-reads the credential, so
+a revocation or an expiry before the settle still credits the recipient. The
+exposure is one settlement deadline. A second read at the settle would close
+that window, at the cost of making a settlement-side party an observer of every
+credential. [Section 2.2](#22-privacy-and-visibility) keeps that durable
+visibility off the relayer set, and the settled holding would stay ungated
+either way.
+
+D3 is an entry condition and not a transfer restriction. A settled wTOK holding
 moves over the standard's own transfer path, and no credential gates that move.
-Value already credited is D2's surface, and not D3's. Identity stays
-single-synchronizer, deferred and additive.
+Value already credited is D2's surface.
 
 **D4.** No single admin holds every privilege. Each action sits with the role
 responsible for it: relay with the relayer role grant, mint-leg authoring with
