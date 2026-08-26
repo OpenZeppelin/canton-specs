@@ -135,11 +135,11 @@ key that the escrow's own verifier accepts.
 | Relayer backend | Off-Canton process. It watches the external chain and submits every inbound command as the bridge relayer. |
 | Attesters, M of them | The trust role, separate from the relayer's transport role. They sign the lock attestation, the compliance attestation, and the redemption attestation. The attester registry lists them, and they see the legs of the settlements they attest. |
 | Attester services | M independent operators on M participants. Each submits as its own attester party. |
-| Stablecoin Admin | Instrument admin for wTOK. It signs the instrument's holdings and allocations and authors the attested mint, so it sees every wTOK payment. |
+| Stablecoin Admin | The instrument admin for wTOK. One party holds three surfaces, because the registry rules carry a single admin field: it signs the wTOK registry rules, it is therefore the settlement factory admin for wTOK, and it signs that instrument's holdings and allocations. It authors the attested mint, so it sees every wTOK payment. |
 | KYC issuers | They sign the identity credential that D3 checks, and they maintain its expiry and revocation. The trusted-issuer list names them. Each observes no settlement leg. |
 | Trusted-issuer list admin | Sole signatory of the trusted-issuer list, and the party that decides which issuers it names. It issues no credential and observes no settlement leg. |
 | Custodian | Holds the seizure capability and owns the preset sweep account. It sees nothing until a seizure. |
-| Lawful-process authority | Signs the seizure order that a sweep past the settlement deadline requires. The attester registry lists it, and it is never the instrument admin. |
+| Lawful-process authority | Signs the seizure order that a sweep past the settlement deadline requires. The attester registry lists it, and it is never the Stablecoin Admin. |
 | Recipient, or Holder outbound | Signs the receiving allocation, live or through an allocation preapproval it signed earlier. |
 | Recipient wallet | Off-Canton process. It creates the allocation preapproval and submits as the recipient. |
 | Pause authority | Signs the pause state and maintains its key. |
@@ -163,12 +163,12 @@ transiently, when a transaction it witnesses divulges it.
 | Record | Signatories | Observers |
 |---|---|---|
 | Allocation request | The bridge relayer | The leg's authorizer |
-| Allocation, and the factory call that creates it | The instrument admin and the leg's authorizer | The bridge relayer |
-| Event host, created and archived in one transaction | The instrument admin | None |
-| wTOK holding | The instrument admin and the account's parties | The lock's observers, while locked |
+| Allocation, and the factory call that creates it | The Stablecoin Admin and the leg's authorizer | The bridge relayer |
+| Event host, created and archived in one transaction | The Stablecoin Admin | None |
+| wTOK holding | The Stablecoin Admin and the account's parties | The lock's observers, while locked |
 | Compliance attestation | The attester | The bridge relayer the attestation is issued to |
-| Attester registry | The settlement factory's admin | The listed attesters |
-| Seizure order | The lawful-process authority | The instrument admin and the Custodian |
+| Attester registry | The Stablecoin Admin | The listed attesters |
+| Seizure order | The lawful-process authority | The Stablecoin Admin and the Custodian |
 | Identity credential | The KYC issuer that signs it | The subject and the gateway admin |
 | Trusted-issuer list | The trusted-issuer list admin | The gateway admin |
 | Pause state | The pause authority | The gateway admin |
@@ -442,9 +442,9 @@ per-instrument conservation check as every other leg.
 
 A registry surface without an unattested mint bounds who can mint: no relayer,
 attester, or operator mints without an attestation. It does not reach the
-instrument admin, which signs every holding of its own instrument and can
-therefore create one directly. No template shape closes that path. The residual
-exposure is the admin key, and its mitigation is the N-of-M posture of
+Stablecoin Admin, which signs every wTOK holding and can therefore create one
+directly. No template shape closes that path. The residual exposure is the
+admin key, and its mitigation is the N-of-M posture of
 [section 2.3](#23-decentralization-and-trust-topology). The admin burn is
 admin-plus-account-controlled in the same way, which shapes the redemption burn
 capability below.
@@ -540,7 +540,7 @@ points at it. A consumer resolves by key, so it must be a stakeholder of every
 registry it reads ([section 2.2](#22-privacy-and-visibility)). The gateway
 admin carries an observer entry on the pause state and the trusted-issuer list,
 and it signs the nonce registry itself. The attester registry needs no entry,
-because its signatory is the settlement factory's admin, whose authority every
+because its signatory is the Stablecoin Admin, whose authority every
 settle already carries. Rotation appends a version to a chain, so a new roster
 or a new list recreates no consumer.
 
@@ -588,7 +588,7 @@ settle resolves. The settle rejects any version off that chain, so no caller
 input decides which roster the attestation is checked against. The check sits
 on the only path that reaches a settlement, so a settle that omits the
 attestation fails. The attester
-registry's admin must be the settlement factory's admin, so one party governs
+registry's admin must be the Stablecoin Admin, so one party governs
 both the roster and the settlement rules.
 
 The genesis anchor has to be set at deployment. Registry rules created with no
@@ -682,7 +682,7 @@ This section separates what the ledger enforces from what stays trusted.
 | Conservation of funds | Settlement cannot output more value than its input allocations. Every settle path archives the locked inputs and asserts, per instrument, that they cover the authorizer's sender-side amounts. Any surplus returns as one change holding. |
 | 1:1 reserve backing | Minted wrapped supply never exceeds the total amount locked against the valid, unredeemed lock attestations. The wTOK registry exposes no unattested admin mint, so no relayer, attester, or operator mints without an attestation. The Stablecoin Admin signs every holding and can create one directly, so this row binds every party except that admin ([section 3.2](#32-reserve-and-lock-attestation)). |
 | Replay protection | One external-chain lock can credit Canton at most once, through one-time message consumption and then the consumed-nonce registry. It holds provided that registry is part of a successor chain anchored on the genesis contract id ([section 3.4](#34-registry-uniqueness-under-non-unique-keys)). |
-| Privacy partitioning | The amount, payer, and the metadata of a settled leg project only to that leg's counterparties, the executing relayer, the attester whose attestation gates the settle, and the instrument admin. No KYC issuer observes a settlement leg. |
+| Privacy partitioning | The amount, payer, and the metadata of a settled leg project only to that leg's counterparties, the executing relayer, the attester whose attestation gates the settle, and the Stablecoin Admin. No KYC issuer observes a settlement leg. |
 | Non-custodial recipient binding | No allocation binds a recipient without its signature, live or carried by an allocation preapproval. Committed value is recoverable once the settlement deadline passes, and no allocation can be created without a deadline. |
 
 ### 4.2 Trust Boundaries
@@ -690,7 +690,7 @@ This section separates what the ledger enforces from what stays trusted.
 | Trusted party or system | Required behavior and consequence |
 |---|---|
 | Attester set | Attests only a finalized lock, with the true amount, recipient, and instrument, and never re-attests a spent lock. A quorum that attests a lock which does not exist mints unbacked supply. This is the largest trust surface in the design. |
-| Bridge relayer | Submits every attested message, and submits it once. It cannot change the amount or the recipient, so a faulty relayer delays a credit rather than misdirecting it. It does select the registry contracts that a submission discloses, and a key lookup alone would let it point a consumer at a planted registry. The genesis-anchored successor chain removes that ([section 3.4](#34-registry-uniqueness-under-non-unique-keys)). |
+| Bridge relayer | Submits every attested message, and submits it once. It cannot change the amount or the recipient, so a faulty relayer delays a credit rather than misdirecting it. |
 | Stablecoin Admin | Authors a mint leg only against a valid attestation. A compromised key can issue unbacked supply; the multisig design mitigates this. |
 | Custodian and lawful-process authority | Sweep only under a bounded mark and, past the settlement deadline, only under a lawful-process order. A colluding pair can move locked value to the preset account inside the deadline window. |
 | KYC issuers | Bind a credential to the recipient and maintain expiry and revocation. The trusted-issuer list is only as strict as its most permissive issuer. |
