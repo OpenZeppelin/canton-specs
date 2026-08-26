@@ -125,7 +125,7 @@ key that the escrow's own verifier accepts.
 | Role | Responsibility and visibility |
 |---|---|
 | Lock escrow | External-chain contract. It holds the backing and releases it against a verified redemption attestation. Any submitter can present that attestation ([section 3.3](#33-outbound-redemption)). |
-| Bridge relayer | Settlement executor. It signs the allocation request and holds the relayer role that the gateway checks. Its authority covers transport and liveness, so a relayer without an attestation cannot mint. It observes every allocation it assembles. |
+| Bridge relayer | Settlement executor. CIP-0112 defines the executors as a set, and this design puts this one party in it. It signs the allocation request and holds the relayer role that the gateway checks. Its authority covers transport and liveness, so a relayer without an attestation cannot mint. It observes every allocation it assembles. |
 | Relayer backend | Off-Canton process. It watches the external chain and submits every inbound command as the bridge relayer. |
 | Attesters, M of them | The trust role, separate from the relayer's transport role. They sign the lock attestation, the compliance attestation, and the redemption attestation. The attester registry lists them, and they see the legs of the settlements they attest. |
 | Attester services | M independent operators on M participants. Each submits as its own attester party. |
@@ -153,11 +153,11 @@ transiently, when a transaction it witnesses divulges it.
 
 | Record | Signatories | Observers |
 |---|---|---|
-| Allocation request | The settlement executor (bridge relayer) | The leg's authorizer |
-| Allocation, and the factory call that creates it | The instrument admin and the leg's authorizer | The settlement executors |
+| Allocation request | The bridge relayer | The leg's authorizer |
+| Allocation, and the factory call that creates it | The instrument admin and the leg's authorizer | The bridge relayer |
 | Event host, created and archived in one transaction | The instrument admin | None |
 | wTOK holding | The instrument admin and the account's parties | The lock's observers, while locked |
-| Compliance attestation | The attester | The executor that verifies it |
+| Compliance attestation | The attester | The bridge relayer the attestation is issued to |
 | Attester registry | The settlement factory's admin | The listed attesters |
 | Seizure order | The lawful-process authority | The instrument admin and the Custodian |
 | Allowance | The instrument admin and the owner's account parties | The spender |
@@ -303,7 +303,7 @@ attester submits step 1, and the relayer submits the three that follow.
    the registry verifies. An N-of-M quorum aggregated onto the message is the
    target ([section 2.3](#23-decentralization-and-trust-topology)).
 2. **Request and identity gate.** The gateway consumes the message and creates
-   an executor-signed allocation request in one action. Every field of the mint
+   a relayer-signed allocation request in one action. Every field of the mint
    leg binds to the lock attestation: the amount, the recipient, the instrument,
    and the recipient's receive side. Consumption archives the message, and
    [section 3.2](#32-reserve-and-lock-attestation) covers the nonce record that
