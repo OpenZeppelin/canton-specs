@@ -449,58 +449,68 @@ capability below.
 
 ### 3.3 Outbound Redemption
 
-Redemption mirrors the inbound flow.
+Redemption mirrors the inbound flow. The holder burns the wrapped holding on
+Canton, an attester signs the result, and the escrow releases the backing on the
+external chain.
 
-1. **Burn on Canton.** The holder requests redemption, and the burn destroys the
-   wrapped holding and produces a typed **redemption attestation**. That
-   attestation names the instrument the burn removed supply from. It lists the
-   lock attestations the burn draws against, with the amount taken from each,
-   and it bounds the standing external-chain claim. Without all three, the
-   reserve arithmetic has nothing on-ledger to bind to. The holder names the
-   external-chain destination in the redemption request, and the burn binds that
-   destination into the attestation, so the escrow releases only to an address
-   the holder signed for. The burn gate is not the D2
-   seizure capability, which is the Custodian's credential and must never be
-   reused for a user-initiated redemption. A separate redemption burn capability
-   gates this burn. It has the same witness shape, the redemption operator holds
-   it, and the holder whose asset the burn destroys co-authorizes the action.
+1. **Burn on Canton.** The holder asks for redemption and names the
+   external-chain destination. The burn destroys the wrapped holding and
+   produces a typed **redemption attestation** that carries three fields:
+
+   - the instrument the burn removed supply from;
+   - the lock attestations the burn draws against, and the amount taken from
+     each;
+   - the bound on the standing external-chain claim.
+
+   All three are needed, because the reserve arithmetic has nothing else
+   on-ledger to bind to. The burn also binds the destination the holder named
+   into the attestation, so the escrow releases only to an address the holder
+   signed for. A dedicated redemption burn capability gates the burn. The
+   redemption operator holds it, and the holder whose asset the burn destroys
+   co-authorizes the action. That capability has the same witness shape as the
+   D2 seizure capability, which is the Custodian's credential, and no
+   user-initiated redemption may ever run on the seizure capability instead.
 2. **Attest.** A registry-trusted attester signs the redemption attestation
    through the same attester registry path.
-3. **Release on the external chain.** The signed attestation is submitted to the
-   escrow, which releases the amount to the external-chain destination and
-   decrements the reserve. The burn draws down specific unredeemed lock
-   attestations, so the total amount those attestations hold and the actual
-   supply cannot drift under partial burns.
+3. **Release on the external chain.** Any submitter presents the signed
+   attestation to the escrow. The escrow releases the amount to the
+   external-chain destination and decrements the reserve. The burn draws down
+   named lock attestations, so a partial burn cannot make the attested total
+   drift from the actual supply.
 
-**Cross-chain atomicity.** The external-chain release is not in the same Daml
-transaction as the Canton burn. The design is therefore burn-first and
-attested-release, and it assumes an external chain where any submitter can claim
-the release against escrow state that the escrow committed before the burn. The
-Canton burn is the irreversible commit, and the external release is gated on the
-signed burn attestation. Under that assumption a stalled release leaves the burn
-final and the reserve accounting sound, and the redemption becomes a standing,
-replay-protected claim. The redemption operator owns the retry, and the claim is
-permissionless, so the holder or any relayer can also resubmit it until the
-escrow releases. The failure mode is then a delayed release, and never a
-double-spend or unbacked supply.
+**Cross-chain atomicity.** The external-chain release does not sit in the same
+Daml transaction as the Canton burn, so the order is burn first and attested
+release second. The Canton burn is the irreversible commit, and the signed
+attestation gates the release. That order assumes an external chain where any
+submitter can claim the release, against escrow state that the escrow committed
+before the burn.
 
-**Chains that cannot gate the payout.** On a UTXO chain without contracts the
-release is a plain threshold-signed transaction, so the payout exists only if
-the signer quorum produces it. A quorum that stalls or refuses is then
-indistinguishable from loss, and in a burn-first design, the redeemer ends up
-holding neither asset. A permissioned release on a chain with contracts fails
-the same way, because the holder cannot submit the claim itself.
-The sound ordering there inverts to burn-last: lock the wrapped holding,
-authorize on-ledger against the pinned input and output sets of the payout,
-sign, broadcast, confirm, and burn last.
-The reserve invariant then needs to take into account the in-flight window,
-because the backing is spent while the wrapped holding still exists, and 1:1
-monitoring would otherwise read an honest redemption as under-collateralized.
+Under that assumption, a stalled release is safe. The burn stays final, the
+reserve accounting stays sound, and the redemption becomes a standing claim that
+nobody can replay. The redemption operator owns the retry, and the claim is
+permissionless, so the holder or any relayer can resubmit it until the escrow
+releases. A stalled release therefore costs time. It never causes a double-spend
+or unbacked supply.
+
+**Chains that cannot gate the payout.** Some chains cannot make the payout
+conditional on the attestation. On a UTXO chain without contracts, the release
+is a plain threshold-signed transaction, so the payout exists only if the signer
+quorum produces it. A quorum that stalls or refuses then looks the same as a
+loss, and under burn-first the redeemer holds neither asset. A permissioned
+release on a chain with contracts fails the same way, because the holder cannot
+submit the claim itself.
+
+The sound ordering there is burn-last. Lock the wrapped holding, authorize
+on-ledger against the pinned input and output sets of the payout, sign,
+broadcast, confirm the payout, and burn last. The reserve invariant then has to
+allow for the in-flight window, because the backing is spent while the wrapped
+holding still exists. Without that allowance, 1:1 monitoring reads an honest
+redemption as under-collateralized.
 
 Burn-last is a different trust model, and not a variant of the ordering above.
 It needs an attested claim that the payout confirmed, and it needs the unlock
-path and the burn path to exclude each other. This design does not cover it, and
-a bridge to a chain that cannot gate the payout must not inherit the burn-first
+path and the burn path to exclude each other. This design does not cover it. A
+bridge to a chain that cannot gate the payout must not inherit the burn-first
 claim.
 
 ### 3.4 Registry Uniqueness Under Non-Unique Keys
