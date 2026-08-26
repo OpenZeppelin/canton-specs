@@ -534,6 +534,31 @@ version pins the genesis contract id and consumes its predecessor. Each consumer
 checks a resolved registry against the genesis it pinned once. A planted
 parallel registry then fails a check, and no operator has to notice it.
 
+```mermaid
+stateDiagram-v2
+    direction LR
+
+    state "v1, the genesis.<br/>The anchor is its contract id." as v1
+    state "v2, live.<br/>Pins v1." as v2
+    state "v3, live.<br/>Pins v1." as v3
+    state "Rival under the same key.<br/>Pins its own genesis." as rival
+    state "Accepted" as ok
+    state "Rejected" as no
+
+    [*] --> v1: the admin creates the chain
+    v1 --> v2: rotation consumes v1
+    v2 --> v3: rotation consumes v2
+    v3 --> ok: a consumer reads v1
+    rival --> no: a consumer reads another id
+```
+
+Each rotation consumes the live version and creates the next one, and every
+version pins v1 rather than the version it replaced. A consumer pins v1 once, at
+deployment, so one comparison settles every later lookup. The pin is what blocks
+a rival chain, because its own genesis is a different id. The consume is what
+blocks two live versions of this chain, because a rotation archives the
+predecessor in the transaction that creates the successor.
+
 **Consequences.** The genesis version cannot name itself, so its pinned field is
 empty. A consumer therefore accepts the genesis id itself, or any version that
 points at it. A consumer resolves by key, so it must be a stakeholder of every
