@@ -438,18 +438,10 @@ that fund the admin's sender side. The mint is a funded transfer leg, and not a
 create that sits beside the settled legs, so the minted amount passes the same
 per-instrument conservation check as every other leg.
 
-The wTOK registry carries that rule itself. The settlement package's own admin
-mint checks only a positive amount and a regular target account, and consumes no
-attestation, so the wTOK registry must not expose that action. Either a registry
-template that omits the action or a gate that demands the same attestation
-closes it. Appending a stricter action is not enough, because a stricter action
-does not close a looser one, and an upgrade cannot drop an action once the
-registry is deployed ([section 3.7](#37-upgrade-path)).
-
-A closed registry surface bounds who can mint: no relayer, attester, or operator
-mints without an attestation. It does not reach the instrument admin, which
-signs every holding of its own instrument and can therefore create one directly.
-No template shape closes that path. The residual exposure is the admin key, and
+A registry surface without an unattested mint bounds who can mint: no relayer,
+attester, or operator mints without an attestation. It does not reach the
+instrument admin, which signs every holding of its own instrument and can
+therefore create one directly. No template shape closes that path. The residual exposure is the admin key, and
 its mitigation is the N-of-M posture of
 [section 2.3](#23-decentralization-and-trust-topology). The admin burn is
 admin-plus-account-controlled in the same way, which shapes the redemption burn
