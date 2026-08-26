@@ -388,74 +388,69 @@ escrow is out of scope ([section 1.2](#12-scope)).
 ### 3.2 Reserve and Lock Attestation
 
 The inbound flow of [section 3.1](#31-inbound-credit) settles a payment
-privately. What makes it a bridge is the binding between the Canton mint and the
-backing locked on the external chain.
+privately. This section binds that mint to the backing locked on the external
+chain. That binding makes the rail a bridge.
 
-**The attested claim.** The lock attestation asserts that backing is locked on
-the external chain. It also asserts that the backing is claimable only by
-minting the matching amount on Canton. The lock and the asset live outside
-Canton, so nothing on Canton can validate them. That is the trust the attester
-set carries.
+**Attested claim.** The lock attestation asserts that backing is locked on the
+external chain, and that the backing is claimable only by a mint of the matching
+amount on Canton. The lock and the asset live outside Canton, so nothing on
+Canton can validate either claim. That is the trust the attester set carries.
 
-**Signers and bindings.** A threshold N-of-M attester set signs the lock
-attestation ([section 2.3](#23-decentralization-and-trust-topology)). The check
-runs on-ledger against the attester registry, which separates the relayer's
-transport role from the trust role. The mint binds amount, recipient, and
-instrument to the attestation. It also requires the attestation to be
-registry-trusted, unexpired, and to carry an unconsumed nonce. Any failure fails
-the batch: no mint, and no partial credit.
+**Signatures and mint checks.** A threshold N-of-M attester set signs the lock
+attestation ([section 2.3](#23-decentralization-and-trust-topology)), and the
+check runs on-ledger against the attester registry. That split keeps the trust
+role away from the relayer's transport role. The mint binds amount, recipient,
+and instrument to the attestation, and it requires the attestation to be
+registry-trusted, unexpired, and to carry an unconsumed nonce. A failed check
+fails the batch: no mint, and no partial credit.
 
 **Nonce enforcement.** The consumed-nonce registry makes the lock, and not the
 message, the unit of one-time use. It is an admin-signed record of the
 external-chain id and nonce of every lock the gateway consumed. The gateway
 writes that pair in the transaction that consumes the message, and the mint
-rejects a pair the registry already holds. The check reads the registry
-on-ledger and trusts no signer, so it holds even when the whole attester quorum
-signs a second message for a spent lock.
+rejects a pair the registry already holds. The attester set observes the
+registry, so the parties who must not re-attest a spent nonce read the dedup
+state and witness any admin edit ([section 4.2](#42-trust-boundaries)). An
+implementation may use the lock transaction id in place of the nonce, because it
+identifies the lock already.
 
-The attack it closes is a double mint from one lock. A lock of *N* units that
-credits Canton twice leaves 2*N* of wrapped supply against *N* of backing, and
-the reserve invariant below breaks. Message consumption alone does not stop it.
-Consuming the attested message archives it, so one message can never be
-processed twice, but a second message for the same lock passes every check the
-first one passed: the amount, the recipient, the instrument, and the attester
-signatures are all still valid. An attester service that re-observes a finalized
-lock after a restart produces such a message, and so does a relayer that asks
-for a fresh attestation for a lock it already minted.
-
-The registry observes the attester set. The parties who must not re-attest a
-used nonce can therefore read the dedup state and witness any admin edit
-([section 4.2](#42-trust-boundaries)). The lock transaction id already
-identifies the lock, so an implementation may pair it with the external-chain id
-instead of the nonce.
+Without that record, one lock of *N* units can credit Canton twice and leave
+2*N* of wrapped supply against *N* of backing. Message consumption does not
+prevent it, because archiving the message makes the message single-use and not
+the lock: a second message for the same lock still carries a valid amount,
+recipient, instrument, and attester signature. An attester service that
+re-observes a finalized lock after a restart produces such a message, and so
+does a relayer that asks for a fresh attestation for a lock it already minted.
+The mint reads the registry on-ledger, so the check holds even when the whole
+attester quorum signs that second message.
 
 **Reserve invariant.** Each lock attestation states the amount that the source
 chain holds against it. Minted wrapped supply never exceeds the total of those
 amounts, across the attestations that are valid and not yet redeemed. A mint
 increments the claimed reserve, and a redemption decrements it.
 
-**The enforcement point.** Settlement funds the recipient's leg from a sender's
-locked holdings. The exposure to unbacked issuance is therefore the creation of
-those holdings, and not the settle. One attested mint, co-authorized by the
-Stablecoin Admin, must be the only creation of wTOK supply, that is the only
-holding creation that no archived input funds. It re-verifies the checks above
-and creates the holdings that fund the admin's sender side. The mint is a funded
-transfer leg and not a sibling create. The minted amount therefore passes the
-same per-instrument conservation check as every other leg.
+**Supply creation.** Settlement funds the recipient's leg from a sender's locked
+holdings, so the exposure to unbacked issuance is the creation of those
+holdings, and not the settle. Supply is created in one place: the attested mint,
+co-authorized by the Stablecoin Admin. It is the only holding creation that no
+archived input funds. It re-runs the checks above, and it creates the holdings
+that fund the admin's sender side. The mint is a funded transfer leg, and not a
+create that sits beside the settled legs, so the minted amount passes the same
+per-instrument conservation check as every other leg.
 
-The wTOK registry carries that supply-creation rule itself. The settlement
-package's own admin mint checks only a positive amount and a regular target
-account, and consumes no attestation, so the wTOK registry must not expose that
-action. A registry template that omits the action closes it, and so does a gate
-that demands the same attestation. Appending a stricter action is not enough,
-because a stricter action does not close a looser one, and an upgrade cannot
-drop an action once the registry is deployed ([section 3.7](#37-upgrade-path)).
-A registry surface without the unattested path leaves no relayer, attester, or
-operator able to mint without an attestation. It does not make the reserve
-invariant hold by construction.
-The instrument admin signs every holding of its own instrument, so it can
-create one directly, and no template shape closes that. The residual exposure
-is therefore the admin key, and its mitigation is the N-of-M posture of
+The wTOK registry carries that rule itself. The settlement package's own admin
+mint checks only a positive amount and a regular target account, and consumes no
+attestation, so the wTOK registry must not expose that action. Either a registry
+template that omits the action or a gate that demands the same attestation
+closes it. Appending a stricter action is not enough, because a stricter action
+does not close a looser one, and an upgrade cannot drop an action once the
+registry is deployed ([section 3.7](#37-upgrade-path)).
+
+A closed registry surface bounds who can mint: no relayer, attester, or operator
+mints without an attestation. It does not reach the instrument admin, which
+signs every holding of its own instrument and can therefore create one directly.
+No template shape closes that path. The residual exposure is the admin key, and
+its mitigation is the N-of-M posture of
 [section 2.3](#23-decentralization-and-trust-topology). The admin burn is
 admin-plus-account-controlled in the same way, which shapes the redemption burn
 capability below.
