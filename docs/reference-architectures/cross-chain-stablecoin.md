@@ -9,9 +9,15 @@ transit.
 ## 1. Product Definition
 
 Institutional holders accept value that reaches Canton from an external
-chain. The value arrives as a gateway-minted **wrapped instrument**, written
-wTOK. The settlement amount, the payer and payee identities, and the compliance
-markers project only to the authorized parties.
+chain. The value arrives as a **wrapped instrument**, written wTOK, that the
+instrument's admin mints against an attested lock. The settlement amount, the
+payer and payee identities, and the compliance markers project only to the
+authorized parties.
+
+The Canton contract that turns an attested lock into a settlement request is the
+**messaging gateway**. It runs the checks that gate an inbound credit, and it is
+the seam where a different bridge mode plugs in
+([section 3.8](#38-extension-points)).
 
 **Inbound** moves value from the external chain to Canton, by **lock-and-mint**.
 **Outbound** moves it back, by **burn-and-release**.
@@ -259,7 +265,7 @@ sequenceDiagram
     actor Recipient as RECIPIENT AND HOLDER
     actor Admin as STABLECOIN ADMIN
     actor Operator as REDEMPTION OPERATOR
-    participant App as Bridge application
+    participant App as Messaging gateway
     participant Registry as Settlement registry
     participant Chain as External chain (lock escrow)
 
