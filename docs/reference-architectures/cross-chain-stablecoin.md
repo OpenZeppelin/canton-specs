@@ -72,13 +72,13 @@ CIP-0112 requirements.
 
 ### 1.3 Component Status
 
-The settlement spine exists in `canton-contracts`. The cross-chain boundary -
+The settlement package exists in `canton-contracts`. The cross-chain boundary -
 the messaging gateway, the lock-attestation carrier, and the attested mint - is
 unbuilt.
 
 | Component | Location | Remaining work |
 |---|---|---|
-| Settlement spine: registry rules, allocations, holdings, and the event host | [`canton-contracts` `tokenCIP112-v1`](https://github.com/OpenZeppelin/canton-contracts/tree/7696749737885e25cd88422847105f890f03b00d/experiments/token/tokenCIP112-v1) | Nothing for settlement itself. The spine's [admin mint](https://github.com/OpenZeppelin/canton-contracts/blob/7696749737885e25cd88422847105f890f03b00d/experiments/token/tokenCIP112-v1/daml/OpenZeppelin/TokenCIP112V1/Registry.daml#L149) consumes no attestation and can therefore issue unbacked supply, so the wTOK registry must not expose it ([section 3.2](#32-reserve-and-lock-attestation)) |
+| Settlement package: registry rules, allocations, holdings, and the event host | [`canton-contracts` `tokenCIP112-v1`](https://github.com/OpenZeppelin/canton-contracts/tree/7696749737885e25cd88422847105f890f03b00d/experiments/token/tokenCIP112-v1) | Nothing for settlement itself. The package's [admin mint](https://github.com/OpenZeppelin/canton-contracts/blob/7696749737885e25cd88422847105f890f03b00d/experiments/token/tokenCIP112-v1/daml/OpenZeppelin/TokenCIP112V1/Registry.daml#L149) consumes no attestation and can therefore issue unbacked supply, so the wTOK registry must not expose it ([section 3.2](#32-reserve-and-lock-attestation)) |
 | Compliance attestation path (D1) | Same package, `D1.daml` | The verification of an N-of-M attester quorum, in place of the single attestation the registry verifies ([section 2.3](#23-decentralization-and-trust-topology)) |
 | Seizure path (D2): mark, two sweeps, seizure capability, lawful-process order | Same package, `Allocation.daml` and `D1.daml` | The sweep for an already-settled holding, since the seizure capability ships only an unlock; and capability revocation or rotation |
 | Identity credential check (D3) | This workspace, [`experiments/identity/hook-shape-b`](../../experiments/identity/hook-shape-b/) | The action that runs the check, and the observer entries that let the checking party read the credential and the trusted-issuer list |
@@ -411,19 +411,19 @@ and creates the holdings that fund the admin's sender side. The mint is a funded
 transfer leg and not a sibling create. The minted amount therefore passes the
 same per-instrument conservation check as every other leg.
 
-That supply-creation rule is something the wTOK registry has to add, and not a
-property of the spine. The spine ships an admin mint that checks only a positive
-amount and a regular target account, and consumes no attestation. The wTOK
-registry must not expose that action, either through a registry template that
-omits it or by gating it on the same attestation. Appending a stricter action is
-not enough, because a stricter action does not close a looser one, and an
-upgrade cannot drop an action once the registry is deployed
-([section 3.7](#37-upgrade-path)). A registry surface without the unattested
-path leaves no relayer, attester, or operator able to mint without an
-attestation. It does not make the reserve invariant hold by construction. The
-instrument admin signs every holding of its own instrument, so it can create
-one directly, and no template shape closes that. The residual exposure is
-therefore the admin key, and its mitigation is the N-of-M posture of
+That supply-creation rule is something the wTOK registry has to add, and not
+something it inherits. The settlement package ships an admin mint that checks
+only a positive amount and a regular target account, and consumes no
+attestation. The wTOK registry must not expose that action, either through a
+registry template that omits it or by gating it on the same attestation.
+Appending a stricter action is not enough, because a stricter action does not
+close a looser one, and an upgrade cannot drop an action once the registry is
+deployed ([section 3.7](#37-upgrade-path)). A registry surface without the
+unattested path leaves no relayer, attester, or operator able to mint without
+an attestation. It does not make the reserve invariant hold by construction.
+The instrument admin signs every holding of its own instrument, so it can
+create one directly, and no template shape closes that. The residual exposure
+is therefore the admin key, and its mitigation is the N-of-M posture of
 [section 2.3](#23-decentralization-and-trust-topology). The admin burn is
 admin-plus-account-controlled in the same way, which shapes the redemption burn
 capability below.
@@ -547,7 +547,7 @@ caller argument, so the caller supplies the attestation and never the roster
 that the attestation is checked against. Second, the check sits on the only
 path that reaches a settlement, so a settle that omits the attestation fails.
 
-The settlement spine carries a check of that shape on its settle entrypoint
+The settlement package carries a check of that shape on its settle entrypoint
 ([section 1.3](#13-component-status)). The settle reads the pinned attester
 registry from the registry rules, and it also checks that the registry's admin
 is the settlement factory's admin, on a registry the caller never named. A
@@ -641,10 +641,10 @@ This section separates what the ledger enforces from what stays trusted.
 | Property | Enforcement |
 |---|---|
 | Conservation of funds | Settlement cannot output more value than its input allocations. Every settle path archives the locked inputs and asserts, per instrument, that they cover the authorizer's sender-side amounts. Any surplus returns as one change holding. |
-| 1:1 reserve backing | Minted wrapped supply never exceeds the total amount locked against the valid, unredeemed lock attestations. Blocked on a wTOK registry that excludes the spine's unattested admin mint. Even then, the Stablecoin Admin signs every holding and can create one directly, so this row binds every party except that admin ([section 3.2](#32-reserve-and-lock-attestation)). |
+| 1:1 reserve backing | Minted wrapped supply never exceeds the total amount locked against the valid, unredeemed lock attestations. Blocked on a wTOK registry that excludes the settlement package's unattested admin mint. Even then, the Stablecoin Admin signs every holding and can create one directly, so this row binds every party except that admin ([section 3.2](#32-reserve-and-lock-attestation)). |
 | Replay protection | One source-chain lock can credit Canton at most once, through one-time message consumption and then the consumed-nonce registry. It holds provided that registry is part of a successor chain anchored on the genesis contract id ([section 3.4](#34-registry-uniqueness-under-non-unique-keys)). |
 | Privacy partitioning | The amount, payer, and the metadata of a settled leg project only to that leg's counterparties, the executing relayer, the attester whose attestation gates the settle, and the instrument admin. The Compliance Verifier observes no settlement leg. |
-| Non-custodial recipient binding | No allocation binds a recipient without its signature, live or preapproved. Committed value is recoverable once the settlement deadline passes, and the spine refuses to create an allocation that has no deadline at all. |
+| Non-custodial recipient binding | No allocation binds a recipient without its signature, live or preapproved. Committed value is recoverable once the settlement deadline passes, and no allocation can be created without a deadline. |
 
 ### 4.2 Trust Boundaries
 
@@ -672,7 +672,7 @@ This section separates what the ledger enforces from what stays trusted.
 | Toxic or spam inflow | A sender forces a settlement onto an unwilling recipient. | The allocation never commits without the recipient's approval ([section 4.1](#41-ledger-enforced-properties)). An unsettled allocation expires and returns to sender. |
 | Unattributable inbound origin | A deposit arrives over a privacy pool or a shielded-provenance path, so no sender can be attributed to it. | Nothing mints without an attestation, so an unresolved origin means the attesters withhold the signature, the deposit stays locked on the source chain, and a refund is the escrow's own path ([section 4.4](#44-failure-modes-and-recovery)). The origin resolution is a precondition on issuing one attestation, and not a stored flag, a score, or a threshold ([section 1.2](#12-scope)). |
 | Compromised admin key | A compromised Stablecoin Admin or Custodian key attempts arbitrary expropriation. | A sweep is hardcoded to the preset custodian destination, and a sweep past the settlement deadline needs an order the admin cannot sign. An in-flight seizure inside the deadline needs no such order, so that window is the residual exposure. Supply-changing authority is mitigated by N-of-M multisig. |
-| D1 deployed unset | The wTOK registry is created with no attester registry pinned, so every settle passes with no attestation. | The spine offers no mitigation, because an unset field is a silent no-op. The wTOK deployment has to set the field and assert it before the rail accepts a settle. |
+| D1 deployed unset | The wTOK registry is created with no attester registry pinned, so every settle passes with no attestation. | The settlement package cannot catch this, because an unset field is a silent no-op. The wTOK deployment has to set the field and assert it before the rail accepts a settle. |
 | Upgrade breaks in-flight allocations | An upgrade of a deployed rail changes how its live contracts are interpreted, so an allocation created under the previous version can no longer settle. | Programmatic adherence to the upgrade rule: optional appends and new actions only. Each deployed action stays operable, and a pending settlement concludes before its parties move to the new version. |
 | Package unvetting | A participant that hosts a stakeholder party unvets the rail's package, which blocks every action on the contracts that party is a stakeholder of. | Unvetting freezes contracts rather than freeing them. The holder cannot move the asset either, and the locked value stays sweepable once re-vetted. If one attester unvets the package, the remaining attesters still reach the threshold. Holder-side unvetting is an inherent Canton vetting property with no protocol-level bypass. |
 
