@@ -16,6 +16,8 @@ markers project only to the authorized parties.
 **Inbound** moves value from the external chain to Canton, by **lock-and-mint**.
 **Outbound** moves it back, by **burn-and-release**.
 
+> NOTE: This document calls the other chain the **external chain** in both directions.
+
 The transfer must credit the recipient with the intended amount or with nothing.
 On Canton, the
 [CIP-0112](https://github.com/canton-foundation/cips/blob/main/cip-0112/cip-0112.md)
@@ -38,14 +40,14 @@ The **instrument admin** of the settled instrument is the one deliberate
 exception. It signs that instrument's holdings and allocations, so it sits
 inside the trust boundary ([section 2.2](#22-privacy-and-visibility)).
 
-**Privacy scope.** The guarantee covers the Canton side only. The source-chain
-lock is a public transaction, and it must carry enough data to route the
-transfer on Canton. An observer of the source chain can therefore link a public
-lock of amount *N* to a named Canton recipient who will receive *N*. Canton's
-per-party projection hides everything downstream: the settled holding, the
-settlement events, the compliance markers, and every later private transfer.
-Hiding the link itself (hashed commitments,
-shielded payloads, or relayer-side blinding) is out of scope.
+**Privacy scope.** The guarantee covers the Canton side only. The
+external-chain lock is a public transaction, and it must carry enough data to
+route the transfer on Canton. An observer of the external chain can therefore
+link a public lock of amount *N* to a named Canton recipient who will receive
+*N*. Canton's per-party projection hides everything downstream: the settled
+holding, the settlement events, the compliance markers, and every later private
+transfer. Hiding the link itself (hashed commitments, shielded payloads, or
+relayer-side blinding) is out of scope.
 
 ### 1.1 Institutional Controls
 
@@ -64,7 +66,7 @@ CIP-0112 requirements.
 
 | Bridge scope | Out of scope |
 |---|---|
-| The Canton side of the bridge: attested mint, private settlement, and attested burn | The relayer backend, the attester services, the source-chain lock escrow, external oracles, source-chain validator sets, and light-client proofs |
+| The Canton side of the bridge: attested mint, private settlement, and attested burn | The relayer backend, the attester services, the external-chain lock escrow, external oracles, external-chain validator sets, and light-client proofs |
 | Settlement of wTOK, the wrapped instrument this design mints | The issuance, peg, and collateral mechanism of any stablecoin, and any asset that already has a native Canton rail |
 | On-ledger compliance and identity checks that deny the action when the attestation or the credential is absent or invalid | Any gate that reads a stored compliance flag, a risk score, or a threshold |
 | CIP-0112 allocations and settlement batches | The superseded CIP-56 token standard and legacy allocation paths |
@@ -108,7 +110,7 @@ attestation and the identity credential.
 
 ### 2.1 Business Roles
 
-Canton identifies an actor by a party. The source chain identifies it by an
+Canton identifies an actor by a party. The external chain identifies it by an
 address. Neither chain records that one address and one party are the same
 actor, so no on-ledger check can validate the pairing. An operator that acts on
 both chains holds both credentials, and configuration is what keeps them
@@ -116,15 +118,15 @@ aligned. The lock attestation therefore names the Canton recipient explicitly,
 and the attester set carries the trust that the name is correct.
 
 "The attesters sign" means two different things. Inbound, the attester party
-signs on Canton, and the source chain never sees that signature. Outbound, the
-escrow cannot read Canton, so each attester also holds a source-chain key that
-the escrow's own verifier accepts.
+signs on Canton, and the external chain never sees that signature. Outbound,
+the escrow cannot read Canton, so each attester also holds an external-chain
+key that the escrow's own verifier accepts.
 
 | Participant | Responsibility and visibility |
 |---|---|
-| Lock escrow | Source-chain contract. It holds the backing and releases it against a verified redemption attestation. Any submitter can present that attestation ([section 3.3](#33-outbound-redemption)). |
+| Lock escrow | External-chain contract. It holds the backing and releases it against a verified redemption attestation. Any submitter can present that attestation ([section 3.3](#33-outbound-redemption)). |
 | Bridge relayer | Settlement executor. It signs the allocation request and holds the relayer role that the gateway checks. Its authority covers transport and liveness, so a relayer without an attestation cannot mint. It observes every allocation it assembles. |
-| Relayer backend | Off-Canton process. It watches the source chain and submits every inbound command as the bridge relayer. |
+| Relayer backend | Off-Canton process. It watches the external chain and submits every inbound command as the bridge relayer. |
 | Attesters, M of them | The trust role, separate from the relayer's transport role. They sign the lock attestation, the compliance attestation, and the redemption attestation. The attester registry lists them, and they see the legs of the settlements they attest. |
 | Attester services | M independent operators on M participants. Each submits as its own attester party. |
 | Stablecoin Admin | Instrument admin for wTOK. It signs the instrument's holdings and allocations and authors the attested mint, so it sees every wTOK payment. |
@@ -206,10 +208,10 @@ Consequences:
 Two constraints bound every posture below. First, a quorum written in Daml is
 worth its stated N only if N independent participants must confirm it. That
 means N parties on disjoint participants that separate organizations operate,
-or one party whose
-[confirmation threshold](https://docs.canton.network/overview/reference/decentralization)
-is at least N. Second, a party above threshold 1 cannot submit for itself. It
-acts through another party's submission, or through external signing.
+or one party whose [confirmation
+threshold](https://docs.canton.network/overview/reference/decentralization) is
+at least N. Second, a party above threshold 1 cannot submit for itself. It acts
+through another party's submission, or through external signing.
 
 The Stablecoin Admin authors wTOK mint legs, and the Custodian can sweep locked
 value. Both hold critical authority, so no single key may exercise either
@@ -259,7 +261,7 @@ sequenceDiagram
     actor Operator as REDEMPTION OPERATOR
     participant App as Bridge application
     participant Registry as Settlement registry
-    participant Chain as Source chain (lock escrow)
+    participant Chain as External chain (lock escrow)
 
     Note over Attesters,Chain: Inbound bridging.
     Chain-->>Attesters: Finalized lock
@@ -282,7 +284,7 @@ sequenceDiagram
         Registry-->>Recipient: Private credit and settlement events
     end
     Note over Attesters,Chain: Outbound bridging.
-    Recipient->>Operator: Request redemption and name<br/>the source-chain destination
+    Recipient->>Operator: Request redemption and name<br/>the external-chain destination
     Operator->>Registry: Burn under the redemption burn capability
     Registry-->>Attesters: Redemption attestation
     Attesters->>Chain: Submit the standing release claim
@@ -291,7 +293,7 @@ sequenceDiagram
 
 ### 3.1 Inbound Credit
 
-Four steps carry a finalized source-chain lock to a settled wTOK holding. The
+Four steps carry a finalized external-chain lock to a settled wTOK holding. The
 attester submits step 1, and the relayer submits the three that follow.
 
 1. **Attested message.** The external chain finalizes a locked deposit. An
@@ -364,26 +366,27 @@ record, so integrators read the event stream
 
 **Delivery and retry.** Nothing guarantees that the Canton settlement of an
 attested lock executes. Delivery liveness is bounded by the trusted relayer and
-attester set, and this design adds no automatic cross-chain recovery protocol. A
-compensating message back to the source chain would need multi-round message
-passing, with its own delay, cost, and failure surface. What remains is
+attester set, and this design adds no automatic cross-chain recovery protocol.
+A compensating message back to the external chain would need multi-round
+message passing, with its own delay, cost, and failure surface. What remains is
 structural and fail-closed. Command deduplication over 24 hours makes the three
 relayer commands safe to resubmit after a crash, and a stall blocks only this
-rail ([section 4.5](#45-throughput-and-contention)).
-[Section 4.4](#44-failure-modes-and-recovery) maps each failure to its recovery
-path. A timeout that refunds the source-chain lock is the escrow's own path, and
-the escrow is out of scope ([section 1.2](#12-scope)).
+rail ([section 4.5](#45-throughput-and-contention)). [Section
+4.4](#44-failure-modes-and-recovery) maps each failure to its recovery path. A
+timeout that refunds the external-chain lock is the escrow's own path, and the
+escrow is out of scope ([section 1.2](#12-scope)).
 
 ### 3.2 Reserve and Lock Attestation
 
 The inbound flow of [section 3.1](#31-inbound-credit) settles a payment
 privately. What makes it a bridge is the binding between the Canton mint and the
-backing locked on the source chain.
+backing locked on the external chain.
 
 **The attested claim.** The lock attestation asserts that backing is locked on
-the source chain. It also asserts that the backing is claimable only by minting
-the matching amount on Canton. The lock and the asset are foreign references, so
-nothing on Canton can validate them. That is the trust the attester set carries.
+the external chain. It also asserts that the backing is claimable only by
+minting the matching amount on Canton. The lock and the asset live outside
+Canton, so nothing on Canton can validate them. That is the trust the attester
+set carries.
 
 **Signers and bindings.** Not a lone relayer. The check runs on-ledger against
 the attester registry, and that separates the relayer's transport role from the
@@ -396,12 +399,12 @@ fails the batch: no mint, and no partial credit.
 **Nonce enforcement.** Two layers. Consuming the attested message archives it,
 so one message can never be processed twice. A second message could still be
 attested for the same lock. An admin-signed consumed-nonce registry therefore
-records the source-chain id and nonce at consumption, and rejects the mint if
+records the external-chain id and nonce at consumption, and rejects the mint if
 that pair is already there. That holds even if the attesters misbehave. The
 registry observes the attester set. The parties who must not re-attest a used
 nonce can therefore read the dedup state and witness any admin edit. The lock
 transaction id already identifies the lock, so an implementation may pair it
-with the source-chain id instead of the nonce.
+with the external-chain id instead of the nonce.
 
 **Reserve invariant.** Each lock attestation states the amount that the source
 chain holds against it. Minted wrapped supply never exceeds the total of those
@@ -442,9 +445,9 @@ Redemption mirrors the inbound flow.
    wrapped holding and produces a typed **redemption attestation**. That
    attestation names the instrument the burn removed supply from. It lists the
    lock attestations the burn draws against, with the amount taken from each,
-   and it bounds the standing source-chain claim. Without all three, the reserve
-   arithmetic has nothing on-ledger to bind to. The holder names the
-   source-chain destination in the redemption request, and the burn binds that
+   and it bounds the standing external-chain claim. Without all three, the
+   reserve arithmetic has nothing on-ledger to bind to. The holder names the
+   external-chain destination in the redemption request, and the burn binds that
    destination into the attestation, so the escrow releases only to an address
    the holder signed for. The burn gate is not the D2
    seizure capability, which is the Custodian's credential and must never be
@@ -453,17 +456,17 @@ Redemption mirrors the inbound flow.
    it, and the holder whose asset the burn destroys co-authorizes the action.
 2. **Attest.** A registry-trusted attester signs the redemption attestation
    through the same attester registry path.
-3. **Release on the source chain.** The signed attestation is submitted to the
-   escrow, which releases the amount to the source-chain destination and
+3. **Release on the external chain.** The signed attestation is submitted to the
+   escrow, which releases the amount to the external-chain destination and
    decrements the reserve. The burn draws down specific unredeemed lock
    attestations, so the total amount those attestations hold and the actual
    supply cannot drift under partial burns.
 
-**Cross-chain atomicity.** The source-chain release is not in the same Daml
+**Cross-chain atomicity.** The external-chain release is not in the same Daml
 transaction as the Canton burn. The design is therefore burn-first and
-attested-release, and it assumes a source chain where any submitter can claim
+attested-release, and it assumes an external chain where any submitter can claim
 the release against escrow state that the escrow committed before the burn. The
-Canton burn is the irreversible commit, and the foreign release is gated on the
+Canton burn is the irreversible commit, and the external release is gated on the
 signed burn attestation. Under that assumption a stalled release leaves the burn
 final and the reserve accounting sound, and the redemption becomes a standing,
 replay-protected claim. The redemption operator owns the retry, and the claim is
@@ -537,7 +540,7 @@ every submission be signed inside its own window.
 | Flow | Slowest actor | Window | Rationale |
 |---|---|---|---|
 | Inbound settle | Automated attester plus relayer | Settlement deadline, minutes to an hour | Not price-sensitive, but a lapse strands the spent nonce, so the deadline must comfortably exceed the attester and relayer service levels |
-| Outbound redemption | Attester | Settlement deadline, hours | The burn comes first, and the source-chain claim is standing and replay-protected, so a slow release costs latency and not funds |
+| Outbound redemption | Attester | Settlement deadline, hours | The burn comes first, and the external-chain claim is standing and replay-protected, so a slow release costs latency and not funds |
 | Compliance attestation | Attester | The attestation's own expiry, capped by the registry's maximum attestation validity | It is verified at settle, so the window must span gateway processing through settle. The cap stops an attester issuing a permanent pass |
 
 ### 3.6 Control Enforcement
@@ -630,7 +633,7 @@ definition in the package that first deploys them.
 ### 3.8 Extension Points
 
 - The messaging gateway is the substitution point for the bridge boundary.
-  Another bridge mode, or a different source-chain proof scheme, changes the
+  Another bridge mode, or a different external-chain proof scheme, changes the
   gateway and leaves settlement and compliance untouched.
 - The identity check, with its credential and its trusted-issuer list, is the
   substitution point for a richer identity regime.
@@ -648,7 +651,7 @@ This section separates what the ledger enforces from what stays trusted.
 |---|---|
 | Conservation of funds | Settlement cannot output more value than its input allocations. Every settle path archives the locked inputs and asserts, per instrument, that they cover the authorizer's sender-side amounts. Any surplus returns as one change holding. |
 | 1:1 reserve backing | Minted wrapped supply never exceeds the total amount locked against the valid, unredeemed lock attestations. Blocked on a wTOK registry that excludes the settlement package's unattested admin mint. Even then, the Stablecoin Admin signs every holding and can create one directly, so this row binds every party except that admin ([section 3.2](#32-reserve-and-lock-attestation)). |
-| Replay protection | One source-chain lock can credit Canton at most once, through one-time message consumption and then the consumed-nonce registry. It holds provided that registry is part of a successor chain anchored on the genesis contract id ([section 3.4](#34-registry-uniqueness-under-non-unique-keys)). |
+| Replay protection | One external-chain lock can credit Canton at most once, through one-time message consumption and then the consumed-nonce registry. It holds provided that registry is part of a successor chain anchored on the genesis contract id ([section 3.4](#34-registry-uniqueness-under-non-unique-keys)). |
 | Privacy partitioning | The amount, payer, and the metadata of a settled leg project only to that leg's counterparties, the executing relayer, the attester whose attestation gates the settle, and the instrument admin. The Compliance Verifier observes no settlement leg. |
 | Non-custodial recipient binding | No allocation binds a recipient without its signature, live or preapproved. Committed value is recoverable once the settlement deadline passes, and no allocation can be created without a deadline. |
 
@@ -671,12 +674,12 @@ This section separates what the ledger enforces from what stays trusted.
 | Vector | Attack | Mitigation |
 |---|---|---|
 | Malicious relayer routing | Routes valid inbound funds to an unauthorized or sanctioned account. | The signed lock attestation pins the Canton recipient, and D3 requires a credential whose subject matches it. The relayer cannot spoof the destination. |
-| Unbacked mint | A relayer, or anyone without attester authorization, mints wTOK with no real source-chain lock. | The Stablecoin Admin co-authorizes every mint, so a relayer cannot mint at all. Two sources of unbacked supply remain: an attester quorum that signs a lock which never happened, and the admin key, which signs every holding of its own instrument and can create one directly. |
-| Replay of a used lock | A consumed message, or a second message for the same lock, is submitted again to mint twice. | One-time message consumption plus the consumed-nonce registry. A duplicate source-chain id and nonce is rejected even if the attesters misbehave. |
+| Unbacked mint | A relayer, or anyone without attester authorization, mints wTOK with no real external-chain lock. | The Stablecoin Admin co-authorizes every mint, so a relayer cannot mint at all. Two sources of unbacked supply remain: an attester quorum that signs a lock which never happened, and the admin key, which signs every holding of its own instrument and can create one directly. |
+| Replay of a used lock | A consumed message, or a second message for the same lock, is submitted again to mint twice. | One-time message consumption plus the consumed-nonce registry. A duplicate external-chain id and nonce is rejected even if the attesters misbehave. |
 | Delegated spend on wTOK | A spender draws on a CIP-86 allowance to move a holder's balance without a fresh signature. | An allowance is created only by the owner's own account parties, and it is capped by the amount remaining. Whether wTOK exposes the surface at all is the same decision as closing the admin mint ([section 6](#6-open-design-questions)). |
 | Shadowing registry duplicate | A rotation leaves two nonce registries or trusted-issuer lists active under one key, and the submitter discloses whichever suits it. | The key prevents nothing, because Canton 3.x keys are not unique. Each consumer checks the resolved registry against the genesis anchor it pins, and rejects the transaction when the registry is off that chain. |
 | Toxic or spam inflow | A sender forces a settlement onto an unwilling recipient. | The allocation never commits without the recipient's approval ([section 4.1](#41-ledger-enforced-properties)). An unsettled allocation expires and returns to sender. |
-| Unattributable inbound origin | A deposit arrives over a privacy pool or a shielded-provenance path, so no sender can be attributed to it. | Nothing mints without an attestation, so an unresolved origin means the attesters withhold the signature, the deposit stays locked on the source chain, and a refund is the escrow's own path ([section 4.4](#44-failure-modes-and-recovery)). The origin resolution is a precondition on issuing one attestation, and not a stored flag, a score, or a threshold ([section 1.2](#12-scope)). |
+| Unattributable inbound origin | A deposit arrives over a privacy pool or a shielded-provenance path, so no sender can be attributed to it. | Nothing mints without an attestation, so an unresolved origin means the attesters withhold the signature, the deposit stays locked on the external chain, and a refund is the escrow's own path ([section 4.4](#44-failure-modes-and-recovery)). The origin resolution is a precondition on issuing one attestation, and not a stored flag, a score, or a threshold ([section 1.2](#12-scope)). |
 | Compromised admin key | A compromised Stablecoin Admin or Custodian key attempts arbitrary expropriation. | A sweep is hardcoded to the preset custodian destination, and a sweep past the settlement deadline needs an order the admin cannot sign. An in-flight seizure inside the deadline needs no such order, so that window is the residual exposure. Supply-changing authority is mitigated by N-of-M multisig. |
 | D1 deployed unset | The wTOK registry is created with no attester registry pinned, so every settle passes with no attestation. | The settlement package cannot catch this, because an unset field is a silent no-op. The wTOK deployment has to set the field and assert it before the rail accepts a settle. |
 | Upgrade breaks in-flight allocations | An upgrade of a deployed rail changes how its live contracts are interpreted, so an allocation created under the previous version can no longer settle. | Programmatic adherence to the upgrade rule: optional appends and new actions only. Each deployed action stays operable, and a pending settlement concludes before its parties move to the new version. |
@@ -712,11 +715,12 @@ A single consumed-nonce registry serializes every inbound mint of the rail,
 because each record archives and recreates that one contract. The contention is
 per rail, and it follows from the consuming nonce record.
 
-Sharding the registry avoids it, with one shard per source chain or per
-source-chain escrow contract. Replay protection is unaffected: a nonce is unique
-only inside its own source chain, so each shard sees every message it must check,
-and it still rejects a nonce it cannot prove is new. Independent rails settle in
-parallel, and several allocations can be part of a single settlement batch.
+Sharding the registry avoids it, with one shard per external chain or per
+external-chain escrow contract. Replay protection is unaffected: a nonce is
+unique only inside its own external chain, so each shard sees every message it
+must check, and it still rejects a nonce it cannot prove is new. Independent
+rails settle in parallel, and several allocations can be part of a single
+settlement batch.
 
 ### 4.6 Off-Ledger Reconciliation
 
@@ -799,7 +803,7 @@ activation vote.
 
 | Question | Design default | Blocks | Severity |
 |---|---|---|---|
-| **Attester set and quorum shape.** The attesters carry the trust that a source-chain lock is real. Open: the set size M, the threshold N, and who admits or removes a member. Open too: whether the quorum check reads one combined attestation or M separate ones. | One attester signs the message, and N-of-M is the target ([section 2.3](#23-decentralization-and-trust-topology)) | The quorum check, and any production attester set | **High**, the largest trust surface in the design |
+| **Attester set and quorum shape.** The attesters carry the trust that an external-chain lock is real. Open: the set size M, the threshold N, and who admits or removes a member. Open too: whether the quorum check reads one combined attestation or M separate ones. | One attester signs the message, and N-of-M is the target ([section 2.3](#23-decentralization-and-trust-topology)) | The quorum check, and any production attester set | **High**, the largest trust surface in the design |
 | **Shape of the delegated accept.** CIP-0112 makes the recipient sign an allocation for the leg it receives, and an offline recipient cannot sign it live. The receive preapproval carries the recipient's signature, but its only action sends a transfer, so nothing lets the relayer allocate under it. Open: whether that action is added to the receive preapproval, or a separate recipient-signed grant supplies it. | Neither exists, so the capability is unbuilt ([section 3.1](#31-inbound-credit)) | The whole inbound path, because no credit commits without the recipient's signature | **High**, every inbound settlement rests on it |
 | **Multisig for the Stablecoin Admin and the Custodian.** The admin can mint supply, and the Custodian can sweep locked value. Open: whether each role uses the on-ledger approval workflow or an external party with threshold signing keys. The N, M, and confirmation threshold per role are open too. | A single key holds each role | Party onboarding for both roles | **High**, one stolen key is enough under the default |
 | **Closing the admin mint.** The shared registry rules ship a mint that needs no attestation, so the wTOK registry must not expose that path. Open: whether wTOK gets its own registry template without the admin mint and the allowance actions, or the shared rules gain an attestation gate and keep allowances. An upgrade cannot drop an action, so the answer has to land before the first deployment. | wTOK gets its own registry template, without either action ([section 3.2](#32-reserve-and-lock-attestation)) | The wTOK registry template, and with it the reserve invariant | **High**, the 1:1 backing claim rests on it |
@@ -807,7 +811,7 @@ activation vote.
 | **Where the D1 and D3 checks sit.** Each control must fail at the step that [section 1.1](#11-institutional-controls) states, and both a registry-side and an application-side check can meet that. Open: whether the token registry carries the compliance check and the identity check, or the bridge application carries them. The answer decides which party needs the observer entries that D3 reads ([section 2.2](#22-privacy-and-visibility)). | The settle entrypoint carries D1, and the gateway transaction carries D3 ([section 3.6](#36-control-enforcement)) | The D3 observer entries, and the registry surface that carries the D1 gate | Medium |
 | **Capability revoke and rotate.** The seizure capability names one holder and cannot move to another. The redemption burn capability is unbuilt and needs the same answer. Open: whether revoke and rotate arrive as new actions on one capability contract, or a registry of capabilities holds them. | The admin archives a capability to revoke it, and no action rotates a holder ([section 3.6](#36-control-enforcement)) | Any deployment where a capability holder can change | Medium |
 | **Restitution after a sweep.** A sweep leaves the value in the Custodian's account, and no action returns it. Open: whether the return gets its own action, tied to the case reference and to the account the sweep emptied. Open too: whether that action needs the non-admin authority that a past-deadline sweep needs. | The Custodian moves the funds like any other holding, and nothing ties the return to the case ([section 3.6](#36-control-enforcement)) | The Custodian's runbook, and the audit trail for a returned seizure | Medium, an unbound return can land in any account and proves nothing |
-| **Deadline values, and where the nonce is recorded.** Section 3.5 names the ceilings and sets no values. Open: the allocation lifetime, the attestation validity, the seizure extension, the margin between source-chain finality and Canton ledger time, and the attester turnaround. Open too: whether the nonce is recorded at the settle instead of at the gateway. A gateway-recorded nonce stays spent when the deadline lapses. | The registry stamps its ceilings at creation, and the gateway records the nonce ([section 3.5](#35-time-and-deadlines)) | Every deployment, because those ceilings are stamped once | Medium |
+| **Deadline values, and where the nonce is recorded.** Section 3.5 names the ceilings and sets no values. Open: the allocation lifetime, the attestation validity, the seizure extension, the margin between external-chain finality and Canton ledger time, and the attester turnaround. Open too: whether the nonce is recorded at the settle instead of at the gateway. A gateway-recorded nonce stays spent when the deadline lapses. | The registry stamps its ceilings at creation, and the gateway records the nonce ([section 3.5](#35-time-and-deadlines)) | Every deployment, because those ceilings are stamped once | Medium |
 | **Reclaim after an expired inbound flow.** An inbound allocation becomes withdrawable when the settlement deadline lapses, and no component of this design withdraws it. Open: who runs that reclaim, because an automated handler needs the authority of the executor or of the leg's authorizer. | The allocation becomes withdrawable after the deadline, with no automated handler | The reclaim automation and its authority model | Medium |
 | **Who holds the featured app right.** CIP-0104 pays the parties that confirm a request, and the gateway admin confirms only the gateway transaction. Open: whether the right sits with the gateway admin, the Stablecoin Admin, or the relay set. Open too: how the holder points each round's rewards at the parties that paid the traffic. | The gateway admin holds the right, and the rail earns nothing until the vote passes ([section 5.2](#52-app-rewards)) | Who earns each round, and no code | Low, an attribution choice and not a mechanism |
 
