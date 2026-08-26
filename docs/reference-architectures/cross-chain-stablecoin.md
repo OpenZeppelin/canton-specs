@@ -153,7 +153,7 @@ transiently, when a transaction it witnesses divulges it.
 
 | Record | Signatories | Observers |
 |---|---|---|
-| Allocation request | The settlement executors, that is the bridge relayer | The leg's authorizer |
+| Allocation request | The settlement executor (bridge relayer) | The leg's authorizer |
 | Allocation, and the factory call that creates it | The instrument admin and the leg's authorizer | The settlement executors |
 | Event host, created and archived in one transaction | The instrument admin | None |
 | wTOK holding | The instrument admin and the account's parties | The lock's observers, while locked |
