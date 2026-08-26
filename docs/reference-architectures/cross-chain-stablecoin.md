@@ -8,7 +8,7 @@ transit.
 
 ## 1. Product Definition
 
-Institutional participants accept value that reaches Canton from an external
+Institutional holders accept value that reaches Canton from an external
 chain. The value arrives as a gateway-minted **wrapped instrument**, written
 wTOK. The settlement amount, the payer and payee identities, and the compliance
 markers project only to the authorized parties.
@@ -122,7 +122,7 @@ signs on Canton, and the external chain never sees that signature. Outbound,
 the escrow cannot read Canton, so each attester also holds an external-chain
 key that the escrow's own verifier accepts.
 
-| Participant | Responsibility and visibility |
+| Role | Responsibility and visibility |
 |---|---|
 | Lock escrow | External-chain contract. It holds the backing and releases it against a verified redemption attestation. Any submitter can present that attestation ([section 3.3](#33-outbound-redemption)). |
 | Bridge relayer | Settlement executor. It signs the allocation request and holds the relayer role that the gateway checks. Its authority covers transport and liveness, so a relayer without an attestation cannot mint. It observes every allocation it assembles. |
