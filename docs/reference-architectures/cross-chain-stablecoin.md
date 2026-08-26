@@ -310,12 +310,12 @@ attesters submit step 1, and the relayer submits the three that follow.
 2. **Request and identity gate.** The gateway consumes the message and creates
    a relayer-signed allocation request in one action. Every field of the mint
    leg binds to the lock attestation: the amount, the recipient, the instrument,
-   and the recipient's receive side. Consumption archives the message, and
-   [section 3.2](#32-reserve-and-lock-attestation) covers the nonce record that
-   backs the replay protection. The identity check runs on-ledger in the same
-   transaction and fails closed: the recipient must hold an unexpired credential
-   from a listed issuer. That is D3. The settle later needs a separate
-   compliance attestation.
+   and the recipient's receive side. Consumption archives the message, and the
+   gateway records the lock's nonce, so no second message for the same lock can
+   mint ([section 3.2](#32-reserve-and-lock-attestation)). The identity check
+   runs on-ledger in the same transaction and fails closed: the recipient must
+   hold an unexpired credential from a listed issuer. That is D3. The settle
+   later needs a separate compliance attestation.
 3. **Recipient authorization.** An offline corporate treasury cannot sign
    interactively, so its wallet pre-establishes an **allocation preapproval**:
    a recipient-signed contract that authorizes creating the receiving
@@ -405,15 +405,29 @@ instrument to the attestation. It also requires the attestation to be
 registry-trusted, unexpired, and to carry an unconsumed nonce. Any failure fails
 the batch: no mint, and no partial credit.
 
-**Nonce enforcement.** Two layers. Consuming the attested message archives it,
-so one message can never be processed twice. A second message could still be
-attested for the same lock. An admin-signed consumed-nonce registry therefore
-records the external-chain id and nonce at consumption, and rejects the mint if
-that pair is already there. That holds even if the attesters misbehave. The
-registry observes the attester set. The parties who must not re-attest a used
-nonce can therefore read the dedup state and witness any admin edit. The lock
-transaction id already identifies the lock, so an implementation may pair it
-with the external-chain id instead of the nonce.
+**Nonce enforcement.** The consumed-nonce registry makes the lock, and not the
+message, the unit of one-time use. It is an admin-signed record of the
+external-chain id and nonce of every lock the gateway consumed. The gateway
+writes that pair in the transaction that consumes the message, and the mint
+rejects a pair the registry already holds. The check reads the registry
+on-ledger and trusts no signer, so it holds even when the whole attester quorum
+signs a second message for a spent lock.
+
+The attack it closes is a double mint from one lock. A lock of *N* units that
+credits Canton twice leaves 2*N* of wrapped supply against *N* of backing, and
+the reserve invariant below breaks. Message consumption alone does not stop it.
+Consuming the attested message archives it, so one message can never be
+processed twice, but a second message for the same lock passes every check the
+first one passed: the amount, the recipient, the instrument, and the attester
+signatures are all still valid. An attester service that re-observes a finalized
+lock after a restart produces such a message, and so does a relayer that asks
+for a fresh attestation for a lock it already minted.
+
+The registry observes the attester set. The parties who must not re-attest a
+used nonce can therefore read the dedup state and witness any admin edit
+([section 4.2](#42-trust-boundaries)). The lock transaction id already
+identifies the lock, so an implementation may pair it with the external-chain id
+instead of the nonce.
 
 **Reserve invariant.** Each lock attestation states the amount that the source
 chain holds against it. Minted wrapped supply never exceeds the total of those
