@@ -535,21 +535,29 @@ checks a resolved registry against the genesis it pinned once. A planted
 parallel registry then fails a check, and no operator has to notice it.
 
 ```mermaid
-stateDiagram-v2
-    direction LR
+flowchart LR
+    subgraph real["The deployed chain, under one key"]
+        v1["v1, the genesis.<br/>The anchor is its contract id."]
+        v2["v2, archived"]
+        v3["v3, live"]
+        v1 -->|"rotation consumes v1"| v2
+        v2 -->|"rotation consumes v2"| v3
+    end
 
-    state "v1, the genesis.<br/>The anchor is its contract id." as v1
-    state "v2, live.<br/>Pins v1." as v2
-    state "v3, live.<br/>Pins v1." as v3
-    state "Rival under the same key.<br/>Pins its own genesis." as rival
-    state "Accepted" as ok
-    state "Rejected" as no
+    subgraph rival["A planted chain, under the same key"]
+        r1["r1, its own genesis"]
+        r2["r2, live"]
+        r1 -->|"rotation consumes r1"| r2
+    end
 
-    [*] --> v1: the admin creates the chain
-    v1 --> v2: rotation consumes v1
-    v2 --> v3: rotation consumes v2
-    v3 --> ok: a consumer reads v1
-    rival --> no: a consumer reads another id
+    v2 -.->|"pins v1"| v1
+    v3 -.->|"pins v1"| v1
+    r2 -.->|"pins r1"| r1
+
+    v3 ==>|"the consumer resolves by key"| gate{"Pinned v1 genesis<br/>= the pinned anchor?"}
+    r2 ==>|"the consumer resolves by key"| gate
+    gate ==>|"yes"| pass["The action proceeds"]
+    gate ==>|"no"| fail["The action fails"]
 ```
 
 Each rotation consumes the live version and creates the next one, and every
