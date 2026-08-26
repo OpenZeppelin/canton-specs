@@ -55,10 +55,10 @@ CIP-0112 requirements.
 
 | ID | Control | Mechanism | Where enforced | Invariant |
 |---|---|---|---|---|
-| **D1** | Compliance | A single-use attestation from a registry-listed attester, bound to this settlement's own legs and never cached. | The [settle entrypoint](https://github.com/OpenZeppelin/canton-contracts/blob/7696749737885e25cd88422847105f890f03b00d/experiments/token/tokenCIP112-v1/daml/OpenZeppelin/TokenCIP112V1/Registry.daml#L79), against the [attester registry](https://github.com/OpenZeppelin/canton-contracts/blob/7696749737885e25cd88422847105f890f03b00d/experiments/token/tokenCIP112-v1/daml/OpenZeppelin/TokenCIP112V1/D1.daml#L22) pinned on the registry rules. | No valid attestation, no settlement. |
-| **D2** | Seizure | Mark the allocation, then sweep its locked holdings to a preset custodian account. | The [mark](https://github.com/OpenZeppelin/canton-contracts/blob/7696749737885e25cd88422847105f890f03b00d/experiments/token/tokenCIP112-v1/daml/OpenZeppelin/TokenCIP112V1/Allocation.daml#L158) on the allocation, plus one of the two sweep paths ([section 3.6](#36-control-enforcement)). | The asset is never burned, seized funds never return to the sender through the seizure path, and the freeze window is bounded and releasable. |
-| **D3** | Identity | The recipient holds a credential from an issuer on the trusted-issuer list. | The gateway, at request time, before any allocation exists. | No valid credential from a listed issuer, no allocation request. |
-| **D4** | Authority | Every privileged action binds to a named role rather than to one admin. | [Role administration](https://github.com/OpenZeppelin/canton-contracts/tree/7696749737885e25cd88422847105f890f03b00d/experiments/access/access-control-v1) and two-step ownership handover. | Privileges are granted, transferred, and revoked without a redeploy. |
+| **D1** | Compliance | A single-use attestation from a registry-listed attester, bound to this settlement's own legs and never cached. | The settlement of the batch, against the attester set that the settlement rules pin. | No valid attestation, no settlement. |
+| **D2** | Seizure | Mark the allocation, then sweep its locked holdings to a preset custodian account. | The mark on the allocation, plus one of the two sweep paths ([section 3.6](#36-control-enforcement)). | The asset is never burned, seized funds never return to the sender through the seizure path, and the freeze window is bounded and releasable. |
+| **D3** | Identity | The recipient holds a credential from an issuer on the trusted-issuer list. | The allocation request, before any allocation exists. | No valid credential from a listed issuer, no allocation request. |
+| **D4** | Authority | Every privileged action binds to a named role rather than to one admin. | Each privileged action, against the role grant that carries the privilege. A two-step handover moves the grant. | Privileges are granted, transferred, and revoked without a redeploy. |
 
 ### 1.2 Scope
 
@@ -81,7 +81,7 @@ unbuilt.
 | Settlement spine: registry rules, allocations, holdings, and the event host | [`canton-contracts` `tokenCIP112-v1`](https://github.com/OpenZeppelin/canton-contracts/tree/7696749737885e25cd88422847105f890f03b00d/experiments/token/tokenCIP112-v1) | Nothing for settlement itself. The spine's [admin mint](https://github.com/OpenZeppelin/canton-contracts/blob/7696749737885e25cd88422847105f890f03b00d/experiments/token/tokenCIP112-v1/daml/OpenZeppelin/TokenCIP112V1/Registry.daml#L149) consumes no attestation and can therefore issue unbacked supply, so the wTOK registry must not expose it ([section 3.2](#32-reserve-and-lock-attestation)) |
 | Compliance attestation path (D1) | Same package, `D1.daml` | The verification of an N-of-M attester quorum, in place of the single attestation the registry verifies ([section 2.3](#23-decentralization-and-trust-topology)) |
 | Seizure path (D2): mark, two sweeps, seizure capability, lawful-process order | Same package, `Allocation.daml` and `D1.daml` | The sweep for an already-settled holding, since the seizure capability ships only an unlock; and capability revocation or rotation |
-| Identity credential check (D3) | This workspace, [`experiments/identity/hook-shape-b`](../../experiments/identity/hook-shape-b/) | The gateway action that runs the check, and the observer entries that let the gateway read the credential and the trusted-issuer list |
+| Identity credential check (D3) | This workspace, [`experiments/identity/hook-shape-b`](../../experiments/identity/hook-shape-b/) | The action that runs the check, and the observer entries that let the checking party read the credential and the trusted-issuer list |
 | Per-action role binding (D4) | Libraries in `canton-contracts` `experiments/access` | The wiring. The primitives exist, and this rail has to call them |
 | Access control, ownership handover, and the pause state | `canton-contracts` `experiments/access` and `experiments/security` | Nothing for access control and ownership. The pause state needs the observer entry that lets the gateway read it |
 | Holdings and the receive preapproval | [`canton-token-template`](https://github.com/OpenZeppelin/canton-token-template) | The delegated accept that allocates under the recipient's preapproval, since the template's own action only sends a transfer ([section 6](#6-open-design-questions)) |
@@ -175,15 +175,17 @@ Consequences:
   membership is therefore a privacy decision as well as a compliance one.
 - **The Custodian sees nothing until a seizure.** The seizure mark carries the
   custodian destination as a data field and not as an observer entry.
-- **A gate the gateway runs makes the gateway a stakeholder.** A fetch needs
+- **A gate makes the party that runs it a stakeholder.** A fetch needs
   authorization from one stakeholder of the record it returns. The gateway
-  action carries only its own admin authority. The pause state, the
-  trusted-issuer list, and every credential the gateway checks must therefore
-  name the gateway admin as an observer. The admin carries those entries, which
-  keeps durable visibility off the relayer, whose set this design wants to
-  open ([section 2.3](#23-decentralization-and-trust-topology)). The submitting
-  relayer still witnesses the credential transiently, because a fetch divulges
-  to whoever witnesses the exercise.
+  action carries only its own admin authority, so the pause state, the
+  trusted-issuer list, and every credential the gateway checks must name the
+  gateway admin as an observer. The admin carries those entries, which keeps
+  durable visibility off the relayer, whose set this design wants to
+  open ([section 2.3](#23-decentralization-and-trust-topology)). A gate placed
+  elsewhere moves the entries to the party that runs it
+  ([section 6](#6-open-design-questions)). The submitting relayer still
+  witnesses the credential transiently, because a fetch divulges to whoever
+  witnesses the exercise.
 - **Settlement outcomes arrive as events, not as a queryable record.** The event
   host is created and archived inside one transaction. The event data therefore
   lives in the exercise node its observers witness. Integrators read the
@@ -297,9 +299,10 @@ attester submits step 1, and the relayer submits the three that follow.
    leg binds to the lock attestation: the amount, the recipient, the instrument,
    and the recipient's receive side. Consumption archives the message, and
    [section 3.2](#32-reserve-and-lock-attestation) covers the nonce record that
-   backs the replay protection. The identity check runs on-ledger and fails
-   closed: the recipient must hold an unexpired credential from a listed issuer.
-   That is D3. The settle later needs a separate compliance attestation.
+   backs the replay protection. The identity check runs on-ledger in the same
+   transaction and fails closed: the recipient must hold an unexpired credential
+   from a listed issuer. That is D3. The settle later needs a separate
+   compliance attestation.
 3. **Recipient authorization.** An offline corporate treasury cannot sign
    interactively, so its wallet pre-establishes a **receive preapproval** for
    the wrapped instrument. The relayer exercises it through a **delegated
@@ -536,18 +539,23 @@ every submission be signed inside its own window.
 [Section 1.1](#11-institutional-controls) states the four controls. This section
 states the authority each enforcement needs, and where each one can fail.
 
-**D1.** The check runs on the settle entrypoint, which requires an attestation
-covering this specific settlement from a registry-listed attester. Attestations
-are single-use, so none can be cached or reused. The trust anchor is a pinned
-contract id, and not a key and not a caller argument. The settle reads the
-pinned attester registry from the registry rules, and the caller supplies only
-the attestation. The verification also checks that the registry's admin is the
-settlement factory's admin, on a registry the caller never named.
+**D1.** Every settlement requires an attestation that covers that settlement
+and comes from a registry-listed attester. Attestations are single-use, so none
+can be cached or reused. Two properties make the check binding wherever it
+sits. First, the trust anchor is a pinned contract id, and not a key and not a
+caller argument, so the caller supplies the attestation and never the roster
+that the attestation is checked against. Second, the check sits on the only
+path that reaches a settlement, so a settle that omits the attestation fails.
 
-A registry created with no attester registry pinned verifies nothing, and every
-settle then succeeds without an attestation. Setting that field is a precondition
-of the D1 claim, and not a default. And rotating the attester roster means
-recreating the registry rules, because the contract id is stamped on them.
+The settlement spine carries a check of that shape on its settle entrypoint
+([section 1.3](#13-component-status)). The settle reads the pinned attester
+registry from the registry rules, and it also checks that the registry's admin
+is the settlement factory's admin, on a registry the caller never named. A
+registry created with no attester registry pinned verifies nothing, and every
+settle then succeeds without an attestation. Setting that field is a
+precondition of the D1 claim, and not a default. And rotating the attester
+roster means recreating the registry rules, because the contract id is stamped
+on them.
 
 **D2.** Seizure is a strict lock-and-sweep. A mark locks the allocation, and a
 sweep then moves the locked holdings to the preset custodian account. The
@@ -575,22 +583,25 @@ forfeiture is therefore a custodian action outside D2, and its authority is open
 ([section 6](#6-open-design-questions)). Revocation means the admin archives the
 capability, and a rotation path is open there too.
 
-**D3.** The check needs no authority past the gateway's own, which is why the
-credential and the trusted-issuer list name the gateway admin as an observer
-([section 2.2](#22-privacy-and-visibility)). The gate binds the credential's
-subject to the recipient that the lock attestation names, so a relayer cannot
-route a credit to an account that holds no credential.
+**D3.** The check runs under the authority of the party that runs it. That
+party has to be a stakeholder of the credential and of the trusted-issuer list
+([section 2.2](#22-privacy-and-visibility)). The default places the check in the
+gateway transaction, which is why both records name the gateway admin as an
+observer. Another placement moves those entries
+([section 6](#6-open-design-questions)). The gate binds the credential's subject
+to the recipient that the lock attestation names, so a relayer cannot route a
+credit to an account that holds no credential.
 
-Two limits follow from where the check sits. First, it binds at request time,
-and no later action re-reads the credential, so a revocation or an expiry before
-the settle still credits the recipient. The exposure is one settlement deadline.
-The rejected alternative is a second read at the settle. It would make a
-settlement-side party an observer of every credential, which is the durable
-visibility that [section 2.2](#22-privacy-and-visibility) keeps off the relayer
-set, and it would still leave the settled holding ungated. Second, D3 is an
-entry condition and not a transfer restriction. A settled wTOK holding moves
-over the standard's own transfer path, and no credential gates that move. Value
-already credited is D2's surface, and not D3's. Identity stays
+Two limits follow from where the check binds. First, it binds at request
+time, and no later action re-reads the credential, so a revocation or an expiry
+before the settle still credits the recipient. The exposure is one settlement
+deadline. The rejected alternative is a second read at the settle. It would
+make a settlement-side party an observer of every credential, which is the
+durable visibility that [section 2.2](#22-privacy-and-visibility) keeps off the
+relayer set, and it would still leave the settled holding ungated. Second, D3
+is an entry condition and not a transfer restriction. A settled wTOK holding
+moves over the standard's own transfer path, and no credential gates that move.
+Value already credited is D2's surface, and not D3's. Identity stays
 single-synchronizer, deferred and additive.
 
 **D4.** No single admin holds every privilege. Each action sits with the role
@@ -787,6 +798,7 @@ activation vote.
 | **Multisig for the Stablecoin Admin and the Custodian.** The admin can mint supply, and the Custodian can sweep locked value. Open: whether each role uses the on-ledger approval workflow or an external party with threshold signing keys. The N, M, and confirmation threshold per role are open too. | A single key holds each role | Party onboarding for both roles | **High**, one stolen key is enough under the default |
 | **Closing the admin mint.** The shared registry rules ship a mint that needs no attestation, so the wTOK registry must not expose that path. Open: whether wTOK gets its own registry template without the admin mint and the allowance actions, or the shared rules gain an attestation gate and keep allowances. An upgrade cannot drop an action, so the answer has to land before the first deployment. | wTOK gets its own registry template, without either action ([section 3.2](#32-reserve-and-lock-attestation)) | The wTOK registry template, and with it the reserve invariant | **High**, the 1:1 backing claim rests on it |
 | **Registry uniqueness enforcement.** The successor chain is decided, and the rules around it are not. Open: who sets the genesis contract id, how each consumer receives it, and how a rotation avoids two live versions. | Each consumer checks a resolved registry against the genesis id it pinned ([section 3.4](#34-registry-uniqueness-under-non-unique-keys)) | The gateway's registry lookups, and the keying work | **High**, replay protection and the identity gate both rest on it |
+| **Where the D1 and D3 checks sit.** Each control must fail at the step that [section 1.1](#11-institutional-controls) states, and both a registry-side and an application-side check can meet that. Open: whether the token registry carries the compliance check and the identity check, or the bridge application carries them. The answer decides which party needs the observer entries that D3 reads ([section 2.2](#22-privacy-and-visibility)). | The settle entrypoint carries D1, and the gateway transaction carries D3 ([section 3.6](#36-control-enforcement)) | The D3 observer entries, and the registry surface that carries the D1 gate | Medium |
 | **Capability revoke and rotate.** The seizure capability names one holder and cannot move to another. The redemption burn capability is unbuilt and needs the same answer. Open: whether revoke and rotate arrive as new actions on one capability contract, or a registry of capabilities holds them. | The admin archives a capability to revoke it, and no action rotates a holder ([section 3.6](#36-control-enforcement)) | Any deployment where a capability holder can change | Medium |
 | **Restitution after a sweep.** A sweep leaves the value in the Custodian's account, and no action returns it. Open: whether the return gets its own action, tied to the case reference and to the account the sweep emptied. Open too: whether that action needs the non-admin authority that a past-deadline sweep needs. | The Custodian moves the funds like any other holding, and nothing ties the return to the case ([section 3.6](#36-control-enforcement)) | The Custodian's runbook, and the audit trail for a returned seizure | Medium, an unbound return can land in any account and proves nothing |
 | **Deadline values, and where the nonce is recorded.** Section 3.5 names the ceilings and sets no values. Open: the allocation lifetime, the attestation validity, the seizure extension, the margin between source-chain finality and Canton ledger time, and the attester turnaround. Open too: whether the nonce is recorded at the settle instead of at the gateway. A gateway-recorded nonce stays spent when the deadline lapses. | The registry stamps its ceilings at creation, and the gateway records the nonce ([section 3.5](#35-time-and-deadlines)) | Every deployment, because those ceilings are stamped once | Medium |
