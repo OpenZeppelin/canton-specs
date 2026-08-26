@@ -57,7 +57,7 @@ CIP-0112 requirements.
 |---|---|---|---|---|
 | **D1** | Compliance | A single-use attestation from a registry-listed attester, bound to this settlement's own legs and never cached. | The settlement of the batch, against the attester set that the settlement rules pin. | No valid attestation, no settlement. |
 | **D2** | Seizure | Mark the allocation, then sweep its locked holdings to a preset custodian account. | The mark on the allocation, plus one of the two sweep paths ([section 3.6](#36-control-enforcement)). | The asset is never burned, seized funds never return to the sender through the seizure path, and the freeze window is bounded and releasable. |
-| **D3** | Identity | The recipient holds a credential from an issuer on the trusted-issuer list. | The allocation request, before any allocation exists. | No valid credential from a listed issuer, no allocation request. |
+| **D3** | KYC identity | The recipient holds an identity credential that attests a KYC check by an issuer on the trusted-issuer list. | The allocation request, before any allocation exists. | No valid credential from a listed issuer, no allocation request. |
 | **D4** | Authority | Every privileged action binds to a named role rather than to one admin. | Each privileged action, against the role grant that carries the privilege. A two-step handover moves the grant. | Privileges are granted, transferred, and revoked without a redeploy. |
 
 ### 1.2 Scope
