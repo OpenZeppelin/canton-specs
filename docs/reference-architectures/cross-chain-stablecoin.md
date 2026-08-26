@@ -115,7 +115,7 @@ address. Neither chain records that one address and one party are the same
 actor, so no on-ledger check can validate the pairing. An operator that acts on
 both chains holds both credentials, and configuration is what keeps them
 aligned. The lock attestation therefore names the Canton recipient explicitly,
-and the attester set carries the trust that the name is correct.
+and the attester set carries the trust that the recipient is correct.
 
 "The attesters sign" means two different things. Inbound, the attester party
 signs on Canton, and the external chain never sees that signature. Outbound,
