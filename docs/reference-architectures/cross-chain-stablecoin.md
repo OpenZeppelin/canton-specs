@@ -160,7 +160,6 @@ transiently, when a transaction it witnesses divulges it.
 | Compliance attestation | The attester | The bridge relayer the attestation is issued to |
 | Attester registry | The settlement factory's admin | The listed attesters |
 | Seizure order | The lawful-process authority | The instrument admin and the Custodian |
-| Allowance | The instrument admin and the owner's account parties | The spender |
 | Identity credential | The issuing party | The subject and the gateway admin |
 | Trusted-issuer list | The registry admin | The gateway admin |
 | Pause state | The pause authority | The gateway admin |
