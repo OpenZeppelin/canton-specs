@@ -287,13 +287,13 @@ debtRepaid <= repayCap
 Taking each element of the codeblock in turn:
 
 - **Proportional seizure.** `debtRepaid` is the amount the liquidator's own exercise burns in the same transaction, never the vault's full accrued debt, so a liquidator can never take more collateral than their payment (plus bonus) buys.
-- **Restorable vault (`collateralRatio > 1 + liquidationBonus`).** Repaying `x` leaves debt `accruedDebt - x` and collateral value `collateralAmount · price - x · (1 + liquidationBonus)`; `restoreAmount` is the `x` that sets their ratio to exactly `minCollateralRatio`. In this regime every repaid unit improves the ratio, so a payment below the cap partially cures, a payment at the cap fully cures, and nothing beyond it can be taken (no overshoot). The target is `minCollateralRatio`, not `liquidationRatio`, so a cured vault does not restart on the liquidation boundary.
+- **Restorable vault (`collateralRatio > 1 + liquidationBonus`).** Repaying `x` reduces the debt to `accruedDebt - x` and the collateral value to `collateralAmount · price - x · (1 + liquidationBonus)`. While the ratio sits above `1 + liquidationBonus`, every such repayment raises it, so the vault can be cured. `restoreAmount` is the exact `x` that brings the ratio back to `minCollateralRatio`, and it caps the payment: a smaller `debtRepaid` moves the vault partway back to health, one equal to `restoreAmount` restores it fully, and the choice rejects anything larger, so a liquidation never repays or seizes more than the cure requires. The restore target is `minCollateralRatio` rather than `liquidationRatio`, so a cured vault lands inside the margin-call buffer instead of restarting on the liquidation boundary.
 - **Underwater vault (`collateralRatio <= 1 + liquidationBonus`).** No repayment can restore health, so the cap becomes what the remaining collateral can pay for: the pass seizes all of it, and the uncovered remainder is quantified as `badDebt`.
 - **Well-definedness.** Protocol configuration requires `minCollateralRatio > liquidationRatio > 1 + liquidationBonus`. The first gap is the margin-call buffer; the second keeps the restorable regime reachable, so a freshly flagged vault can still be partially cured; and the chain keeps `restoreAmount`'s denominator positive and its value within what the collateral supports.
 
 ### Data and State Flow
 
-The diagrams below show the four vault flows: **A** collateral deposit, **B** borrow, **C** repay and close, **D** margin call and liquidation. Atomic settlement appears only in the collateral deposit; repayment and liquidation payments burn in place, and everything the protocol releases (minted stablecoin, returned or seized collateral) moves by direct transfer under the vault's joint authority in the same transaction. In each, the `Compliance gate` node stands for the compliance-attestation check and the live KYC-claim fetch ([section 3](#compliance-is-re-checked-on-every-operation)), and keyed contracts are marked with their key.
+The diagrams below show the four vault flows: **A** collateral deposit, **B** borrow, **C** repay and close, **D** margin call and liquidation. Every flow is atomic: each executes as a single ledger transaction that commits in full or not at all. The CIP-0112 allocate-and-settle rail appears only in the collateral deposit, which moves a third-party asset into custody. The other flows move value directly inside their own transaction: repayment and liquidation payments are burned in place, and everything the protocol releases (minted stablecoin, returned or seized collateral) moves by direct transfer under the vault's joint authority. In each diagram, the `Compliance gate` node stands for the compliance-attestation check and the live KYC-claim fetch ([section 3](#compliance-is-re-checked-on-every-operation)), and keyed contracts are marked with their key.
 
 **A. Collateral deposit.** The borrower commits the collateral they are locking; settlement delivers it into the vault's custody account, and the vault's own record of how much collateral backs the position grows by the same amount. The first deposit goes through the `VaultFactory` instead: creation settles it identically, but creates the `Vault` rather than updating one ([section 4.1](#41-component-vaultfactory-and-vault-creation)).
 
@@ -315,7 +315,7 @@ flowchart TD
     Factory -.->|"first deposit:<br/>create the Vault"| Vault
 ```
 
-**B. Borrow (mint coupled to debt).** The borrower asks the vault for stablecoin; the vault checks compliance, reads the current price, and assesses whether the locked collateral is worth enough to cover the new debt. If so, it mints the stablecoin to the borrower and records the higher debt, all in one transaction. This flow does not need atomic settlement: the stablecoin's issuer and the borrower both already stand behind the vault, so the vault choice itself carries every signature the mint needs.
+**B. Borrow (mint coupled to debt).** The borrower asks the vault for stablecoin; the vault checks compliance, reads the current price, and assesses whether the locked collateral is worth enough to cover the new debt. If so, it mints the stablecoin to the borrower and records the higher debt, all in one transaction. This flow does not need the settlement rail: the stablecoin's issuer and the borrower both already stand behind the vault, so the vault choice itself carries every signature the mint needs.
 
 ```mermaid
 flowchart TD
@@ -332,7 +332,7 @@ flowchart TD
     Coin -->|"to borrower"| Borrower
 ```
 
-**C. Repay and close.** The borrower pays down debt: the vault checks compliance, burns the whole payment out of the borrower's wallet (the borrower and the stablecoin issuer both already stand behind the vault, so no settlement is needed), records the lower debt, and adds the interest portion to the insurance fund's fee receivable. The insurance fund mints its accumulated fees on its own schedule, backed by that record. On close, the vault hands the remaining collateral back to the borrower in the same transaction.
+**C. Repay and close.** Two separate choices serve this flow. **Repay** pays down debt: the vault checks compliance, burns the payment out of the borrower's wallet, records the lower debt, and adds the interest portion to the insurance fund's fee receivable. **Close** winds down a repaid position: it hands the remaining collateral back to the borrower and parks any uncollected fee receivable for later collection, in one transaction. The borrower needs no quote step to learn the exact payoff: accrual is deterministic and the borrower sees the vault from its own projection, so its wallet computes the same figure the choice will. A wallet that wants a one-shot exit submits repay and close in a single command, and the pair commits atomically. The insurance fund mints its accumulated fees on its own schedule, backed by the receivable record.
 
 ```mermaid
 flowchart TD
@@ -446,7 +446,7 @@ Step-by-step execution, per flow:
 Assumptions and important notes:
 
 - Between a deposit's allocate and its settle the borrower's collateral is
-  locked; the lock is time-bounded and the borrower always has a unilateral
+  locked; the lock on the allocation is time-bounded and the borrower always has a unilateral
   exit ([section 5.4](#54-failure-modes-and-recovery)).
 - The oracle publish will likely be a multi-party ceremony on its own cadence,
   and a price-dependent choice that loses the race against a publish is simply retried: the oracle is re-resolved by key, so the retry runs against the fresh price with no client-side rewiring.
