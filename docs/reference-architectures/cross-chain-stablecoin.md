@@ -176,7 +176,7 @@ transiently, when a transaction it witnesses divulges it.
 | Trusted-issuer list | The trusted-issuer list admin | The gateway admin |
 | Pause state | The pause authority | The gateway admin |
 | Attested message | The attester | The bridge relayer |
-| Redemption attestation | The wTOK admin | The holder and the attester set |
+| Redemption attestation | The wTOK admin and the holder | The attester set |
 | Messaging gateway | The gateway admin | None |
 | Consumed-nonce registry | The wTOK admin | The attester set |
 
@@ -524,11 +524,23 @@ external chain.
    external-chain claim, while the token registry owns the burn itself. The
    gateway stays on Canton: it burns the holding through the registry's ordinary
    admin-plus-account-controlled burn and creates the attestation in the same
-   transaction, so every burn leaves a claim and no claim stands without a burn.
-   Carrying the claim to the external chain is the attester's and the
-   submitter's work in steps 2 and 3. The wTOK admin signs the redemption
-   gateway, which is where the burn's admin authority comes from, and the
-   holder whose asset the burn destroys co-authorizes the action.
+   transaction, so every burn leaves a claim. Carrying the claim to the external
+   chain is the attester's and the submitter's work in steps 2 and 3. The wTOK
+   admin signs the redemption gateway, which is where the burn's admin authority
+   comes from, and the holder whose asset the burn destroys co-authorizes the
+   action.
+
+   **No claim stands without a burn.** That direction is the one the escrow
+   depends on, and the gateway path does not establish it. Daml authorizes a
+   create from the signatories alone, so a template the wTOK admin signs by
+   itself can be created by a direct submission that runs no choice and burns
+   nothing. The holder is therefore a signatory of the redemption attestation
+   and not an observer of it. The burn-and-create transaction already carries
+   that authority, because the holder co-authorizes the burn, while an
+   admin-only create fails because it lacks the holder's authorization.
+   The escrow sees a signed message and no ledger state, so it cannot check the
+   burn itself; the attestation's signatory set is what binds the claim to a
+   burn ([section 4.3](#43-threat-model)).
 
    The redemption path and the D2 seizure path stay separate. A
    user-initiated redemption never runs on the seizure capability, which is the
@@ -776,6 +788,7 @@ This section separates what the ledger enforces from what stays trusted.
 |---|---|
 | Conservation of funds | Settlement cannot output more value than its input allocations. Every settle path archives the locked inputs and asserts, per instrument, that they cover the authorizer's sender-side amounts. Any surplus returns as one change holding. |
 | 1:1 reserve backing | Minted wrapped supply never exceeds the total amount locked against the valid, unredeemed lock attestations. The wTOK registry exposes no unattested admin mint, so no relayer, attester, or operator mints without an attestation. The wTOK admin signs every holding and can create one directly, so this row binds every party except that admin ([section 3.2](#32-reserve-and-lock-attestation)). |
+| Redemption claim backed by a burn | No redemption attestation exists without the burn that produced it. The holder signs the attestation, so the only transaction that can create one is the gateway's burn-and-create, and no party can fabricate a claim against the escrow on its own ([section 3.3](#33-outbound-redemption)). |
 | Replay protection | One external-chain lock can credit Canton at most once. The mint records the lock's nonce in the transaction that credits the recipient, and it refuses a nonce the registry already holds. It holds provided the registry the mint resolves is the one the wTOK admin maintains ([section 3.4](#34-registry-uniqueness-under-non-unique-keys)). |
 | Privacy partitioning | The amount, payer, and the metadata of a settled leg project only to that leg's counterparties, the executing relayer, the attester whose attestation gates the settle, and the wTOK admin. No KYC issuer observes a settlement leg. |
 | Non-custodial recipient binding | No allocation binds a recipient without its signature, live or carried by an allocation preapproval. Committed value is recoverable once the settlement deadline passes, and no allocation can be created without a deadline. |
@@ -786,7 +799,7 @@ This section separates what the ledger enforces from what stays trusted.
 |---|---|
 | Attester set | Attests only a finalized lock, with the true amount, recipient, and instrument, and never re-attests a lock that credited. It signs a refund statement only after an attestation expires with no credit recorded ([section 3.1](#31-inbound-credit)). A quorum that attests a lock which does not exist mints unbacked supply, and one that signs a refund for a credited lock releases backing that live supply still stands on. This is the largest trust surface in the design. |
 | Bridge relayer | Submits every attested message, and submits it once. It cannot change the amount or the recipient, so a faulty relayer delays a credit rather than misdirecting it. |
-| wTOK admin | Authors a mint leg only against a valid attestation, and keeps one live version of the attester registry and of the nonce registry it maintains. A compromised key can issue unbacked supply; the multisig design mitigates this. |
+| wTOK admin | Administers the wTOK registry, and is therefore the settlement factory admin that signs every wTOK holding and allocation. Authors a mint leg only against a valid attestation, and keeps one live version of the attester registry and of the nonce registry it maintains. A compromised key can issue unbacked supply, because it signs holdings of its own instrument and can create one directly; the multisig design mitigates this. |
 | Custodian and lawful-process authority | Sweep only under a bounded mark and, past the settlement deadline, only under a lawful-process order. A colluding pair can move locked value to the preset account inside the deadline window. |
 | KYC issuers | Bind a credential to the recipient and maintain expiry and revocation. The trusted-issuer list is only as strict as its most permissive issuer. |
 | Pause authority | Sets the pause state for an incident, and not to grief. A malicious pause authority stalls inbound settlement until the deadlines lapse, and the senders then reclaim. |
@@ -800,6 +813,7 @@ This section separates what the ledger enforces from what stays trusted.
 |---|---|---|
 | Malicious relayer routing | Routes valid inbound funds to an unauthorized or sanctioned account. | The signed lock attestation pins the Canton recipient, and D3 requires a credential whose subject matches it. The relayer cannot spoof the destination. |
 | Unbacked mint | A relayer, or anyone without attester authorization, mints wTOK with no real external-chain lock. | The wTOK admin co-authorizes every mint, so a relayer cannot mint at all. Two sources of unbacked supply remain: an attester quorum that signs a lock which never happened, and the admin key, which signs every holding of its own instrument and can create one directly. |
+| Fabricated redemption claim | The wTOK admin creates a redemption attestation with no burn behind it, names real lock attestations, and drains that backing on the external chain while Canton supply stays untouched. | The holder is a signatory of the attestation, so an admin-only create carries no authority and only the gateway's burn-and-create transaction produces a claim ([section 3.3](#33-outbound-redemption)). The residual is a holder that colludes, which costs that holder its own holding. |
 | Replay of a used lock | A consumed message, or a second message for the same lock, is submitted again to mint twice. | One-time message consumption, and then the consumed-nonce registry that the mint writes as it credits. A nonce the registry already holds is rejected even if the attesters misbehave. |
 | Shadowing registry duplicate | Two versions of one keyed record are live under the same key, and the submitter presents whichever suits it. The record may be a nonce registry, a trusted-issuer list, or an attester registry. | A key names the party that maintains it, so no other party creates a second version, and a rotation archives the version it replaces. |
 | Refund of a credited lock | The escrow refunds a lock whose credit already settled on Canton, so the same value stands on both chains. | The mint refuses an expired attestation, and the escrow refunds only against an attester statement that no credit was recorded. A deadline on its own does not authorize a refund ([section 3.1](#31-inbound-credit)). |
