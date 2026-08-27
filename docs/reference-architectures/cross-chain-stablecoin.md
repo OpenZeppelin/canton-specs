@@ -83,7 +83,7 @@ CIP-0112 requirements.
 
 An experimental settlement package exists in `canton-contracts`. The
 cross-chain boundary - the messaging gateway, the redemption gateway, the
-lock-attestation carrier, and the attested mint - is unbuilt.
+lock-attestation message, and the attested mint - is unbuilt.
 
 Every package below is experimental, apart from the vendored Token Standard V2
 interfaces. Each one was a result of research for this proposal, so all will
@@ -101,7 +101,7 @@ nothing says nothing about how complete the component is.
 | Access control, ownership handover, and the pause state | `canton-contracts` `experiments/access` and `experiments/security` | No new access-control or ownership behavior. The pause state needs the observer entry that lets the gateway read it |
 | Allocation preapproval and delegated accept | [Section 3.1](#31-inbound-credit) | The whole implementation. No upstream contract authorizes an allocation on the recipient's behalf ([section 6](#6-open-design-questions)) |
 | Messaging gateway | [Section 3.1](#31-inbound-credit) | The whole implementation |
-| Lock-attestation carrier and consumed-nonce registry | [Section 3.2](#32-reserve-and-lock-attestation) | The whole implementation |
+| Lock-attestation message and consumed-nonce registry | [Section 3.2](#32-reserve-and-lock-attestation) | The whole implementation |
 | Attested mint | [Section 3.2](#32-reserve-and-lock-attestation) | The whole implementation |
 | Redemption gateway and the burn it drives | [Section 3.3](#33-outbound-redemption) | The whole implementation |
 | Contract keys on the pause state, the trusted-issuer list, the consumed-nonce registry, and the attester registry | [Section 3.4](#34-registry-uniqueness-under-non-unique-keys) | A key definition in each template, fixed before that template first deploys. The design targets Daml-LF 2.3 on Protocol Version 35 |
@@ -440,11 +440,14 @@ registry-trusted, unexpired, and to carry an unconsumed nonce. A failed check
 fails the batch: no mint, and no partial credit.
 
 **Nonce enforcement.** The consumed-nonce registry makes the lock, and not the
-message, the unit of one-time use. It is a record, signed by the Stablecoin
-Admin, of the external-chain id and nonce of every lock that credited Canton.
-The mint writes that pair in the same transaction that credits the recipient,
-and it rejects a pair the registry already holds. The record only grows, so a
-lock that credited stays recorded.
+message, the unit of one-time use. It is a record, signed by the wTOK admin, of
+the nonce of every lock that credited Canton. Its key scopes it to one
+instrument ([section 3.4](#34-registry-uniqueness-under-non-unique-keys)), and
+the rail serves one external chain ([section 1.2](#12-scope)), so the record
+holds nonces alone. The mint writes the nonce in the same transaction that
+credits the recipient, and it rejects a nonce the registry already holds. The
+recorded set only grows: each version carries every nonce of the version it
+replaces, so a lock that credited stays recorded.
 
 The external chain assigns the nonce, either as the escrow's own sequence number
 or as the id of the lock transaction. Every attester then reads the same value
@@ -492,12 +495,10 @@ directly. No registry rules template closes that path. The residual exposure
 is the admin key, and its mitigation is the N-of-M posture of
 [section 2.3](#23-decentralization-and-trust-topology).
 
-Every wTOK burn runs through the redemption path, and the wTOK registry exposes
-no other. The registry's own burn is admin-plus-account-controlled, so it takes
-the holder's consent and cannot expropriate, but a burn outside the redemption
-path reduces supply without producing an attestation. The reserve figure then
-reads above the supply it backs, and the escrow holds backing that no attestation
-draws against.
+The registry's own burn is admin-plus-account-controlled, so it takes the
+holder's consent and cannot expropriate, but a burn outside the redemption
+path reduces supply without producing an attestation. The escrow's reserve
+would then be higher than the supply it backs.
 
 ### 3.3 Outbound Redemption
 
@@ -519,14 +520,15 @@ external chain.
    named, so the escrow releases only to an address the holder signed for.
 
    The **redemption gateway** carries that request, as the outbound counterpart
-   of the messaging gateway. It owns the external-chain side of a redemption,
-   and the token registry owns the burn. Its action burns the holding through
-   the
-   registry's ordinary admin-plus-account-controlled burn and creates the
-   attestation in the same transaction, so every burn leaves a claim and no
-   claim stands without a burn. The wTOK admin signs the redemption gateway,
-   which is where the burn's admin authority comes from, and the holder whose
-   asset the burn destroys co-authorizes the action.
+   of the messaging gateway. It initiates the redemption and owns the resulting
+   external-chain claim, while the token registry owns the burn itself. The
+   gateway stays on Canton: it burns the holding through the registry's ordinary
+   admin-plus-account-controlled burn and creates the attestation in the same
+   transaction, so every burn leaves a claim and no claim stands without a burn.
+   Carrying the claim to the external chain is the attester's and the
+   submitter's work in steps 2 and 3. The wTOK admin signs the redemption
+   gateway, which is where the burn's admin authority comes from, and the
+   holder whose asset the burn destroys co-authorizes the action.
 
    The redemption path and the D2 seizure path stay separate. A
    user-initiated redemption never runs on the seizure capability, which is the
@@ -597,9 +599,8 @@ refuses.
 
 **Decision.** Every key carries the party that maintains it, together with every
 field that scopes the record it names. A consumer builds the key itself: the
-party and the external chain come from the consumer's own configuration, and
-the instrument comes from the attested message. The caller supplies no part of
-the key.
+party comes from the consumer's own configuration, and the instrument comes from
+the attested message. The caller supplies no part of the key.
 
 Uniqueness then rests on authority. A key's maintainer signs the contract, so
 that party alone creates a version under that key. A consumer that builds the
@@ -616,15 +617,18 @@ instead of the authority of an operator that mints nothing.
 
 | Record | Key | Maintainer |
 |---|---|---|
-| Consumed-nonce registry | The admin, the instrument, and the external chain | wTOK admin |
+| Consumed-nonce registry | The admin, and the instrument | wTOK admin |
 | Attester registry | The admin | wTOK admin |
 | Trusted-issuer list | The admin, and the instrument | Trusted-issuer list admin |
 | Pause state | The admin, and the instrument | Pause authority |
 
 An upgrade can neither add nor remove a key field, so each key carries every
-scope field the rail can ever need ([section 3.7](#37-upgrade-path)). The
-external chain is in the nonce registry's key for that reason, and a rail behind
-one chain fills it with one value.
+scope field the rail can ever need ([section 3.7](#37-upgrade-path)). No key
+names the external chain, because one chain backs the wrapped instrument and
+backing it from several chains is out of scope ([section 1.2](#12-scope)). A
+rail that ever points at a different external chain therefore deploys a new
+nonce registry template rather than filling a new key field, and it starts that
+chain's nonces from an empty record.
 
 **Rotation.** A new version of a record arrives through an action on the live
 one, which archives that version in the same transaction. A replaced version
@@ -760,9 +764,10 @@ as an appended optional argument. The keyed registries of
 [section 3.4](#34-registry-uniqueness-under-non-unique-keys) cannot take that
 path at all, because an upgrade can neither add nor remove a key definition, so
 every one of them must carry its final key definition in the package that first
-deploys it. That includes every scope field a key may ever need, such as the
-external chain on a nonce registry whose first deployment serves one chain. The
-attester registry sits in the shared settlement package, so that commitment
+deploys it. That includes every scope field a key may ever need, which for the
+nonce registry is the admin and the instrument and nothing else
+([section 3.4](#34-registry-uniqueness-under-non-unique-keys)). The attester
+registry sits in the shared settlement package, so that commitment
 covers every instrument those rules serve.
 
 ### 3.8 Extension Points
@@ -811,7 +816,7 @@ This section separates what the ledger enforces from what stays trusted.
 |---|---|---|
 | Malicious relayer routing | Routes valid inbound funds to an unauthorized or sanctioned account. | The signed lock attestation pins the Canton recipient, and D3 requires a credential whose subject matches it. The relayer cannot spoof the destination. |
 | Unbacked mint | A relayer, or anyone without attester authorization, mints wTOK with no real external-chain lock. | The wTOK admin co-authorizes every mint, so a relayer cannot mint at all. Two sources of unbacked supply remain: an attester quorum that signs a lock which never happened, and the admin key, which signs every holding of its own instrument and can create one directly. |
-| Replay of a used lock | A consumed message, or a second message for the same lock, is submitted again to mint twice. | One-time message consumption, and then the consumed-nonce registry that the mint writes as it credits. A duplicate external-chain id and nonce is rejected even if the attesters misbehave. |
+| Replay of a used lock | A consumed message, or a second message for the same lock, is submitted again to mint twice. | One-time message consumption, and then the consumed-nonce registry that the mint writes as it credits. A nonce the registry already holds is rejected even if the attesters misbehave. |
 | Shadowing registry duplicate | Two versions of one keyed record are live under the same key, and the submitter presents whichever suits it. The record may be a nonce registry, a trusted-issuer list, or an attester registry. | A key names the party that maintains it, so no other party creates a second version, and a rotation archives the version it replaces. The residual is the maintaining party itself, which the observers on each record make visible ([section 3.4](#34-registry-uniqueness-under-non-unique-keys)). |
 | Refund of a credited lock | The escrow refunds a lock whose credit already settled on Canton, so the same value stands on both chains. | The mint refuses an expired attestation, and the escrow refunds only against an attester statement that no credit was recorded. A deadline on its own does not authorize a refund ([section 3.1](#31-inbound-credit)). |
 | Toxic or spam inflow | A sender forces a settlement onto an unwilling recipient. | No allocation commits without the recipient's approval ([section 4.1](#41-ledger-enforced-properties)), and an unsettled allocation expires and returns to sender. An offline recipient gives that approval in advance, so the bound is the preapproval's own: its instrument, its ceiling, its expiry, and the party it names. The recipient signs the preapproval, so it can archive it at any time ([section 6](#6-open-design-questions)). |
@@ -851,10 +856,9 @@ and a lawful-process reference.
 
 The consumed-nonce registry serializes every inbound mint of the rail, because
 each record archives and recreates that one contract. Its key scopes it to one
-instrument and one external chain
-([section 3.4](#34-registry-uniqueness-under-non-unique-keys)), so a rail behind
-one chain has one shard, and that shard is the throughput ceiling. Splitting a
-single chain's nonces across shards needs a discriminator in the key, which no
+instrument ([section 3.4](#34-registry-uniqueness-under-non-unique-keys)), so
+the rail has one shard, and that shard is the throughput ceiling. Splitting an
+instrument's nonces across shards needs a discriminator in the key, which no
 upgrade adds later. Independent rails settle in parallel, and several
 allocations can be part of a single settlement batch.
 
