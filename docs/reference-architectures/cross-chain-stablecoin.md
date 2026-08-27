@@ -598,9 +598,11 @@ attester registry with one extra member passes a settle that the real roster
 refuses.
 
 **Decision.** Every key carries the party that maintains it, together with every
-field that scopes the record it names. A consumer builds the key itself: the
-party comes from the consumer's own configuration, and the instrument comes from
-the attested message. The caller supplies no part of the key.
+field that scopes the record it names. A consumer, meaning the mint, the
+gateway, or any other contract that resolves a record at execution time, builds
+the key itself: the party comes from the consumer's own configuration, and the
+instrument comes from the attested message. The caller supplies no part of the
+key.
 
 Uniqueness then rests on authority. A key's maintainer signs the contract, so
 that party alone creates a version under that key. A consumer that builds the
@@ -608,10 +610,7 @@ key from the party it trusts resolves only that party's records, because another
 party's key names another party.
 
 The consumed-nonce registry is the record where this decides who can inflate
-supply, so the wTOK admin maintains it and the gateway admin does not. A
-second version under that key then needs the authority of the party that already
-signs every wTOK holding ([section 3.2](#32-reserve-and-lock-attestation)),
-instead of the authority of an operator that mints nothing.
+supply, so the wTOK admin maintains it.
 
 **Key shape.** Each key holds its maintainer and the scope of the record.
 
@@ -623,18 +622,11 @@ instead of the authority of an operator that mints nothing.
 | Pause state | The admin, and the instrument | Pause authority |
 
 An upgrade can neither add nor remove a key field, so each key carries every
-scope field the rail can ever need ([section 3.7](#37-upgrade-path)). No key
-names the external chain, because one chain backs the wrapped instrument and
-backing it from several chains is out of scope ([section 1.2](#12-scope)). A
-rail that ever points at a different external chain therefore deploys a new
-nonce registry template rather than filling a new key field, and it starts that
-chain's nonces from an empty record.
+scope field the rail can ever need ([section 3.7](#37-upgrade-path)).
 
 **Rotation.** A new version of a record arrives through an action on the live
 one, which archives that version in the same transaction. A replaced version
 cannot be resolved afterwards, because a lookup returns live contracts only.
-Rotation appends a version rather than recreating a consumer, so a new roster or
-a new list changes no other contract.
 
 A consumer resolves by key, so it must be a stakeholder of every record it reads
 ([section 2.2](#22-privacy-and-visibility)). The gateway admin carries an
@@ -644,14 +636,11 @@ wTOK admin maintains both and every settle already carries that authority.
 The attester set keeps its observer entry on the consumed-nonce registry for its
 own reads.
 
-**Residual.** Nothing stops a maintainer from holding two live versions under one
-key and presenting a different one to different transactions. No on-ledger check
-closes that, because a key lookup that returns nothing proves nothing on Canton
-3.x: a transaction cannot verify that a second version is absent. The observers
-on each record make the duplicate visible instead, and the maintaining party's
-own key custody is what bounds it
-([section 2.3](#23-decentralization-and-trust-topology)). For the same reason no
-check in this design rests on a lookup that returns nothing.
+**Residual.** Nothing stops a maintainer from holding two live versions of a
+registry under one key and presenting a different one to different
+transactions. The observers on each record make the duplicate visible, and they
+rely on the maintaining party's own key custody to keep the bridge honest
+([section 2.3](#23-decentralization-and-trust-topology)).
 
 ### 3.5 Time and Deadlines
 
@@ -700,8 +689,7 @@ so one party governs both the roster and the wTOK registry.
 The wTOK registry carries the admin party it trusts for the roster, and it
 carries it from creation. A registry created without that party verifies
 nothing, and every settle then passes with no attestation
-([section 4.3](#43-threat-model)). Rotating the roster replaces the version
-under one key, and it recreates no wTOK registry.
+([section 4.3](#43-threat-model)).
 
 **D2.** Seizure is a strict lock-and-sweep. A mark locks the allocation, and a
 sweep moves the locked holdings to the preset custodian account. The same sweep
@@ -764,11 +752,7 @@ as an appended optional argument. The keyed registries of
 [section 3.4](#34-registry-uniqueness-under-non-unique-keys) cannot take that
 path at all, because an upgrade can neither add nor remove a key definition, so
 every one of them must carry its final key definition in the package that first
-deploys it. That includes every scope field a key may ever need, which for the
-nonce registry is the admin and the instrument and nothing else
-([section 3.4](#34-registry-uniqueness-under-non-unique-keys)). The attester
-registry sits in the shared settlement package, so that commitment
-covers every instrument those rules serve.
+deploys it.
 
 ### 3.8 Extension Points
 
@@ -802,7 +786,7 @@ This section separates what the ledger enforces from what stays trusted.
 |---|---|
 | Attester set | Attests only a finalized lock, with the true amount, recipient, and instrument, and never re-attests a lock that credited. It signs a refund statement only after an attestation expires with no credit recorded ([section 3.1](#31-inbound-credit)). A quorum that attests a lock which does not exist mints unbacked supply, and one that signs a refund for a credited lock releases backing that live supply still stands on. This is the largest trust surface in the design. |
 | Bridge relayer | Submits every attested message, and submits it once. It cannot change the amount or the recipient, so a faulty relayer delays a credit rather than misdirecting it. |
-| wTOK admin | Authors a mint leg only against a valid attestation, and keeps one live version of the attester registry and of each nonce registry it maintains. A compromised key can issue unbacked supply; the multisig design mitigates this. |
+| wTOK admin | Authors a mint leg only against a valid attestation, and keeps one live version of the attester registry and of the nonce registry it maintains. A compromised key can issue unbacked supply; the multisig design mitigates this. |
 | Custodian and lawful-process authority | Sweep only under a bounded mark and, past the settlement deadline, only under a lawful-process order. A colluding pair can move locked value to the preset account inside the deadline window. |
 | KYC issuers | Bind a credential to the recipient and maintain expiry and revocation. The trusted-issuer list is only as strict as its most permissive issuer. |
 | Pause authority | Sets the pause state for an incident, and not to grief. A malicious pause authority stalls inbound settlement until the deadlines lapse, and the senders then reclaim. |
@@ -817,7 +801,7 @@ This section separates what the ledger enforces from what stays trusted.
 | Malicious relayer routing | Routes valid inbound funds to an unauthorized or sanctioned account. | The signed lock attestation pins the Canton recipient, and D3 requires a credential whose subject matches it. The relayer cannot spoof the destination. |
 | Unbacked mint | A relayer, or anyone without attester authorization, mints wTOK with no real external-chain lock. | The wTOK admin co-authorizes every mint, so a relayer cannot mint at all. Two sources of unbacked supply remain: an attester quorum that signs a lock which never happened, and the admin key, which signs every holding of its own instrument and can create one directly. |
 | Replay of a used lock | A consumed message, or a second message for the same lock, is submitted again to mint twice. | One-time message consumption, and then the consumed-nonce registry that the mint writes as it credits. A nonce the registry already holds is rejected even if the attesters misbehave. |
-| Shadowing registry duplicate | Two versions of one keyed record are live under the same key, and the submitter presents whichever suits it. The record may be a nonce registry, a trusted-issuer list, or an attester registry. | A key names the party that maintains it, so no other party creates a second version, and a rotation archives the version it replaces. The residual is the maintaining party itself, which the observers on each record make visible ([section 3.4](#34-registry-uniqueness-under-non-unique-keys)). |
+| Shadowing registry duplicate | Two versions of one keyed record are live under the same key, and the submitter presents whichever suits it. The record may be a nonce registry, a trusted-issuer list, or an attester registry. | A key names the party that maintains it, so no other party creates a second version, and a rotation archives the version it replaces. |
 | Refund of a credited lock | The escrow refunds a lock whose credit already settled on Canton, so the same value stands on both chains. | The mint refuses an expired attestation, and the escrow refunds only against an attester statement that no credit was recorded. A deadline on its own does not authorize a refund ([section 3.1](#31-inbound-credit)). |
 | Toxic or spam inflow | A sender forces a settlement onto an unwilling recipient. | No allocation commits without the recipient's approval ([section 4.1](#41-ledger-enforced-properties)), and an unsettled allocation expires and returns to sender. An offline recipient gives that approval in advance, so the bound is the preapproval's own: its instrument, its ceiling, its expiry, and the party it names. The recipient signs the preapproval, so it can archive it at any time ([section 6](#6-open-design-questions)). |
 | Unattributable inbound origin | A deposit arrives over a privacy pool or a shielded-provenance path, so no sender can be attributed to it. | Nothing mints without an attestation, so an unresolved origin means the attesters withhold the signature, the deposit stays locked on the external chain, and a refund is the escrow's own path ([section 4.4](#44-failure-modes-and-recovery)). The origin resolution is a precondition on issuing one attestation, and not a stored flag, a score, or a threshold ([section 1.2](#12-scope)). |
