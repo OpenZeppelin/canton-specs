@@ -266,22 +266,24 @@ relayer-submitted transactions, orchestrated off-ledger by the relayer backend.
 The attesters sign the attested message and the compliance attestation in
 transactions of their own.
 
-**Bridge lifecycle**
+### 3.1 Inbound Credit
+
+Four steps carry a finalized external-chain lock to a settled wTOK holding. The
+attesters submit step 1, and the relayer submits the three that follow.
+
+**Inbound credit**
 
 ```mermaid
 sequenceDiagram
     autonumber
     actor Attesters as ATTESTERS
     actor Relayer as BRIDGE RELAYER
-    actor Recipient as RECIPIENT AND HOLDER
+    actor Recipient as RECIPIENT
     actor Admin as wTOK ADMIN
-    actor Operator as REDEMPTION OPERATOR
     participant App as Messaging gateway
-    participant Redeem as Redemption gateway
     participant Registry as Settlement registry
     participant Chain as External chain (lock escrow)
 
-    Note over Attesters,Chain: Inbound bridging.
     Chain-->>Attesters: Finalized lock
     Attesters->>App: Sign the attested message<br/>carrying the lock attestation
     Note over Relayer,Registry: Gateway transaction.
@@ -301,24 +303,7 @@ sequenceDiagram
         Registry->>Registry: Verify the attestation against the roster,<br/>check conservation, and archive the locked inputs
         Registry-->>Recipient: Private credit and settlement events
     end
-    Note over Attesters,Chain: Inbound refund, when no credit follows.
-    Attesters->>Chain: Once the attestation expires with no nonce recorded,<br/>sign that Canton never credited the lock
-    Chain->>Chain: Refund the originator
-    Note over Attesters,Chain: Outbound bridging.
-    Recipient->>Redeem: Request redemption and name<br/>the external-chain destination
-    Redeem->>Registry: Burn the holding
-    Redeem-->>Attesters: Redemption attestation, the standing claim
-    Attesters->>Chain: Sign the claim with their external-chain keys
-    Operator->>Chain: Submit the signed claim
-    Chain->>Chain: Release the backing to the named destination<br/>and record the claim as released
-    Attesters->>Relayer: Confirm the release
-    Relayer->>Redeem: Archive the claim
 ```
-
-### 3.1 Inbound Credit
-
-Four steps carry a finalized external-chain lock to a settled wTOK holding. The
-attesters submit step 1, and the relayer submits the three that follow.
 
 1. **Attested message.** The external chain finalizes a locked deposit. The
    attesters sign a message that carries the typed **lock attestation**: the
@@ -422,6 +407,22 @@ together give that, and each covers one of the two orderings.
   escrow already verifies attester signatures for a redemption release
   ([section 2.1](#21-business-roles)), so a refund reuses that verifier.
 
+**Inbound refund**
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor Attesters as ATTESTERS
+    participant Reg as Credited-lock registry
+    participant Chain as External chain (lock escrow)
+
+    Note over Attesters,Chain: The lock attestation expires with no credit.
+    Attesters->>Reg: Read the nonce of the lock
+    Reg-->>Attesters: The nonce is absent, so Canton never credited the lock
+    Attesters->>Chain: Sign that Canton never credited the lock
+    Chain->>Chain: Verify the quorum with the redemption verifier,<br/>then refund the originator
+```
+
 ### 3.2 Reserve and Lock Attestation
 
 The inbound flow of [section 3.1](#31-inbound-credit) settles a payment
@@ -507,6 +508,34 @@ would then be higher than the supply it backs.
 Redemption mirrors the inbound flow. The holder burns the wrapped holding on
 Canton, an attester signs the result, and the escrow releases the backing on the
 external chain.
+
+**Outbound redemption**
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor Holder as HOLDER
+    actor Attesters as ATTESTERS
+    actor Operator as REDEMPTION OPERATOR
+    actor Relayer as BRIDGE RELAYER
+    participant Redeem as Redemption gateway
+    participant Registry as Settlement registry
+    participant Chain as External chain (lock escrow)
+
+    rect rgba(255, 255, 255, .1)
+        Note over Holder,Registry: Burn transaction.<br/>The burn and the claim commit together.
+        Holder->>Redeem: Request redemption and name<br/>the external-chain destination
+        Redeem->>Registry: Burn the holding
+        Redeem->>Redeem: Create the redemption attestation,<br/>the standing claim the attester set observes
+    end
+    Attesters->>Redeem: Read the standing claim on Canton
+    Attesters-->>Operator: Hand over the claim, signed off-ledger<br/>with their external-chain keys
+    Note over Operator,Chain: Any submitter can present the signed claim.<br/>The redemption operator owns the retry.
+    Operator->>Chain: Submit the signed claim
+    Chain->>Chain: Release the backing to the named destination<br/>and record the claim as released
+    Attesters->>Relayer: Confirm the release
+    Relayer->>Redeem: Archive the claim
+```
 
 1. **Burn on Canton.** The holder asks for redemption and names the
    external-chain destination. The burn destroys the wrapped holding and
