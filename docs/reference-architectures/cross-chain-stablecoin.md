@@ -779,6 +779,34 @@ account. Returning swept value is a custodian action outside D2, and revoking a
 capability means the admin archives it. The authority for each is open
 ([section 6](#6-open-design-questions)).
 
+**Seizure and sweep**
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor Admin as wTOK ADMIN
+    actor Authority as LAWFUL-PROCESS AUTHORITY
+    actor Custodian as CUSTODIAN
+    participant Target as Marked allocation
+    participant AttReg as Attester registry
+    participant Custody as Preset custodian account
+
+    Admin->>Target: Mark for seizure, inside the<br/>maximum seizure extension
+    Note over Admin,Custody: The mark blocks the settle, the withdraw, and the cancel.<br/>Either sweep must land inside the seizure window.
+    alt Sweep inside the settlement deadline
+        Custodian->>Target: Sweep, presenting the seizure capability
+        Target->>Custody: Move the locked value. Nothing is burned
+    else Sweep past the settlement deadline
+        Authority-->>Custodian: Sign a seizure order that names<br/>the case and the account it sweeps
+        Custodian->>Target: Sweep, presenting the capability and the order
+        Target->>AttReg: Resolve the roster by key and<br/>check the order's signer
+        Target->>Custody: Move the locked value. Nothing is burned
+    else No sweep
+        Admin->>Target: Lift the mark
+        Note over Target: Once the window lapses, any<br/>stakeholder can release the mark.
+    end
+```
+
 **D3.** The gate binds the credential's subject to the recipient that the lock
 attestation names, so a relayer cannot route a credit to an account that holds
 no credential.
