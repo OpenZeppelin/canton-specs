@@ -78,6 +78,7 @@ CIP-0112 requirements.
 | CIP-0112 allocations and settlement batches | The CIP-0056 token standard that CIP-0112 extends, and its allocation paths |
 | One Canton synchronizer, with a cross-chain boundary outside it | Cross-synchronizer settlement and cross-synchronizer identity |
 | One external chain behind the wrapped instrument | Backing one instrument from several external chains, and the per-chain reserve accounting and routing it needs |
+| Seizure of the holdings that an allocation locks | Any control over a wTOK holding after it settles, which needs a forced transfer that each registry defines for itself ([section 3.6](#36-control-enforcement)) |
 
 ### 1.3 Component Status
 
@@ -95,7 +96,7 @@ nothing says nothing about how complete the component is.
 |---|---|---|
 | Settlement package: registry rules, allocations, holdings, and the event host | [`canton-contracts` `tokenCIP112-v1`](https://github.com/OpenZeppelin/canton-contracts/tree/7696749737885e25cd88422847105f890f03b00d/experiments/token/tokenCIP112-v1) | No new settlement behavior. The package's [admin mint](https://github.com/OpenZeppelin/canton-contracts/blob/7696749737885e25cd88422847105f890f03b00d/experiments/token/tokenCIP112-v1/daml/OpenZeppelin/TokenCIP112V1/Registry.daml#L149) consumes no attestation and can therefore issue unbacked supply, so the wTOK registry must not expose it ([section 3.2](#32-reserve-and-lock-attestation)) |
 | Compliance attestation path (D1) | Same package, `D1.daml` | The verification of an N-of-M attester quorum ([section 2.3](#23-decentralization-and-trust-topology)) |
-| Seizure path (D2): mark, sweep before the deadline, sweep after it, seizure capability, lawful-process order | Same package, `Allocation.daml` and `D1.daml` | The sweep for a holding that already settled, because the seizure capability only unlocks. Also a way to revoke or rotate a capability |
+| Seizure path (D2): mark, sweep before the deadline, sweep after it, seizure capability, lawful-process order | Same package, `Allocation.daml` and `D1.daml` | A way to revoke a capability or rotate its holder |
 | Identity credential check (D3) | This workspace, [`experiments/identity/hook-shape-b`](../../experiments/identity/hook-shape-b/) | The action that runs the check, and the observer entries that let the checking party read the credential and the trusted-issuer list |
 | Per-action role binding (D4) | Libraries in `canton-contracts` `experiments/access` | The wiring. The primitives exist, and this rail has to call them |
 | Access control, ownership handover, and the pause state | `canton-contracts` `experiments/access` and `experiments/security` | No new access-control or ownership behavior. The pause state needs the observer entry that lets the gateway read it |
@@ -112,9 +113,21 @@ nothing says nothing about how complete the component is.
 
 ## 2. Architecture Overview
 
-The wrapped instrument has one Token Standard V2 registry that creates and
-settles its allocations. Institutional services supply the compliance
-attestation and the identity credential.
+Two things cross the boundary between the chains, and neither is a transaction:
+a signature from the attester set, and the nonce of a lock. Everything else here
+is Canton-local.
+
+That shapes the rail as one hub with attachments. The hub is the settlement
+batch that moves wTOK privately between accounts, and one Token Standard V2
+registry creates and settles every wTOK allocation. Supply enters at the
+attested mint and leaves at the burn. An attester signature gates each of those
+two, over an external-chain fact that no Canton check can validate. The
+compliance attestation gates the settle, and the identity credential gates the
+request before any allocation exists.
+
+The subsections below take that rail from three angles. They name the party
+behind each piece, say who can read it, and set how many independent keys stand
+behind the pieces that can break the reserve.
 
 ### 2.1 Business Roles
 
@@ -130,22 +143,30 @@ signs on Canton, and the external chain never sees that signature. Outbound,
 the escrow cannot read Canton, so each attester also holds an external-chain
 key that the escrow's own verifier accepts.
 
+**Canton parties.** Each one signs a contract or submits a command on Canton.
+
 | Role | Responsibility and visibility |
 |---|---|
-| Lock escrow | External-chain contract. It holds the backing and releases it against a verified redemption attestation. Any submitter can present that attestation ([section 3.3](#33-outbound-redemption)). |
 | Bridge relayer | Settlement executor. CIP-0112 defines the executors as a set, and this design puts this one party in it. It signs the allocation request and holds the relayer role that the gateway checks. Its authority covers transport and liveness, so a relayer without an attestation cannot mint. It observes every allocation it assembles. |
-| Relayer backend | Off-Canton process. It watches the external chain and submits every inbound command as the bridge relayer. |
 | Attesters, M of them | The trust role, separate from the relayer's transport role. They sign the lock attestation, the compliance attestation, and the redemption attestation. The attester registry lists them, and they see the legs of the settlements they attest. |
-| Attester services | M independent operators on M participants. Each submits as its own attester party. |
 | wTOK admin | The instrument admin for wTOK. One party holds three surfaces, because the registry rules template carries a single admin field: it signs the wTOK registry, it is therefore the settlement factory admin for wTOK, and it signs that instrument's holdings and allocations. It authors the attested mint, so it sees every wTOK payment. It also maintains the attester registry and the credited-lock registry that the mint reads. |
 | KYC issuers | They sign the identity credential that D3 checks, and they maintain its expiry and revocation. The trusted-issuer list names them. Each observes no settlement leg. |
 | Trusted-issuer list admin | Sole signatory of the trusted-issuer list, and the party that decides which issuers it names. It issues no credential and observes no settlement leg. |
 | Custodian | Holds the seizure capability and owns the preset sweep account. It sees nothing until a seizure. |
 | Lawful-process authority | Signs the seizure order that a sweep past the settlement deadline requires. The attester registry lists it, and it is never the wTOK admin. |
 | Recipient, or Holder outbound | Signs the receiving allocation, live or through an allocation preapproval it signed earlier. |
-| Recipient wallet | Off-Canton process. It creates the allocation preapproval and submits as the recipient. |
 | Pause authority | Signs the pause state and maintains its key. |
 | Gateway admin | Sole signatory of the gateway, and the party that operates it. It submits nothing and holds the `FeaturedAppRight`. It reads the pause state, the trusted-issuer list, and each credential the gateway checks. |
+
+**Off-ledger actors and the external chain.** Each of these submits as one of
+the parties above, or it lives on the external chain.
+
+| Role | Responsibility and visibility |
+|---|---|
+| Lock escrow | External-chain contract. It holds the backing and releases it against a verified redemption attestation. Any submitter can present that attestation ([section 3.3](#33-outbound-redemption)). |
+| Relayer backend | Off-Canton process. It watches the external chain and submits every inbound command as the bridge relayer. |
+| Attester services | M independent operators on M participants. Each submits as its own attester party. |
+| Recipient wallet | Off-Canton process. It creates the allocation preapproval and submits as the recipient. |
 | Redemption operator | Off-Canton process. It submits for holders that delegate to it, and it owns the retry of a stalled release ([section 3.3](#33-outbound-redemption)). |
 
 The gateways and the registries are contracts, not services. The messaging
@@ -266,22 +287,24 @@ relayer-submitted transactions, orchestrated off-ledger by the relayer backend.
 The attesters sign the attested message and the compliance attestation in
 transactions of their own.
 
-**Bridge lifecycle**
+### 3.1 Inbound Credit
+
+Four steps carry a finalized external-chain lock to a settled wTOK holding. The
+attesters submit step 1, and the relayer submits the three that follow.
+
+**Inbound credit**
 
 ```mermaid
 sequenceDiagram
     autonumber
     actor Attesters as ATTESTERS
     actor Relayer as BRIDGE RELAYER
-    actor Recipient as RECIPIENT AND HOLDER
+    actor Recipient as RECIPIENT
     actor Admin as wTOK ADMIN
-    actor Operator as REDEMPTION OPERATOR
     participant App as Messaging gateway
-    participant Redeem as Redemption gateway
     participant Registry as Settlement registry
     participant Chain as External chain (lock escrow)
 
-    Note over Attesters,Chain: Inbound bridging.
     Chain-->>Attesters: Finalized lock
     Attesters->>App: Sign the attested message<br/>carrying the lock attestation
     Note over Relayer,Registry: Gateway transaction.
@@ -301,24 +324,7 @@ sequenceDiagram
         Registry->>Registry: Verify the attestation against the roster,<br/>check conservation, and archive the locked inputs
         Registry-->>Recipient: Private credit and settlement events
     end
-    Note over Attesters,Chain: Inbound refund, when no credit follows.
-    Attesters->>Chain: Once the attestation expires with no nonce recorded,<br/>sign that Canton never credited the lock
-    Chain->>Chain: Refund the originator
-    Note over Attesters,Chain: Outbound bridging.
-    Recipient->>Redeem: Request redemption and name<br/>the external-chain destination
-    Redeem->>Registry: Burn the holding
-    Redeem-->>Attesters: Redemption attestation, the standing claim
-    Attesters->>Chain: Sign the claim with their external-chain keys
-    Operator->>Chain: Submit the signed claim
-    Chain->>Chain: Release the backing to the named destination<br/>and record the claim as released
-    Attesters->>Relayer: Confirm the release
-    Relayer->>Redeem: Archive the claim
 ```
-
-### 3.1 Inbound Credit
-
-Four steps carry a finalized external-chain lock to a settled wTOK holding. The
-attesters submit step 1, and the relayer submits the three that follow.
 
 1. **Attested message.** The external chain finalizes a locked deposit. The
    attesters sign a message that carries the typed **lock attestation**: the
@@ -422,6 +428,22 @@ together give that, and each covers one of the two orderings.
   escrow already verifies attester signatures for a redemption release
   ([section 2.1](#21-business-roles)), so a refund reuses that verifier.
 
+**Inbound refund**
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor Attesters as ATTESTERS
+    participant Reg as Credited-lock registry
+    participant Chain as External chain (lock escrow)
+
+    Note over Attesters,Chain: The lock attestation expires with no credit.
+    Attesters->>Reg: Read the nonce of the lock
+    Reg-->>Attesters: The nonce is absent, so Canton never credited the lock
+    Attesters->>Chain: Sign that Canton never credited the lock
+    Chain->>Chain: Verify the quorum with the redemption verifier,<br/>then refund the originator
+```
+
 ### 3.2 Reserve and Lock Attestation
 
 The inbound flow of [section 3.1](#31-inbound-credit) settles a payment
@@ -508,6 +530,34 @@ Redemption mirrors the inbound flow. The holder burns the wrapped holding on
 Canton, an attester signs the result, and the escrow releases the backing on the
 external chain.
 
+**Outbound redemption**
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor Holder as HOLDER
+    actor Attesters as ATTESTERS
+    actor Operator as REDEMPTION OPERATOR
+    actor Relayer as BRIDGE RELAYER
+    participant Redeem as Redemption gateway
+    participant Registry as Settlement registry
+    participant Chain as External chain (lock escrow)
+
+    rect rgba(255, 255, 255, .1)
+        Note over Holder,Registry: Burn transaction.<br/>The burn and the claim commit together.
+        Holder->>Redeem: Request redemption and name<br/>the external-chain destination
+        Redeem->>Registry: Burn the holding
+        Redeem->>Redeem: Create the redemption attestation,<br/>the standing claim the attester set observes
+    end
+    Attesters->>Redeem: Read the standing claim on Canton
+    Attesters-->>Operator: Hand over the claim, signed off-ledger<br/>with their external-chain keys
+    Note over Operator,Chain: Any submitter can present the signed claim.<br/>The redemption operator owns the retry.
+    Operator->>Chain: Submit the signed claim
+    Chain->>Chain: Release the backing to the named destination<br/>and record the claim as released
+    Attesters->>Relayer: Confirm the release
+    Relayer->>Redeem: Archive the claim
+```
+
 1. **Burn on Canton.** The holder asks for redemption and names the
    external-chain destination. The burn destroys the wrapped holding and
    produces a typed **redemption attestation** that carries three fields:
@@ -544,9 +594,10 @@ external chain.
    burn itself; the attestation's signatory set is what binds the claim to a
    burn ([section 4.3](#43-threat-model)).
 
-   The redemption path and the D2 seizure path stay separate. A
-   user-initiated redemption never runs on the seizure capability, which is the
-   Custodian's credential and only unlocks.
+   The redemption path and the D2 seizure path stay separate. A redemption
+   runs on the holder's own authority and the registry's burn, and a seizure
+   runs on the Custodian's capability over a marked allocation
+   ([section 3.6](#36-control-enforcement)).
 2. **Attest.** A registry-trusted attester signs the redemption attestation
    through the same attester registry path.
 3. **Release on the external chain.** Any submitter presents the signed
@@ -706,9 +757,8 @@ nothing, and every settle then passes with no attestation
 ([section 4.3](#43-threat-model)).
 
 **D2.** Seizure is a strict lock-and-sweep. A mark locks the allocation, and a
-sweep moves the locked holdings to the preset custodian account. The same sweep
-reaches a holding that already settled. The settlement deadline separates two
-sweep paths:
+sweep moves the locked holdings to the preset custodian account. The settlement
+deadline separates two sweep paths:
 
 - **Inside the deadline.** The admin's mark plus the Custodian's capability.
 - **Past the deadline.** The same authority, plus a seizure order that names the
@@ -728,6 +778,43 @@ D2 never burns the asset, and a sweep lands only at the preset custodian
 account. Returning swept value is a custodian action outside D2, and revoking a
 capability means the admin archives it. The authority for each is open
 ([section 6](#6-open-design-questions)).
+
+**Seizure scope.** D2 acts on an allocation and on the holdings that allocation
+locks. A holding that already settled sits outside it. The token standard gives
+the owner's side of every asset movement to the owner, and it leaves each
+registry free to decide how it splits authorization between an account's
+provider and its owner. Moving a settled holding without the owner therefore
+needs a choice that a registry defines on its own holding template. The rail
+asks for no such choice, so it runs on any CIP-0112 registry, including one
+whose holdings admit no forced transfer.
+
+**Seizure and sweep**
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor Admin as wTOK ADMIN
+    actor Authority as LAWFUL-PROCESS AUTHORITY
+    actor Custodian as CUSTODIAN
+    participant Target as Marked allocation
+    participant AttReg as Attester registry
+    participant Custody as Preset custodian account
+
+    Admin->>Target: Mark for seizure, inside the<br/>maximum seizure extension
+    Note over Admin,Custody: The mark blocks the settle, the withdraw, and the cancel.<br/>Either sweep must land inside the seizure window.
+    alt Sweep inside the settlement deadline
+        Custodian->>Target: Sweep, presenting the seizure capability
+        Target->>Custody: Move the locked value. Nothing is burned
+    else Sweep past the settlement deadline
+        Authority-->>Custodian: Sign a seizure order that names<br/>the case and the account it sweeps
+        Custodian->>Target: Sweep, presenting the capability and the order
+        Target->>AttReg: Resolve the roster by key and<br/>check the order's signer
+        Target->>Custody: Move the locked value. Nothing is burned
+    else No sweep
+        Admin->>Target: Lift the mark
+        Note over Target: Once the window lapses, any<br/>stakeholder can release the mark.
+    end
+```
 
 **D3.** The gate binds the credential's subject to the recipient that the lock
 attestation names, so a relayer cannot route a credit to an account that holds
@@ -749,7 +836,8 @@ either way.
 
 D3 is an entry condition and not a transfer restriction. A settled wTOK holding
 moves over the standard's own transfer path, and no credential gates that move.
-Value already credited is D2's surface.
+D2 acts only on the holdings an allocation locks, so the standard's transfer
+path alone governs a credited holding.
 
 **D4.** No single admin holds every privilege. Each action sits with the role
 responsible for it: relay with the relayer role grant, mint-leg authoring with
@@ -821,7 +909,7 @@ This section separates what the ledger enforces from what stays trusted.
 | Refund of a credited lock | The escrow refunds a lock whose credit already settled on Canton, so the same value stands on both chains. | The mint refuses an expired attestation, and the escrow refunds only against an attester statement that no credit was recorded. A deadline on its own does not authorize a refund ([section 3.1](#31-inbound-credit)). |
 | Toxic or spam inflow | A sender forces a settlement onto an unwilling recipient. | No allocation commits without the recipient's approval ([section 4.1](#41-ledger-enforced-properties)), and an unsettled allocation expires and returns to sender. An offline recipient gives that approval in advance, so the bound is the preapproval's own: its instrument, its ceiling, its expiry, and the party it names. The recipient signs the preapproval, so it can archive it at any time ([section 6](#6-open-design-questions)). |
 | Unattributable inbound origin | A deposit arrives over a privacy pool or a shielded-provenance path, so no sender can be attributed to it. | Nothing mints without an attestation, so an unresolved origin means the attesters withhold the signature, the deposit stays locked on the external chain, and a refund is the escrow's own path ([section 4.4](#44-failure-modes-and-recovery)). The origin resolution is a precondition on issuing one attestation, and not a stored flag, a score, or a threshold ([section 1.2](#12-scope)). |
-| Compromised admin key | A compromised wTOK admin or Custodian key attempts arbitrary expropriation. | A sweep is hardcoded to the preset custodian destination, and a sweep past the settlement deadline needs an order the admin cannot sign. An in-flight seizure inside the deadline needs no such order, so that window is the residual exposure. Supply-changing authority is mitigated by N-of-M multisig. |
+| Compromised admin key | A compromised wTOK admin or Custodian key attempts arbitrary expropriation. | A sweep reaches only the holdings an allocation locks, so a credited holding stays beyond both keys ([section 3.6](#36-control-enforcement)). A sweep is hardcoded to the preset custodian destination, and a sweep past the settlement deadline needs an order the admin cannot sign. An in-flight seizure inside the deadline needs no such order, so that window is the residual exposure. Supply-changing authority is mitigated by N-of-M multisig. |
 | D1 deployed unset | The wTOK registry is created with no trusted roster admin, so every settle passes with no attestation. | The settlement package cannot catch this, because an unset party is a silent no-op. The wTOK deployment has to set that party and assert it before the rail accepts a settle. |
 | Upgrade breaks in-flight allocations | An upgrade of a deployed rail changes how its live contracts are interpreted, so an allocation created under the previous version can no longer settle. | Programmatic adherence to the upgrade rule: optional appends and new actions only. Each deployed action stays operable, and a pending settlement concludes before its parties move to the new version. |
 | Package unvetting | A participant that hosts a stakeholder party unvets the rail's package, which blocks every action on the contracts that party is a stakeholder of. | Unvetting freezes contracts rather than freeing them. The holder cannot move the asset either, and the locked value stays sweepable once re-vetted. If one attester unvets the package, the remaining attesters still reach the threshold. Holder-side unvetting is an inherent Canton vetting property with no protocol-level bypass. |
