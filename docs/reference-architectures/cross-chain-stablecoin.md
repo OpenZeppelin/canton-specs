@@ -142,22 +142,31 @@ signs on Canton, and the external chain never sees that signature. Outbound,
 the escrow cannot read Canton, so each attester also holds an external-chain
 key that the escrow's own verifier accepts.
 
+**Canton parties.** Each one signs a contract or submits a command on Canton.
+
 | Role | Responsibility and visibility |
 |---|---|
-| Lock escrow | External-chain contract. It holds the backing and releases it against a verified redemption attestation. Any submitter can present that attestation ([section 3.3](#33-outbound-redemption)). |
 | Bridge relayer | Settlement executor. CIP-0112 defines the executors as a set, and this design puts this one party in it. It signs the allocation request and holds the relayer role that the gateway checks. Its authority covers transport and liveness, so a relayer without an attestation cannot mint. It observes every allocation it assembles. |
-| Relayer backend | Off-Canton process. It watches the external chain and submits every inbound command as the bridge relayer. |
 | Attesters, M of them | The trust role, separate from the relayer's transport role. They sign the lock attestation, the compliance attestation, and the redemption attestation. The attester registry lists them, and they see the legs of the settlements they attest. |
-| Attester services | M independent operators on M participants. Each submits as its own attester party. |
 | wTOK admin | The instrument admin for wTOK. One party holds three surfaces, because the registry rules template carries a single admin field: it signs the wTOK registry, it is therefore the settlement factory admin for wTOK, and it signs that instrument's holdings and allocations. It authors the attested mint, so it sees every wTOK payment. It also maintains the attester registry and the credited-lock registry that the mint reads. |
 | KYC issuers | They sign the identity credential that D3 checks, and they maintain its expiry and revocation. The trusted-issuer list names them. Each observes no settlement leg. |
 | Trusted-issuer list admin | Sole signatory of the trusted-issuer list, and the party that decides which issuers it names. It issues no credential and observes no settlement leg. |
 | Custodian | Holds the seizure capability and owns the preset sweep account. It sees nothing until a seizure. |
 | Lawful-process authority | Signs the seizure order that a sweep past the settlement deadline requires. The attester registry lists it, and it is never the wTOK admin. |
 | Recipient, or Holder outbound | Signs the receiving allocation, live or through an allocation preapproval it signed earlier. |
-| Recipient wallet | Off-Canton process. It creates the allocation preapproval and submits as the recipient. |
 | Pause authority | Signs the pause state and maintains its key. |
 | Gateway admin | Sole signatory of the gateway, and the party that operates it. It submits nothing and holds the `FeaturedAppRight`. It reads the pause state, the trusted-issuer list, and each credential the gateway checks. |
+
+**Off-ledger actors and the external chain.** These hold no Canton party of
+their own. Each submits as one of the parties above, or it lives on the
+external chain.
+
+| Role | Responsibility and visibility |
+|---|---|
+| Lock escrow | External-chain contract. It holds the backing and releases it against a verified redemption attestation. Any submitter can present that attestation ([section 3.3](#33-outbound-redemption)). |
+| Relayer backend | Off-Canton process. It watches the external chain and submits every inbound command as the bridge relayer. |
+| Attester services | M independent operators on M participants. Each submits as its own attester party. |
+| Recipient wallet | Off-Canton process. It creates the allocation preapproval and submits as the recipient. |
 | Redemption operator | Off-Canton process. It submits for holders that delegate to it, and it owns the retry of a stalled release ([section 3.3](#33-outbound-redemption)). |
 
 The gateways and the registries are contracts, not services. The messaging
