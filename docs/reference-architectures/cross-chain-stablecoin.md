@@ -112,9 +112,21 @@ nothing says nothing about how complete the component is.
 
 ## 2. Architecture Overview
 
-The wrapped instrument has one Token Standard V2 registry that creates and
-settles its allocations. Institutional services supply the compliance
-attestation and the identity credential.
+Two things cross the boundary between the chains, and neither is a transaction:
+a signature from the attester set, and the nonce of a lock. Everything else here
+is Canton-local.
+
+That shapes the rail as one hub with attachments. The hub is the settlement
+batch that moves wTOK privately between accounts, and one Token Standard V2
+registry creates and settles every wTOK allocation. Supply enters at the
+attested mint and leaves at the burn. An attester signature gates each of those
+two, over an external-chain fact that no Canton check can validate. The
+compliance attestation gates the settle, and the identity credential gates the
+request before any allocation exists.
+
+The subsections below take that rail from three angles. They name the party
+behind each piece, say who can read it, and set how many independent keys stand
+behind the pieces that can break the reserve.
 
 ### 2.1 Business Roles
 
