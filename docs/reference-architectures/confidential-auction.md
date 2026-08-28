@@ -18,7 +18,8 @@ Five properties define the product:
 - **Uniform price.** Every winner pays the same clearing price under a rule
   published before bidding starts.
 - **Prefunded settlement.** The issuer locks the offered tokens before opening
-  the round, and each accepted bidder locks its maximum payment.
+  the round, and every accepted bid is backed by a maximum payment lock created
+  during bid preparation.
 - **Permissioned participation.** The auction application checks bidder
   eligibility when it accepts a bid and again before assigning tokens.
 
@@ -26,7 +27,8 @@ A **Canton party** is an on-ledger identity. A regular **asset account**
 identifies where tokens are held and names an owner. Some asset implementations
 also support an account provider or an additional account identifier.
 **Authority** is the on-ledger consent required from the parties that control an
-action.
+action. We call the parties whose authority an asset registry requires for an
+account action the **account parties**.
 
 We use [Token Standard V2](https://github.com/canton-foundation/cips/blob/main/cip-0112/cip-0112.md)
 allocations to lock the offered supply and bidder payments. An **allocation**
@@ -39,9 +41,9 @@ executor status does not provide the sender or receiver account authority
 required for a final movement.
 
 These initial allocations reserve the assets without authorizing a final
-payment or delivery. [Section 2.3](#23-core-application-concepts) introduces the
-accepted bid and issuer sale authority contracts through which the required
-parties authorize those final movements.
+payment or delivery. [Section 2.2](#22-personas-and-components) introduces the
+prepared and accepted bid records and the issuer sale authority through which
+the required parties authorize those final movements.
 
 We call the final all-or-nothing settlement transaction the **clear**. It
 cancels the issuer's initial supply lock and each winner's payment lock, uses the
@@ -117,13 +119,21 @@ winner pays 10 per token.
 
 ## 2. Architecture Overview
 
-The auction has three principal business participants: the bidder, issuer, and
-auctioneer. The payment asset and offered token each have a Token Standard V2
-registry that creates and settles allocations; one registry may support both
-assets. An eligibility provider either issues the reusable bidder credential or
-validates one from an approved credential issuer.
+The round and each bid are prepared before they become active. The issuer
+proposes the round terms, while the required account parties authorize the
+supply lock, payment receipt, and token delivery. Each bidder proposes a
+quantity, maximum price, and accounts, while its required account parties
+authorize the payment lock, payment to the issuer, and token receipt. These
+approvals may arrive in separate transactions. Final opening validates the
+prepared round inputs and creates the active round. A separate bid acceptance
+transaction validates each prepared bid and creates the accepted bid.
 
-**Business flow**
+After bidding closes, the auctioneer computes a proposed result off ledger. The
+application checks that result against the accepted bids supplied by the
+auctioneer, replaces the supply and winner payment locks with exact asset
+movements, and settles those movements atomically.
+
+**System context**
 
 ```mermaid
 flowchart TB
@@ -131,118 +141,190 @@ flowchart TB
     Bidder([BIDDER])
     Auctioneer([AUCTIONEER])
     Eligibility["Eligibility provider"]
+    Attester["Settlement attester<br/>(when required)"]
 
-    subgraph App["Auction application"]
-        Auction[["Round terms and state,<br/>private bids, and results"]]
-    end
-
-    subgraph Assets["Token Standard V2 asset registries"]
+    subgraph Auction["Confidential auction application"]
         direction LR
-        Payment["Payment asset registry"]
-        Token["Offered token registry"]
+        State["Round preparation, state,<br/>and private auction records"]
+        Clear["Result validation<br/>and atomic clear"]
+
+        State -->|"supplied round<br/>and bid records"| Clear
     end
 
-    Issuer -->|"publish round terms<br/>offer tokens"| Auction
-    Bidder -->|"submit private bid"| Auction
-    Auctioneer -->|"authorize opening<br/>close bidding and submit clear"| Auction
-    Eligibility -->|"confirm eligibility"| Auction
-    Auction ==>|"reserve maximum payment<br/>settle exact issuer payment"| Payment
-    Auction ==>|"reserve offered supply<br/>settle exact token delivery"| Token
+    Assets["Payment and offered token<br/>registries"]
+
+    Issuer -->|"propose terms<br/>and prepare supply"| State
+    Bidder -->|"prepare private bid"| State
+    Auctioneer -->|"authorize final opening<br/>and close bidding"| State
+    Auctioneer -->|"compute off ledger<br/>and submit bids and result"| Clear
+    Eligibility -->|"credential for<br/>bid acceptance"| State
+    Eligibility -->|"current status"| Clear
+    Attester -.->|"settlement approval<br/>when required"| Clear
+    State ==>|"prepare and verify<br/>asset locks"| Assets
+    Clear ==>|"settle assets"| Assets
 ```
 
-The auction application records the round terms, current round state, accepted
-bids, and results. It depends on the asset implementations, institutional
-services, governance roles, and Canton infrastructure shown below.
+The payment asset and offered token may use different registries or one registry
+that supports both. The application records the round state, prepared and
+accepted bids, and results, while the registries create and settle allocations
+under their own policies. The application checks the bidder credential during
+bid acceptance and again before assigning a fill. When an asset policy requires
+settlement approval, the configured attester approves the exact asset movements.
 
-**Application dependencies**
+### 2.1 Auction Lifecycle
+
+The same lifecycle applies to every round:
 
 ```mermaid
 flowchart TB
-    subgraph Services["Institutional services"]
+    subgraph Setup["Prepare and open the round"]
         direction LR
-        Eligibility["Bidder eligibility"]
-        Approval["Settlement approval<br/>(optional)"]
+        PrepareRound["1. Prepare round<br/>Terms, authority, and supply lock"]
+        Open["2. Final opening<br/>Validate preparation and open bidding"]
+
+        PrepareRound --> Open
     end
 
-    subgraph App["Auction application"]
-        Auction[["Round terms and state,<br/>private bids, and results"]]
+    subgraph Bidding["Prepare and accept bids"]
+        direction LR
+        BiddingOpen["Bidding open"]
+        PrepareBid["3. Prepare each bid<br/>Approvals and payment lock"]
+        AcceptBid["4. Accept bid<br/>Validate and assign order"]
+        Close["5. Close bidding"]
+
+        BiddingOpen --> PrepareBid
+        PrepareBid --> AcceptBid
+        AcceptBid -.->|"next bid"| PrepareBid
+        BiddingOpen -->|"bidding ends"| Close
     end
 
-    subgraph Assets["Token Standard V2 asset implementations"]
-        Registries["Allocation and<br/>settlement factories"]
+    subgraph Clearing["Compute, approve when required, and clear"]
+        direction LR
+        Compute["6. Compute result<br/>off ledger"]
+        ApprovalNeeded{"Settlement approval<br/>required?"}
+        Approval["Obtain required approvals<br/>for the exact settlement"]
+        Clear["7. Clear atomically<br/>Validate, settle, and record"]
+
+        Compute --> ApprovalNeeded
+        ApprovalNeeded -->|"no"| Clear
+        ApprovalNeeded -->|"yes"| Approval
+        Approval --> Clear
     end
 
-    Governance["Governance roles"]
-    Canton["Canton participants<br/>and synchronizer"]
+    subgraph Resolution["Clear outcome and recovery"]
+        direction LR
+        Outcome{"Clear result"}
+        Cleared([Round cleared])
+        Retry["Round remains closed<br/>Refresh and retry while<br/>inputs and deadlines remain valid"]
+        End["Cancel before the<br/>settlement deadline<br/>or record expiry"]
+        Recover["Recover remaining locks<br/>under registry rules"]
 
-    Eligibility -->|"eligibility status"| Auction
-    Approval -.->|"batch approval"| Auction
-    Governance -->|"configure and operate"| Auction
-    Canton -->|"privacy, authorization,<br/>and confirmation"| Auction
-    Auction ==>|"create initial locks<br/>settle exact allocations"| Registries
+        Outcome -->|"success"| Cleared
+        Outcome -->|"failure"| Retry
+        Retry -->|"retry clear"| Outcome
+        Retry -->|"cannot clear"| End
+        Cleared -->|"remaining locks"| Recover
+        End --> Recover
+    end
+
+    Setup -->|"bidding opens"| Bidding
+    Bidding -->|"bidding closed"| Clearing
+    Clearing --> Resolution
 ```
 
-Token Standard V2 defines the common interface for locking and settling assets.
-Institutional services provide eligibility and optional settlement approval.
-Governance roles define application authority. Canton participant nodes host
-parties and private contract data. Daml authorization determines which parties
-must authorize an action, while Canton visibility rules determine which parts of
-a transaction each party sees.
+Round and bid preparation can span several transactions as independent parties
+provide their approvals. Final opening, each bid acceptance, close, and clear are
+separate atomic transactions. The auctioneer computes the proposed result off
+ledger and obtains approval for the exact asset movements when an instrument
+requires it. The clear rechecks its inputs, recomputes the published rule for
+the accepted bids supplied by the auctioneer, and either settles and records
+every required result or rolls back every step.
 
-A **Daml signatory** is a party whose authority is required to create a
-contract. When a choice is exercised, that contract's signatories also authorize
-the consequences nested under the choice.
+Round state and allocation state remain independent. A supply or payment
+allocation can therefore exist even if final opening or bid acceptance fails.
+Cancelling or expiring an uncleared round stops clearing, while the asset
+registries determine how its locks are released. A successful clear settles
+winner movements and leaves payment locks not settled by the clear available for
+separate recovery.
 
-In Token Standard terminology, each asset is an **instrument**. Its
+### 2.2 Personas and Components
+
+In Token Standard terminology, each asset is an **instrument**, and its
 **instrument admin** governs the asset implementation. An **allocation factory**
 creates allocations, while a **settlement factory** settles compatible
 allocations for that admin.
 
-Each account used by the auction is a regular account with an owner. Some asset
-registries also support an **account provider**, such as a custodian or service
-provider. [Canton Coin supports only basic accounts](https://github.com/canton-foundation/cips/blob/main/cip-0112/cip-0112.md#6-canton-coin-implementation),
+The auction uses the following personas. A persona describes an application
+responsibility, and one Canton party may act as several personas.
+
+| Persona | Responsibility and visibility |
+|---|---|
+| Bidder | Proposes a quantity and maximum price. Every party required to authorize payment to the issuer or receipt of the offered token becomes a signatory of the accepted bid and sees it in full. |
+| Issuer | Proposes the round terms, prepares the offered supply, receives payment, and sees every prepared and accepted bid. |
+| Auctioneer | Coordinates round preparation, authorizes final opening, operates the round, sees every prepared and accepted bid, closes bidding, computes the result, submits the clear, and coordinates recovery. |
+| Instrument admins | Administer the payment and offered token registries. Each validates settlement for its asset and enforces its published approval and seizure policies. One party may administer both assets. |
+| Eligibility provider | Issues or validates the reusable credential that permits a bidder to participate. The issuer or auctioneer may operate this service or use an independent provider. |
+| Settlement attester, when required | Approves the exact settlement under an instrument policy. Organizational independence from the admin and auctioneer is a deployment decision. |
+| Auditor, when enabled | Receives authorized bid and outcome disclosures and recomputes the submitted result without exposing those records more broadly. |
+
+The issuer and auctioneer prepare and operate the round and approve its
+application code by default. A deployment may add authority to pause new bids or
+assign round preparation, final opening, audit, and upgrade authority to
+different parties. These choices change who can operate the auction and which
+parties must remain available. They do not change the round economics or clearing
+rule.
+
+Each auction account is a regular account with an owner. Some asset registries
+also support an **account provider**, such as a custodian or service provider,
+and an additional account identifier.
+[Canton Coin supports only basic accounts](https://github.com/canton-foundation/cips/blob/main/cip-0112/cip-0112.md#6-canton-coin-implementation),
 which have no provider or additional account identifier. Each registry
-determines which account forms it supports and whose account authority is
-required for each action. We call those required parties the **account parties**;
-the set may differ by account and action. Instrument-admin authority and
-optional settlement approval are separate. When an account has a provider,
+determines the account forms it supports and whose authority is required for an
+action. The account parties may differ by account and action. Instrument admin
+authority and optional settlement approval are separate from account authority.
+When an account has a provider,
 [Token Standard V2](https://github.com/canton-foundation/cips/blob/main/cip-0112/cip-0112.md#432-accounts-instead-of-parties)
-requires it to see every holding and asset movement for that account.
+requires the provider to see every holding and asset movement for that account.
 
-A **transfer leg** describes one asset movement: instrument, sender account,
-receiver account, and amount. Token Standard V2 records the two accounts'
-authorizations separately as the **sender side** and **receiver side**.
+The design separates seven responsibilities:
 
-Each initial allocation authorizes only the sender side of a leg whose sender
-and receiver are the same account. In the selected asset implementation, this
-outgoing authorization locks the stated amount. The missing receiver side keeps
-that leg from settling. Clearing cancels the issuer's supply lock and each
-winner's payment lock, then uses the released holdings to create the exact
-winner allocations. Losing payment locks remain available for separate
-recovery.
+| Component | Responsibility |
+|---|---|
+| Round proposal and terms | The issuer proposes the assets, economics, deadlines, clearing rule, bid limit, eligibility policy, registry references, and governance. Final opening fixes the exact proposal as the round terms. |
+| Round state | Begins when final opening succeeds and records whether the round is open, closed, cleared, cancelled, or expired while preserving the terms. |
+| Prepared bid | Records the private proposed bid, its maximum payment allocation, and the account approvals required before the bid can be accepted. It has no order number and cannot participate in clearing. |
+| Accepted bid | Records the private bid and its maximum payment allocation. Its signatories provide the account authority needed for any winner payment and token receipt permitted by the bid and round terms. The allocation keeps its registry recovery paths. |
+| Issuer sale authority | Prepared before final opening, it records the offered supply allocation. Its signatories provide the account authority needed to receive payment, deliver sold tokens, and return unsold supply under the round terms. The allocation keeps its registry recovery paths. |
+| Results | Records aggregate clearing data for the issuer and auctioneer and a private fill, payment, exclusion, or refund outcome for each bidder included in the clear. |
+| Asset registries | Create, cancel, withdraw, and settle allocations under each instrument's policy. |
 
-A **settlement batch** groups compatible allocations and legs for one instrument
-admin and settlement factory. We place both assets in one batch when they share
-that admin and the factory supports both. Otherwise, we settle one batch per
-compatible admin and factory, all inside the same Daml transaction.
+The required account parties become signatories of the accepted bid and issuer
+sale authority. Exercising their clearing choices carries that authority into
+the exact asset operations nested inside each choice. Recording a party
+identifier alone does not provide its authority. An account party may also be
+the bidder, issuer, or auctioneer, but each action still requires the authority
+assigned to every capacity in which it acts.
 
-### 2.1 Privacy and Result Trust
+### 2.3 Privacy and Result Trust
 
-Each party receives a **transaction projection** containing only the branches
-it is entitled to see. A bidder and every signatory of its accepted bid see that
-bid in full. The issuer and auctioneer see every accepted bid. Among the private
-application records, a competing bidder sees only its own accepted bid and, when
-included in the clear, its outcome unless the same Canton party also holds
-another role that grants access.
+Each party receives a **transaction projection** containing only the branches it
+is entitled to see. A party acting as several personas receives the visibility
+associated with each.
 
-Asset roles have separate views. Each instrument admin sees settlement legs for
-its instruments, and an account provider sees every holding and asset movement
-for the accounts it services. These roles do not by themselves reveal an
-accepted bid or private outcome. With privacy-compatible assets, each bidder
-included in the clear sees only its own settlement legs and outcome, while the
-issuer and auctioneer see the complete clear. Canton Coin publishes all transfer
-legs, so using it for either asset exposes those movements even when the
-application outcome record remains private.
+| Persona | Private auction records | Asset records |
+|---|---|---|
+| Bidder and bid account parties | The complete prepared and accepted bid and, when included in the clear, that bidder's outcome | That bidder's allocations and asset movements, subject to the asset's visibility rules |
+| Issuer and auctioneer | Every prepared and accepted bid and the complete clear | Every movement in the clear |
+| Instrument admin | No prepared or accepted bid or private outcome from this persona alone | Asset movements for its instruments |
+| Account provider | No prepared or accepted bid or private outcome from this persona alone | Every holding and asset movement for the accounts it services |
+| Settlement attester, when required | No prepared or accepted bid or private outcome from this persona alone | The exact asset movements it approves |
+| Auditor, when enabled | Only the bid and outcome disclosures it is authorized to receive | No additional asset visibility from this persona alone |
+
+When the asset implementations keep movements private, a competing bidder sees
+only its own prepared and accepted bid, asset movements, and outcome. The issuer
+and auctioneer see the complete clear. Canton Coin makes all asset movements
+public, so using it for either asset exposes those movements even when the
+application outcome remains private.
 
 The clear recomputes the published clearing rule for the accepted bids supplied
 by the auctioneer. This prevents settlement of an incorrectly computed result,
@@ -252,70 +334,22 @@ the issuer and auctioneer to keep bids confidential. An auditor with authorized
 disclosures can recompute the result for the disclosed bids, but cannot prove
 that the set is complete.
 
-### 2.2 Business Roles
-
-| Participant | Responsibility and visibility |
-|---|---|
-| Bidder | Submits a quantity and maximum price. Every party required to provide account authority for payment to the issuer or receipt of the offered token is a signatory of the accepted bid and sees it in full. |
-| Issuer | Publishes the round terms, locks the offered supply, receives payment, and sees every accepted bid. |
-| Auctioneer | Authorizes opening, operates the round, sees accepted bids, closes bidding, computes the result, submits the clear, and coordinates recovery. |
-| Instrument admins | Administer the payment and offered token registries. Each validates settlement for its asset and enforces its published approval and seizure policies. One party may administer both assets. |
-| Eligibility provider | Issues or validates the reusable credential that permits a bidder to participate. The issuer or auctioneer may operate this service or use an independent provider. |
-| Settlement attester, when required | Approves the exact settlement batch under an instrument policy. Organizational independence from the admin and auctioneer is a deployment decision. |
-| Auditor, when enabled | Receives authorized bid and outcome disclosures and recomputes the submitted result without exposing those records more broadly. |
-
-The issuer and auctioneer configure the round and coordinate close, clear, and
-recovery. By default, they also hold the application governance powers. A
-deployment may add a pause that stops new bids, or separate opening, audit, and
-upgrade authority among other parties. This changes who can operate the auction
-and which parties must remain available, while the round economics and clearing
-rule remain the same.
-
-Party hosting, application and asset visibility rules, account providers, and
-overlapping roles determine each party's transaction projection. Section 6
-defines the required projection tests. See the
-[Canton ledger model](https://docs.canton.network/overview/reference/ledger-model-detailed)
-and [architecture overview](https://docs.canton.network/overview/learn/architecture).
-
-### 2.3 Core Application Concepts
-
-We separate the architecture into six responsibilities:
-
-| Component | Responsibility |
-|---|---|
-| Round terms | Fix the assets, economics, deadlines, clearing rule, bid limit, eligibility policy, registry references, and governance before bidding begins. |
-| Round state | Records whether the round is open, closed, cleared, cancelled, or expired while preserving the round terms. |
-| Accepted bid | Names every party required to provide account authority for payment to the issuer or receipt of the offered token, together with the issuer and auctioneer, as Daml signatories. It records the exact payment allocation created for the bid and limits later use of that authority to any winner payment and token receipt permitted by the bid and round terms. The initial allocation retains its cancellation and withdrawal paths. |
-| Issuer sale authority | Names every party required to provide account authority for receipt of payment or delivery of the offered token as a Daml signatory. It records the exact supply allocation created for the round and limits its use to winner payment receipt and token delivery, or return of unsold tokens. Cancellation and withdrawal follow the allocation's recovery rules. |
-| Results | Records aggregate clearing data for the issuer and auctioneer and a private fill, payment, exclusion, or refund outcome for each bidder included in the clear. |
-| Asset registries | Create, cancel, withdraw, and settle allocations under each instrument's policy. |
-
-At bid acceptance, the parties required to provide account authority for the
-maximum payment lock authorize that allocation. The parties required to provide
-account authority for payment to the issuer or receipt of the offered token
-also become signatories of the accepted bid. Before bidding opens, the parties
-required for the issuer's payment receipt and token delivery become signatories
-of the issuer sale authority. If the bid wins, the auctioneer exercises a
-clearing choice on each winning accepted bid and on the issuer sale authority.
-The corresponding asset calls occur inside those choices, so the signatory
-authority applies only to those calls. The account parties do not act or sign
-again solely to authorize those movements. A party that also acts as auctioneer
-or executor still authorizes the clear in that role.
+Section 6 lists the required projection tests.
 
 ### 2.4 Institutional Controls
 
 We use D1 through D4 as local shorthand for four independent institutional
 controls. A deployment enables only the controls required by its policy:
 
-| Control | Treatment |
-|---|---|
-| Settlement approval (`D1`) | An optional instrument policy may require approval from a configured settlement attester. When policy requires independent approval, the attester must operate independently of the instrument admin and auctioneer. |
-| Allocation seizure (`D2`) | An instrument policy may let its admin mark an allocation and let privileged parties move its holdings. A mark can block auction settlement and ordinary recovery. |
-| Bidder eligibility (`D3`) | Bid acceptance checks that the bidder's payment and delivery accounts name the same owner and that the owner has an accepted credential. Clearing checks eligibility again before assigning a fill. |
-| Application governance (`D4`) | Assigns authority to configure, close, clear, or cancel a round and to approve application code. A deployment may add pause authority or separate these powers. Allocation recovery remains governed by the configured executors, each registry's authorization rules, and instrument policy. |
+| Control | Lifecycle point | Treatment |
+|---|---|---|
+| Settlement approval (`D1`) | Approval and clear | An optional instrument policy may require approval from a configured settlement attester. When policy requires independent approval, the attester must operate independently of the instrument admin and auctioneer. |
+| Allocation seizure (`D2`) | While locked, clear, and recovery | An instrument policy may let its admin mark an allocation and let privileged parties move its holdings. A mark can block auction settlement and ordinary recovery. |
+| Bidder eligibility (`D3`) | Bid acceptance and clear | Bid acceptance checks that the bidder's payment and delivery accounts name the same owner and that the owner has an accepted credential. Clearing checks eligibility again before assigning tokens. |
+| Application governance (`D4`) | Round operations | Assigns authority to prepare a round, complete final opening, accept bids, close, clear, or cancel the round. It also assigns authority to approve application code. A deployment may add pause authority or separate these powers. Allocation recovery remains governed by the configured executors, each registry's authorization rules, and instrument policy. |
 
-Related-party screening is an optional part of bidder eligibility. When it is
-required, the round can require an accepted related-party status in the bidder's
+Related party screening is an optional part of bidder eligibility. When it is
+required, the round can require an accepted related party status in the bidder's
 credential.
 
 Before accepting an instrument, we publish whether allocation seizure is
@@ -331,72 +365,66 @@ auction application cannot override the instrument's policy.
 
 ## 3. Target Design
 
-Opening, each bid acceptance, closing, and clearing are separate atomic
-transactions. The auctioneer computes the proposed result off-ledger. The clear
-recomputes the published clearing rule for the supplied bid set and either
-validates, allocates, settles, and records those outcomes or rolls back every
-step.
+Round and bid preparation create the locks and authority used by later
+transactions. Final opening and bid acceptance validate those prepared inputs.
+Unsettled allocations follow the selected registries' recovery rules.
 
-An account party may also be the bidder or issuer. Each diagram arrow uses only
-the parties required for that action.
+### 3.1 Prepare and Open the Round
 
-**Round lifecycle**
+Round preparation uses separate
+[proposal and acceptance](https://docs.canton.network/appdev/modules/m3-authorization#use-propose-accept-workflow-for-one-off-authorization)
+workflows and allocation transactions to establish the
+[auction mechanics](#11-auction-mechanics), selected asset policies, supply
+lock, and issuer sale authority. Final opening validates the completed
+preparation and opens bidding atomically.
 
 ```mermaid
-sequenceDiagram
-    autonumber
-    actor Issuer as ISSUER
-    actor IssuerAccounts as ISSUER ACCOUNT PARTIES
-    actor Bidder as BIDDER
-    actor BidderAccounts as BIDDER ACCOUNT PARTIES
-    actor Auctioneer as AUCTIONEER
-    participant App as Auction application
-    participant Assets as Token registries
+flowchart TB
+    subgraph Preparation["Round preparation: one or more transactions"]
+        direction LR
+        Issuer([ISSUER])
+        SupplyParties([SUPPLY LOCK<br/>ACCOUNT PARTIES])
+        SaleParties([PAYMENT RECEIPT AND DELIVERY<br/>ACCOUNT PARTIES])
+        Terms[["Proposed terms<br/>and asset policies"]]
+        Supply[["Active supply<br/>allocation"]]
+        Sale[["Issuer sale authority<br/>bound to terms and supply"]]
 
-    Note over Issuer,Assets: One round opening transaction
-    Issuer->>App: Publish round terms
-    Auctioneer->>App: Authorize round opening
-    IssuerAccounts->>App: Authorize supply lock
-    IssuerAccounts->>App: Authorize payment receipt and token delivery<br/>as issuer sale authority signatories
-    App->>Assets: Create supply lock under issuer account authority
-    App->>App: Record issuer sale authority
-    App-->>Bidder: Open round and authenticated round terms
-    loop Each accepted bid
-        Note over Bidder,Assets: One bid acceptance transaction
-        Bidder->>App: Submit private bid
-        BidderAccounts->>App: Authorize payment lock
-        BidderAccounts->>App: Authorize payment and token receipt<br/>as accepted bid signatories
-        App->>Assets: Create maximum payment lock
-        App->>App: Record accepted bid
-        App-->>Bidder: Confirm bid and settlement deadline
+        Issuer -->|"propose terms"| Terms
+        SupplyParties -->|"authorize lock"| Supply
+        SaleParties -->|"authorize movements"| Sale
+        Terms --> Supply
+        Supply --> Sale
     end
-    Auctioneer->>App: Close bidding
-    Auctioneer->>Auctioneer: Compute proposed result off-ledger
-    Auctioneer->>App: Submit accepted bids and proposed result
-    rect rgba(255, 255, 255, .1)
-        Note over App,Assets: Atomic clear. All steps commit or all roll back.
-        App->>App: Revalidate bids, result,<br/>and issuer sale authority
-        App->>App: Exercise each winning accepted bid
-        App->>Assets: Within the winning-bid choices,<br/>cancel payment locks and create bidder allocations
-        App->>App: Exercise issuer sale authority
-        App->>Assets: Within the sale-authority choice,<br/>cancel supply lock and create issuer allocations
-        App->>Assets: Settle every required batch
-        Assets-->>App: Return final settlement results
-        App->>App: Record aggregate result<br/>and private outcomes
+
+    subgraph Opening["Final opening: one atomic transaction"]
+        direction LR
+        Auctioneer([AUCTIONEER])
+        Verify["Verify matching terms, references,<br/>policies, deadlines, and active unmarked supply"]
+        Open[["Open round<br/>with fixed terms"]]
+
+        Auctioneer -->|"authorize"| Verify
+        Verify --> Open
     end
+
+    Preparation -->|"prepared terms, supply lock,<br/>and sale authority"| Opening
 ```
 
-### 3.1 Configure and Open the Round
+The issuer sale authority created during preparation identifies the exact supply
+allocation and carries the authority required for payment receipt and token
+delivery. The parties required for payment receipt may differ from those
+required for token delivery, so preparation completes every account
+authorization required by the selected registries before final opening.
 
-The round fixes the [auction mechanics](#11-auction-mechanics) and selected asset
-policies before it opens. One opening transaction creates a committed allocation
-for the full offered quantity, records the issuer sale authority that identifies
-that allocation, and opens the round after confirming that the allocation is
-active and unmarked.
+Final opening checks that the proposed terms, supply allocation, and sale
+authority still match, that the supply remains active and unmarked, and that its
+deadline leaves enough time for bidding, clearing, and any recovery required
+before the deadline. It then creates the open round with references to those
+exact inputs.
 
-The account parties required by the offered token registry authorize the supply
-lock. The parties required for the issuer's payment receipt and token delivery
-become signatories of the issuer sale authority.
+The application provides cancellation paths for an abandoned round proposal
+and sale authority. If preparation stops after the supply allocation is created,
+the auctioneer cancels that allocation or the account parties withdraw it when
+the registry permits. Consuming the bound allocation prevents final opening.
 
 Every auction allocation names the auctioneer as its sole settlement executor.
 The design uses four regular accounts: bidder payment and delivery accounts with
@@ -406,147 +434,290 @@ executor variants.
 
 ### 3.2 Accept a Bid and Lock Maximum Payment
 
-Bid acceptance checks three groups of conditions:
+A bidder first proposes its bid. The required account parties then create the
+maximum payment lock and approve the permitted payment and token receipt. These
+steps may use separate transactions. Bid acceptance validates the prepared bid,
+assigns its order number, and records the accepted bid atomically.
+
+```mermaid
+flowchart TB
+    subgraph Preparation["Bid preparation: one or more transactions"]
+        direction LR
+        Bidder([BIDDER])
+        LockParties([PAYMENT LOCK<br/>ACCOUNT PARTIES])
+        SettlementParties([FINAL PAYMENT AND TOKEN RECEIPT<br/>ACCOUNT PARTIES])
+        Proposal[["Proposed bid<br/>quantity, price, and accounts"]]
+        Payment[["Active maximum<br/>payment allocation"]]
+        Ready[["Prepared bid<br/>account approvals recorded"]]
+
+        Bidder -->|"propose bid"| Proposal
+        LockParties -->|"authorize lock"| Payment
+        SettlementParties -->|"approve movements"| Ready
+        Proposal --> Payment
+        Payment --> Ready
+    end
+
+    subgraph Acceptance["Bid acceptance: one atomic transaction"]
+        direction LR
+        Round[["Open round<br/>and fixed terms"]]
+        Credential[["Current eligibility<br/>credential and status"]]
+        Check["Check the round, bid, accounts,<br/>eligibility, supply, and matching references"]
+        Accepted[["Private accepted bid<br/>and order number"]]
+
+        Round -->|"authority to accept bids"| Check
+        Credential -->|"current owner and status"| Check
+        Check --> Accepted
+    end
+
+    Preparation -->|"prepared bid, payment lock,<br/>and account approvals"| Acceptance
+```
+
+The payment lock reserves funds without naming the issuer as their final
+destination. Preparation makes the bid and its required account approvals
+available to the issuer and auctioneer without exposing it to competing
+bidders. Before creating the payment lock, the wallet checks the proposed terms.
+Bid acceptance then rechecks three groups of conditions against current ledger
+state:
 
 - the round is open and below its bid limit, and the positive quantity and
   maximum price satisfy its lot, tick, and reserve rules;
-- both registries support the selected bidder accounts, which name the same
-  eligible owner; and
+- each selected registry supports the account used with its asset, and the
+  payment and delivery accounts name the same eligible owner; and
 - the credential remains valid for that owner, while the issuer's supply lock
   remains active and unmarked.
 
 The published payment rounding rule applies to `requested quantity x maximum
-unit price` to determine the maximum payment. One bid acceptance transaction
-creates a committed allocation that locks this amount without authorizing
-payment to the issuer, then records an accepted bid that identifies the
-allocation and fixes its order number. The record also binds the round,
-accounts, instruments, bid, deadlines, and selected registries.
+unit price` to determine the maximum payment. The accepted bid identifies the
+committed allocation and binds its fixed order number, round, accounts,
+instruments, bid values, deadlines, and selected registries.
 
-The account parties required by the payment asset registry authorize the payment
-lock. The parties required for the final bidder payment and token receipt become
-signatories of the accepted bid, together with the issuer and auctioneer. Bid
-acceptance is a choice on the open round, whose signatories provide the issuer
-and auctioneer authority without a separate action for each bid.
+The payment lock and winner movements may require different account parties.
+Their preparation transactions record both sets of approvals. Bid acceptance
+combines those approvals with the issuer and auctioneer authority carried by the
+open round. The resulting accepted bid has those parties as signatories, and its
+clearing choice carries their authority only into movements allowed by the bid
+and round terms.
+
+If bid acceptance fails after the payment allocation is created, the bid
+receives no order number and cannot enter clearing. The application lets the
+bidder or auctioneer close the abandoned proposal and prepared bid. The
+auctioneer cancels the allocation, or the account parties withdraw it when the
+registry permits.
 
 ### 3.3 Close Bidding and Compute the Result
 
-Closing prevents further bid acceptance. The auctioneer computes the proposed
-result off-ledger and supplies the accepted bids to the clear. Canton's privacy
-model prevents the application from enumerating all private bids, so the
-auctioneer remains trusted to supply the complete set.
+Closing is one transaction that prevents further bid acceptance. The auctioneer
+then computes the proposed result off ledger and supplies the accepted bids to
+the clear. The application cannot enumerate all private accepted bids on its
+own, so the auctioneer remains trusted to supply the complete set.
 
-The clear rechecks the issuer sale authority, supply lock, accepted bids,
-credentials, and payment locks. A bidder receives a zero fill if its eligibility
-has expired or been revoked, or if its payment lock is marked. A mark on the
-supply lock, or prior consumption of a required payment or supply allocation,
-blocks the clear.
+### 3.4 Create Exact Allocations and Settle
+
+The clear is the only transaction that validates the result and settles every
+winner movement together.
+
+```mermaid
+flowchart TB
+    Auctioneer([AUCTIONEER])
+
+    subgraph Inputs["Inputs to the clear"]
+        direction LR
+        Supply["Supply lock and<br/>sale authority"]
+        Payments["Supplied bids and<br/>payment locks"]
+        Proposal["Closed round and<br/>proposed result"]
+        Eligibility["Current eligibility"]
+        Approval["Settlement approval<br/>when required"]
+
+        Supply ~~~ Payments
+        Payments ~~~ Proposal
+        Proposal ~~~ Eligibility
+        Eligibility ~~~ Approval
+    end
+
+    subgraph ClearTx["Atomic clear transaction: all steps commit or all roll back"]
+        direction LR
+        Validate["Recheck inputs and recompute<br/>the result for supplied bids"]
+        Exact["Exercise bid and sale authority<br/>Cancel locks and create exact movements"]
+        Settle["Call compatible settlement factories<br/>and use required approvals"]
+        Record["Record aggregate result<br/>and included bidders' private outcomes"]
+
+        Exact --> Settle
+        Validate --> Exact
+        Settle --> Record
+    end
+
+    subgraph Outcome["After a successful clear"]
+        direction LR
+        IssuerResult["Issuer receives payment<br/>Unsold tokens return"]
+        WinnerResult["Winners receive tokens<br/>Unused payment returns"]
+        Remaining["Unsettled payment locks<br/>remain for recovery"]
+        RoundResult[["Cleared round<br/>and recorded outcomes"]]
+
+        IssuerResult ~~~ WinnerResult
+        WinnerResult ~~~ Remaining
+        Remaining ~~~ RoundResult
+    end
+
+    Inputs --> ClearTx
+    Auctioneer -->|"submit clear as executor"| ClearTx
+    ClearTx ==>|"successful commit"| Outcome
+```
+
+A failed clear leaves the round closed. [Section 4](#4-failure-recovery) covers
+retry and recovery.
+
+**Validate the proposed result.** The clear rechecks the issuer sale authority,
+supply lock, accepted bids, credentials, and payment locks. A bidder receives a
+zero fill if its eligibility has expired or been revoked, or if its payment lock
+is marked. A mark on the supply lock, or prior consumption of a required payment
+or supply allocation, blocks the clear.
 
 The clear rejects duplicate supplied bids, recomputes the clearing price, fills,
 and rounded winner payments, and validates supply, bid price limits, and lot and
 tick alignment. [Section 4](#4-failure-recovery) covers these failures and their
 recovery paths.
 
-### 3.4 Create Exact Allocations and Settle
+**Create exact movements.** A **transfer leg** describes one asset movement:
+instrument, sender account, receiver account, and amount. Token Standard V2
+records the two accounts' authorizations separately as the **sender side** and
+**receiver side**.
+
+Each initial allocation supplies only the sender authorization for a leg from
+the account back to itself. The selected asset implementation treats this as a
+lock. Without receiver authorization, that return movement cannot settle, so
+the allocation reserves the holdings without approving an external recipient.
 
 Inside the choice on each winning accepted bid, the auctioneer uses executor
 authority to cancel the payment lock. The exact bidder payment and token receipt
-allocations are direct consequences of that choice, so its signatories authorize
-their creation and the return of the unused portion of the maximum payment.
-Inside the choice on the issuer sale authority, the auctioneer cancels the supply
-lock and its signatories authorize the matching issuer payment receipt and token
-delivery allocations.
-Unsold inventory returns to the issuer. Losing payment locks remain available
-for recovery.
+allocations are consequences of that choice, so its signatories authorize their
+creation and the return of the unused portion of the maximum payment. Inside the
+choice on the issuer sale authority, the auctioneer cancels the supply lock and
+its signatories authorize the matching issuer payment receipt and token delivery
+allocations. Unsold inventory returns to the issuer. Payment locks for zero-fill
+bids remain available for recovery.
 
 Each winner has two transfer legs. Four allocations authorize both sides:
 bidder sender and issuer receiver for payment, then issuer sender and bidder
-receiver for token delivery. The legs are:
+receiver for token delivery.
 
 | Asset | Sender | Receiver | Amount |
 |---|---|---|---:|
 | Payment asset | Bidder payment account | Issuer payment receipt account | Published payment rounding rule applied to `fill quantity x clearing price` |
 | Offered token | Issuer inventory account | Bidder delivery account | Final fill quantity |
 
-Each settlement factory receives only allocations for instruments governed by
-its admin and supported by that factory. Different admins or settlement
-factories require separate batch calls. If both assets use the same admin and a
-factory that supports both, their allocations may be included in one batch
-call. Every required batch remains inside the same Daml transaction.
+**Settle every batch.** A **settlement batch** groups compatible allocations and
+legs for one instrument admin and settlement factory. Each factory receives only
+allocations for instruments governed by its admin and supported by that factory.
+Different admins or factories require separate batch calls. If both assets use
+the same admin and a factory that supports both, their allocations may be
+included in one batch call. Every required batch remains inside the same Daml
+transaction.
 
 An instrument that enables settlement approval requires one approval from its
 configured settlement attester for each relevant batch. The approval is used
-once and identifies the settlement, executor set, and every transfer leg. All
-allocation and settlement factory calls must complete within the clear. An
-allocation factory that requires later acceptance needs a different clearing
-design.
+once and identifies the settlement, executor set, and every transfer leg. Every
+final allocation and settlement factory call must complete within the clear. A
+factory that requires another account party to accept a final movement in a
+later transaction needs a different clearing design and is outside this scope.
 
 Each selected settlement factory must reject a batch unless its allocations
 exactly cover both sides of every transfer leg. Any failed call rolls back the
-complete clear. On success, the round becomes cleared, the issuer and auctioneer
-receive the aggregate result, and each bidder included in the clear receives its
-own outcome. Later recovery cannot undo the completed winner settlement.
+complete clear. Completed winner settlement is final.
 
 ### 3.5 Release Locked Assets
 
-Round and allocation state are independent: cancelling or expiring a round
-prevents clearing but does not release its allocations. The auctioneer can
-cancel active, unmarked allocations; after the settlement deadline, withdrawal
-is also available under the registry's authorization rules. A seizure mark
-blocks both paths until the admin removes it, the mark's time limit permits
-release, or an authorized sweep closes the allocation. After the settlement
-deadline, cancellation and withdrawal may race; only one can consume the active
-allocation. [Section 4](#4-failure-recovery) covers retries and recovery
-outcomes.
+Round and allocation state are independent. Cancelling, expiring, or clearing a
+round does not close an allocation that remains active. This also applies to an
+allocation created during round or bid preparation when final opening or bid
+acceptance fails.
+
+```mermaid
+flowchart LR
+    Allocation[["Active allocation<br/>still holding assets"]]
+    Mark{"Seizure mark?"}
+
+    Ordinary["Active and unmarked"]
+    Cancel["Auctioneer cancellation<br/>under registry rules"]
+    Withdraw["Withdrawal after deadline<br/>under registry rules"]
+
+    Policy["Apply seizure policy"]
+    Swept["Authorized sweep<br/>moves the holdings"]
+    Released(["Lock released"])
+
+    Allocation --> Mark
+    Mark -->|"no"| Ordinary
+    Mark -->|"yes"| Policy
+    Ordinary --> Cancel
+    Ordinary --> Withdraw
+    Cancel --> Released
+    Withdraw --> Released
+    Policy -->|"mark removed or<br/>time permits release"| Ordinary
+    Policy -->|"authorized sweep"| Swept
+```
+
+Cancellation, withdrawal, mark changes, and sweeping are independent registry
+operations, normally submitted separately. After the settlement deadline,
+cancellation and withdrawal may race; only one can consume the allocation.
+[Section 4](#4-failure-recovery) covers recovery outcomes.
 
 ### 3.6 Manage Execution and Timing
 
 Each lifecycle stage has its own execution boundary:
 
-| Stage | Execution boundary | Invalidation conditions |
+| Stage | Execution boundary | Main invalidation conditions |
 |---|---|---|
-| Open | One transaction creates the supply lock, records the issuer sale authority, and opens the round | Inventory, account, asset implementation, or policy no longer matches the terms |
-| Bid | One transaction per bidder creates the maximum payment lock and records the accepted bid | Bidding closes or eligibility, supply, account, or asset state changes |
-| Close | One transaction stops bid acceptance | The round has already left the open state |
-| Compute | Off-ledger auctioneer computation | Eligibility or asset state changes before clear |
-| Approve | Optional settlement approval transaction for an enabled instrument | Approval expires or its transfer legs change |
-| Clear | One Daml transaction validates, allocates, settles, and records outcomes | A deadline passes or required funds, approval, registry state, or authority changes |
-| Recover | Independent cancellation or withdrawal transactions | The allocation state, deadline, registry authorization rules, or seizure policy do not permit cancellation or withdrawal |
+| Round preparation | One or more independently committed transactions | Terms, inventory, accounts, authority, registry policy, or deadlines change between steps |
+| Final opening | One atomic transaction | A required record is missing or no longer matches, the supply allocation is consumed or marked, or a deadline leaves too little time |
+| Bid preparation | One or more independently committed transactions | The round closes, or the bid, accounts, allocation, authority, or deadline changes between steps |
+| Bid acceptance | One atomic transaction per accepted bid | A referenced round, bid, credential, supply lock, payment lock, or recorded value changes |
+| Close | One atomic transaction | The round has already left the open state |
+| Compute | Off ledger | Eligibility or asset state changes before clear |
+| Approval | Optional separate transaction after computation | Approval expires or the exact settlement changes |
+| Clear | One atomic Daml transaction | A deadline passes or required funds, approval, registry state, or authority changes |
+| Recovery | Independent operations, normally submitted separately | The allocation state, deadline, registry authorization rules, or seizure policy do not permit the requested action |
 
 The bidding deadline stops new bids. The settlement deadline bounds clearing and
-makes committed allocations withdrawable afterwards. The settlement window runs
-from bidding close to the settlement deadline. We use the earliest bound imposed
-by those deadlines, asset policies, approvals, factories, or prepared
-transactions, with a published margin for signing, confirmation, and recovery.
+makes committed allocations withdrawable afterward under registry rules. Because
+the supply and payment locks can exist before final opening or bid acceptance,
+their deadlines must leave enough time for the remaining preparation, bidding,
+clearing, and any recovery expected before the deadline. Withdrawal based on the
+deadline begins only afterward. We use the earliest bound imposed by the round,
+asset policies, approvals, factories, or transaction submission time bounds,
+with a published margin for signing and confirmation.
 
-A prepared transaction remains usable only while its inputs and time bounds are
-valid. If either changes, the backend prepares a new transaction from current
-ledger state and obtains any external signatures required for submission.
-The account parties do not externally sign the clear solely to authorize the
-nested asset movements. Participants hosting those parties may still need to
-confirm it. A party that also submits the clear still provides the authority
-and any external signature required by that role.
+A transaction prepared for later submission or external signing must be replaced
+when its inputs or time bounds change. The backend prepares the replacement from
+current ledger state and obtains any supported external signature required for
+submission. Required Daml authority comes from the submitting parties or prior
+authorization contracts. Canton participant confirmation validates the
+submitted transaction; it does not provide missing account consent.
 [Section 6](#6-deployment-and-operations) covers submission and retry handling.
 
 ## 4. Failure Recovery
 
-The round starts open. At or after the bidding deadline, the auctioneer closes it
-in a separate transaction, ending bid acceptance. A successful clear changes
-the round state to cleared. Before the settlement deadline, the auctioneer may
-instead cancel an uncleared round; after that deadline, it may record the round
-as expired. Allocation release follows the rules in
-[section 3.5](#35-release-locked-assets). A failed clear rolls back and leaves
-the round closed, so the auctioneer can retry with current ledger state. An
-optional pause stops new bids without blocking close, clear, or recovery.
+A failed final opening leaves bidding closed, and a failed bid acceptance leaves
+the bid without an order number. Any supply or payment allocation already
+created remains active until a registry operation closes it.
+
+A failed clear leaves the round closed, so the auctioneer can retry while its
+inputs remain valid and the earliest applicable deadline has not passed. Before
+the settlement deadline it may cancel an uncleared round; afterward it may
+record the round as expired.
+Allocation release follows [section 3.5](#35-release-locked-assets). An optional
+application pause stops new bid preparation and bid acceptance without blocking
+close, clear, or recovery.
 
 | Situation | Result | Next action |
 |---|---|---|
-| A step inside the clear fails | The complete clear rolls back and the round stays closed | Refresh ledger state and retry within the settlement window |
-| Settlement approval is missing or expires | The relevant batch cannot settle, so the complete clear rolls back | Obtain fresh approval within the settlement window; otherwise recover under [section 3.5](#35-release-locked-assets) |
+| Round preparation stops after the supply lock is created, or final opening rejects its inputs | No round opens; the supply remains locked | Complete preparation with current inputs, or cancel the application records and release the allocation under registry and seizure rules |
+| Bid preparation stops after the payment lock is created, or bid acceptance rejects its inputs | No bid is accepted and no order number is assigned; the payment remains locked | Retry while bidding remains open, or cancel the application records and release the allocation under registry and seizure rules |
+| A step inside the clear fails | The complete clear rolls back and the round stays closed | Refresh ledger state and retry while current inputs remain valid and the earliest applicable deadline has not passed |
+| Settlement approval is missing or expires | The relevant batch cannot settle, so the complete clear rolls back | Obtain fresh approval while clearing remains allowed; otherwise recover under [section 3.5](#35-release-locked-assets) |
 | Bidder eligibility is invalid at clear | That bid receives zero fill | The auctioneer cancels the allocation, or it is withdrawn after the settlement deadline under the registry's rules |
 | Bidder payment lock is marked | That bid receives zero fill and ordinary release is blocked | Remove the mark, wait for permitted release, or follow the sweep policy |
 | Issuer supply lock is marked | The complete clear is blocked | Resolve the mark; if a sweep or another asset operation permanently closes it, cancel or expire the round as applicable and reconcile that outcome |
 | Required allocation has already been consumed | The clear stops because the locked assets are no longer available | Reconcile the asset operation, then cancel or expire the round |
-| Auctioneer service or a required Canton participant is unavailable | Close, clear, or early cancellation is delayed | Restore service and refresh state; withdrawal becomes available after the settlement deadline under registry rules, subject to the seizure policy |
+| Auctioneer service or a required Canton participant is unavailable | Round or bid preparation, final opening, bid acceptance, close, clear, or early cancellation are delayed | Restore service and refresh state; withdrawal becomes available after the settlement deadline under registry rules, subject to the seizure policy |
 | Synchronizer is unavailable | No auction or recovery transaction can confirm | Refresh state after service returns and resume the action allowed by the current round state and deadlines |
 
 ## 5. Security and Auditability
@@ -558,26 +729,26 @@ that remain trusted.
 
 | Property | Enforcement |
 |---|---|
-| Fixed auction rule | Round terms fix the assets, supply, clearing rule, rounding, fixed bid order, bid limit, deadlines, and enabled controls before bidding. |
-| Bounded bidder payment | The parties required to provide account authority for the maximum payment lock authorize that allocation. The parties required to provide account authority for payment to the issuer or receipt of the offered token become signatories of an accepted bid that limits both movements to the published terms. Clearing computes an exact payment at or below that maximum and returns the unused portion of the maximum payment. |
-| Reserved supply | The parties required to provide account authority for the supply lock authorize that allocation. The parties required to provide account authority for receipt of payment or delivery of the offered token become signatories of the issuer sale authority, which limits both movements to the published terms. The instrument policy may still permit seizure of the locked allocation. |
+| Fixed auction rule | Round preparation defines the assets, supply, clearing rule, rounding, fixed bid order, bid limit, deadlines, and enabled controls. Final opening fixes those exact terms before bidding begins. |
+| Bounded bidder payment | The parties required to provide account authority for the maximum payment lock authorize that allocation. The parties required to authorize payment to the issuer or receipt of the offered token approve a prepared bid that limits both movements to the published terms. Bid acceptance verifies those exact approvals and the active payment lock. Clearing computes a payment at or below the maximum and releases the unused amount. |
+| Reserved supply | The parties required to provide account authority for the supply lock authorize that allocation. The parties required to authorize payment receipt or token delivery approve the issuer sale authority, which limits both movements to the published terms. Final opening verifies the exact authority and an active, unmarked supply lock whose deadline covers the round. The instrument policy may still permit seizure. |
 | Correct clearing of supplied bids | The clear recomputes eligibility, ordering, clearing price, fills, exclusions, and rounded payments for every accepted bid supplied to it. |
-| Atomic delivery versus payment | Every compatible asset batch settles inside one Daml transaction. A failed step rolls back allocation, settlement, result, and state changes. |
-| Private bidder outcomes | With privacy-compatible assets, each bidder's transaction projection contains only its own authorization, settlement legs, and outcome when included in the clear. Assets with public legs expose the corresponding movements even when the application outcome record remains private. |
+| Atomic delivery versus payment | All required factory batch calls settle inside the same clear transaction. A failed step rolls back allocation, settlement, result, and state changes. |
+| Private bidder outcomes | When the asset implementations keep movements private, each bidder's transaction projection contains only its prepared and accepted bid, asset movements, and outcome. Public asset movements remain visible even when the application outcome is private. |
 | Deadline-based recovery | The auctioneer, as the allocation's sole settlement executor, can cancel it at any time while it remains active and unmarked. After the settlement deadline, the allocation becomes withdrawable under its registry's authorization rules, subject to the instrument's seizure policy. |
 
 ### 5.2 Trust Boundaries
 
 | Trusted party or system | Required behavior and consequence |
 |---|---|
-| Auctioneer | Includes every accepted bid, protects bid confidentiality, computes and submits on time, and uses cancellation powers according to policy. Omission or delay can change the outcome or prevent settlement. |
-| Issuer | Protects the confidentiality of every accepted bid and supplies valid inventory and authority for its payment receipt account. Issuer and auctioneer collusion remains an application governance risk. |
+| Auctioneer | Coordinates round and bid preparation, completes final opening and bid acceptance only with valid inputs, includes every accepted bid, protects bid confidentiality, computes and submits on time, and releases abandoned locks according to policy. Omission or delay can change the outcome or prevent settlement. |
+| Issuer | Protects the confidentiality of every prepared and accepted bid and supplies valid inventory and authority for its payment receipt account. Issuer and auctioneer collusion remains an application governance risk. |
 | Parties controlling the round or accounts | These parties can jointly authorize transactions outside the auction. Wallets bind signatures to the intended round, and operators audit unexpected state transitions. |
 | Instrument admins and factories | Keep compatible registries available, validate their asset batches, and apply published approval and seizure policies. Policy-authorized seizure or movement can bypass the auction settlement path. |
 | Eligibility provider and auction governance | The provider binds credentials to the bidder owner and maintains status, expiry, and revocations. Auction governance fixes the accepted credential issuers in the round terms. |
 | Settlement attester, when required | Approves only batches that satisfy policy. A compromised or affiliated attester weakens the independent review expected by the deployment. |
 | Canton infrastructure | Keeps required parties hosted, approved code available, and transactions confirmable within the round deadlines. |
-| Auditor, when enabled | Receives enough authorized disclosures to check the supplied bid set and result without exposing records more broadly. |
+| Auditor, when enabled | Receives authorized disclosures to recompute the disclosed result without exposing records more broadly. It cannot prove that the supplied bid set is complete. |
 
 Bid completeness remains the main residual risk. Deterministic on-ledger
 clearing proves the result for the set the auctioneer supplies. It cannot prove
@@ -595,33 +766,33 @@ destination when marking, so it does not meet that requirement by itself.
 
 ## 6. Deployment and Operations
 
-Before opening a round, we fix the approved package IDs, the immutable
+Before round preparation, we fix the approved package IDs, the immutable
 identifiers for the deployed application and asset code. We also fix the
 instrument admins, credential issuers, governance parties, accounts, and
-deadlines. A Canton synchronizer coordinates ordering and confirmation for the
-clear. All records used by that clear remain on one compatible synchronizer,
-and every involved participant supports the approved application and asset
-code.
+deadlines. The preparation records, final opening, accepted bids, and clear use
+one compatible synchronizer, and every involved Canton participant supports the
+approved application and asset code.
 
 ### 6.1 Traffic and Application Rewards
 
-On a traffic-controlled synchronizer, auction protocol messages consume traffic
-from the participant that sends them. Each participant's hosted parties and
-applications share its balance. Operators monitor and fund every participant
-required for opening, bidding, clearing, or recovery; an exhausted balance
-blocks its messages. See the
+Round and bid preparation, final opening, bid acceptance, closing, clearing,
+and recovery require sufficient traffic on every Canton participant that sends
+protocol messages. A participant's hosted parties and applications share
+its balance, so operators monitor and fund every required participant. An
+exhausted balance blocks its messages. See the
 [traffic documentation](https://docs.sync.global/deployment/traffic.html).
 
 For reward attribution, the auctioneer is the **app provider party**. Under
 [CIP-0104](https://github.com/canton-foundation/cips/blob/main/cip-0104/cip-0104.md),
 an active `FeaturedAppRight` naming the auctioneer lets it earn traffic-based
 rewards from successful auction transactions for which it confirms one or more
-views. Opening, bid acceptance, close, clear, and auctioneer-led recovery all use
-auctioneer authority and can therefore contribute; observation alone does not
-qualify. Eligible activity contributes to a reward calculated for each network
-reward round. When that reward meets the network threshold, the network issues a
-coupon that the auctioneer can redeem before it expires, directing some or all
-of the resulting Canton Coin to named beneficiaries.
+views. Final opening, bid acceptance, close, clear, and auctioneer-led recovery
+use auctioneer authority and can therefore contribute. Preparation transactions
+can also contribute when the auctioneer confirms a view; observation alone does
+not qualify. Eligible activity contributes to a reward calculated for each
+network reward round. When that reward meets the network threshold, the network
+issues a coupon that the auctioneer can redeem before it expires, directing some
+or all of the resulting Canton Coin to named beneficiaries.
 
 These rewards can help fund traffic and other operating costs. A quantitative
 analysis of the traffic costs incurred by the auction flows, the rewards accrued
@@ -635,46 +806,46 @@ We require the following production checks:
 
 | Area | Required decision and evidence |
 |---|---|
-| Assets and factories | Pin both instruments, admins, factories, supported account forms, authorization and visibility rules, limits, and control policies. Require every initial and final allocation call to complete in its calling transaction and settlement to complete during the clear. An allocation factory that requires later acceptance needs an earlier authorization step and a clearing design that completes acceptance before the clear. Test the initial supply and payment locks, cancellation, exact bidder and issuer allocations, winner payment and delivery, and return of unused maximum payment. |
-| Code and synchronizer | Make the approved application, Token Standard interfaces, and asset code available to every participant involved in the clear. Verify that all round records use one compatible synchronizer. |
-| Roles and authorization | Assign issuer, auctioneer, eligibility, optional settlement approval, and governance powers. Identify and test the account authority required for each initial lock. Separately identify the parties required to provide account authority on both sides of each payment and token delivery created during clearing. Verify that the accepted bid names the parties acting for bidder accounts as signatories, the issuer sale authority names those acting for issuer accounts, and the corresponding asset calls occur inside those choices. Test that clearing fails if required authority is missing or an asset call moves outside its intended choice. |
-| Hosting and submission | Verify each party's hosting and signing setup, keep the participants needed for confirmation available, and preserve at least one authorized recovery path. |
-| Privacy | Test transaction projections for bidders, issuer, auctioneer, instrument admins, settlement attesters, auditors, and every configured account provider. Display every required disclosure before signature. |
-| Time and retry | Publish the bidding and settlement deadlines together with preparation and recovery margins. Monitor the earliest dependency deadline, command completions, retries, and ledger-state changes. |
-| Recovery | Exercise clear rollback, auctioneer cancellation, withdrawal under each registry's authorization rules, backend outage, synchronizer outage, allocation changes, and every supported seizure outcome. |
-| Capacity | Test the largest allowed individual bid, accepted bid set, and winner set against applicable factory, transaction, signature, and participant traffic limits. Stop accepting bids at the published bid limit. |
-| Operations | Monitor round state, locked allocations, eligibility and approval status, approved code, party availability, confirmation latency, participant traffic balances, reward coupons and expiry, and unresolved recovery actions. |
+| Assets and factories | Pin both instruments, admins, factories, supported accounts, authorization and visibility rules, limits, and control policies. Require a completed supply lock before final opening and a completed payment lock before bid acceptance. Final allocations and settlement must complete inside the clear; factories that require later acceptance of final movements need a separate design. Test partial preparation, matching references and values, rejection at final opening and bid acceptance, cancellation, winner settlement, and release of unused or abandoned locks. |
+| Code and synchronizer | Make the approved application, Token Standard interfaces, and asset code available to every involved Canton participant. Verify that every preparation record, allocation, round record, accepted bid, approval, and clear input uses one compatible synchronizer before it is combined in a transaction. |
+| Personas and authorization | Assign round preparation, final opening, bid acceptance, eligibility, optional settlement approval, and governance powers. Test the authority required for every preparation transaction and initial lock. Verify that prepared bids carry the bidder account approvals, the issuer sale authority carries the issuer account approvals, and final allocation creation occurs inside their clearing choices. Keep settlement batch calls under the executor-controlled clear. Test that missing or misplaced authority causes rejection. |
+| Hosting and submission | Verify each party's hosting and signing setup, keep the Canton participants needed for confirmation available, and preserve at least one authorized recovery path. |
+| Privacy | Test transaction projections during preparation, final opening, bid acceptance, clear, and recovery for bidders, issuer, auctioneer, instrument admins, settlement attesters, auditors, and every configured account provider. Display every required disclosure before signature. |
+| Time and retry | Publish the bidding and settlement deadlines together with preparation and recovery margins. Track each command independently and monitor the earliest dependency deadline, completion, retries, and ledger state changes. |
+| Recovery | Exercise interruption after each preparation step, rejection at final opening and bid acceptance, clear rollback, auctioneer cancellation, registry withdrawal, backend or synchronizer outage, allocation changes, and every supported seizure outcome. |
+| Capacity | Test the largest allowed individual bid, accepted bid set, and winner set against applicable factory, transaction, signature, and Canton participant traffic limits. Stop accepting bids at the published bid limit. |
+| Operations | Monitor incomplete preparation, allocations whose round or bid never became active, round state, eligibility and approval status, approved code, party availability, confirmation latency, Canton participant traffic balances, reward coupons and expiry, and unresolved recovery actions. |
 
-For interactive submission, the client waits for a definitive completion before
-treating an attempt as final. We give each prepared transaction a latest allowed
-recording time. The Ledger API deduplicates retries of one intended ledger change
-using its command ID, user, and acting parties at the submitting participant. A
-retry preserves those values, returns to the same participant, requests coverage
-for the complete retry period, and uses a fresh submission ID. The backend
-prepares a replacement only after a definitive rejection or after the previous
-transaction's latest allowed recording time has passed. See
+For an auction command with an uncertain outcome, the client tracks its
+completion and latest allowed recording time. The Ledger API deduplicates retries
+of one intended ledger change using its command ID, user, and acting parties at
+the submitting Canton participant. A retry preserves those values, returns to
+the same participant, requests coverage for the complete retry period, and uses
+a fresh submission ID. The backend prepares a replacement only after a
+definitive rejection or after the previous transaction's latest allowed
+recording time has passed. See
 [External Signing](https://docs.canton.network/appdev/deep-dives/external-signing-transactions),
 [Working with Time](https://docs.canton.network/appdev/modules/m3-working-with-time),
 and [Command Deduplication](https://docs.canton.network/appdev/deep-dives/command-deduplication).
 
 The auction wallet authenticates the round terms and current round state before
-asking a bidder to sign. It shows the requested quantity, maximum unit price,
-rounded maximum payment, payment and delivery accounts, any provider or
-additional account identifier, deadlines, instrument admins, settlement
-approval, seizure powers, and available recovery actions. The backend and wallet
-derive the required account parties and disclosures from the selected
-registries' documented account and authorization rules, then verify them in the
-prepared transaction.
+asking a bidder to authorize preparation. It shows the requested quantity,
+maximum unit price, rounded maximum payment, payment and delivery accounts, any
+provider or additional account identifier, deadlines, instrument admins,
+settlement approval, seizure powers, and available recovery actions. The backend
+and wallet derive the required account parties and disclosures from the selected
+registries' documented rules, then verify them before each preparation
+transaction is submitted.
 
 ## 7. Production Decisions
 
-We make these decisions before opening a production round:
+We make these decisions before round preparation begins:
 
 | Decision | Design default | Production choice |
 |---|---|---|
-| Governance powers | Issuer and auctioneer configure and operate the round | Decide whether configuration, opening, pause, close, clear, round cancellation or expiry, audit, and upgrade require separate authorities |
+| Governance powers | Issuer and auctioneer prepare and operate the round and approve its application code | Decide whether round preparation, final opening, bid acceptance, pause, close, clear, round cancellation or expiry, audit, and upgrade require separate authorities |
 | Fixed bid order | Each accepted bid receives one immutable, unique order number | Publish how order numbers are assigned, how they allocate leftover lots, and how the rule prevents later reordering |
-| Bidder accounts and supply | Both bidder accounts have the same owner, and the issuer uses existing inventory | Review delegated payers, different beneficiaries, or minting as separate authorization and eligibility designs |
+| Bidder accounts and supply | The bidder's payment and delivery accounts have the same owner, and the issuer uses existing inventory | Review delegated payers, different beneficiaries, or minting as separate authorization and eligibility designs |
 | Bidder eligibility | One reusable credential checked when the bid is accepted and again during clear | Decide whether that credential must include an accepted related-party status |
 | Settlement approval | Disabled unless an instrument requires it | Select the settlement attester and enforce organizational independence when required |
 | Allocation seizure | Accept only assets whose disclosed policy fits the auction | Choose disabled seizure, bounded seizure with approved destinations, or refuse the asset |
@@ -689,6 +860,9 @@ Primary foundations include:
   for application activity attribution and reward accounting;
 - [CIP-0112 Token Standard V2](https://github.com/canton-foundation/cips/blob/main/cip-0112/cip-0112.md),
   especially its allocation and settlement factory model;
+- the Canton [authorization model](https://docs.canton.network/appdev/modules/m3-authorization)
+  and [multi-party workflows](https://docs.canton.network/appdev/modules/m2-multi-party-workflows)
+  for proposal, acceptance, and authority carried through choices;
 - the pinned OpenZeppelin [reference token experiment](https://github.com/OpenZeppelin/canton-contracts/tree/7696749737885e25cd88422847105f890f03b00d/experiments/token/tokenCIP112-v1)
   for allocation, settlement approval, and seizure mechanics;
 - the local [credential-check experiment](../../experiments/identity/hook-shape-b/)
