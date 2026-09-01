@@ -87,8 +87,9 @@ lock-attestation message, and the attested mint - is unbuilt.
 Every package below is experimental, apart from the vendored Token Standard V2
 interfaces. Each one was a result of research for this proposal, so all will
 require an additional analysis and a full audit.
-The last column names only what this rail adds on top, so a cell that adds
-nothing says nothing about how complete the component is.
+The "Remaining work" column lists only the work this design adds on top of a
+component. An empty cell means the component already does what this design
+needs, not that the component is complete or audited.
 
 | Component | Location | Remaining work |
 |---|---|---|
@@ -111,9 +112,9 @@ nothing says nothing about how complete the component is.
 
 ## 2. Architecture Overview
 
-Two things cross the boundary between the chains, and neither is a transaction:
+Two things cross the boundary between the chains:
 a signature from the attester set, and the nonce of a lock. Everything else here
-is Canton-local.
+is Canton-specific.
 
 That shapes the rail as one hub with attachments. The hub is the settlement
 batch that moves wTOK privately between accounts, and one Token Standard V2
