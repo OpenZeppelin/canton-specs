@@ -8,8 +8,7 @@ transit.
 
 ## 1. Product Definition
 
-Institutional holders accept value that reaches Canton from an external
-chain. The value arrives as a **wrapped instrument**, written wTOK, that the
+Institutional holders accept a wrapped instrument, written wTOK, that the
 instrument's admin mints against an attested lock. The settlement amount, the
 payer and payee identities, and the compliance markers project only to the
 authorized parties.
