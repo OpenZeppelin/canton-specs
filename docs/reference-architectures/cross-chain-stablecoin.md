@@ -13,10 +13,9 @@ instrument's admin mints against an attested lock. The settlement amount, the
 payer and payee identities, and the compliance markers project only to the
 authorized parties.
 
-The Canton contract that turns an attested lock into a settlement request is the
-**messaging gateway**. It runs the checks that gate an inbound credit, and it is
-the seam where a different bridge mode plugs in
-([section 3.8](#38-extension-points)).
+The **messaging gateway** creates a Canton contract that turns an attested lock
+into a settlement request. It runs the checks that gate an inbound credit, and
+it is the seam where a different bridge mode plugs in ([section 3.8](#38-extension-points)).
 
 **Inbound** moves value from the external chain to Canton, by **lock-and-mint**.
 **Outbound** moves it back, by **burn-and-release**.
@@ -30,7 +29,7 @@ On Canton, the
 carries that property. An **allocation** records the authority one account gives
 for one asset movement, and a committed allocation fixes that movement's amount
 on-ledger. One all-or-nothing **settlement batch** settles the committed sides
-together.
+atomically.
 
 No transaction spans both chains. The cross-chain hop is therefore
 lock-then-attested-mint, and not an atomic exchange. The binding checks
@@ -48,8 +47,8 @@ inside the trust boundary ([section 2.2](#22-privacy-and-visibility)).
 **Privacy scope.** The guarantee covers the Canton side only. The
 external-chain lock is a public transaction, and it must carry enough data to
 route the transfer on Canton. An observer of the external chain can therefore
-link a public lock of amount *N* to a named Canton recipient who will receive
-*N*. Canton's per-party projection hides everything downstream: the settled
+link a public lock of amount *N* to a Canton party who will receive *N*.
+Canton's per-party projection hides everything downstream: the settled
 holding, the settlement events, the compliance markers, and every later private
 transfer. Hiding the link itself (hashed commitments, shielded payloads, or
 relayer-side blinding) is out of scope.
