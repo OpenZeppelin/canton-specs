@@ -367,8 +367,7 @@ sequenceDiagram
 
 **Rejected alternative: lock-and-unlock.** It pays the recipient from liquidity
 held on the destination side, which adds a liquidity-provider role and an
-inventory-imbalance surface that a reference rail does not need. The messaging
-gateway is the seam where another mode plugs in.
+inventory-imbalance surface that a reference rail does not need.
 
 **Settlement over a direct mint.** A direct attested mint into the recipient's
 account would credit it just as well. Settling reuses controls the rail needs
