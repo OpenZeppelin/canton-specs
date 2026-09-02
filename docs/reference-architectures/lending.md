@@ -4,7 +4,7 @@ This report defines a reference architecture for a vault-based,
 overcollateralized institutional lending protocol on Canton. It composes
 three kinds of material into one target application design: reusable
 OpenZeppelin Daml components (access, ownership, pause), bounded experiments
-for the settlement and identity mechanisms, and vault and oracle patterns
+for the token and identity mechanisms, and vault and oracle patterns
 from companion OpenZeppelin projects, all settling through the Canton Network
 Token Standard V2. The components and experiments are existing evidence; the
 lending application that composes them is specified here and remains to be
@@ -35,21 +35,22 @@ define the protocol:
 The design adapts the [`OpenZeppelin/canton-stablecoin`](https://github.com/OpenZeppelin/canton-stablecoin)
 vault codebase and wires it onto [CIP-0112, the Canton Network Token Standard V2](https://github.com/canton-foundation/cips/blob/main/cip-0112/cip-0112.md).
 Every asset is a holding co-signed by its own registry, and all value moves
-through that registry's rails. Every movement must be atomic: a borrow checks
-solvency, then mints stablecoin together with the debt that backs it; a
-repayment burns stablecoin together with the debt it clears; a liquidation exchanges the
-liquidator's payment for the seized collateral in one transaction. Nothing
+through that registry's rails. Both instruments are ordinary TSv2 tokens: the
+collateral and the **debt token** alike may be issued by any third party. A privileged funder (the
+`TREASURY` role, often the vault admin itself or the
+debt token's issuer) provisions the borrow liquidity: it deposits debt tokens
+into a protocol **treasury** and
+earns the interest as revenue; borrows draw from the treasury, repayments flow
+back into it, and an exhausted treasury blocks new borrows.
+Every movement must be atomic: a borrow checks solvency, then draws debt tokens against a matching debt increase; a repayment returns them against a matching decrease; a liquidation exchanges the liquidator's payment for the seized collateral in one transaction. Nothing
 completes partially, and no intermediary holds the assets along the way.
 
-Daml's transaction atomicity carries most of that on its own. Stablecoin minting and burning, as well as releasing collateral all happen inside the vault choice itself, which already
-carries the authority they need. The interest portion of a payment is recorded as an
-insurance-fund receivable rather than delivered. The collateral might be a third-party asset, hence it requires a committed
-allocation and settlement through [CIP-0112 atomic settlement](https://github.com/canton-foundation/cips/blob/main/cip-0112/cip-0112.md#416-committed-allocations-for-prefunded-trading-and-iterated-settlement),
-with each leg's amount pinned to a signed allocation side. 
+Daml's transaction atomicity carries most of that on its own. Debt-token draws and returns, as well as collateral deposits and releases, all happen inside the vault choice itself, which already
+carries the authority they need: the treasury account is owned by the vault admin, a vault signatory, and the payer signs as the choice controller. The interest portion of a payment accrues in the treasury as the funder's revenue. Collateral moves the same way: a deposit transfers the borrower's holding into the vault's custody account under the same in-choice authority, so no flow waits on a settlement counterparty or an asynchronous handshake.
 
 Each mechanism is
-independently evidenced: allocation settlement, per-settlement attestations,
-and custodian lock-and-sweep in
+independently evidenced: registry holdings and transfers, per-operation
+attestations, and custodian lock-and-sweep in
 [`tokenCIP112-v1`](https://github.com/OpenZeppelin/canton-contracts/tree/7696749737885e25cd88422847105f890f03b00d/experiments/token/tokenCIP112-v1);
 KYC claims validated against a trusted-issuer registry in the [identity packages](../../experiments/identity/);
 role, ownership, and pause management in `openzeppelin-access-control-v1`,
@@ -65,12 +66,12 @@ tables below define its scope.
 | Feature Category | In-Scope Architectural Components |
 |---|---|
 | Interest Model | A fixed, immutable `interestRate`; open-term positions with no maturity date. Accrual is **simple (non-compounding) interest** off the tracked principal ([section 3](#3-target-design)). |
-| Core Flows | The five vault flows: **vault creation with collateral deposit**, **borrow**, **repay**, **liquidation**, and **close** (full repay and collateral withdrawal). How each flow moves value is specified in [section 3](#3-target-design). |
-| Asset Representation | Fungible digital assets compliant with the CIP-0112 Token Standard V2 holding interfaces. The stablecoin (debt token) is issued by the vault admin; collateral may be issued by any third party, since it is custodied rather than minted or burned ([section 3](#3-target-design)). |
-| Pricing | The keyed `PriceOracle` interface the vaults consume, naming both the collateral and quote instruments, with max-staleness and per-update deviation guards enforced by every price-dependent choice ([section 4](#43-component-price-oracle-interface)). |
-| Fees | Interest is burned with the payment that carries it and recorded in `feeReceivable`; the insurance fund can later mint the recorded amount. The `liquidationBonus` is the liquidator's seizure premium, paid from the borrower's collateral. The accumulated insurance fund is the first absorber of bad debt. |
-| Compliance & Control | **Compliance attestation** (optional per deployment, [section 3](#compliance-is-re-checked-on-every-operation)): when the gate is enabled, no value-moving operation executes unless an attester has signaled compliance, re-checked per operation; attestation mentions elsewhere in this report assume the gate is enabled. **Custodian lock-and-sweep**: a privileged party can block settlement and sweep allocation funds to a preset custodian account. **Identity verification**: single-synchronizer KYC. |
-| Component Integration | Direct reuse of `openzeppelin-access-control-v1`, `openzeppelin-ownable-v1`, `openzeppelin-pausable-v1`, CIP-0112 settlement, as well as the vault, oracle, and identity patterns from the [`OpenZeppelin/canton-stablecoin`](https://github.com/OpenZeppelin/canton-stablecoin), [`OpenZeppelin/canton-token-template`](https://github.com/OpenZeppelin/canton-token-template) and [`ShapeB`](../../experiments/identity/hook-shape-b/daml/OpenZeppelin/Experimental/Identity/ShapeB.daml#L6) codebases. |
+| Core Flows | The five vault flows: **vault creation with collateral deposit**, **borrow**, **repay**, **liquidation**, and **close** (collateral return on a fully repaid position), plus the **treasury funding** flow that provisions and reclaims borrow liquidity. How each flow moves value is specified in [section 3](#3-target-design). |
+| Asset Representation | Fungible digital assets compliant with the CIP-0112 Token Standard V2 holding interfaces. Both the debt token and the collateral may be issued by any third party: each is custodied and transferred, never minted or burned ([section 3](#3-target-design)). |
+| Pricing | The keyed `PriceOracle` interface the vaults consume, naming both the collateral and quote instruments, with max-staleness and per-update deviation guards enforced by every price-dependent choice ([section 4](#44-component-price-oracle-interface)). |
+| Fees | Interest arrives in the treasury with the payment that carries it and accrues to the treasury funder as revenue. The `liquidationBonus` is the liquidator's seizure premium, paid from the borrower's collateral. The funder's treasury capital absorbs bad debt; the interest revenue is its compensation for that risk. |
+| Compliance & Control | **Compliance attestation** (optional per deployment, [section 3](#compliance-is-re-checked-on-every-operation)): when the gate is enabled, no value-moving operation executes unless an attester has signaled compliance, re-checked per operation; attestation mentions elsewhere in this report assume the gate is enabled. **Custodian lock-and-sweep**: a privileged party can freeze custodied collateral and sweep it to a preset custodian account. **Identity verification**: single-synchronizer KYC. |
+| Component Integration | Direct reuse of `openzeppelin-access-control-v1`, `openzeppelin-ownable-v1`, `openzeppelin-pausable-v1`, CIP-0112 holdings and transfers, as well as the vault, oracle, and identity patterns from the [`OpenZeppelin/canton-stablecoin`](https://github.com/OpenZeppelin/canton-stablecoin), [`OpenZeppelin/canton-token-template`](https://github.com/OpenZeppelin/canton-token-template) and [`ShapeB`](../../experiments/identity/hook-shape-b/daml/OpenZeppelin/Experimental/Identity/ShapeB.daml#L6) codebases. |
 
 The compliance and control terms above are this report's names for four control requirements tracked externally under the IDs D1-D4: **compliance attestation** (D1), **custodian lock-and-sweep** (D2), **know-your-customer identity** (D3), and **authority and privilege transfer** (D4). The report uses the names throughout and keeps the IDs only here, for traceability; each control is specified in [section 3](#3-target-design).
 
@@ -79,17 +80,18 @@ The compliance and control terms above are this report's names for four control 
 | Interest Models | Dynamic, variable, or algorithmic rates, utilization rate curves, floating-rate oracles, and fixed maturity dates. |
 | Leverage Facilities | Undercollateralized loans, flash loans, recursive leverage, and rehypothecation. |
 | Liquidation Mechanics | Market-driven bidding-war auctions, and whole-vault forced seizure regardless of payment. |
-| Price Production | Producing the price is a dependency, not part of this design: the update mechanism or external oracle service is an implementation decision, consumed as-is provided it satisfies the interface requirements ([section 4](#43-component-price-oracle-interface)). Multi-asset dynamic oracles and off-ledger TWAP aggregators likewise remain outside this architecture. |
+| Liquidity Provision | Open, multi-party liquidity provision. The treasury has a single privileged funder; depositors sharing its fees are an extension ([section 3](#extension-points)), not part of this design. |
+| Price Production | Producing the price is a dependency, not part of this design: the update mechanism or external oracle service is an implementation decision, consumed as-is provided it satisfies the interface requirements ([section 4](#44-component-price-oracle-interface)). Multi-asset dynamic oracles and off-ledger TWAP aggregators likewise remain outside this architecture. |
 | Token Standard | Defining or extending the Token Standard V2 abstractions: the architecture consumes them as-is from upstream. CIP-56 and V1 allocation paths are outside this architecture. |
 | Cross-Synchronizer Operation | Cross-synchronizer settlement and identity are **out of scope**; the architecture assumes a single synchronizer. |
 
 ### Target Ecosystem Participants
 
 - **Institutional Asset Managers and Tokenized-Fund Issuers** can run high-value collateralized credit operations with deterministic outcomes and no public data leakage.
-- **Regulated Stablecoin Operators** can issue a collateral-backed stablecoin whose supply is provably coupled to recorded, solvency-checked vault debt.
+- **Asset Issuers and Large Token Holders** can put idle debt-token inventory to work as treasury liquidity, earning the protocol's interest revenue against solvency-checked, overcollateralized debt.
 - **Wallet and Client Integrators** can build the borrower-facing wallet
   flows (deposit, borrow, repay, close) on the specified handshakes and
-  per-party allocations.
+  per-party transfers.
 - **Security and Assurance Auditors** can evaluate the authority boundaries,
   security invariants, trust assumptions, and residual risks stated in this
   report.
@@ -100,7 +102,7 @@ In the [ERC-4626](https://docs.openzeppelin.com/contracts/5.x/erc4626) lineage, 
 
 Canton enforces **per-party projection** instead: a contract is an instance of a template, signed by a set of parties (its signatories) and visible only to them and to any observers. That is why each **vault is its own contract** rather than a share in a pool. A position is visible only to the borrower, the vault admin, the liquidators that police it, and any regulatory observers - and because visibility is a precondition for action, the liquidator set is declared as observers rather than left implicit.
 
-State changes by archive-and-recreate rather than in-place mutation, with every signatory co-authorizing the transition (Daml's propose-and-accept pattern). That is why the design resolves the `Vault`, `PriceOracle`, `PauseState`, and the trusted-attester and trusted-issuer registries by **contract key** (reintroduced in [Canton 3.5.1+](https://github.com/digital-asset/canton/releases/tag/v3.5.1)): a key is the identity that survives each recreate. Keys are not unique - the platform accepts two contracts sharing one - so uniqueness stays an application obligation. The vault creation should perform checks against duplicate positions.
+State changes by archive-and-recreate rather than in-place mutation, with every signatory co-authorizing the transition (Daml's propose-and-accept pattern). That is why the design resolves the `Vault`, `PriceOracle`, `PauseState`, `Treasury`, and the trusted-attester and trusted-issuer registries by **contract key** (reintroduced in [Canton 3.5.1+](https://github.com/digital-asset/canton/releases/tag/v3.5.1)): a key is the identity that survives each recreate. Keys are not unique - the platform accepts two contracts sharing one - so uniqueness stays an application obligation. The vault creation should perform checks against duplicate positions.
 
 Contract keys are supported on the network today and our production implementation will use them throughout. The experiment code referenced here predates the workspace's move to the 3.5.1+ SDK and is still keyless, so choices may take a caller-supplied registry contract id and assert it shares the factory's admin. The experiments and the existing components (such as `PauseState`) will migrate to by-key resolution with the SDK upgrade.
 
@@ -122,33 +124,35 @@ flowchart TB
     Committee([Oracle operators])
     Borrower([BORROWER])
     Liquidator([LIQUIDATOR])
+    Funder([TREASURY funder])
 
     subgraph Target["Lending application (specified here)"]
-        Oracle[["PriceOracle (public)<br/>key: admin + collateral + quote"]]
+        Oracle[["PriceOracle (public)<br/>key: admin + collateral + debt instrument"]]
         Factory["VaultFactory"]
         Vault[["Vault<br/>key: admin + borrower + vaultId"]]
         Custody[("Vault custody account<br/>joint: admin + borrower")]
+        Treasury[["Treasury<br/>key: admin + debt instrument"]]
+        Pool[("Treasury account<br/>owner: admin")]
     end
 
-    Registries["CIP-0112 registries<br/>(stablecoin + collateral)"]
+    Registries["CIP-0112 registries<br/>(debt token + collateral)"]
     Custodian([CUSTODIAN])
-    Fund([INSURANCE_FUND])
-    Custody ~~~ Fund
     Attester([Compliance attester])
     Oracle ~~~ Attester
 
     Committee -->|"publish updates"| Oracle
+    Funder -->|"fund and defund liquidity,<br/>withdraw accrued fees"| Treasury
+    Treasury ==>|"accounts for"| Pool
     Borrower -->|"create vault"| Factory
     Factory -->|"creates"| Vault
     Borrower -->|"deposit, borrow,<br/>repay, close"| Vault
     Liquidator -->|"flag, liquidate"| Vault
     Attester -.->|"single-use attestation per<br/>value-moving choice (if enabled)"| Vault
-    Fund -->|"collect fees"| Vault
     Vault -->|"fresh price"| Oracle
-    Vault ==>|"release collateral<br/>(joint authority)"| Custody
-    Vault -->|"mint, burn,<br/>drive settlement"| Registries
-    Registries -->|"deliver committed<br/>collateral deposit"| Custody
-    Registries -.->|"seizure sweep of<br/>in-flight allocations"| Custodian
+    Vault -->|"borrow: draw liquidity;<br/>repay: return payment"| Treasury
+    Vault ==>|"deposit and release collateral<br/>(direct transfer, joint authority)"| Custody
+    Vault -->|"all transfers ride the<br/>registries' holdings"| Registries
+    Custody -.->|"seizure sweep of<br/>custodied collateral"| Custodian
 ```
 
 The second shows the components the vault choices depend on, grouped by
@@ -157,6 +161,7 @@ source:
 ```mermaid
 flowchart TB
     Vault[["Vault"]]
+    Treasury[["Treasury"]]
     Custody[("Vault custody account")]
     Custodian([CUSTODIAN])
 
@@ -169,17 +174,18 @@ flowchart TB
     end
 
     subgraph Rail["CIP-0112 registries"]
-        Rules["Stablecoin registry:<br/>TokenRules (mint / burn)"]
-        Coll["Collateral registry:<br/>allocation settle + transfers"]
+        Debt["Debt-token registry:<br/>holdings + transfers"]
+        Coll["Collateral registry:<br/>holdings + transfers"]
         Att["ComplianceAttestation /<br/>TrustedAttesterRegistry"]
     end
 
     Vault -->|"pause gate,<br/>role checks"| Gov
     Vault -->|"live KYC fetch"| Kyc
-    Vault -->|"mint, burn"| Rules
+    Vault -->|"draw and replenish<br/>borrow liquidity"| Treasury
+    Treasury -->|"debt-token transfers"| Debt
     Vault -.->|"consume attestation<br/>(if enabled)"| Att
-    Vault -->|"drive deposit settle,<br/>release transfers"| Coll
-    Coll -->|"deliver committed<br/>collateral deposit"| Custody
+    Vault -->|"deposit and release<br/>transfers"| Coll
+    Coll -->|"credit deposits"| Custody
     Coll -.->|"custodian sweep"| Custodian
 ```
 
@@ -197,11 +203,11 @@ companion OpenZeppelin repository that informs the design.
 | Access Control `[LIBRARY]` | `openzeppelin-access-control-v1`: [`RoleGrant`](https://github.com/OpenZeppelin/canton-contracts/blob/cec416d6e3c2118551c761d5598c403ab27ee342/experiments/access/access-control-v1/daml/OpenZeppelin/AccessControlV1.daml#L58), [`RoleAdmin`](https://github.com/OpenZeppelin/canton-contracts/blob/cec416d6e3c2118551c761d5598c403ab27ee342/experiments/access/access-control-v1/daml/OpenZeppelin/AccessControlV1.daml#L116), [`DefaultAdminTransferOffer`](https://github.com/OpenZeppelin/canton-contracts/blob/cec416d6e3c2118551c761d5598c403ab27ee342/experiments/access/access-control-v1/daml/OpenZeppelin/AccessControlV1.daml#L237), [`requireRole`](https://github.com/OpenZeppelin/canton-contracts/blob/cec416d6e3c2118551c761d5598c403ab27ee342/experiments/access/access-control-v1/daml/OpenZeppelin/AccessControlV1.daml#L287) | Role-based permissioning for the vault admin, liquidators, oracle operators, and pausers. |
 | Ownership Lifecycle `[LIBRARY]` | `openzeppelin-ownable-v1`: [`Ownership`](https://github.com/OpenZeppelin/canton-contracts/blob/cec416d6e3c2118551c761d5598c403ab27ee342/experiments/access/ownable-v1/daml/OpenZeppelin/OwnableV1.daml#L41), [`OwnershipOffer`](https://github.com/OpenZeppelin/canton-contracts/blob/cec416d6e3c2118551c761d5598c403ab27ee342/experiments/access/ownable-v1/daml/OpenZeppelin/OwnableV1.daml#L82) | Two-step handover of protocol administration. |
 | Protocol Constraints `[LIBRARY]` | `openzeppelin-pausable-v1`: [`PauseState`](https://github.com/OpenZeppelin/canton-contracts/blob/cec416d6e3c2118551c761d5598c403ab27ee342/experiments/security/pausable-v1/daml/OpenZeppelin/PausableV1.daml#L47), [`whenNotPaused`](https://github.com/OpenZeppelin/canton-contracts/blob/cec416d6e3c2118551c761d5598c403ab27ee342/experiments/security/pausable-v1/daml/OpenZeppelin/PausableV1.daml#L77) | Emergency circuit breaker used by all critical flows. |
-| CIP-0112 Settlement `[LIBRARY]` | `OpenZeppelin.TokenCIP112V1`: [`TokenRules`](https://github.com/OpenZeppelin/canton-contracts/blob/7696749737885e25cd88422847105f890f03b00d/experiments/token/tokenCIP112-v1/daml/OpenZeppelin/TokenCIP112V1/Registry.daml#L28), [`TokenAllocationRequest`](https://github.com/OpenZeppelin/canton-contracts/blob/7696749737885e25cd88422847105f890f03b00d/experiments/token/tokenCIP112-v1/daml/OpenZeppelin/TokenCIP112V1/AllocationRequest.daml#L18), [`AllocationFactory_Allocate`](https://github.com/OpenZeppelin/canton-contracts/blob/7696749737885e25cd88422847105f890f03b00d/experiments/token/tokenCIP112-v1/daml/OpenZeppelin/TokenCIP112V1/Registry.daml#L280), [`TokenAllocation`](https://github.com/OpenZeppelin/canton-contracts/blob/7696749737885e25cd88422847105f890f03b00d/experiments/token/tokenCIP112-v1/daml/OpenZeppelin/TokenCIP112V1/Allocation.daml#L67), [`TokenEventLog`](https://github.com/OpenZeppelin/canton-contracts/blob/7696749737885e25cd88422847105f890f03b00d/experiments/token/tokenCIP112-v1/daml/OpenZeppelin/TokenCIP112V1/Base.daml#L75), [`TokenHolding`](https://github.com/OpenZeppelin/canton-contracts/blob/7696749737885e25cd88422847105f890f03b00d/experiments/token/tokenCIP112-v1/daml/OpenZeppelin/TokenCIP112V1/Holding.daml#L17), [`BurnerCapability`](https://github.com/OpenZeppelin/canton-contracts/blob/7696749737885e25cd88422847105f890f03b00d/experiments/token/tokenCIP112-v1/daml/OpenZeppelin/TokenCIP112V1/Allocation.daml#L52) | Demonstrates the allocation, attestation, and seizure mechanisms used by the inbound asset flows. |
+| CIP-0112 Token Registry `[LIBRARY]` | `OpenZeppelin.TokenCIP112V1`: [`TokenRules`](https://github.com/OpenZeppelin/canton-contracts/blob/7696749737885e25cd88422847105f890f03b00d/experiments/token/tokenCIP112-v1/daml/OpenZeppelin/TokenCIP112V1/Registry.daml#L28), [`TokenAllocationRequest`](https://github.com/OpenZeppelin/canton-contracts/blob/7696749737885e25cd88422847105f890f03b00d/experiments/token/tokenCIP112-v1/daml/OpenZeppelin/TokenCIP112V1/AllocationRequest.daml#L18), [`AllocationFactory_Allocate`](https://github.com/OpenZeppelin/canton-contracts/blob/7696749737885e25cd88422847105f890f03b00d/experiments/token/tokenCIP112-v1/daml/OpenZeppelin/TokenCIP112V1/Registry.daml#L280), [`TokenAllocation`](https://github.com/OpenZeppelin/canton-contracts/blob/7696749737885e25cd88422847105f890f03b00d/experiments/token/tokenCIP112-v1/daml/OpenZeppelin/TokenCIP112V1/Allocation.daml#L67), [`TokenEventLog`](https://github.com/OpenZeppelin/canton-contracts/blob/7696749737885e25cd88422847105f890f03b00d/experiments/token/tokenCIP112-v1/daml/OpenZeppelin/TokenCIP112V1/Base.daml#L75), [`TokenHolding`](https://github.com/OpenZeppelin/canton-contracts/blob/7696749737885e25cd88422847105f890f03b00d/experiments/token/tokenCIP112-v1/daml/OpenZeppelin/TokenCIP112V1/Holding.daml#L17), [`BurnerCapability`](https://github.com/OpenZeppelin/canton-contracts/blob/7696749737885e25cd88422847105f890f03b00d/experiments/token/tokenCIP112-v1/daml/OpenZeppelin/TokenCIP112V1/Allocation.daml#L52) | Demonstrates the holding, attestation, and custodian-seizure mechanisms the flows ride. |
 | Identity Verification `[EXPERIMENT]` | `ShapeB`: [`KycClaim`](../../experiments/identity/hook-shape-b/daml/OpenZeppelin/Experimental/Identity/ShapeB.daml#L43), [`TrustedIssuerRegistry`](../../experiments/identity/hook-shape-b/daml/OpenZeppelin/Experimental/Identity/ShapeB.daml#L74) | Demonstrates the four KYC-claim checks: the claim kind, a registry-listed issuer, the right subject, and an unexpired validity window. |
-| Vault / CDP Core `[REFERENCE]` | [`OpenZeppelin/canton-stablecoin`](https://github.com/OpenZeppelin/canton-stablecoin): `Vault`, `VaultFactory`, `VaultParams`, `PriceOracle` | Provides the vault mechanics that inform this design. The target architecture uses simple interest and payment-proportional liquidation instead of the reference code's discrete compounding and whole-vault seizure ([section 3](#3-target-design)). |
+| Vault / CDP Core `[REFERENCE]` | [`OpenZeppelin/canton-stablecoin`](https://github.com/OpenZeppelin/canton-stablecoin): `Vault`, `VaultFactory`, `VaultParams`, `PriceOracle` | Provides the vault mechanics that inform this design. The target architecture uses simple interest, payment-proportional liquidation, and treasury-funded debt instead of the reference code's discrete compounding, whole-vault seizure, and minted stablecoin ([section 3](#3-target-design)). |
 
-Token Standard V2 interfaces are the target asset and settlement interoperability
+Token Standard V2 interfaces are the target asset interoperability
 boundary; the `tokenCIP112-v1` package implements them directly against the
 upstream splice interface packages.
 
@@ -209,15 +215,15 @@ upstream splice interface packages.
 
 Duties are segregated and mapped to discrete Daml parties:
 
-- **Vault Admin / Stablecoin Issuer (`VAULT_ADMIN`)** - underwrites the **stablecoin (debt) token**: operates the `VaultFactory`, configures `VaultParams`, the `TrustedIssuerRegistry` (accepted KYC issuers), and the `TrustedAttesterRegistry` (accepted compliance attesters), and issues the grants that authorize custodian seizure sweeps. The admin can mint the stablecoin, never the collateral, and only inside the vault choices ([section 3](#3-target-design)). The protocol gives the vault admin no path to issuing unbacked stablecoin.
-- **Borrower (`BORROWER`)** - the entity locking collateral and drawing debt. Only the borrower can lock their own holdings into an allocation. To interact with the protocol, the borrower must hold a valid `KycClaim`, verified at vault creation and fetched live by each risk-increasing vault choice. Visibility is limited to the borrower's own vaults and the public configuration contracts.
-- **Liquidator (`LIQUIDATOR`)** - a role granted via `openzeppelin-access-control-v1`. Each liquidator is an observer of the vaults it polices, so it can monitor the `PriceOracle` and vault solvency from its own projection; it may only liquidate a vault that is still unhealthy after the margin-call grace period, and only in proportion to the stablecoin it repays.
-- **Oracle Operator(s) (`ORACLE_PROVIDER`)** - the implementation-defined party set that updates the `PriceOracle`, bound by the interface requirements ([section 4](#43-component-price-oracle-interface)): no single party, not even the vault admin, should be able to move or stall the published price.
-- **Insurance Fund (`INSURANCE_FUND`)** - the party that collects the protocol's interest revenue in full: it mints the interest revenue against the vaults' `feeReceivable` records; the accumulated fund is the first absorber of recognized bad debt.
+- **Vault Admin (`VAULT_ADMIN`)** - operates the `VaultFactory` and the `Treasury`, configures `VaultParams`, the `TrustedIssuerRegistry` (accepted KYC issuers), and the `TrustedAttesterRegistry` (accepted compliance attesters), and issues the grants that authorize custodian seizure sweeps. The admin owns the treasury account but issues nothing: it can mint neither instrument, and treasury liquidity moves only through the solvency-coupled vault choices and the funder's own fund and defund paths ([section 3](#the-treasury)).
+- **Treasury Funder (`TREASURY`)** - the privileged party that provisions borrow liquidity: it deposits debt tokens via `Treasury_Fund`, reclaims un-borrowed liquidity and accrued fees via `Treasury_Defund`, and earns the protocol's interest revenue in return. Its capital absorbs bad debt, compensated by the interest revenue. The role is typically the vault admin itself, the debt token's issuer, or a large holder; opening it to multiple independent liquidity providers is an extension ([section 3](#extension-points)).
+- **Borrower (`BORROWER`)** - the entity locking collateral and drawing debt. Only the borrower can commit their own holdings as collateral. To interact with the protocol, the borrower must hold a valid `KycClaim`, verified at vault creation and fetched live by each risk-increasing vault choice. Visibility is limited to the borrower's own vaults and the public configuration contracts.
+- **Liquidator (`LIQUIDATOR`)** - a role granted via `openzeppelin-access-control-v1`. Each liquidator is an observer of the vaults it polices, so it can monitor the `PriceOracle` and vault solvency from its own projection; it may only liquidate a vault that is still unhealthy after the margin-call grace period, and only in proportion to the debt tokens it repays.
+- **Oracle Operator(s) (`ORACLE_PROVIDER`)** - the implementation-defined party set that updates the `PriceOracle`, bound by the interface requirements ([section 4](#44-component-price-oracle-interface)): no single party, not even the vault admin, should be able to move or stall the published price.
 - **Custodian (`CUSTODIAN`)** - owns the preset account that receives funds swept by a custodian seizure.
 - **Vault Custody Account** - owns the collateral holdings that back a vault; there is **one custody account per vault**, so collateral is never commingled across positions. It is held under the vault's **joint authority** ([trust topology](#decentralization-and-trust-topology)), and collateral leaves it only through the choices that release it (withdrawal, close, liquidation).
 
-The topology separates public market data from private positions: `PriceOracle` and `VaultParams` carry a broad observer set so participants can independently verify the governing parameters, while each `Vault` restricts visibility to its signatories (vault admin and borrower) plus a minimal observer set: the designated liquidators and any regulatory observer parties.
+The topology separates public market data from private positions: the `PriceOracle` carries a broad observer set so participants can independently verify the price path; the `VaultFactory` terms and the `Treasury`'s available liquidity reach prospective borrowers through explicit disclosure; and each `Vault` restricts visibility to its signatories (vault admin and borrower) plus a minimal observer set: the designated liquidators and any regulatory observer parties.
 
 ### Decentralization and Trust Topology
 
@@ -227,8 +233,9 @@ Canton decentralizes a party along three independent axes, and the design assign
 2. **validation** - how many independent participant nodes must confirm the party's transactions (the `PartyToParticipant` confirmation threshold; a threshold above 1 defends against a malicious participant node, at a latency and cost premium, and such a party can no longer submit Ledger API commands directly - it acts through externally signed submissions or through choices submitted by others);
 3. **authorization** - what the Daml signatory/controller topology requires regardless of hosting.
 
-Two roles hold value-moving or supply-changing authority as a single party:
-the vault admin and the insurance fund. For each, we envision the
+Two roles hold value-moving authority as a single party: the vault admin,
+whose account custodies the treasury liquidity, and the treasury funder.
+For each, we envision the
 EVM equivalent of an N-of-M multisig: no single key may exercise the party's
 authority. Canton offers two ways to implement the multisig; selecting one remains an open question ([section 7](#7-open-design-questions)):
 
@@ -242,11 +249,11 @@ choices would therefore require the borrower plus the admin quorum; inside
 the vault's choices both signatures arrive automatically, inherited from the
 `Vault`'s own signatories.
 
-For roles that need to submit routinely and are not of critical importance, we envision keeping the confirmation threshold at 1, with each such role's powers bounded on-ledger. The insurance fund accumulates the protocol's revenue, so its confirmation threshold is above 1: no single compromised key or participant node can act for it.
+For roles that need to submit routinely and are not of critical importance, we envision keeping the confirmation threshold at 1, with each such role's powers bounded on-ledger. The treasury funder provisions the protocol's liquidity and collects its revenue, so its confirmation threshold is above 1: no single compromised key or participant node can act for it.
 
-Whatever update mechanism the **oracle operators** run ([section 4](#43-component-price-oracle-interface)), an all-of-M quorum should be deliberately avoided: a single offline member, or one whose participant node has unvetted the protocol DAR, would stall every price update until the staleness guard freezes the protocol.
+Whatever update mechanism the **oracle operators** run ([section 4](#44-component-price-oracle-interface)), an all-of-M quorum should be deliberately avoided: a single offline member, or one whose participant node has unvetted the protocol DAR, would stall every price update until the staleness guard freezes the protocol.
 
-The **pause authority** is multi-hosted so the brake is always reachable, but its confirmation threshold stays at 1: an emergency stop must be instant, and a quorum would slow it down. The price of that choice is a griefing window: a malicious pauser can freeze in-flight settlements until their deadlines lapse. This griefing is capped by the authorizer's right to reclaim the allocated funds after the expiration deadline. The pause brings the additional risk of not being solvency-neutral: it freezes liquidation while collateral keeps repricing, an exposure tracked in [section 7](#7-open-design-questions).
+The **pause authority** is multi-hosted so the brake is always reachable, but its confirmation threshold stays at 1: an emergency stop must be instant, and a quorum would slow it down. The price of that choice is griefing: a malicious pauser can freeze the protocol's flows, though no funds are ever stranded and everything resumes when the pause lifts. This griefing is not solvency-neutral: it can freeze liquidation while collateral keeps repricing, an exposure tracked in [section 7](#7-open-design-questions).
 
 The **custodian** owns the preset account that receives seizure sweeps. It needs availability and protection against a malicious single participant node, hence multi-hosting with confirmation threshold >1 suffices.
 
@@ -260,7 +267,7 @@ The **liquidator** set should contain several independently granted parties, so 
 
 ### The CDP Math
 
-Two figures track a position: `principalAmount` is the stablecoin minted and not yet repaid, and `debtAmount` is what the borrower owes - that principal plus the interest accrued on it - so `principalAmount <= debtAmount` always. A vault's health is its **collateral ratio**: `collateralRatio = (collateralAmount · price) / debtAmount`, priced by the `PriceOracle`. Borrowing and collateral withdrawal must keep the ratio at or above `VaultParams.minCollateralRatio`; falling below the `liquidationRatio` exposes the position to a margin call.
+Two figures track a position: `principalAmount` is the debt tokens drawn from the treasury and not yet repaid, and `debtAmount` is what the borrower owes - that principal plus the interest accrued on it - so `principalAmount <= debtAmount` always. A vault's health is its **collateral ratio**: `collateralRatio = (collateralAmount · price) / debtAmount`, priced by the `PriceOracle`. Borrowing and collateral withdrawal must keep the ratio at or above `VaultParams.minCollateralRatio`; falling below the `liquidationRatio` exposes the position to a margin call.
 
 The vault utilizes **simple interest accrual**: `accrueDebt` computes `newDebt = oldDebt + principalAmount · interestRate · elapsedYears`, where `elapsedYears` derives from `now - lastAccrualTime`. Accrual runs on every state-changing choice before the solvency check, and `lastAccrualTime` resets on each recreation. Because interest is always charged on the principal, it does not matter how often accrual runs: two accruals over `t₁` and `t₂` add exactly what one accrual over `t₁+t₂` would; whether a compounding variant is also needed is an open question ([section 7](#7-open-design-questions)).
 
@@ -286,100 +293,102 @@ debtRepaid <= repayCap
 
 Taking each element of the codeblock in turn:
 
-- **Proportional seizure.** `debtRepaid` is the amount the liquidator's own exercise burns in the same transaction, never the vault's full accrued debt, so a liquidator can never take more collateral than their payment (plus bonus) buys.
+- **Proportional seizure.** `debtRepaid` is the amount the liquidator's own exercise pays into the treasury in the same transaction, never the vault's full accrued debt, so a liquidator can never take more collateral than their payment (plus bonus) buys.
 - **Restorable vault (`collateralRatio > 1 + liquidationBonus`).** Repaying `x` reduces the debt to `accruedDebt - x` and the collateral value to `collateralAmount · price - x · (1 + liquidationBonus)`. While the ratio sits above `1 + liquidationBonus`, every such repayment raises it, so the vault can be cured. `restoreAmount` is the exact `x` that brings the ratio back to `minCollateralRatio`, and it caps the payment: a smaller `debtRepaid` moves the vault partway back to health, one equal to `restoreAmount` restores it fully, and the choice rejects anything larger, so a liquidation never repays or seizes more than the cure requires. The restore target is `minCollateralRatio` rather than `liquidationRatio`, so a cured vault lands inside the margin-call buffer instead of restarting on the liquidation boundary.
 - **Underwater vault (`collateralRatio <= 1 + liquidationBonus`).** No repayment can restore health, so the cap becomes what the remaining collateral can pay for: the pass seizes all of it, and the uncovered remainder is quantified as `badDebt`.
 - **Well-definedness.** Protocol configuration requires `minCollateralRatio > liquidationRatio > 1 + liquidationBonus`. The first gap is the margin-call buffer; the second keeps the restorable regime reachable, so a freshly flagged vault can still be partially cured; and the chain keeps `restoreAmount`'s denominator positive and its value within what the collateral supports.
 
 ### Data and State Flow
 
-The diagrams below show the four vault flows: **A** collateral deposit, **B** borrow, **C** repay and close, **D** margin call and liquidation. Every flow is atomic: each executes as a single ledger transaction that commits in full or not at all. The CIP-0112 allocate-and-settle rail appears only in the collateral deposit, which moves a third-party asset into custody. The other flows move value directly inside their own transaction: repayment and liquidation payments are burned in place, and everything the protocol releases (minted stablecoin, returned or seized collateral) moves by direct transfer under the vault's joint authority. In each diagram, the `Compliance gate` node stands for the compliance-attestation check and the live KYC-claim fetch ([section 3](#compliance-is-re-checked-on-every-operation)), and keyed contracts are marked with their key.
+The diagrams below show the four vault flows: **A** collateral deposit, **B** borrow, **C** repay and close, **D** margin call and liquidation. Every flow is atomic: each executes as a single ledger transaction that commits in full or not at all, and every value movement is a direct transfer under authority the vault choice already carries: deposits and payments transfer in (into custody and the treasury respectively), and everything the protocol releases (borrowed debt tokens, returned or seized collateral) transfers out. In each diagram, the `Compliance gate` node stands for the compliance-attestation check and the live KYC-claim fetch ([section 3](#compliance-is-re-checked-on-every-operation)), and keyed contracts are marked with their key.
 
-**A. Collateral deposit.** The borrower commits the collateral they are locking; settlement delivers it into the vault's custody account, and the vault's own record of how much collateral backs the position grows by the same amount. The first deposit goes through the `VaultFactory` instead: creation settles it identically, but creates the `Vault` rather than updating one ([section 4.1](#41-component-vaultfactory-and-vault-creation)).
+**A. Collateral deposit.** The borrower presents the collateral holding they are locking; the vault choice transfers it into the vault's custody account, and the vault's own record of how much collateral backs the position grows by the same amount. The first deposit goes through the `VaultFactory` instead: creation transfers it identically, but creates the `Vault` rather than updating one ([section 4.1](#41-component-vaultfactory-and-vault-creation)).
 
 ```mermaid
 flowchart TD
     Borrower([Borrower])
     Compliance(["Compliance gate<br/>(attestation + KYC)"])
     Vault[["Vault<br/>key: admin +<br/>borrower + vaultId"]]
-    Settle{{Atomic settlement}}
     Custody[("Vault custody account<br/>joint: admin + borrower")]
     Factory["VaultFactory"]
 
-    Borrower -->|"1: commit Δcollateral<br/>(locked allocation)"| Settle
-    Borrower ==>|"2: exercise<br/>Vault_DepositCollateral"| Vault
-    Compliance -->|"gates"| Settle
-    Vault ==>|"drives SettleBatch"| Settle
-    Settle -->|"credit<br/>Δcollateral"| Custody
-    Vault -.->|"archive + recreate<br/>collateral +Δ"| Vault
+    Borrower ==>|"Vault_DepositCollateral<br/>(presents the holding)"| Vault
+    Compliance -->|"gates"| Vault
+    Vault ==>|"transfer depositAmount in<br/>(direct transfer,<br/>joint authority)"| Custody
+    Vault -.->|"archive + recreate:<br/>collateralAmount += depositAmount"| Vault
     Factory -.->|"first deposit:<br/>create the Vault"| Vault
 ```
 
-**B. Borrow (mint coupled to debt).** The borrower asks the vault for stablecoin; the vault checks compliance, reads the current price, and assesses whether the locked collateral is worth enough to cover the new debt. If so, it mints the stablecoin to the borrower and records the higher debt, all in one transaction. This flow does not need the settlement rail: the stablecoin's issuer and the borrower both already stand behind the vault, so the vault choice itself carries every signature the mint needs.
+**B. Borrow (treasury draw coupled to debt).** The borrower asks the vault for debt tokens; the vault checks compliance, reads the current price, checks the treasury holds enough un-borrowed liquidity, and assesses whether the locked collateral is worth enough to cover the new debt. If so, it draws the tokens from the treasury to the borrower and records the higher debt, all in one transaction: the treasury account's owner and the borrower both already stand behind the vault, so the vault choice itself carries every signature the draw needs. An exhausted treasury blocks this flow and only this flow.
 
 ```mermaid
 flowchart TD
     Borrower([Borrower])
     Compliance(["Compliance gate<br/>(attestation + KYC)"])
-    Oracle[["PriceOracle<br/>key: admin +<br/>collateral + quote"]]
+    Oracle[["PriceOracle<br/>key: admin +<br/>collateral + debt instrument"]]
     Vault[["Vault<br/>key: admin +<br/>borrower + vaultId"]]
-    Coin["Stablecoin holding"]
+    Treasury[["Treasury<br/>key: admin +<br/>debt instrument"]]
+    Coin["Debt-token holding"]
 
-    Borrower ==>|"Vault_MintStablecoin"| Vault
+    Borrower ==>|"Vault_Borrow"| Vault
     Compliance -->|"gates, checked<br/>inline"| Vault
     Oracle -->|"assert fresh price;<br/>solvency check"| Vault
-    Vault ==>|"mint under joint authority,<br/>coupled to debt +Δ<br/>(one atomic exercise)"| Coin
+    Vault ==>|"draw borrowAmount<br/>(one atomic exercise):<br/>availableAmount -= borrowAmount,<br/>debtAmount += borrowAmount"| Treasury
+    Treasury ==>|"release from<br/>treasury account"| Coin
     Coin -->|"to borrower"| Borrower
 ```
 
-**C. Repay and close.** Two separate choices serve this flow. **Repay** pays down debt: the vault checks compliance, burns the payment out of the borrower's wallet, records the lower debt, and adds the interest portion to the insurance fund's fee receivable. **Close** winds down a repaid position: it hands the remaining collateral back to the borrower and parks any uncollected fee receivable for later collection, in one transaction. The borrower needs no quote step to learn the exact payoff: accrual is deterministic and the borrower sees the vault from its own projection, so its wallet computes the same figure the choice will. A wallet that wants a one-shot exit submits repay and close in a single command, and the pair commits atomically. The insurance fund mints its accumulated fees on its own schedule, backed by the receivable record.
+**C. Repay and close.** Two separate choices serve this flow. **Repay** pays down debt: the vault checks compliance, transfers the payment out of the borrower's wallet into the treasury account, and records the lower debt: the principal portion replenishes the treasury's borrowable liquidity, and the interest portion accrues to its `feesAccrued`. **Close** winds down a repaid position: it hands the remaining collateral back to the borrower in one transaction. No quote step is needed: accrual is deterministic and the borrower sees the vault, so its wallet computes the exact payoff itself. A wallet that wants a one-shot exit submits repay and close in a single command, and the pair commits atomically. The treasury funder withdraws its accrued fees on its own schedule.
 
 ```mermaid
 flowchart TD
     Borrower([Borrower])
     Compliance(["Compliance gate<br/>(attestation + KYC)"])
-    Burn["Full payment burned<br/>(TokenRules_Burn)"]
-    Fund[("Insurance fund")]
+    Treasury[["Treasury<br/>key: admin +<br/>debt instrument"]]
+    Funder([TREASURY funder])
     Custody[("Vault custody account<br/>joint: admin + borrower")]
     Vault[["Vault<br/>key: admin +<br/>borrower + vaultId"]]
 
     Borrower -->|"repay<br/>(one choice)"| Vault
     Compliance -->|"gates"| Vault
-    Vault -->|"burn principal<br/>+ interest"| Burn
-    Vault -.->|"archive + recreate<br/>debt -Δ, feeReceivable +interest"| Vault
-    Fund -->|"collect later: mint<br/>up to feeReceivable"| Vault
+    Vault -->|"transfer payment in:<br/>availableAmount += principal,<br/>feesAccrued += interest"| Treasury
+    Vault -.->|"archive + recreate:<br/>debtAmount -= payment"| Vault
+    Funder -->|"withdraw accrued<br/>fees later"| Treasury
     Vault ==>|"on close: release residual<br/>collateral"| Custody
     Custody -->|"to borrower"| Borrower
 ```
 
-**D. Margin call and liquidation.** A designated liquidator flags the unhealthy vault, which opens the borrower's cure window. Once the grace period passes and the position is still unhealthy, the liquidator triggers the liquidation: at the current oracle price, the vault burns the liquidator's stablecoin payment straight from its wallet (capped at what restores health), adds the interest portion to the insurance fund's receivable, hands the liquidator seized collateral worth the payment plus the liquidation bonus, and records the reduced debt and collateral.
+**D. Margin call and liquidation.** A designated liquidator flags the unhealthy vault, which opens the borrower's cure window. Once the grace period passes and the position is still unhealthy, the liquidator triggers the liquidation: at the current oracle price, the vault transfers the liquidator's debt-token payment straight from its wallet into the treasury (capped at what restores health; principal replenishes liquidity, interest accrues to fees), hands the liquidator seized collateral worth the payment plus the liquidation bonus, and records the reduced debt and collateral.
 
 ```mermaid
 flowchart TD
     Liquidator([Designated liquidator])
+    Compliance(["Compliance gate<br/>(attestation + KYC,<br/>checking the liquidator)"])
     Vault[["Vault<br/>key: admin +<br/>borrower + vaultId"]]
     Pause[["PauseState<br/>key: admin"]]
-    Oracle[["PriceOracle<br/>key: admin +<br/>collateral + quote"]]
-    Burn["Payment burned<br/>(TokenRules_Burn)"]
+    Oracle[["PriceOracle<br/>key: admin +<br/>collateral + debt instrument"]]
+    Treasury[["Treasury<br/>key: admin +<br/>debt instrument"]]
     Custody[("Vault custody account<br/>joint: admin + borrower")]
 
     Liquidator ==>|"1: flag (margin call)<br/>2: liquidate after grace"| Vault
+    Compliance -->|"gates the<br/>liquidation"| Vault
     Vault -->|"abort<br/>if paused"| Pause
     Vault -->|"assert fresh,<br/>in-band price"| Oracle
-    Vault -->|"burn liquidator's payment<br/>(capped at health restore)"| Burn
+    Vault -->|"transfer liquidator's payment in<br/>(capped at health restore):<br/>availableAmount += principal,<br/>feesAccrued += interest"| Treasury
     Vault ==>|"release seized collateral<br/>(direct transfer,<br/>joint authority)"| Custody
     Custody -->|"to liquidator"| Liquidator
-    Vault -.->|"archive + recreate<br/>debt -repaid, collateral -seized,<br/>feeReceivable +interest"| Vault
+    Vault -.->|"archive + recreate:<br/>debtAmount -= debtRepaid,<br/>collateralAmount -= collateralToSeize"| Vault
 ```
 
 ### The Vault Flows: Step by Step
 
-This walkthrough names the concrete choices behind the four flows:
+This walkthrough names the concrete choices behind the flows:
 
-1. **Vault creation and deposits.** The borrower locks collateral into a committed [`TokenAllocation`](https://github.com/OpenZeppelin/canton-contracts/blob/7696749737885e25cd88422847105f890f03b00d/experiments/token/tokenCIP112-v1/daml/OpenZeppelin/TokenCIP112V1/Allocation.daml#L67) and exercises `VaultFactory_CreateVault`, which checks the KYC claim, batch-settles the collateral into the custody account, and instantiates the `Vault` with the settled `collateralAmount`. Top-ups use `Vault_DepositCollateral`; `Vault_WithdrawCollateral` releases collateral back as long as the solvency check passes.
-2. **Borrow.** `Vault_MintStablecoin` consumes the compliance attestation, fetches the live `KycClaim`, and requires that existing plus requested debt keeps `collateralRatio` at or above `minCollateralRatio` at a fresh `PriceOracle` reading, before minting to the borrower and incrementing `debtAmount`.
-3. **Repay and close.** `Vault_BurnStablecoin` burns the payment via [`TokenRules_Burn`](https://github.com/OpenZeppelin/canton-contracts/blob/7696749737885e25cd88422847105f890f03b00d/experiments/token/tokenCIP112-v1/daml/OpenZeppelin/TokenCIP112V1/Registry.daml#L170), reduces `debtAmount`, and increments `feeReceivable`. The insurance fund collects via `Vault_CollectFees`; `Vault_Close` winds the position down, parking any uncollected receivable in an admin-signed contract for later collection.
-4. **Margin call and liquidation.** `Vault_FlagForLiquidation` opens the grace window; once it elapses on a still-unhealthy vault, `Vault_Liquidate` names `debtRepaid` (capped by the health-restore formula), consumes a compliance attestation checking the liquidator, burns the payment, releases the proportional collateral, and recreates the residual `Vault`.
+1. **Treasury funding.** The funder provisions borrow liquidity with `Treasury_Fund`, transferring debt tokens into the treasury account and raising its `availableAmount`; `Treasury_Defund` reclaims un-borrowed liquidity and accrued fees.
+2. **Vault creation and deposits.** The borrower presents a collateral holding to `VaultFactory_CreateVault`, which checks the KYC claim, transfers the initial collateral into the custody account, and instantiates the `Vault` with the deposited `collateralAmount`. Top-ups use `Vault_DepositCollateral`; `Vault_WithdrawCollateral` releases collateral back as long as the solvency check passes.
+3. **Borrow.** `Vault_Borrow` consumes the compliance attestation, fetches the live `KycClaim`, ensures the treasury's `availableAmount` covers the the request, and requires that existing plus requested debt keeps `collateralRatio` at or above `minCollateralRatio` at a fresh `PriceOracle` reading, before drawing the tokens from the treasury to the borrower and incrementing `debtAmount`.
+4. **Repay and close.** `Vault_Repay` transfers the payment into the treasury account, reduces `debtAmount`, and updates the `Treasury` by key: liquidity up by the principal portion, `feesAccrued` up by the interest portion. `Vault_Close` winds the fully repaid position down, releasing the residual collateral.
+5. **Margin call and liquidation.** `Vault_FlagForLiquidation` opens the grace window; once it elapses on a still-unhealthy vault, `Vault_Liquidate` names `debtRepaid` (capped by the health-restore formula), consumes a compliance attestation checking the liquidator, transfers the payment into the treasury, releases the proportional collateral, and recreates the residual `Vault`.
 
 The sequence diagram below traces the margin-call and liquidation flow end to end:
 
@@ -389,6 +398,7 @@ sequenceDiagram
     participant B as Borrower
     participant V as Vault
     participant O as PriceOracle
+    participant T as Treasury
     participant L as Liquidator
 
     note over O: price drops, pushing collateralRatio below liquidationRatio
@@ -406,9 +416,10 @@ sequenceDiagram
     V->>V: assert flagged && now >= flaggedAt + gracePeriod
     V->>V: assert debtRepaid <= health-restore cap
     V->>V: collateralToSeize = debtRepaid*(1+bonus)/price (capped)
-    V->>V: burn liquidator's payment (TokenRules_Burn)
+    V->>T: transfer liquidator's payment into the treasury account
+    V->>T: archive + recreate: availableAmount += principal, feesAccrued += interest
     V->>L: release collateralToSeize (direct transfer, joint authority)
-    V->>V: archive old Vault, create new (debt-repaid, collateral-seized, feeReceivable +interest)
+    V->>V: archive old Vault, create new (debtAmount -= debtRepaid, collateralAmount -= collateralToSeize)
     V-->>L: newVaultCid
     deactivate V
 ```
@@ -426,29 +437,23 @@ price-dependent choice reads the standing published price with no operator
 involvement, but blocks on the operators' next publish if it has gone stale.
 A client that submits and waits per command therefore
 experiences each flow as a synchronous sequence completing in seconds.
-Outbound flows (borrow, withdraw, close), the repay, and the liquidation are
-single atomic exercises;
-the collateral deposit adds a locking step before its settle.
+Every value-moving step is a single atomic exercise.
 
 Step-by-step execution, per flow:
 
 | Flow | Step | Submitter | Interaction |
 |---|---|---|---|
-| Deposit / creation | 1. lock the collateral for settlement | borrower | sync: borrower alone |
-| Deposit / creation | 2. settle the collateral into the vault's custody account, creating or updating the vault | borrower | async: may wait for the compliance attestation |
-| Borrow | mint the stablecoin against the vault's collateral | borrower | async: may wait for a stale price to update and for the compliance attestation |
-| Fee collection | mint accumulated `feeReceivable` to the insurance fund | insurance fund | on its own cadence, no involvement from another actor; the fund's confirmation threshold >1 routes each submission through external signing |
+| Deposit / creation | transfer the collateral into the vault's custody account, creating or updating the vault | borrower | async: may wait for the compliance attestation |
+| Borrow | draw debt tokens from the treasury against the vault's collateral | borrower | async: may wait for a stale price to update and for the compliance attestation |
+| Treasury fund / defund | provision borrow liquidity, or reclaim it plus accrued fees | treasury funder | on its own cadence, no involvement from another actor; the funder's confirmation threshold >1 routes each submission through external signing |
 | Withdraw | release collateral above the solvency floor | borrower | async: may wait for a stale price to update and for the compliance attestation |
 | Close | wind down a repaid position, releasing the residual collateral | borrower | sync: borrower alone; direct transfer |
 | Liquidation | 1. flag the vault (the margin call) | liquidator keeper | sync: keeper alone; opens the grace period |
-| Liquidation | 2. liquidate: burn the payment, seize collateral | liquidator keeper | keeper alone, once the grace period lapses uncured; may wait for a stale price to update and for the compliance attestation |
+| Liquidation | 2. liquidate: pay into the treasury, seize collateral | liquidator keeper | keeper alone, once the grace period lapses uncured; may wait for a stale price to update and for the compliance attestation |
 | Oracle publish | publish a price update | oracle operators (implementation-defined) | async: on the operators' cadence |
 
 Assumptions and important notes:
 
-- Between a deposit's allocate and its settle the borrower's collateral is
-  locked; the lock on the allocation is time-bounded and the borrower always has a unilateral
-  exit ([section 5.3](#53-failure-modes-and-recovery)).
 - The oracle publish will likely be a multi-party ceremony on its own cadence,
   and a price-dependent choice that loses the race against a publish is simply retried: the oracle is re-resolved by key, so the retry runs against the fresh price with no client-side rewiring.
 - Custody-held keys turn any synchronous step asynchronous: a signature that
@@ -459,7 +464,7 @@ Assumptions and important notes:
 **Progress tracking.** The borrower client and the keeper track each
 flow by command id: a step that neither commits nor rejects times out against
 its deadline and marks the workflow stuck, raising an alert with the pending
-step and the deadline after which funds unlock.
+step.
 [Section 5.3](#53-failure-modes-and-recovery) enumerates the stuck states and
 their exits.
 
@@ -475,46 +480,44 @@ Canton features the protocol must account for:
   [CIP-0107](https://github.com/canton-foundation/cips/blob/main/cip-0107/cip-0107.md)
   exposes the
   same window.
-- CIP-0112 defines the deadline fields and their semantics but no values:
-  `settlementDeadline` (an allocation must not settle after it; committed
-  allocations become withdrawable after it) and a registry-set `expiresAt`
-  for hygiene expiry. Enforcement lives in each token registry's
-  implementation, so with third-party compliant tokens the expiry policy is
-  per registry.
+- Attestations are single-use with a short validity window ([section 3](#compliance-is-re-checked-on-every-operation)): a gated flow must land inside the window of the attestation it consumes.
 
-Deadlines are derived per flow, not picked globally:
-
-```text
-slowest required actor's SLA <= settlementDeadline
-  <= min(operation staleness tolerance, capital-lock tolerance, 24h if any external signer)
-```
+Time budgets are set per flow, not globally:
 
 | Flow | Slowest actor | Time budget | Rationale |
 |---|---|---|---|
-| Collateral deposit | the borrower end to end: allocate, then settle, back-to-back | minutes (`settlementDeadline`); extend toward the 24h prepared-transaction ceiling only when the borrower signs through an external custodian | both steps carry only the borrower's authority, so a live wallet completes them in one session; not price-sensitive, and compliance is re-checked at settle time |
+| Collateral deposit | the borrower, one direct transfer | seconds; extend toward the 24h prepared-transaction ceiling only when the borrower signs through an external custodian | the transfer carries only authority already present in the choice; not price-sensitive, and compliance is checked inline |
 | Oracle publish | oracle operators, automated | minutes (`maxStaleness`) | the staleness guard rejects slow publishes and the circuit breaker trips on gaps |
 
 Consequence for the attestation gate: attestations are
-automated, issued just-in-time with a short validity window, and
-`settlementDeadline` must exceed the attester's SLA. The margin-call grace window ([section 3](#margin-call-a-grace-period-before-liquidation))
+automated and issued just-in-time, and their validity window
+must cover the client's submission time. The margin-call grace window ([section 3](#margin-call-a-grace-period-before-liquidation))
 is measured in ledger time, so it must exceed the 60s tolerance by a wide
 margin.
 
 ### Collateral is Custodied
 
-Collateral is only ever **transferred**, never minted or burned: a deposit settles the borrower's collateral holding into the vault custody account through CIP-0112 settlement, and a withdrawal releases it back by direct transfer under the vault's joint authority. The vault admin therefore needs no issuing authority over the collateral instrument, only over the stablecoin. Institution-supplied, third-party-issued collateral (a custodian bank's deposit token, a tokenized treasury) is therefore compatible.
+Both instruments are only ever transferred, never minted or burned: deposits and withdrawals move collateral between the borrower and the vault custody account under the vault's joint authority, and borrows and repayments move the debt token between the borrower and the admin-owned treasury account (the treasury). The protocol therefore needs issuing authority over neither instrument, and third-party-issued assets (a custodian bank's deposit token, a tokenized treasury bill) are compatible. 
 
-To facilitate value transfers, the design assumes that the vault admin **is** the stablecoin's registry admin, which is what lets vault choices mint and burn it directly; a third-party debt token would push borrow and repay onto that token's own registry rails. The deposit rides the allocation rail rather than a receiver-accepted transfer instruction for two reasons: a committed allocation is the standard pre-signed rail a third-party registry offers an executor, and in-flight deposits are the surface the custodian lock-and-sweep control is defined over.
+No flow waits on a receiver acceptance or a settlement counterparty: the sender signs as the choice's controller, and the receiving account's owners are already among the choice's authorizers.
 
-**Direct-transfer assumption.** The direct-transfer capability can break for a registry that interposes its own asynchronous step, such as a registrar acceptance or a pending state resolved by registry automation. Such an asset still integrates, but its releases split in two: the vault transaction issues the instruction, and the collateral arrives when the registry's step lands.
+**Direct-transfer assumption.** Every flow relies on the instruments' registries supporting a transfer that completes under exactly that in-choice authority. The capability can break for a registry that interposes its own asynchronous step, such as a registrar acceptance or a pending state resolved by registry automation. Such an asset still integrates, but its legs split in two: the vault transaction issues the instruction, and the asset arrives when the registry's step lands. For deposits, borrows, and repayments that split breaks single-transaction atomicity, so both instruments should support direct transfer under account-owner authority.
 
-**Collateral amounts vs. actual holdings.** The `Vault`'s `collateralAmount` is a `Decimal` accounting figure; the real value lives in TSv2 holdings owned by that vault's own custody account. Every flow moves holdings into or out of that account in the same transaction that updates the accounting figure, so **`collateralAmount == Σ(custody-account holdings)` per vault** cannot drift within a transaction. Deposit, withdrawal, and liquidation each pin their collateral movement to the vault's own custody account - the deposit leg must deliver into it, and every release draws from it - so the accounting can never move without the matching holdings moving. The caveat is *fragmentation*: repeated top-ups accumulate many small holdings in a custody account, so a periodic **consolidation** step (merging the account's holdings for the instrument into one, leaving `collateralAmount` unchanged) keeps settlement cheap.
+**Collateral amounts vs. actual holdings.** The `Vault`'s `collateralAmount` is a `Decimal` accounting figure; the real value lives in TSv2 holdings owned by that vault's own custody account. Every flow moves holdings into or out of that account in the same transaction that updates the accounting figure, so **`collateralAmount == Σ(custody-account holdings)` per vault** cannot drift within a transaction. Deposit, withdrawal, and liquidation each pin their collateral movement to the vault's own custody account - the deposit leg must deliver into it, and every release draws from it - so the accounting can never move without the matching holdings moving. The caveat is *fragmentation*: repeated top-ups accumulate many small holdings in a custody account, so a periodic **consolidation** step (merging the account's holdings for the instrument into one, leaving `collateralAmount` unchanged) keeps transfers cheap.
 
-### Fees Are Burned, Then Collected
+### The Treasury
 
-The debt paid on repay, close, or liquidation is `principal + accrued interest`; all flows burn the full payment via the registry's `TokenRules_Burn` and record the interest portion in the vault's `feeReceivable`; the insurance fund realizes that revenue later by exercising `Vault_CollectFees`, which mints up to the recorded receivable. Those fees are protocol revenue, the on-ledger analogue of interest paid to the lender, and the accumulated fees are the first absorber of any liquidation shortfall.
+Borrow liquidity lives in the **treasury**: a debt-token account owned by the vault admin, fronted by a keyed `Treasury` contract `(vaultAdmin, debtInstrumentId)` carrying two accounting figures: `availableAmount`, the un-borrowed liquidity, and `feesAccrued`, the funder's collected interest. The privileged `TREASURY` funder provisions it with `Treasury_Fund` and reclaims un-borrowed liquidity and revenue with `Treasury_Defund`; in exchange it earns the protocol's interest, and its capital absorbs any bad debt.
 
-The protocol mints only principal, yet borrowers owe principal plus interest, so aggregate debt always exceeds the protocol-minted supply by the accrued interest. A borrower sources the interest portion from stablecoin already in circulation: other borrowers' spent principal, or fees the insurance fund collected and re-spent. Whether interest collections will recycle enough stablecoin for borrowers to service interest is left as an open question for upcoming iterations ([section 7](#7-open-design-questions)).
+Admin ownership of the account is what keeps every flow a single atomic exercise: the admin signs each `Vault`, so a borrow releases treasury holdings under authority the vault choice already carries, and a repayment or liquidation payment transfers in with the payer signing as the choice's controller. Borrow asserts `availableAmount` covers the request and decrements it; **an exhausted treasury blocks new borrows** - repay, close, withdraw, and liquidation never depend on treasury liquidity. The same accounting-equals-holdings discipline as collateral applies: `availableAmount + feesAccrued == Σ(treasury-account holdings)`, updated in the same transaction as every movement.
+
+Because the funds sit in an admin-owned account, the funder's protection is structural rather than custodial: the admin party is an N-of-M quorum ([section 2](#decentralization-and-trust-topology)), and treasury outflows are reachable only through the solvency-coupled borrow choice and the funder-controlled defund. Extending the treasury to multiple independent liquidity providers (depositors sharing `feesAccrued` pro rata) is a future extension ([extension points](#extension-points)), not part of this design.
+
+### Fees Accrue to the Treasury
+
+The debt paid on repay, close, or liquidation is `principal + accrued interest`; every payment transfers into the treasury account in full. The principal portion replenishes `availableAmount`, immediately borrowable again, and the interest portion accrues to `feesAccrued`: the funder's revenue, withdrawn on its own schedule via `Treasury_Defund`. Interest is the funder's compensation for capital at risk: a liquidation shortfall is written off against the treasury.
+
+Borrowers acquire the debt tokens they owe as interest on the open market, like any other asset; a borrower's repayment capacity is never bounded by the protocol's own liquidity.
 
 ### Margin Call: a Grace Period Before Liquidation
 
@@ -525,7 +528,7 @@ On a public chain, a collateral top-up racing a liquidation is decided by gas an
 
 ### Compliance is Re-checked on Every Operation
 
-The KYC gate at vault opening is necessary but not sufficient: a borrower can lose good standing after opening. Two distinct layers keep a position compliant. For identity, each risk-increasing vault choice (borrow, collateral top-up, withdrawal) fetches the borrower's live `KycClaim` and re-checks it: the claim must be unexpired and its issuer still listed in the `TrustedIssuerRegistry`. Revocation is the issuer archiving the claim or being delisted from the registry; either blocks new borrows, top-ups, and withdrawals immediately. The compliance-attestation gate is configured per deployment: `VaultParams` carries an optional trusted-attester registry reference for the direct flows, and the collateral registry's own `requiredAttesterRegistryCid` pins it for the settled deposit. When enabled, each flow consumes one single-use attestation: the deposit settlement consumes it in `SettleBatch`, fail-closed, with no caching, and the pure-direct flows (mint, repay, liquidation, withdrawal) consume it inline, so every flow sits behind the same gate. With the gate disabled, no flow waits on an attester and compliance rests on the identity layer alone.
+The KYC gate at vault opening is necessary but not sufficient: a borrower can lose good standing after opening. Two distinct layers keep a position compliant. For identity, each risk-increasing vault choice (borrow, collateral top-up, withdrawal) fetches the borrower's live `KycClaim` and re-checks it: the claim must be unexpired and its issuer still listed in the `TrustedIssuerRegistry`. Revocation is the issuer archiving the claim or being delisted from the registry; either blocks new borrows, top-ups, and withdrawals immediately. The compliance-attestation gate is configured per deployment: `VaultParams` carries an optional trusted-attester registry reference. When enabled, each flow (deposit, borrow, repay, liquidation, withdrawal) consumes one single-use attestation inline, fail-closed, with no caching, so every flow sits behind the same gate. With the gate disabled, no flow waits on an attester and compliance rests on the identity layer alone.
 
 Deliberately, the borrower's continued compliance is **not** a precondition for winding the position down: on repay and close the borrower is reducing risk, so those flows do not gate on the borrower's attestation standing (the attestation covers the operation, not the repaying borrower's status), and on the liquidation legs it is the liquidator's compliance that is checked. A now-non-compliant position can always be repaid or liquidated, never trapped, and never dependent on an attester's willingness to re-attest the borrower.
 
@@ -533,35 +536,36 @@ Deliberately, the borrower's continued compliance is **not** a precondition for 
 
 A single trusted price feed plus a single liquidator would be the largest live attack surface, so the design hardens the price path:
 
-- **Named quote instrument.** `PriceOracle` carries a `stablecoinInstrumentId` alongside `collateralInstrumentId`, so `price` is unambiguously "units of this stablecoin per unit of this collateral". Consumers assert both ids match the vault's.
-- **No single writer on the oracle.** The oracle interface forbids any single party - the vault admin included - from publishing a price alone, so a lone compromised admin cannot move the price and manufacture liquidations. The concrete update quorum is implementation-defined ([section 4](#43-component-price-oracle-interface)).
+- **Named quote instrument.** `PriceOracle` carries a `debtInstrumentId` alongside `collateralInstrumentId`, so `price` is unambiguously "units of the debt token per unit of collateral". Consumers assert both ids match the vault's.
+- **No single writer on the oracle.** The oracle interface forbids any single party - the vault admin included - from publishing a price alone, so a lone compromised admin cannot move the price and manufacture liquidations. The concrete update quorum is implementation-defined ([section 4](#44-component-price-oracle-interface)).
 - **Max-staleness guard.** Every price-dependent choice rejects when `now - updatedAt > maxStaleness`, so a stalled feed cannot drive liquidations or fresh borrows against a dead price.
 - **Per-update deviation circuit breaker.** Updates are bounded against the oracle's own `maxDeviation` field; an out-of-band move aborts the update, so the last in-band price stands.
 
 ### Custodian Lock-and-Sweep
 
 The target architecture uses a strict **lock-and-sweep** policy for authorized
-seizure. The settlement experiment demonstrates the in-flight allocation path:
+seizure of custodied collateral: an admin-issued, time-bounded seizure
+capability marks a vault's custody account, suspending withdrawal and close for
+that vault, and sweeps the marked holdings to the preset custodian account.
+Seized assets are neither burned nor returned to the sender.
+The token experiment demonstrates the mark-and-sweep mechanism:
 [`TokenAllocation_MarkD2Seizure`](https://github.com/OpenZeppelin/canton-contracts/blob/7696749737885e25cd88422847105f890f03b00d/experiments/token/tokenCIP112-v1/daml/OpenZeppelin/TokenCIP112V1/Allocation.daml#L158)
-marks the locked funds, and
+marks the target funds, and
 [`TokenAllocation_SweepD2Seizure`](https://github.com/OpenZeppelin/canton-contracts/blob/7696749737885e25cd88422847105f890f03b00d/experiments/token/tokenCIP112-v1/daml/OpenZeppelin/TokenCIP112V1/Allocation.daml#L207)
-routes them to the preset custodian account. Seized assets are neither burned nor
-returned to the sender.
-Applying the same policy to locked vault collateral is part of the target lending
-design and is not demonstrated by the companion holding implementation.
+routes them to the preset custodian account.
 
 ### Know-Your-Customer Identity
 
 The target architecture uses a single-synchronizer identity model. A borrower
 holds a `KycClaim` issued by a party in the `TrustedIssuerRegistry`; vault
-creation verifies the claim, and each value-moving vault choice fetches its
+creation verifies the claim, and each risk-increasing vault choice fetches its
 current ledger state. The Shape B experiment demonstrates the claim checks in
 isolation. Integrating those checks into the vault remains part of the target
 application design.
 
 ### Authority and Privilege Transfer
 
-Institutional lending requires administrative power to be explicit and accountable: every privileged action traces to a named authority. There is no single admin holding every privilege. Each action sits with the role responsible for it: stablecoin issuance and burning with the `VAULT_ADMIN`, reachable only through the solvency-coupled vault choices; liquidation with the `LIQUIDATOR`; price publication with the oracle operators; the emergency brake with the `PAUSER`; and lock-and-sweep with the custodian-preset seizure path. These privileges are granted, transferred, and revoked through `openzeppelin-access-control-v1` role administration and the `openzeppelin-ownable-v1` two-step ownership handover, so authority can move between parties without redeploying.
+Institutional lending requires administrative power to be explicit and accountable: every privileged action traces to a named authority. There is no single admin holding every privilege. Each action sits with the role responsible for it: treasury releases with the `VAULT_ADMIN`, reachable only through the solvency-coupled vault choices; liquidity provisioning and fee withdrawal with the `TREASURY` funder; liquidation with the `LIQUIDATOR`; price publication with the oracle operators; the emergency brake with the `PAUSER`; and lock-and-sweep with the custodian-preset seizure path. These privileges are granted, transferred, and revoked through `openzeppelin-access-control-v1` role administration and the `openzeppelin-ownable-v1` two-step ownership handover, so authority can move between parties without redeploying.
 
 ### Implementing Smart Contract Upgrades
 
@@ -569,8 +573,8 @@ An upgraded package version extends templates and choices by appending `Optional
 
 For example, per-vault debt ceilings ([section 7](#7-open-design-questions))
 could be implemented as an appended `debtCeiling : Optional Decimal` on `VaultParams` and a
-new ceiling-enforcing mint choice. Existing contracts read the appended
-field as `None`, while the `Vault_MintStablecoin` and `Vault_BurnStablecoin`
+new ceiling-enforcing borrow choice. Existing contracts read the appended
+field as `None`, while the `Vault_Borrow` and `Vault_Repay`
 signatures remain unchanged for existing clients.
 
 SCU extensions are not security retrofits: adding a stricter choice does not close the looser one. If a hardened liquidation choice shipped while the original stayed live, anyone could call the weaker path directly. Hence such an upgrade must also make the superseded choice fail unconditionally and be marked as `deprecated`.
@@ -579,9 +583,9 @@ SCU extensions are not security retrofits: adding a stricter choice does not clo
 
 Protocol-level extensions the architecture supports, each landing SCU-safe per the rules above:
 
-- **Debt ceilings.** A per-vault `Optional` cap in `VaultParams` and an aggregate ceiling on the `VaultFactory`, enforced by a new mint choice; bounds the damage of a bad price or a bad borrower ([section 7](#7-open-design-questions)).
+- **Debt ceilings.** A per-vault `Optional` cap in `VaultParams` and an aggregate ceiling on the `VaultFactory`, enforced by a new borrow choice; bounds the damage of a bad price or a bad borrower ([section 7](#7-open-design-questions)).
 - **Compounding interest variant.** An `Optional` accrual mode on `VaultParams` selecting discrete compounding where required, served by a new accrual-aware choice pair; currently tracked as an open design question ([section 7](#7-open-design-questions)).
-- **Savings rate.** A deposit contract paying stablecoin holders a share of the insurance fund's collected interest - a demand-side lever for the interest-liquidity gap.
+- **Liquidity providers.** Opening the treasury to multiple independent depositors: each funds debt tokens, shares `feesAccrued` and splits the risk with the rest.
 
 ---
 
@@ -600,15 +604,17 @@ amounts and `principalAmount <= debtAmount`) are likewise omitted.
 ### 4.1 Component: VaultFactory and Vault Creation
 
 The `VaultFactory` is the vault admin's standing vault-creation offer: an
-admin-signed contract publishing the terms (`VaultParams` and the
-instrument pair). A borrower creates their vault unilaterally. Creation is pause- and KYC-gated, settles the
-committed initial deposit in the same transaction (a vault is never created
+admin-signed contract carrying the terms (`VaultParams` and the
+instrument pair), reaching prospective borrowers through explicit disclosure.
+A borrower creates their vault unilaterally. Creation is pause- and KYC-gated, transfers the
+initial deposit into custody in the same transaction (a vault is never created
 empty), and duplicate `(vaultAdmin, borrower, vaultId)` vaults are rejected
 by an application-level check, since 3.5.1 contract keys are not unique.
 `requireNoExistingVault`, `requireLiveKycClaim`,
-`requireJointAccount`, `requireFactoryAdmin`, and `requireDepositLeg` (exactly one leg delivers a positive
-`initialCollateral` of the collateral instrument into custody) are
-illustrative helpers in the style of section 4.2.
+`requireJointAccount`, and `requireCollateralHolding` (the presented holding
+carries a positive `initialCollateral` of the collateral instrument) are
+illustrative helpers in the style of section 4.2; `transferIntoCustody`
+mirrors `releaseFromCustody`.
 
 ```daml
 template VaultFactory
@@ -616,11 +622,9 @@ template VaultFactory
     vaultAdmin : Party
     params : VaultParams
     collateralInstrumentId : InstrumentId
-    stablecoinInstrumentId : InstrumentId
-    prospects : [Party]
+    debtInstrumentId : InstrumentId
   where
     signatory vaultAdmin
-    observer prospects
     key vaultAdmin : Party
     maintainer key
 
@@ -631,13 +635,9 @@ template VaultFactory
         custodyAccount : Account
         initialCollateral : Decimal
         kycClaimCid : ContractId KycClaim
-        settlementFactoryCid : ContractId SettlementFactory
-        allocationCid : ContractId Allocation
-        settlement : SettlementInfo
-        transferLegs : [TransferLeg]
+        collateralHoldingCid : ContractId TokenHolding
         attestationCid : Optional (ContractId ComplianceAttestation)
-          -- ^ Required when the collateral registry configures its
-          -- attestation gate.
+          -- ^ Required when `params` configures the attester registry.
       controller borrower
       do
         now <- getTime
@@ -646,34 +646,21 @@ template VaultFactory
         requireNoExistingVault vaultAdmin borrower vaultId
         requireLiveKycClaim kycClaimCid borrower vaultAdmin
         requireJointAccount custodyAccount vaultAdmin borrower
-        requireFactoryAdmin settlementFactoryCid collateralInstrumentId.admin
-        requireDepositLeg transferLegs collateralInstrumentId custodyAccount initialCollateral
-
-        -- The attestation rides the choice context (`extraArgs`): the standard
-        -- interface choice has no attestation field; the registry fails closed.
-        _ <- exercise settlementFactoryCid SettlementFactory_SettleBatch with
-          settlement; transferLegs
-          allocations = [FinalizedAllocation with
-            allocationCid
-            extraTransferLegSides = []
-            nextIterationFunding = None]
-          actors = [borrower]
-          extraArgs = ExtraArgs with
-            context = ChoiceContext with
-              values = case attestationCid of
-                None -> TextMap.empty
-                Some cid -> TextMap.fromList
-                  [(d1AttestationContextKey, AV_ContractId (toAnyContractId cid))]
-            meta = emptyMetadata
+        requireAttestation params attestationCid borrower vaultAdmin
+        -- The borrower's wallet pre-splits the holding to exactly
+        -- `initialCollateral`; the deposit transfers it whole into custody.
+        _ <- requireCollateralHolding collateralHoldingCid
+               collateralInstrumentId initialCollateral
+        _ <- transferIntoCustody custodyAccount collateralHoldingCid
+               collateralInstrumentId initialCollateral
 
         create Vault with
           vaultAdmin; borrower; vaultId
-          collateralInstrumentId; stablecoinInstrumentId
+          collateralInstrumentId; debtInstrumentId
           collateralAccount = custodyAccount
           collateralAmount = initialCollateral
           debtAmount = 0.0
           principalAmount = 0.0
-          feeReceivable = 0.0
           params
           lastAccrualTime = now
           liquidationFlaggedAt = None
@@ -681,7 +668,7 @@ template VaultFactory
 
 ### 4.2 Component: Vault State, Margin Call, and Liquidation
 
-The `Vault` holds one borrower's CDP state. The state-update logic lives **here**, as consuming choices controlled by the relevant role, which archive this `Vault` and recreate the successor with updated figures. The `Vault` carries a contract key `(vaultAdmin, borrower, vaultId)`, so consumers reference a position by its stable identity rather than by a cid that changes on every operation. Liquidation is **pause-gated** and **margin-called**: it resolves the `PauseState` by key and requires an elapsed grace period on a flagged, still-unhealthy vault. No settlement is involved: the liquidator's payment burns under the choice's own authority, and the custody account is jointly authorized by the vault's own signatories, so the choice releases the seized collateral itself.
+The `Vault` holds one borrower's CDP state. The state-update logic lives **here**, as consuming choices controlled by the relevant role, which archive this `Vault` and recreate the successor with updated figures. The `Vault` carries a contract key `(vaultAdmin, borrower, vaultId)`, so consumers reference a position by its stable identity rather than by a cid that changes on every operation. Liquidation is **pause-gated** and **margin-called**: it resolves the `PauseState` by key and requires an elapsed grace period on a flagged, still-unhealthy vault. The liquidator's payment transfers into the admin-owned treasury account under authority the choice already carries, and the custody account is jointly authorized by the vault's own signatories, so the choice releases the seized collateral itself.
 
 Vaults are operationally independent, but not mutually invisible on the operator side: the vault admin is a signatory of every vault and sees all positions, and each liquidator observes the vaults it polices. Isolation holds between borrowers: no borrower ever sees another borrower's vault.
 
@@ -692,18 +679,17 @@ template Vault
     borrower : Party
     vaultId : Text
     collateralInstrumentId : InstrumentId
-    stablecoinInstrumentId : InstrumentId
+    debtInstrumentId : InstrumentId
     collateralAccount : Account
     collateralAmount : Decimal
     debtAmount : Decimal
     principalAmount : Decimal
-    feeReceivable : Decimal
     params : VaultParams
     lastAccrualTime : Time
     liquidationFlaggedAt : Optional Time
   where
     signatory vaultAdmin, borrower
-    observer params.liquidators, params.insuranceFund
+    observer params.liquidators
     key (vaultAdmin, borrower, vaultId) : (Party, Party, Text)
     maintainer key._1
 
@@ -715,7 +701,7 @@ template Vault
         assertMsg "not a designated liquidator" (flagger `elem` params.liquidators)
         assertMsg "already flagged" (isNone liquidationFlaggedAt)
         now <- getTime
-        (_, oracle) <- fetchByKey @PriceOracle (vaultAdmin, collateralInstrumentId, stablecoinInstrumentId)
+        (_, oracle) <- fetchByKey @PriceOracle (vaultAdmin, collateralInstrumentId, debtInstrumentId)
         assertMsg "oracle stale" (subTime now oracle.updatedAt <= params.maxStaleness)
         let accruedDebt = accrueDebt debtAmount principalAmount lastAccrualTime now params.interestRate
         assertMsg "vault is healthy"
@@ -727,7 +713,6 @@ template Vault
     choice Vault_Liquidate : ContractId Vault
       with
         liquidator : Party
-        stablecoinRulesCid : ContractId TokenRules
         paymentHoldingCid : ContractId TokenHolding
         debtRepaid : Decimal
         attestationCid : Optional (ContractId ComplianceAttestation)
@@ -738,7 +723,7 @@ template Vault
         now <- getTime
         (_, pause) <- fetchByKey @PauseState vaultAdmin
         whenNotPaused pause
-        (_, oracle) <- fetchByKey @PriceOracle (vaultAdmin, collateralInstrumentId, stablecoinInstrumentId)
+        (_, oracle) <- fetchByKey @PriceOracle (vaultAdmin, collateralInstrumentId, debtInstrumentId)
         assertMsg "oracle stale" (subTime now oracle.updatedAt <= params.maxStaleness)
 
         let flaggedAt = fromSomeNote "not flagged" liquidationFlaggedAt
@@ -754,20 +739,20 @@ template Vault
               min collateralAmount ((debtRepaid * (1.0 + params.liquidationBonus)) / oracle.price)
 
         requireAttestation params attestationCid liquidator vaultAdmin
-        requireFactoryAdmin stablecoinRulesCid vaultAdmin
         -- The liquidator's wallet pre-splits the payment holding to exactly
-        -- `debtRepaid`; the registry burns whole holdings.
-        paymentAccount <- requirePaymentHolding paymentHoldingCid
-                            stablecoinInstrumentId debtRepaid
-        exercise stablecoinRulesCid TokenRules_Burn with
-          holdingCid = paymentHoldingCid
-          account = paymentAccount
-          reason = "liquidation " <> vaultId
+        -- `debtRepaid`; the payment transfers whole into the treasury.
+        _ <- requirePaymentHolding paymentHoldingCid debtInstrumentId debtRepaid
+        let principalRepaid = debtRepaid * (principalAmount / accruedDebt)
+        _ <- exerciseByKey @Treasury (vaultAdmin, debtInstrumentId)
+               Treasury_AcceptPayment with
+                 payer = liquidator
+                 paymentHoldingCid
+                 principalPortion = principalRepaid
+                 feePortion = debtRepaid - principalRepaid
         _ <- releaseFromCustody collateralAccount liquidator
                collateralInstrumentId collateralToSeize
 
-        let principalRepaid = debtRepaid * (principalAmount / accruedDebt)
-            remainingDebt = accruedDebt - debtRepaid
+        let remainingDebt = accruedDebt - debtRepaid
             remainingCollateral = collateralAmount - collateralToSeize
             stillUnhealthy = remainingDebt > 0.0 &&
               collateralRatio remainingCollateral remainingDebt oracle.price < params.liquidationRatio
@@ -775,14 +760,83 @@ template Vault
           collateralAmount = remainingCollateral
           debtAmount = remainingDebt
           principalAmount = principalAmount - principalRepaid
-          feeReceivable = feeReceivable + (debtRepaid - principalRepaid)
           lastAccrualTime = now
           liquidationFlaggedAt = if stillUnhealthy then liquidationFlaggedAt else None
 ```
 
-### 4.3 Component: Price Oracle Interface
+### 4.3 Component: Treasury
 
-The `PriceOracle` is the one contract whose compromise would let an attacker manipulate the price, potentially manufacturing liquidations or borrowing unbacked amounts. This report specifies the interface the vaults consume and the requirements any update mechanism must satisfy; the mechanism itself is an implementation decision ([section 7](#7-open-design-questions)). The oracle carries a contract key `(admin, collateralInstrumentId, stablecoinInstrumentId)`, so vaults resolve the current price by key across its archive-and-recreate update cycle. The requirements on the update mechanism:
+The `Treasury` fronts the protocol's borrow liquidity: an admin-signed, keyed contract accounting for the admin-owned treasury account, with the funder as observer; prospective borrowers learn the available capacity through explicit disclosure. `depositIntoTreasury` and `releaseFromTreasury` are illustrative helpers in the style of `releaseFromCustody`. As with vaults and the oracle, duplicates are excluded by an application-level check at creation, since contract keys are not unique.
+
+```daml
+template Treasury
+  with
+    vaultAdmin : Party
+    debtInstrumentId : InstrumentId
+    treasuryFunder : Party
+    treasuryAccount : Account  -- owned by the vault admin
+    availableAmount : Decimal  -- un-borrowed liquidity
+    feesAccrued : Decimal      -- funder revenue, not borrowable
+  where
+    signatory vaultAdmin
+    observer treasuryFunder
+    key (vaultAdmin, debtInstrumentId) : (Party, InstrumentId)
+    maintainer key._1
+
+    choice Treasury_Fund : ContractId Treasury
+      with
+        fundingHoldingCid : ContractId TokenHolding
+        amount : Decimal
+      controller treasuryFunder
+      do
+        depositIntoTreasury treasuryAccount fundingHoldingCid debtInstrumentId amount
+        create this with availableAmount = availableAmount + amount
+
+    choice Treasury_Defund : ContractId Treasury
+      with
+        amount : Decimal
+      controller treasuryFunder
+      do
+        assertMsg "amount exceeds un-borrowed liquidity plus accrued fees"
+          (amount > 0.0 && amount <= availableAmount + feesAccrued)
+        _ <- releaseFromTreasury treasuryAccount treasuryFunder debtInstrumentId amount
+        let fromFees = min amount feesAccrued
+        create this with
+          feesAccrued = feesAccrued - fromFees
+          availableAmount = availableAmount - (amount - fromFees)
+
+    -- Exercised from inside `Vault_Borrow`, under the vault admin
+    -- authority the vault choice already carries.
+    choice Treasury_Draw : ContractId Treasury
+      with
+        borrower : Party
+        amount : Decimal
+      controller vaultAdmin
+      do
+        assertMsg "treasury exhausted" (amount > 0.0 && amount <= availableAmount)
+        _ <- releaseFromTreasury treasuryAccount borrower debtInstrumentId amount
+        create this with availableAmount = availableAmount - amount
+
+    -- Exercised from inside `Vault_Repay` and `Vault_Liquidate`; the payer's
+    -- authority arrives as the controller of the enclosing vault choice.
+    choice Treasury_AcceptPayment : ContractId Treasury
+      with
+        payer : Party
+        paymentHoldingCid : ContractId TokenHolding
+        principalPortion : Decimal
+        feePortion : Decimal
+      controller payer, vaultAdmin
+      do
+        depositIntoTreasury treasuryAccount paymentHoldingCid debtInstrumentId
+          (principalPortion + feePortion)
+        create this with
+          availableAmount = availableAmount + principalPortion
+          feesAccrued = feesAccrued + feePortion
+```
+
+### 4.4 Component: Price Oracle Interface
+
+The `PriceOracle` is the one contract whose compromise would let an attacker manipulate the price, potentially manufacturing liquidations or borrowing unbacked amounts. This report specifies the interface the vaults consume and the requirements any update mechanism must satisfy; the mechanism itself is an implementation decision ([section 7](#7-open-design-questions)). The oracle carries a contract key `(admin, collateralInstrumentId, debtInstrumentId)`, so vaults resolve the current price by key across its archive-and-recreate update cycle. The requirements on the update mechanism:
 
 - **No single writer.** No single party - the vault admin included - may publish a price alone.
 - **No single staller.** Update liveness must not hinge on any one party's per-update cooperation. The oracle's own choices carry its signatory's authority, so a mechanism can be admin-free at publish time even though the admin signs the contract.
@@ -804,17 +858,17 @@ per-party projections provide privacy and disclosure boundaries.
 - **Solvency conservation**:
   - Collateral can never be withdrawn, and a borrow can never succeed, if it would push `collateralRatio` below `VaultParams.minCollateralRatio`.
   - Liquidation is reachable only below `liquidationRatio`, after the margin-call grace period.
-- **Debt conservation (no unbacked issuance)**:
-  - Stablecoin is minted only together with a solvency-checked `debtAmount` increment, or as fee revenue the insurance fund collects against `feeReceivable` - interest that was already burned; stablecoin is only burned against a matching `debtAmount` decrement. There is no standalone admin mint, so circulating supply never exceeds recorded vault debt. Holds against every party except the vault admin quorum itself, since Daml gates contract creation by signatories, not choices.
+- **Lending conservation (no unbacked lending)**:
+  - Debt tokens leave the treasury only with a solvency-checked `debtAmount` increment gated by `availableAmount`, or through the funder's own defund; payments return against a matching decrement. Outstanding principal never exceeds what the funder provisioned plus what repayments restored, and an exhausted treasury blocks borrows. The protocol issues nothing; the residual caveat is custodial - the full admin quorum could move treasury holdings outside the choices, bounded by the pool balance, since Daml gates holdings by signatories, not choices.
 - **Seizure is payment-bound**:
-  - Liquidation seizes collateral exactly proportional to the stablecoin the liquidator actually pays: `debtRepaid` is burned in the same transaction that releases the collateral. A liquidator can never take more than their payment (plus bonus) buys.
+  - Liquidation seizes collateral exactly proportional to the debt tokens the liquidator actually pays: `debtRepaid` transfers into the treasury in the same transaction that releases the collateral. A liquidator can never take more than their payment (plus bonus) buys.
 - **Margin call before seizure**:
   - Liquidation requires a prior flag plus an elapsed `gracePeriod`, giving the borrower a deterministic cure window instead of a submission-timing race.
 - **Fee integrity**:
-  - On repay the borrower pays, and on liquidation the liquidator pays on the borrower's behalf and recoups from seized collateral; either way the full payment (principal plus accrued interest) is burned: the principal portion removes backing from supply, the interest portion accrues to `feeReceivable`, and the liquidation bonus reaches the liquidator as collateral. Value is neither destroyed nor leaked.
+  - On repay the borrower pays, and on liquidation the liquidator pays on the borrower's behalf and recoups from seized collateral; either way the full payment (principal plus accrued interest) transfers into the treasury: the principal portion replenishes borrowable liquidity, the interest portion accrues to `feesAccrued`, and the liquidation bonus reaches the liquidator as collateral. Value is neither destroyed nor leaked.
 - **Funding conservation**:
-  - A settlement never delivers more than the payer locked for it: every delivery is covered, per instrument, by the funds committed to that settlement.
-  - Per vault, the `collateralAmount` accounted in the vault state should equal the holdings in its custody account.
+  - A transfer never delivers more than the payer's presented holdings cover: every leg is backed, per instrument, by the holdings consumed in the same transaction.
+  - Per vault, the `collateralAmount` accounted in the vault state should equal the holdings in its custody account; per protocol, `availableAmount + feesAccrued` in the `Treasury` state should equal the holdings in the treasury account.
 - **Price integrity**:
   - Price-dependent choices reject a stale oracle, and price updates satisfy the no-single-writer requirement within the deviation band, so solvency is never evaluated against a dead, manipulated, or unilaterally-set price.
 - **Privacy**:
@@ -826,13 +880,13 @@ per-party projections provide privacy and disclosure boundaries.
 |---|---|---|
 | Oracle manipulation by a compromised admin | Admin sets the price near zero and self-liquidates every vault, stealing all collateral. | The oracle interface requires no-single-writer updates: whatever the implementation's quorum, a lone admin cannot move the price; a per-update deviation bound aborts out-of-band moves, with a separate pauser trip on repeated breaches. |
 | Oracle staleness | A stalled feed drives liquidations or borrows against a dead price. | Every price-dependent choice rejects when `now - updatedAt > maxStaleness`. |
-| Under-paying liquidator | The liquidator supplies a tiny stablecoin amount and seizes the whole vault. | Seizure is bound on-ledger to the liquidator's signed payment: `collateralToSeize = min(collateralAmount, debtRepaid · (1 + bonus) / price)` with `debtRepaid` burned from the liquidator's own holdings in the same exercise. A small payment seizes only a small, proportional slice. |
+| Under-paying liquidator | The liquidator supplies a tiny debt-token amount and seizes the whole vault. | Seizure is bound on-ledger to the liquidator's signed payment: `collateralToSeize = min(collateralAmount, debtRepaid · (1 + bonus) / price)` with `debtRepaid` paid from the liquidator's own holdings into the treasury in the same exercise. A small payment seizes only a small, proportional slice. |
 | Liquidation front-running the borrower | A liquidation lands before the borrower can top up. | The two-phase margin call: flagging opens a `gracePeriod` the borrower owns for curing, and liquidation asserts the period has elapsed, so it cannot pre-empt the cure window. |
-| Settlement-leg failure | An under-funded or stale deposit batch, or an under-funded liquidation exercise, attempts a broken operation. | Daml atomicity: the whole transaction reverts, collateral stays where it was, no debt is cleared. Liquidations are partial and proportional, so a well-formed smaller payment simply liquidates less. |
-| Bad debt on a deeply under-water position | Collateral is worth less than debt, creating a protocol-level shortfall. | The shortfall is recognized and quantified as `badDebt`; the insurance fund capitalized from routed fees is its first absorber; what happens when the fund is exhausted is an open design question ([section 7](#7-open-design-questions)). |
+| Under-funded transfer leg | An under-funded deposit, repayment, or liquidation exercise attempts a broken operation. | Daml atomicity: the whole transaction reverts, collateral stays where it was, no debt is cleared. Liquidations are partial and proportional, so a well-formed smaller payment simply liquidates less. |
+| Bad debt on a deeply under-water position | Collateral is worth less than debt, creating a shortfall. | The shortfall is recognized and quantified as `badDebt` and written off against the treasury: the funder's capital absorbs it, compensated by the interest revenue; whether a dedicated buffer should sit ahead of the funder's principal is an open design question ([section 7](#7-open-design-questions)). |
 | Compliance evasion, including post-open drift | A borrower bypasses KYC, or becomes non-compliant after opening. | The `KycClaim` is validated at open and fetched live by each risk-increasing vault choice (unexpired, issuer still in the `TrustedIssuerRegistry`), and, when the attestation gate is enabled, the compliance attestation is re-checked per operation, fail-closed, with no caching; a deployment with the gate disabled relies on the KYC layer alone. A revoked or expired claim blocks new borrows, top-ups, and withdrawals immediately, while repay, close, and liquidation stay open so a position is never trapped. |
-| Unauthorized admin action | An attacker with the admin key tries to mint unbacked stablecoin, drain custodied collateral, or invoke a custodian seizure. | Minting is reachable only through the solvency-coupled vault choice and the fee collection bounded by `feeReceivable`, which re-mints at most the interest already burned; custody holdings carry the borrower's signature too, so the admin alone cannot move them outside a vault choice; seizure requires an admin-issued, time-bounded sweep capability and sweeps only to the preset custodian account. |
-| Forced upgrades breaking in-flight allocations (SCU) | A poorly executed upgrade mutates fields, rendering existing `TokenAllocation` contracts un-settleable. | Programmatic adherence to the SCU rule (Optional appends and new choices only). The `Vault` template's existing choices stay operable; in-flight settlements conclude before users transition. |
+| Unauthorized admin action | An attacker with the admin key tries to drain the treasury, drain custodied collateral, or invoke a custodian seizure. | The admin party is an N-of-M quorum, so a single key exercises nothing; treasury outflows are reachable only through the solvency-coupled borrow choice and the funder-controlled defund, and even a full-quorum compromise is bounded by the pool balance; custody holdings carry the borrower's signature too, so the admin alone cannot move them outside a vault choice; seizure requires an admin-issued, time-bounded sweep capability and sweeps only to the preset custodian account. |
+| Forced upgrades breaking live contracts (SCU) | A poorly executed upgrade mutates fields, rendering existing vaults, treasuries, or holdings unusable. | Programmatic adherence to the SCU rule (Optional appends and new choices only): existing choices on the `Vault` and `Treasury` stay operable across the transition. |
 | DAR unvetting on a stakeholder's participant node | A party (malicious or misconfigured) unvets the protocol DAR on their participant node, so transactions on contracts they are a stakeholder of can no longer be confirmed: a custodian sweep of their funds fails, and co-signed flows they participate in stall. | Signatories and observers alike must have the same DAR version vetted for a transaction to succeed, and the freeze cuts both ways: the unvetting party cannot move the asset either, so the contract stays frozen rather than extractable, and re-vetting restores operation. Liveness-critical sets (oracle operators, liquidators) are multi-member with sub-unanimous quorums precisely so one unvetted participant cannot stall the protocol. A borrower who unvets freezes their own custody account: seizure is blocked, but so is every withdrawal, and the debt keeps accruing until they re-vet. |
 
 ### 5.3 Failure Modes and Recovery
@@ -841,9 +895,9 @@ The adversarial vectors above are complemented by liveness failures: parties
 that crash, stall, or never show up, and the infrastructure they depend on.
 The design handles them under one invariant:
 
-**Bounded custody.** Funds committed to a settlement have a unilateral,
-time-bounded exit: an in-flight allocation is reclaimable by its owner once
-`settlementDeadline` passes. Collateral in the custody account is condition-bounded rather than
+**Bounded custody.** Nothing is ever locked in flight: every flow either
+commits atomically or leaves funds where they were. Collateral in the custody
+account is condition-bounded rather than
 time-bounded: the borrower-driven withdraw and close paths stay open while
 the vault is healthy, the protocol is unpaused, and the borrower's KYC claim
 (plus any required operation attestation) holds. An active
@@ -852,14 +906,14 @@ seizure window and a lawful-process reference.
 
 | Failure | Effect while pending | Recovery path | Funds locked at most |
 |---|---|---|---|
-| Borrower never completes the allocation | request dangles, nothing locked | allocation expiry; nothing to recover | nothing locked |
-| Attester never attests, or attestation expires | settle blocked (fail closed) | re-request within the window; else deadline lapse and withdraw | `settlementDeadline` |
+| Attester never attests, or attestation expires | gated flows blocked (fail closed) | re-request an attestation and retry | nothing locked |
 | Oracle goes stale | borrows and liquidations blocked by the staleness guard | the oracle operators publish; the breaker resets | nothing locked; positions frozen |
 | Liquidator never follows up a flag | vault stays flagged through the grace period | the borrower cures, or any other designated liquidator completes | nothing locked |
+| Treasury exhausted or defunded | new borrows blocked; repay, close, withdraw, and liquidation unaffected | the funder tops up via `Treasury_Fund` | nothing locked |
 | Pause during the margin-call window | liquidation blocked while collateral keeps repricing; positions can sink underwater unliquidated | unpause; the interaction is an open question ([section 7](#7-open-design-questions)) | nothing locked |
 | Protocol validator out of traffic | oracle publishes stall; the staleness guard then blocks borrows and liquidations | traffic top-up and monitoring ([section 6](#6-network-economics-traffic-costs-and-app-rewards)) | nothing locked |
-| Synchronizer outage | ledger halted: no one can settle, and no one can withdraw, while market prices keep moving off-ledger | service resumes; positions may resume underwater, liquidatable at the first fresh price; if `settlementDeadline` lapsed during the outage the allocation is withdraw-only | outage duration + `settlementDeadline` |
-| Seizure marked, never swept | settle, withdraw, and cancel all blocked | admin unmark; lawful-process sweep bounded by the seizure window | seizure window end |
+| Synchronizer outage | ledger halted: no one can transfer, deposit, or withdraw, while market prices keep moving off-ledger | service resumes; positions may resume underwater, liquidatable at the first fresh price | outage duration |
+| Seizure marked, never swept | deposit, withdraw, and close blocked for that vault | admin unmark; lawful-process sweep bounded by the seizure window | seizure window end |
 
 Each row becomes a Daml Script test in the RI test suite.
 
@@ -889,11 +943,12 @@ delegated by [CIP-0084](https://github.com/canton-foundation/cips/blob/main/cip-
 
 Implications:
 
-- The flows price very differently. A borrow or a repay is one exercise
-  (`Vault_MintStablecoin`, `Vault_BurnStablecoin`), the cheapest flows in the
-  design. A deposit rides the allocation lifecycle plus a settle. A liquidation is
+- The flows price very differently. A borrow, a repay, or a deposit is one
+  exercise, the cheapest flows in the
+  design. A liquidation is
   the heaviest single transaction: `Vault_Liquidate` touches the
-  pause state, the oracle, the payment burn, the custody release, and the
+  pause state, the oracle, the payment transfer, the treasury recreation, the
+  custody release, and the
   vault recreation, with an informee set spanning both vault parties, the
   liquidator set, the oracle operators, and the regulatory observers.
 - Interest accrual is free: `accrueDebt` runs inside every state-changing
@@ -901,10 +956,10 @@ Implications:
 - Failed transactions burn traffic too and earn no rewards: CIP-0104 credits
   only successful confirmation requests ([section 6.2](#62-app-rewards)).
   Price-dependent choices that lose the race against an oracle publish retry
-  against the new price and pay twice. Settling each vault's deposit in its
-  own batch, rather than amortizing several vaults across one settlement,
-  gives up batching savings to keep those failures isolated, and the periodic
-  custody consolidation exists precisely to keep the settle legs cheap.
+  against the new price and pay twice. The periodic custody consolidation
+  keeps collateral transfers cheap: repeated top-ups fragment the custody
+  account into many small holdings, and a transfer's cost scales with the
+  holdings it touches.
 - Operations: validator auto-top-up is off by default, and the validator's
   reserved-traffic floor protects its own automation, not this app. Running
   the protocol requires configured top-up plus balance monitoring.
@@ -913,8 +968,8 @@ Implications:
 
 Since CIP-0078 only featured apps earn rewards. The natural holder of the
 `FeaturedAppRight` (granted jointly by the super validators, on application
-to the Global Synchronizer Foundation) is the vault admin: it signs every `Vault`, the oracle, and the pause state, and it
-administers the stablecoin registry.
+to the Global Synchronizer Foundation) is the vault admin: it signs every `Vault`, the `Treasury`, the oracle, and the
+pause state.
 
 Rewards are traffic-based
 ([CIP-0104](https://github.com/canton-foundation/cips/blob/main/cip-0104/cip-0104.md), rolling out on MainNet in increments since April 2026).
@@ -939,7 +994,7 @@ application path, in three steps:
 3. **Collect** (within 24h, by the provider's wallet). The provider mints CC
    against the coupon within `appRewardCouponLifetime` (`AmuletConfig`,
    default 24h from creation); coupons from several rounds can batch into one
-   mint. Collection is validator wallet automation. Reward sharing with the insurance fund or the oracle operators happens here:
+   mint. Collection is validator wallet automation. Reward sharing with the treasury funder or the oracle operators happens here:
    the provider accounts for the split itself off Scan's activity records,
    then names beneficiaries and CC amounts out of its allowance (CIP-0073
    minting delegations). Per-transaction beneficiary attribution is not
@@ -950,13 +1005,12 @@ Applying the earn rule to the lending flows
 
 | Transaction | Who pays traffic | Confirms, so earns (if featured) |
 | --- | --- | --- |
-| Collateral allocation | borrower | the collateral instrument's admin (signs the holding and allocation) |
-| Creation or deposit settle | borrower | vault admin (signs the `Vault`) and the collateral instrument's admin (its registry settles the allocation and co-signs the custody holdings) |
-| `Vault_MintStablecoin` | borrower | vault admin (signs the successor `Vault` and the minted holding) |
-| `Vault_BurnStablecoin` | borrower | vault admin (successor `Vault` and the burn) |
-| `Vault_CollectFees` | insurance fund | vault admin (signs the successor `Vault` and the minted holding) |
+| Creation or deposit | borrower | vault admin (signs the `Vault`) and the collateral instrument's admin (it co-signs the custody holdings) |
+| `Vault_Borrow` | borrower | vault admin (successor `Vault` and `Treasury`) and the debt token's registry admin (it co-signs the released holding) |
+| `Vault_Repay` | borrower | vault admin (successor `Vault` and `Treasury`) and the debt token's registry admin (it co-signs the payment holding) |
+| `Treasury_Fund` / `Treasury_Defund` | treasury funder | vault admin (successor `Treasury`) and the debt token's registry admin |
 | `Vault_FlagForLiquidation` | liquidator | vault admin (signs the successor `Vault`) |
-| `Vault_Liquidate` | liquidator | vault admin and borrower (successor `Vault`, burn, custody release), plus the collateral instrument's admin (it co-signs the custody-release holdings) |
+| `Vault_Liquidate` | liquidator | vault admin and borrower (successor `Vault` and `Treasury`, payment transfer, custody release), plus the debt-token and collateral registries' admins (they co-sign the moved holdings) |
 | Oracle publish | oracle operators | the update's signatories; a rebate on the protocol's own spend |
 
 The borrower pays for most flows and, unfeatured, earns nothing; the vault
@@ -966,7 +1020,7 @@ oracle spend. The protocol's own traffic purchases also mint
 traffic bill.
 
 Rewards partially offset the traffic bill: the credit is an issuance-scaled
-fraction of each transaction's own burn, so the interest ([section 3](#fees-are-burned-then-collected)), not rewards, carries the
+fraction of each transaction's own burn, so the interest revenue ([section 3](#fees-accrue-to-the-treasury)), not rewards, carries the
 business model; rewards are a rebate.
 
 A precise calculation of the application rewards and traffic cost, under
@@ -979,13 +1033,12 @@ implementation and testing/simulations against the DevNet are available.
 
 The following choices remain open for an application adopting this architecture:
 
-- **Multisig implementation for value-critical roles.** The vault admin and the insurance fund each require N-of-M authority ([section 2](#decentralization-and-trust-topology)). Open: whether each role uses the on-ledger approval workflow, an external party with threshold signing keys, or a combination; and the N and M per role.
-- **Oracle update mechanism.** The interface requirements ([section 4](#43-component-price-oracle-interface)) admit several mechanisms: an N-of-M committee via the Multiple Party Agreement pattern, medianized per-member submissions, or pull-style signed price attestations verified in-choice. Alternatively, the oracle can be an external service consumed as-is, with the protocol enforcing only its consumer-side guards (staleness, deviation, breaker). Open: which mechanism, and its quorum sizing balancing liveness against collusion.
+- **Multisig implementation for value-critical roles.** The vault admin and the treasury funder each require N-of-M authority ([section 2](#decentralization-and-trust-topology)). Open: whether each role uses the on-ledger approval workflow, an external party with threshold signing keys, or a combination; and the N and M per role.
+- **Oracle update mechanism.** The interface requirements ([section 4](#44-component-price-oracle-interface)) admit several mechanisms: an N-of-M committee via the Multiple Party Agreement pattern, medianized per-member submissions, or pull-style signed price attestations verified in-choice. Alternatively, the oracle can be an external service consumed as-is, with the protocol enforcing only its consumer-side guards (staleness, deviation, breaker). Open: which mechanism, and its quorum sizing balancing liveness against collusion.
 - **Oracle instance uniqueness.** Contract keys are not unique at the protocol level, so nothing stops a second active `PriceOracle` with the same key. If the admin alone signs the oracle, it can create a new instance at any price and let vaults resolve to it. Decentralizing the `PriceOracle` creation authorities improves this. Open: the exact signatory set, and whether vaults should pin an oracle identifier in `VaultParams` instead of trusting key resolution.
-- **Bad-debt disposition beyond the insurance fund.** What happens when the insurance fund is exhausted (a socialized-loss path across outstanding positions, an admin write-off, or a capital top-up obligation), and how the fund's fee slice is sized against expected loss.
+- **Bad-debt disposition beyond the funder's capital.** Bad debt is written off against the treasury. Open: whether a dedicated buffer should sit ahead of the funder's principal (a fee-split reserve, a capital top-up obligation), and how the `interestRate` is sized against expected loss.
 - **Interest-accrual method.** Accrual is simple interest off the tracked principal ([section 3](#3-target-design)). Decide whether a discretely- or continuously-compounding variant is also needed, and fix explicit rounding bounds so accrual is reproducible and formally checkable.
 - **Keeper sizing.** Open: whether the `liquidationBonus` is enough to attract keepers for small restore amounts, and whether a minimum liquidation size is needed to avoid dust liquidations.
-- **Fee collection mechanics.** Open: the insurance fund's collection cadence, whether per-vault `Vault_CollectFees` calls should batch across vaults, and the lifecycle of the admin-signed receivable contract that parks uncollected fees when a vault closes.
-- **Interest liquidity.** Aggregate debt exceeds circulating supply by the accrued interest ([section 3](#fees-are-burned-then-collected)). Open: whether the insurance fund's collection and spending cadence recycles enough stablecoin for borrowers to service interest, and whether stressed conditions need an explicit supply source.
-- **Guaranteed liquidatability ahead of bad debt.** The protocol stays solvent only if a position can be liquidated before its collateral value falls under its debt, and several design choices delay that: the ratio buffer plus the grace period define how much adverse movement a position must survive before a keeper may act; the health-restore cap returns a vault only to `minCollateralRatio`, so a falling price forces repeated flag-grace-liquidate rounds; the staleness guard and breaker block liquidation exactly when prices move fastest; and the `liquidationBonus` net of traffic costs ([section 6](#6-network-economics-traffic-costs-and-app-rewards)) puts a floor under the vault size a keeper will touch. Open: sizing the buffer and grace window against collateral volatility, whether debt ceilings are needed, whether the breaker should keep liquidation open on a stale-but-bounded price, and stress evidence that expected bad debt fits the insurance fund.
-- **Pause interaction with the margin-call window.** Liquidation and cure deposits are both pause-gated, but the grace clock keeps ticking while paused: a pause spanning the window leaves the borrower no usable cure period and the vault liquidatable the moment the pause lifts. The pause is not solvency-neutral either: collateral keeps repricing and interest keeps accruing while liquidation is frozen, so a pause in a falling market deepens both the borrower's debt and the bad-debt exposure the insurance fund absorbs. Open: whether the grace deadline should extend by the paused duration, at the cost of tracking pause intervals on-ledger.
+- **Treasury operations.** Open: the funder's fund and defund cadence, whether defunding needs a notice period so prospective borrowers see capacity shrinking, and whether fee withdrawal should be a path separate from liquidity defunding.
+- **Guaranteed liquidatability ahead of bad debt.** The protocol stays solvent only if a position can be liquidated before its collateral value falls under its debt, and several design choices delay that: the ratio buffer plus the grace period define how much adverse movement a position must survive before a keeper may act; the health-restore cap returns a vault only to `minCollateralRatio`, so a falling price forces repeated flag-grace-liquidate rounds; the staleness guard and breaker block liquidation exactly when prices move fastest; and the `liquidationBonus` net of traffic costs ([section 6](#6-network-economics-traffic-costs-and-app-rewards)) puts a floor under the vault size a keeper will touch. Open: sizing the buffer and grace window against collateral volatility, whether debt ceilings are needed, whether the breaker should keep liquidation open on a stale-but-bounded price, and stress evidence that expected bad debt fits the funder's risk pricing.
+- **Pause interaction with the margin-call window.** Liquidation and cure deposits are both pause-gated, but the grace clock keeps ticking while paused: a pause spanning the window leaves the borrower no usable cure period and the vault liquidatable the moment the pause lifts. The pause is not solvency-neutral either: collateral keeps repricing and interest keeps accruing while liquidation is frozen, so a pause in a falling market deepens both the borrower's debt and the bad-debt exposure the treasury absorbs. Open: whether the grace deadline should extend by the paused duration, at the cost of tracking pause intervals on-ledger.
