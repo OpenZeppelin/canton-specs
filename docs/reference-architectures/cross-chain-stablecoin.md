@@ -388,17 +388,9 @@ anyway:
   ([section 4.4](#44-failure-modes-and-recovery)).
 
 **Standard-owned choices.** Steps 3 and 4 call Token Standard V2 interface
-choices, and not choices this design owns. Allocation creation, request
-acceptance, and batch settlement are declared upstream. So are the cancel and
-withdraw paths that [section 4.4](#44-failure-modes-and-recovery) relies on. The
-wTOK registry supplies the implementation behind each one. Registry-specific
-arguments travel in the standard's own extension slot. The compliance
-attestation and the wTOK registry's own per-batch authorization both reach the
-settlement factory that way. That is what makes the conservation check and the
-D1 compliance check unavoidable rather than conventional. A settlement that
-omits the attestation fails instead of passing unchecked. Settlement returns a
-result per allocation and creates no receipt contract, so integrators read the
-update stream ([section 4.6](#46-off-ledger-reconciliation)).
+choices: allocation creation, request acceptance, batch settlement, and the
+cancel and withdraw paths that [section 4.4](#44-failure-modes-and-recovery)
+relies on.
 
 **Delivery and retry.** Nothing guarantees that the Canton settlement of an
 attested lock executes. Delivery liveness is bounded by the trusted relayer and
