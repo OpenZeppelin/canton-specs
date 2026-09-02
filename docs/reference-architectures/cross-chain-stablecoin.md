@@ -210,12 +210,10 @@ Consequences:
   into the event stream, so amounts, accounts, and the leg metadata are readable
   by construction. This is a trust assumption and not a leak to close. An issuer
   that authors the mint leg cannot also be blind to it. Any issued instrument
-  puts its own issuer in this position.
-- **The relayer and the attesters see what they handle.** The relayer's
-  transport-only role bounds its authority, not what it sees. Attester
-  membership is therefore a privacy decision as well as a compliance one.
-- **The Custodian sees nothing until a seizure.** The seizure mark carries the
-  custodian destination as a data field and not as an observer entry.
+  puts its own issuer in this position. The relayer and the attesters see what
+  they handle for the same reason: a transport-only role bounds authority and
+  not visibility, so attester membership is a privacy decision as well as a
+  compliance one.
 - **A gate makes the party that runs it a stakeholder.** A fetch needs
   authorization from one stakeholder of the contract it returns. The gateway
   action carries only its own admin authority, so the pause state, the
@@ -226,7 +224,9 @@ Consequences:
   elsewhere moves the entries to the party that runs it
   ([section 6](#6-open-design-questions)). The submitting relayer still
   witnesses the credential transiently, because a fetch divulges to whoever
-  witnesses the exercise.
+  witnesses the exercise. The seizure mark takes the other route: it carries the
+  custodian destination as a data field and not as an observer entry, so the
+  Custodian sees nothing until a seizure.
 - **Settlement outcomes arrive as events, not as a queryable record.** The event
   host is created and archived inside one transaction. The event data therefore
   lives in the exercise node its observers witness. Integrators read the
