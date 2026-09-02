@@ -504,7 +504,9 @@ Borrow liquidity lives in the **treasury**: a debt-token account owned by the va
 
 Admin ownership of the account is what keeps every flow a single atomic exercise: the admin signs each `Vault`, so a borrow releases treasury holdings under authority the vault choice already carries, and a repayment or liquidation payment transfers in with the payer signing as the choice's controller. Borrow asserts `availableAmount` covers the request and decrements it; **an exhausted treasury blocks new borrows** - repay, close, withdraw, and liquidation never depend on treasury liquidity. The same accounting-equals-holdings discipline as collateral applies: `availableAmount + feesAccrued == Σ(treasury-account holdings)`, updated in the same transaction as every movement.
 
-Because the funds sit in an admin-owned account, the funder's protection is structural rather than custodial: the admin party is an N-of-M quorum ([section 2](#decentralization-and-trust-topology)), and treasury outflows are reachable only through the solvency-coupled borrow choice and the funder-controlled defund. Extending the treasury to multiple independent liquidity providers (depositors sharing `feesAccrued` pro rata) is a future extension ([extension points](#extension-points)), not part of this design.
+Because the funds sit in an admin-owned account, the funder's protection is structural rather than custodial: the admin party is an N-of-M quorum ([section 2](#decentralization-and-trust-topology)), and treasury outflows are reachable only through the solvency-coupled borrow choice and the funder-controlled defund, up to the quorum's custodial residual ([section 5.1](#51-security-invariants)). Extending the treasury to multiple independent liquidity providers (depositors sharing `feesAccrued` pro rata) is a future extension ([extension points](#extension-points)), not part of this design.
+
+Pooling liquidity also makes the `Treasury` the protocol's serialization point: every debt-token movement recreates it. [Section 5.4](#54-throughput-and-contention) details the contention and the treasury account's holding split policy.
 
 ### Fees Accrue to the Treasury
 
@@ -746,73 +748,16 @@ template Vault
 
 ### 4.3 Component: Treasury
 
-The `Treasury` fronts the protocol's borrow liquidity: an admin-signed, keyed contract accounting for the admin-owned treasury account, with the funder as observer; prospective borrowers learn the available capacity through explicit disclosure. `depositIntoTreasury` and `releaseFromTreasury` are illustrative helpers in the style of `releaseFromCustody`. As with vaults and the oracle, duplicates are excluded by an application-level check at creation, since contract keys are not unique.
+The `Treasury` fronts the protocol's borrow liquidity: an admin-signed, keyed contract `(vaultAdmin, debtInstrumentId)` accounting for the admin-owned treasury account, with the funder as observer; prospective borrowers learn the available capacity through explicit disclosure. As with vaults and the oracle, duplicates are excluded by an application-level check at creation, since contract keys are not unique.
 
-```daml
-template Treasury
-  with
-    vaultAdmin : Party
-    debtInstrumentId : InstrumentId
-    treasuryFunder : Party
-    treasuryAccount : Account  -- owned by the vault admin
-    availableAmount : Decimal  -- un-borrowed liquidity
-    feesAccrued : Decimal      -- funder revenue, not borrowable
-  where
-    signatory vaultAdmin
-    observer treasuryFunder
-    key (vaultAdmin, debtInstrumentId) : (Party, InstrumentId)
-    maintainer key._1
+Four choices cover its lifecycle, each moving holdings and updating the accounting in the same transaction:
 
-    choice Treasury_Fund : ContractId Treasury
-      with
-        fundingHoldingCid : ContractId TokenHolding
-        amount : Decimal
-      controller treasuryFunder
-      do
-        depositIntoTreasury treasuryAccount fundingHoldingCid debtInstrumentId amount
-        create this with availableAmount = availableAmount + amount
+- **`Treasury_Fund`** (controller: the funder) transfers debt tokens into the treasury account and raises `availableAmount`.
+- **`Treasury_Defund`** (controller: the funder) reclaims accrued fees and un-borrowed liquidity, drawing `feesAccrued` down first. It is bounded by `availableAmount + feesAccrued`, so it can never touch lent-out principal, which sits with borrowers.
+- **`Treasury_Draw`** (controllers: the vault admin **and** the borrowing party) asserts the treasury is not exhausted, releases the requested amount to the borrower, and decrements `availableAmount`. Requiring both authorities pins the draw inside `Vault_Borrow`: there the admin's signature is inherited from the `Vault` and the borrower exercises the choice, and that choice is where the solvency check lives. The admin quorum alone cannot draw.
+- **`Treasury_AcceptPayment`** (controllers: the payer and the vault admin) transfers a repayment or liquidation payment into the account, replenishing `availableAmount` by the principal portion and accruing the interest portion to `feesAccrued`. It is exercised from inside `Vault_Repay` and `Vault_Liquidate`, where the payer signs as the enclosing choice's controller.
 
-    choice Treasury_Defund : ContractId Treasury
-      with
-        amount : Decimal
-      controller treasuryFunder
-      do
-        assertMsg "amount exceeds un-borrowed liquidity plus accrued fees"
-          (amount > 0.0 && amount <= availableAmount + feesAccrued)
-        _ <- releaseFromTreasury treasuryAccount treasuryFunder debtInstrumentId amount
-        let fromFees = min amount feesAccrued
-        create this with
-          feesAccrued = feesAccrued - fromFees
-          availableAmount = availableAmount - (amount - fromFees)
-
-    -- Exercised from inside `Vault_Borrow`, under the vault admin
-    -- authority the vault choice already carries.
-    choice Treasury_Draw : ContractId Treasury
-      with
-        borrower : Party
-        amount : Decimal
-      controller vaultAdmin
-      do
-        assertMsg "treasury exhausted" (amount > 0.0 && amount <= availableAmount)
-        _ <- releaseFromTreasury treasuryAccount borrower debtInstrumentId amount
-        create this with availableAmount = availableAmount - amount
-
-    -- Exercised from inside `Vault_Repay` and `Vault_Liquidate`; the payer's
-    -- authority arrives as the controller of the enclosing vault choice.
-    choice Treasury_AcceptPayment : ContractId Treasury
-      with
-        payer : Party
-        paymentHoldingCid : ContractId TokenHolding
-        principalPortion : Decimal
-        feePortion : Decimal
-      controller payer, vaultAdmin
-      do
-        depositIntoTreasury treasuryAccount paymentHoldingCid debtInstrumentId
-          (principalPortion + feePortion)
-        create this with
-          availableAmount = availableAmount + principalPortion
-          feesAccrued = feesAccrued + feePortion
-```
+Because the admin signs the `Treasury` and owns its account, these choices bound every party except the admin quorum itself: a full quorum could move the account's holdings at the registry level, outside the choices - the custodial caveat of [section 5.1](#51-security-invariants), bounded by the pool balance.
 
 ### 4.4 Component: Price Oracle Interface
 
@@ -896,9 +841,13 @@ Each row becomes a Daml Script test in the RI test suite.
 
 ### 5.4 Throughput and Contention
 
-Every vault operation archives and recreates that borrower's `Vault` contract, so operations against the *same* vault serialize; operations on different vaults run in parallel. The shared hot contract is the `PriceOracle`: each publish archives and recreates it, so a price update contends with in-flight price-dependent choices that fetched the prior version, and those retry against the new price. Since vaults resolve the oracle by key, a retry picks up the fresh contract without client-side rewiring.
+Every vault operation archives and recreates that borrower's `Vault` contract, so operations against the *same* vault serialize; operations on different vaults run in parallel, up to two shared components.
 
-Against pooled EVM lending the design has structural advantages: (a) with no shared market state, there is no global interest-index update serializing every action - unrelated borrowers never contend; (b) with no public mempool there is no liquidation gas race or front-running tax - the margin call replaces ordering luck with a deterministic cure window; (c) borrow, repay, and liquidation are each a single transaction, and fee accounting rides the vault's own archive-and-recreate at zero extra contention.
+The `Treasury` is the protocol's serialization point: every borrow, repay, liquidation, and treasury fund or defund archives and recreates the single keyed `Treasury`, so debt-token movements across all vaults serialize on it. A submission that loses the race re-resolves the `Treasury` by key and retries against the successor, with no client-side rewiring; deposits, withdrawals, flags, and closes never touch it. The treasury account adds a second, subtler point: a TSv2 transfer consumes the holding contract it spends, so a single large treasury holding would serialize concurrent draws. The treasury therefore should run a **split policy**: split large holdings into several smaller holdings of useful denominations - the mirror image of the consolidation the custody accounts run.
+
+The `PriceOracle` is the other shared contract: each publish archives and recreates it, so a price update contends with in-flight price-dependent choices that fetched the prior version, and those retry against the new price by the same resolve-by-key pattern.
+
+Against pooled EVM lending the design still has structural advantages: (a) there is no global interest-index update serializing every action - only debt-token movements touch the shared `Treasury`, while deposits, withdrawals, flags, and closes contend on nothing but the oracle read; (b) with no public mempool there is no liquidation gas race or front-running tax - the margin call replaces ordering luck with a deterministic cure window; (c) borrow, repay, and liquidation are each a single transaction, with fee accounting riding the treasury recreation those flows already perform.
 
 ---
 
@@ -933,10 +882,13 @@ Implications:
 - Failed transactions burn traffic too and earn no rewards: CIP-0104 credits
   only successful confirmation requests ([section 6.2](#62-app-rewards)).
   Price-dependent choices that lose the race against an oracle publish retry
-  against the new price and pay twice. The periodic custody consolidation
-  keeps collateral transfers cheap: repeated top-ups fragment the custody
-  account into many small holdings, and a transfer's cost scales with the
-  holdings it touches.
+  against the new price and pay twice, and so do debt-token flows that lose
+  the race on the shared `Treasury`
+  ([section 5.4](#54-throughput-and-contention)). The periodic custody
+  consolidation keeps collateral transfers cheap: repeated top-ups fragment
+  the custody account into many small holdings, and a transfer's cost scales
+  with the holdings it touches. The treasury account should run the opposite policy: split its holdings, so concurrent draws do not contend on one large
+  holding.
 - Operations: validator auto-top-up is off by default, and the validator's
   reserved-traffic floor protects its own automation, not this app. Running
   the protocol requires configured top-up plus balance monitoring.
