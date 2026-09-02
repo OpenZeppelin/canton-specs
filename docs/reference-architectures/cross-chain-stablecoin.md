@@ -407,9 +407,11 @@ attester set, and this design adds no automatic cross-chain recovery protocol.
 A message that re-drives a credit from the external chain would need
 multi-round message passing, with its own delay, cost, and failure surface. What
 remains is structural and fail-closed. Command deduplication over 24 hours makes
-the three relayer commands safe to resubmit after a crash, and a stall blocks
-only this rail ([section 4.5](#45-throughput-and-contention)). [Section
-4.4](#44-failure-modes-and-recovery) maps each failure to its recovery path. A
+the three relayer commands safe to resubmit after a
+crash, and a stall blocks only this rail ([section
+4.5](#45-throughput-and-contention)). [Section
+4.4](#44-failure-modes-and-recovery) maps each failure to its recovery path,
+including a duplicate from a second relayer host. A
 timeout that refunds the external-chain lock is the escrow's own path, and the
 escrow is out of scope ([section 1.2](#12-scope)). The condition of that refund
 belongs here, because it decides whether one lock pays out twice.
@@ -940,6 +942,18 @@ not depend on the workflow contract surviving.
 
 The sole custody exception is an active D2 seizure, which has a finite window
 and a lawful-process reference.
+
+**Duplicate submission across relayer hosts.** The relayer is multi-hosted on
+several participants ([section 2.3](#23-decentralization-and-trust-topology)),
+and command deduplication is scoped to the participant that submits, so two
+hosts that submit the same lock share no deduplication state. The credited-lock
+registry still decides: the first mint records the nonce, and the second fails
+the nonce check, or fails earlier on contention for the registry contract
+([section 4.5](#45-throughput-and-contention)). Safety does not depend on the
+hosts agreeing. The cost of a duplicate is the traffic of a rejected submission
+([section 5.1](#51-traffic-costs)), so which host submits which lock is an
+off-ledger operational split, for example by nonce or by a leader among the
+hosts, and a host that loses the race treats the rejection as a no-op.
 
 ### 4.5 Throughput and Contention
 
