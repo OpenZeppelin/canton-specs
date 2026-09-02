@@ -214,19 +214,18 @@ Consequences:
   they handle for the same reason: a transport-only role bounds authority and
   not visibility, so attester membership is a privacy decision as well as a
   compliance one.
-- **A check that reads another contract makes the party that runs it a
-  stakeholder.** A fetch needs authorization from one stakeholder of the
-  contract it returns. The gateway action carries only its own admin authority,
-  so the pause state, the trusted-issuer list, and every credential the gateway
-  checks must name the gateway admin as an observer. The admin carries those entries, which keeps
-  durable visibility off the relayer, whose set this design wants to
-  open ([section 2.3](#23-decentralization-and-trust-topology)). The same check
-  in another action moves the entries to the party that runs that action
-  ([section 6](#6-open-design-questions)). The submitting relayer still
-  witnesses the credential transiently, because a fetch divulges to whoever
-  witnesses the exercise. The seizure mark takes the other route: it carries the
-  custodian destination as a data field and not as an observer entry, so the
-  Custodian sees nothing until a seizure.
+- **The gateway admin is a standing observer of every contract the rail
+  checks.** A fetch needs the caller to be a stakeholder of the fetched
+  contract, and the gateway action carries only the gateway admin's authority.
+  The pause state, the trusted-issuer list, and each identity credential
+  therefore list the gateway admin as an observer. This puts durable visibility
+  on one accountable party and keeps it off the relayer, whose set the design
+  wants to open ([section 2.3](#23-decentralization-and-trust-topology)); the
+  submitting relayer sees the credential only in the transaction it submits.
+  Moving the check to another action moves the observer entries to that
+  action's authority ([section 6](#6-open-design-questions)). The seizure mark
+  avoids an observer entry entirely by carrying the custodian destination as a
+  data field, so the Custodian sees nothing until a seizure.
 - **Settlement outcomes arrive as events, not as a queryable record.** The event
   host is created and archived inside one transaction. The event data therefore
   lives in the exercise node its observers witness. Integrators read the
