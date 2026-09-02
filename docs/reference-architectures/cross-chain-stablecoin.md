@@ -387,11 +387,6 @@ anyway:
 - a credit that never settles is reclaimable after the deadline
   ([section 4.4](#44-failure-modes-and-recovery)).
 
-**Standard-owned choices.** Steps 3 and 4 call Token Standard V2 interface
-choices: allocation creation, request acceptance, batch settlement, and the
-cancel and withdraw paths that [section 4.4](#44-failure-modes-and-recovery)
-relies on.
-
 **Delivery and retry.** Nothing guarantees that the Canton settlement of an
 attested lock executes. Delivery liveness is bounded by the trusted relayer and
 attester set, and this design adds no automatic cross-chain recovery protocol.
