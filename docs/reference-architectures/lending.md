@@ -49,8 +49,8 @@ Daml's transaction atomicity carries most of that on its own. Debt-token draws a
 carries the authority they need: the treasury account is owned by the vault admin, a vault signatory, and the payer signs as the choice controller. The interest portion of a payment accrues in the treasury as the funder's revenue. Collateral moves the same way: a deposit transfers the borrower's holding into the vault's custody account under the same in-choice authority, so no flow waits on a settlement counterparty or an asynchronous handshake.
 
 Each mechanism is
-independently evidenced: registry holdings and transfers, per-operation
-attestations, and custodian lock-and-sweep in
+independently evidenced: registry holdings and transfers and per-operation
+attestations in
 [`tokenCIP112-v1`](https://github.com/OpenZeppelin/canton-contracts/tree/7696749737885e25cd88422847105f890f03b00d/experiments/token/tokenCIP112-v1);
 KYC claims validated against a trusted-issuer registry in the [identity packages](../../experiments/identity/);
 role, ownership, and pause management in `openzeppelin-access-control-v1`,
@@ -70,10 +70,10 @@ tables below define its scope.
 | Asset Representation | Fungible digital assets compliant with the CIP-0112 Token Standard V2 holding interfaces. Both the debt token and the collateral may be issued by any third party: each is custodied and transferred, never minted or burned ([section 3](#3-target-design)). |
 | Pricing | The keyed `PriceOracle` interface the vaults consume, naming both the collateral and quote instruments, with max-staleness and per-update deviation guards enforced by every price-dependent choice ([section 4](#44-component-price-oracle-interface)). |
 | Fees | Interest arrives in the treasury with the payment that carries it and accrues to the treasury funder as revenue. The `liquidationBonus` is the liquidator's seizure premium, paid from the borrower's collateral. The funder's treasury capital absorbs bad debt; the interest revenue is its compensation for that risk. |
-| Compliance & Control | **Compliance attestation** (optional per deployment, [section 3](#compliance-is-re-checked-on-every-operation)): when the gate is enabled, no value-moving operation executes unless an attester has signaled compliance, re-checked per operation; attestation mentions elsewhere in this report assume the gate is enabled. **Custodian lock-and-sweep**: a privileged party can freeze custodied collateral and sweep it to a preset custodian account. **Identity verification**: single-synchronizer KYC. |
+| Compliance & Control | **Compliance attestation** (optional per deployment, [section 3](#compliance-is-re-checked-on-every-operation)): when the gate is enabled, no value-moving operation executes unless an attester has signaled compliance, re-checked per operation; attestation mentions elsewhere in this report assume the gate is enabled. **Identity verification**: single-synchronizer KYC. |
 | Component Integration | Direct reuse of `openzeppelin-access-control-v1`, `openzeppelin-ownable-v1`, `openzeppelin-pausable-v1`, CIP-0112 holdings and transfers, as well as the vault, oracle, and identity patterns from the [`OpenZeppelin/canton-stablecoin`](https://github.com/OpenZeppelin/canton-stablecoin), [`OpenZeppelin/canton-token-template`](https://github.com/OpenZeppelin/canton-token-template) and [`ShapeB`](../../experiments/identity/hook-shape-b/daml/OpenZeppelin/Experimental/Identity/ShapeB.daml#L6) codebases. |
 
-The compliance and control terms above are this report's names for four control requirements tracked externally under the IDs D1-D4: **compliance attestation** (D1), **custodian lock-and-sweep** (D2), **know-your-customer identity** (D3), and **authority and privilege transfer** (D4). The report uses the names throughout and keeps the IDs only here, for traceability; each control is specified in [section 3](#3-target-design).
+The compliance and control terms above are this report's names for three control requirements tracked externally under the IDs D1, D3, and D4: **compliance attestation** (D1), **know-your-customer identity** (D3), and **authority and privilege transfer** (D4). The report uses the names throughout and keeps the IDs only here, for traceability; each control is specified in [section 3](#3-target-design).
 
 | Feature Category | Out-of-Scope Architectural Components |
 |---|---|
@@ -136,7 +136,6 @@ flowchart TB
     end
 
     Registries["CIP-0112 registries<br/>(debt token + collateral)"]
-    Custodian([CUSTODIAN])
     Attester([Compliance attester])
     Oracle ~~~ Attester
 
@@ -152,7 +151,6 @@ flowchart TB
     Vault -->|"borrow: draw liquidity;<br/>repay: return payment"| Treasury
     Vault ==>|"deposit and release collateral<br/>(direct transfer, joint authority)"| Custody
     Vault -->|"all transfers ride the<br/>registries' holdings"| Registries
-    Custody -.->|"seizure sweep of<br/>custodied collateral"| Custodian
 ```
 
 The second shows the components the vault choices depend on, grouped by
@@ -163,7 +161,6 @@ flowchart TB
     Vault[["Vault"]]
     Treasury[["Treasury"]]
     Custody[("Vault custody account")]
-    Custodian([CUSTODIAN])
 
     subgraph Libraries["Reused libraries"]
         Gov["access-control-v1,<br/>ownable-v1, pausable-v1"]
@@ -186,7 +183,6 @@ flowchart TB
     Vault -.->|"consume attestation<br/>(if enabled)"| Att
     Vault -->|"deposit and release<br/>transfers"| Coll
     Coll -->|"credit deposits"| Custody
-    Coll -.->|"custodian sweep"| Custodian
 ```
 
 ### Core Components and Library Mapping
@@ -203,7 +199,7 @@ companion OpenZeppelin repository that informs the design.
 | Access Control `[LIBRARY]` | `openzeppelin-access-control-v1`: [`RoleGrant`](https://github.com/OpenZeppelin/canton-contracts/blob/cec416d6e3c2118551c761d5598c403ab27ee342/experiments/access/access-control-v1/daml/OpenZeppelin/AccessControlV1.daml#L58), [`RoleAdmin`](https://github.com/OpenZeppelin/canton-contracts/blob/cec416d6e3c2118551c761d5598c403ab27ee342/experiments/access/access-control-v1/daml/OpenZeppelin/AccessControlV1.daml#L116), [`DefaultAdminTransferOffer`](https://github.com/OpenZeppelin/canton-contracts/blob/cec416d6e3c2118551c761d5598c403ab27ee342/experiments/access/access-control-v1/daml/OpenZeppelin/AccessControlV1.daml#L237), [`requireRole`](https://github.com/OpenZeppelin/canton-contracts/blob/cec416d6e3c2118551c761d5598c403ab27ee342/experiments/access/access-control-v1/daml/OpenZeppelin/AccessControlV1.daml#L287) | Role-based permissioning for the vault admin, liquidators, oracle operators, and pausers. |
 | Ownership Lifecycle `[LIBRARY]` | `openzeppelin-ownable-v1`: [`Ownership`](https://github.com/OpenZeppelin/canton-contracts/blob/cec416d6e3c2118551c761d5598c403ab27ee342/experiments/access/ownable-v1/daml/OpenZeppelin/OwnableV1.daml#L41), [`OwnershipOffer`](https://github.com/OpenZeppelin/canton-contracts/blob/cec416d6e3c2118551c761d5598c403ab27ee342/experiments/access/ownable-v1/daml/OpenZeppelin/OwnableV1.daml#L82) | Two-step handover of protocol administration. |
 | Protocol Constraints `[LIBRARY]` | `openzeppelin-pausable-v1`: [`PauseState`](https://github.com/OpenZeppelin/canton-contracts/blob/cec416d6e3c2118551c761d5598c403ab27ee342/experiments/security/pausable-v1/daml/OpenZeppelin/PausableV1.daml#L47), [`whenNotPaused`](https://github.com/OpenZeppelin/canton-contracts/blob/cec416d6e3c2118551c761d5598c403ab27ee342/experiments/security/pausable-v1/daml/OpenZeppelin/PausableV1.daml#L77) | Emergency circuit breaker used by all critical flows. |
-| CIP-0112 Token Registry `[LIBRARY]` | `OpenZeppelin.TokenCIP112V1`: [`TokenRules`](https://github.com/OpenZeppelin/canton-contracts/blob/7696749737885e25cd88422847105f890f03b00d/experiments/token/tokenCIP112-v1/daml/OpenZeppelin/TokenCIP112V1/Registry.daml#L28), [`TokenAllocationRequest`](https://github.com/OpenZeppelin/canton-contracts/blob/7696749737885e25cd88422847105f890f03b00d/experiments/token/tokenCIP112-v1/daml/OpenZeppelin/TokenCIP112V1/AllocationRequest.daml#L18), [`AllocationFactory_Allocate`](https://github.com/OpenZeppelin/canton-contracts/blob/7696749737885e25cd88422847105f890f03b00d/experiments/token/tokenCIP112-v1/daml/OpenZeppelin/TokenCIP112V1/Registry.daml#L280), [`TokenAllocation`](https://github.com/OpenZeppelin/canton-contracts/blob/7696749737885e25cd88422847105f890f03b00d/experiments/token/tokenCIP112-v1/daml/OpenZeppelin/TokenCIP112V1/Allocation.daml#L67), [`TokenEventLog`](https://github.com/OpenZeppelin/canton-contracts/blob/7696749737885e25cd88422847105f890f03b00d/experiments/token/tokenCIP112-v1/daml/OpenZeppelin/TokenCIP112V1/Base.daml#L75), [`TokenHolding`](https://github.com/OpenZeppelin/canton-contracts/blob/7696749737885e25cd88422847105f890f03b00d/experiments/token/tokenCIP112-v1/daml/OpenZeppelin/TokenCIP112V1/Holding.daml#L17), [`BurnerCapability`](https://github.com/OpenZeppelin/canton-contracts/blob/7696749737885e25cd88422847105f890f03b00d/experiments/token/tokenCIP112-v1/daml/OpenZeppelin/TokenCIP112V1/Allocation.daml#L52) | Demonstrates the holding, attestation, and custodian-seizure mechanisms the flows ride. |
+| CIP-0112 Token Registry `[LIBRARY]` | `OpenZeppelin.TokenCIP112V1`: [`TokenRules`](https://github.com/OpenZeppelin/canton-contracts/blob/7696749737885e25cd88422847105f890f03b00d/experiments/token/tokenCIP112-v1/daml/OpenZeppelin/TokenCIP112V1/Registry.daml#L28), [`TokenAllocationRequest`](https://github.com/OpenZeppelin/canton-contracts/blob/7696749737885e25cd88422847105f890f03b00d/experiments/token/tokenCIP112-v1/daml/OpenZeppelin/TokenCIP112V1/AllocationRequest.daml#L18), [`AllocationFactory_Allocate`](https://github.com/OpenZeppelin/canton-contracts/blob/7696749737885e25cd88422847105f890f03b00d/experiments/token/tokenCIP112-v1/daml/OpenZeppelin/TokenCIP112V1/Registry.daml#L280), [`TokenAllocation`](https://github.com/OpenZeppelin/canton-contracts/blob/7696749737885e25cd88422847105f890f03b00d/experiments/token/tokenCIP112-v1/daml/OpenZeppelin/TokenCIP112V1/Allocation.daml#L67), [`TokenEventLog`](https://github.com/OpenZeppelin/canton-contracts/blob/7696749737885e25cd88422847105f890f03b00d/experiments/token/tokenCIP112-v1/daml/OpenZeppelin/TokenCIP112V1/Base.daml#L75), [`TokenHolding`](https://github.com/OpenZeppelin/canton-contracts/blob/7696749737885e25cd88422847105f890f03b00d/experiments/token/tokenCIP112-v1/daml/OpenZeppelin/TokenCIP112V1/Holding.daml#L17), [`BurnerCapability`](https://github.com/OpenZeppelin/canton-contracts/blob/7696749737885e25cd88422847105f890f03b00d/experiments/token/tokenCIP112-v1/daml/OpenZeppelin/TokenCIP112V1/Allocation.daml#L52) | Demonstrates the holding and attestation mechanisms the flows ride. |
 | Identity Verification `[EXPERIMENT]` | `ShapeB`: [`KycClaim`](../../experiments/identity/hook-shape-b/daml/OpenZeppelin/Experimental/Identity/ShapeB.daml#L43), [`TrustedIssuerRegistry`](../../experiments/identity/hook-shape-b/daml/OpenZeppelin/Experimental/Identity/ShapeB.daml#L74) | Demonstrates the four KYC-claim checks: the claim kind, a registry-listed issuer, the right subject, and an unexpired validity window. |
 | Vault / CDP Core `[REFERENCE]` | [`OpenZeppelin/canton-stablecoin`](https://github.com/OpenZeppelin/canton-stablecoin): `Vault`, `VaultFactory`, `VaultParams`, `PriceOracle` | Provides the vault mechanics that inform this design. The target architecture uses simple interest, payment-proportional liquidation, and treasury-funded debt instead of the reference code's discrete compounding, whole-vault seizure, and minted stablecoin ([section 3](#3-target-design)). |
 
@@ -215,12 +211,11 @@ upstream splice interface packages.
 
 Duties are segregated and mapped to discrete Daml parties:
 
-- **Vault Admin (`VAULT_ADMIN`)** - operates the `VaultFactory` and the `Treasury`, configures `VaultParams`, the `TrustedIssuerRegistry` (accepted KYC issuers), and the `TrustedAttesterRegistry` (accepted compliance attesters), and issues the grants that authorize custodian seizure sweeps. The admin owns the treasury account but issues nothing: it can mint neither instrument, and treasury liquidity moves only through the solvency-coupled vault choices and the funder's own fund and defund paths ([section 3](#the-treasury)).
+- **Vault Admin (`VAULT_ADMIN`)** - operates the `VaultFactory` and the `Treasury`, configures `VaultParams`, the `TrustedIssuerRegistry` (accepted KYC issuers), and the `TrustedAttesterRegistry` (accepted compliance attesters). The admin owns the treasury account but issues nothing: it can mint neither instrument, and treasury liquidity moves only through the solvency-coupled vault choices and the funder's own fund and defund paths ([section 3](#the-treasury)).
 - **Treasury Funder (`TREASURY`)** - the privileged party that provisions borrow liquidity: it deposits debt tokens via `Treasury_Fund`, reclaims un-borrowed liquidity and accrued fees via `Treasury_Defund`, and earns the protocol's interest revenue in return. Its capital absorbs bad debt, compensated by the interest revenue. The role is typically the vault admin itself, the debt token's issuer, or a large holder; opening it to multiple independent liquidity providers is an extension ([section 3](#extension-points)).
 - **Borrower (`BORROWER`)** - the entity locking collateral and drawing debt. Only the borrower can commit their own holdings as collateral. To interact with the protocol, the borrower must hold a valid `KycClaim`, verified at vault creation and fetched live by each risk-increasing vault choice. Visibility is limited to the borrower's own vaults and the public configuration contracts.
 - **Liquidator (`LIQUIDATOR`)** - a role granted via `openzeppelin-access-control-v1`. Each liquidator is an observer of the vaults it polices, so it can monitor the `PriceOracle` and vault solvency from its own projection; it may only liquidate a vault that is still unhealthy after the margin-call grace period, and only in proportion to the debt tokens it repays.
 - **Oracle Operator(s) (`ORACLE_PROVIDER`)** - the implementation-defined party set that updates the `PriceOracle`, bound by the interface requirements ([section 4](#44-component-price-oracle-interface)): no single party, not even the vault admin, should be able to move or stall the published price.
-- **Custodian (`CUSTODIAN`)** - owns the preset account that receives funds swept by a custodian seizure.
 - **Vault Custody Account** - owns the collateral holdings that back a vault; there is **one custody account per vault**, so collateral is never commingled across positions. It is held under the vault's **joint authority** ([trust topology](#decentralization-and-trust-topology)), and collateral leaves it only through the choices that release it (withdrawal, close, liquidation).
 
 The topology separates public market data from private positions: the `PriceOracle` carries a broad observer set so participants can independently verify the price path; the `VaultFactory` terms and the `Treasury`'s available liquidity reach prospective borrowers through explicit disclosure; and each `Vault` restricts visibility to its signatories (vault admin and borrower) plus a minimal observer set: the designated liquidators and any regulatory observer parties.
@@ -254,8 +249,6 @@ For roles that need to submit routinely and are not of critical importance, we e
 Whatever update mechanism the **oracle operators** run ([section 4](#44-component-price-oracle-interface)), an all-of-M quorum should be deliberately avoided: a single offline member, or one whose participant node has unvetted the protocol DAR, would stall every price update until the staleness guard freezes the protocol.
 
 The **pause authority** is multi-hosted so the brake is always reachable, but its confirmation threshold stays at 1: an emergency stop must be instant, and a quorum would slow it down. The price of that choice is griefing: a malicious pauser can freeze the protocol's flows, though no funds are ever stranded and everything resumes when the pause lifts. This griefing is not solvency-neutral: it can freeze liquidation while collateral keeps repricing, an exposure tracked in [section 7](#7-open-design-questions).
-
-The **custodian** owns the preset account that receives seizure sweeps. It needs availability and protection against a malicious single participant node, hence multi-hosting with confirmation threshold >1 suffices.
 
 The **liquidator** set should contain several independently granted parties, so liquidation liveness never hinges on one keeper: any designated liquidator may flag or complete a liquidation.
 
@@ -541,19 +534,6 @@ A single trusted price feed plus a single liquidator would be the largest live a
 - **Max-staleness guard.** Every price-dependent choice rejects when `now - updatedAt > maxStaleness`, so a stalled feed cannot drive liquidations or fresh borrows against a dead price.
 - **Per-update deviation circuit breaker.** Updates are bounded against the oracle's own `maxDeviation` field; an out-of-band move aborts the update, so the last in-band price stands.
 
-### Custodian Lock-and-Sweep
-
-The target architecture uses a strict **lock-and-sweep** policy for authorized
-seizure of custodied collateral: an admin-issued, time-bounded seizure
-capability marks a vault's custody account, suspending withdrawal and close for
-that vault, and sweeps the marked holdings to the preset custodian account.
-Seized assets are neither burned nor returned to the sender.
-The token experiment demonstrates the mark-and-sweep mechanism:
-[`TokenAllocation_MarkD2Seizure`](https://github.com/OpenZeppelin/canton-contracts/blob/7696749737885e25cd88422847105f890f03b00d/experiments/token/tokenCIP112-v1/daml/OpenZeppelin/TokenCIP112V1/Allocation.daml#L158)
-marks the target funds, and
-[`TokenAllocation_SweepD2Seizure`](https://github.com/OpenZeppelin/canton-contracts/blob/7696749737885e25cd88422847105f890f03b00d/experiments/token/tokenCIP112-v1/daml/OpenZeppelin/TokenCIP112V1/Allocation.daml#L207)
-routes them to the preset custodian account.
-
 ### Know-Your-Customer Identity
 
 The target architecture uses a single-synchronizer identity model. A borrower
@@ -565,7 +545,7 @@ application design.
 
 ### Authority and Privilege Transfer
 
-Institutional lending requires administrative power to be explicit and accountable: every privileged action traces to a named authority. There is no single admin holding every privilege. Each action sits with the role responsible for it: treasury releases with the `VAULT_ADMIN`, reachable only through the solvency-coupled vault choices; liquidity provisioning and fee withdrawal with the `TREASURY` funder; liquidation with the `LIQUIDATOR`; price publication with the oracle operators; the emergency brake with the `PAUSER`; and lock-and-sweep with the custodian-preset seizure path. These privileges are granted, transferred, and revoked through `openzeppelin-access-control-v1` role administration and the `openzeppelin-ownable-v1` two-step ownership handover, so authority can move between parties without redeploying.
+Institutional lending requires administrative power to be explicit and accountable: every privileged action traces to a named authority. There is no single admin holding every privilege. Each action sits with the role responsible for it: treasury releases with the `VAULT_ADMIN`, reachable only through the solvency-coupled vault choices; liquidity provisioning and fee withdrawal with the `TREASURY` funder; liquidation with the `LIQUIDATOR`; price publication with the oracle operators; and the emergency brake with the `PAUSER`. These privileges are granted, transferred, and revoked through `openzeppelin-access-control-v1` role administration and the `openzeppelin-ownable-v1` two-step ownership handover, so authority can move between parties without redeploying.
 
 ### Implementing Smart Contract Upgrades
 
@@ -885,9 +865,9 @@ per-party projections provide privacy and disclosure boundaries.
 | Under-funded transfer leg | An under-funded deposit, repayment, or liquidation exercise attempts a broken operation. | Daml atomicity: the whole transaction reverts, collateral stays where it was, no debt is cleared. Liquidations are partial and proportional, so a well-formed smaller payment simply liquidates less. |
 | Bad debt on a deeply under-water position | Collateral is worth less than debt, creating a shortfall. | The shortfall is recognized and quantified as `badDebt` and written off against the treasury: the funder's capital absorbs it, compensated by the interest revenue; whether a dedicated buffer should sit ahead of the funder's principal is an open design question ([section 7](#7-open-design-questions)). |
 | Compliance evasion, including post-open drift | A borrower bypasses KYC, or becomes non-compliant after opening. | The `KycClaim` is validated at open and fetched live by each risk-increasing vault choice (unexpired, issuer still in the `TrustedIssuerRegistry`), and, when the attestation gate is enabled, the compliance attestation is re-checked per operation, fail-closed, with no caching; a deployment with the gate disabled relies on the KYC layer alone. A revoked or expired claim blocks new borrows, top-ups, and withdrawals immediately, while repay, close, and liquidation stay open so a position is never trapped. |
-| Unauthorized admin action | An attacker with the admin key tries to drain the treasury, drain custodied collateral, or invoke a custodian seizure. | The admin party is an N-of-M quorum, so a single key exercises nothing; treasury outflows are reachable only through the solvency-coupled borrow choice and the funder-controlled defund, and even a full-quorum compromise is bounded by the pool balance; custody holdings carry the borrower's signature too, so the admin alone cannot move them outside a vault choice; seizure requires an admin-issued, time-bounded sweep capability and sweeps only to the preset custodian account. |
+| Unauthorized admin action | An attacker with the admin key tries to drain the treasury or drain custodied collateral. | The admin party is an N-of-M quorum, so a single key exercises nothing; treasury outflows are reachable only through the solvency-coupled borrow choice and the funder-controlled defund, and even a full-quorum compromise is bounded by the pool balance; custody holdings carry the borrower's signature too, so the admin alone cannot move them outside a vault choice. |
 | Forced upgrades breaking live contracts (SCU) | A poorly executed upgrade mutates fields, rendering existing vaults, treasuries, or holdings unusable. | Programmatic adherence to the SCU rule (Optional appends and new choices only): existing choices on the `Vault` and `Treasury` stay operable across the transition. |
-| DAR unvetting on a stakeholder's participant node | A party (malicious or misconfigured) unvets the protocol DAR on their participant node, so transactions on contracts they are a stakeholder of can no longer be confirmed: a custodian sweep of their funds fails, and co-signed flows they participate in stall. | Signatories and observers alike must have the same DAR version vetted for a transaction to succeed, and the freeze cuts both ways: the unvetting party cannot move the asset either, so the contract stays frozen rather than extractable, and re-vetting restores operation. Liveness-critical sets (oracle operators, liquidators) are multi-member with sub-unanimous quorums precisely so one unvetted participant cannot stall the protocol. A borrower who unvets freezes their own custody account: seizure is blocked, but so is every withdrawal, and the debt keeps accruing until they re-vet. |
+| DAR unvetting on a stakeholder's participant node | A party (malicious or misconfigured) unvets the protocol DAR on their participant node, so transactions on contracts they are a stakeholder of can no longer be confirmed: co-signed flows they participate in stall. | Signatories and observers alike must have the same DAR version vetted for a transaction to succeed, and the freeze cuts both ways: the unvetting party cannot move the asset either, so the contract stays frozen rather than extractable, and re-vetting restores operation. Liveness-critical sets (oracle operators, liquidators) are multi-member with sub-unanimous quorums precisely so one unvetted participant cannot stall the protocol. A borrower who unvets freezes their own custody account: every withdrawal is blocked, and the debt keeps accruing until they re-vet. |
 
 ### 5.3 Failure Modes and Recovery
 
@@ -900,9 +880,7 @@ commits atomically or leaves funds where they were. Collateral in the custody
 account is condition-bounded rather than
 time-bounded: the borrower-driven withdraw and close paths stay open while
 the vault is healthy, the protocol is unpaused, and the borrower's KYC claim
-(plus any required operation attestation) holds. An active
-custodian seizure suspends both exits, bounded by an explicit, finite
-seizure window and a lawful-process reference.
+(plus any required operation attestation) holds.
 
 | Failure | Effect while pending | Recovery path | Funds locked at most |
 |---|---|---|---|
@@ -913,7 +891,6 @@ seizure window and a lawful-process reference.
 | Pause during the margin-call window | liquidation blocked while collateral keeps repricing; positions can sink underwater unliquidated | unpause; the interaction is an open question ([section 7](#7-open-design-questions)) | nothing locked |
 | Protocol validator out of traffic | oracle publishes stall; the staleness guard then blocks borrows and liquidations | traffic top-up and monitoring ([section 6](#6-network-economics-traffic-costs-and-app-rewards)) | nothing locked |
 | Synchronizer outage | ledger halted: no one can transfer, deposit, or withdraw, while market prices keep moving off-ledger | service resumes; positions may resume underwater, liquidatable at the first fresh price | outage duration |
-| Seizure marked, never swept | deposit, withdraw, and close blocked for that vault | admin unmark; lawful-process sweep bounded by the seizure window | seizure window end |
 
 Each row becomes a Daml Script test in the RI test suite.
 
