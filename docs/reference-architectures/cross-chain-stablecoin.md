@@ -675,10 +675,18 @@ no extra observer for the mint. The attester set observes the credited-lock
 registry for its own reads, when it checks a nonce before it signs an
 attestation.
 
-**Residual.** Nothing stops a maintainer from holding two active versions of a
-registry under one key and presenting a different one to different transactions.
-The observers on each contract make the duplicate visible, and they rely on the
-maintaining party's own key custody to keep the bridge honest ([section
+**Residual.** Nothing stops a maintainer from holding two active versions of
+its own contract under one key and presenting a different one to different
+transactions. Despite the fact that the wTOK admin can hold two credited-lock
+registries or two attester registries which they pass per their discretion, the
+main vulnerability here lies in the fact that the wTOK admin can mint new wTOK
+tokens at will.The trusted-issuer list admin can hold two lists and pass an
+issuer that the real list refuses. The pause authority can hold two pause states
+and let a flow run while the rail is paused. The observers on each contract see
+the duplicate: the gateway admin on the pause state and the trusted-issuer list,
+and the attester set on the credited-lock registry. The attester registry has no
+observer beyond its maintainer, so a duplicate there is visible only to the wTOK
+admin. Each maintainer's own key custody keeps the bridge honest ([section
 2.3](#23-decentralization-and-trust-topology)).
 
 ### 3.5 Time and Deadlines
