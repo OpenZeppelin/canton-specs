@@ -448,9 +448,9 @@ sequenceDiagram
 [Section 3.1](#31-inbound-credit) settles the payment. This section ties that
 payment to the backing on the external chain.
 
-**Attestation.** The lock attestation states that the escrow holds a given
-amount for a given lock, and that only a mint of the same amount on Canton may
-claim it. No Canton contract can check either fact. That is the whole trust the
+**Attestation.** The lock attestation states that the escrow received a given
+amount under a given nonce, and that only one mint of the same amount on Canton
+may credit that deposit. No Canton contract can check either fact. That is the whole trust the
 attester set carries. An N-of-M quorum signs the attestation
 ([section 2.3](#23-decentralization-and-trust-topology)), and the relayer only
 transports it.
@@ -479,11 +479,11 @@ requires that the registry does not hold the nonce. Attesters read the registry
 before they sign and decline a credited lock, but the mint's check is the
 safety control, so an attester that cannot reach the registry still signs.
 
-**Reserve invariant.** The backing is the total that the escrow holds for
-locks that Canton credited and that no redemption has released. The wTOK
-supply never exceeds it. A mint adds one lock amount to both, and a redemption
-removes the same amount from both. **Because one escrow holds all of the
-backing, the invariant means the escrow can pay out every burn.**
+**Reserve invariant.** The backing is one balance: every deposit Canton
+credited, less every redemption the escrow released. The wTOK supply never
+exceeds it. A mint adds one deposit amount to both, and a redemption removes
+one burn amount from both. **Because the escrow holds the backing as one
+balance, the invariant means the escrow can pay out every burn.**
 
 **Supply creation.** Settlement creates no supply; supply is created only by 
 the attested mint (before the settlement), which the wTOK admin co-authorizes.
@@ -524,16 +524,22 @@ sequenceDiagram
 
 1. **Burn on Canton.** The holder asks for redemption and names the
    external-chain destination. The burn destroys the wrapped holding and
-   produces a typed **redemption attestation** that carries three fields:
+   produces a typed **redemption attestation** that carries:
 
    - the instrument the burn removed supply from;
-   - the lock attestations the burn draws against, and the amount taken from
-     each;
-   - the bound on the standing external-chain claim.
+   - the amount the burn destroyed, which is the amount the escrow releases;
+   - the Canton holder whose holding the burn destroyed;
+   - the external-chain destination the holder named, so the escrow releases
+     only to an address the holder signed for;
+   - the claim's nonce, the identifier Canton assigned to the burn.
 
-   All three are needed, because the reserve arithmetic has nothing else
-   on-ledger to bind to. The attestation also binds the destination the holder
-   named, so the escrow releases only to an address the holder signed for.
+   The instrument and the amount bind the reserve arithmetic, which has nothing
+   else on-ledger to bind to. The other three identify the redemption, as the
+   lock attestation identifies a deposit ([section 3.1](#31-inbound-credit)).
+   The escrow sees only the signed message, so the message names the holder
+   even though the holder already signs the contract. The escrow records the
+   nonce when it releases the claim, so an auditor can match each release to
+   one Canton burn and one holder.
 
    The **redemption gateway** carries that request, as the outbound counterpart
    of the messaging gateway. It initiates the redemption and owns the resulting
@@ -566,9 +572,8 @@ sequenceDiagram
    through the same attester registry path.
 3. **Release on the external chain.** Any submitter presents the signed
    attestation to the escrow. The escrow releases the amount to the
-   external-chain destination and decrements the reserve. The burn draws down
-   named lock attestations, so a partial burn cannot make the attested total
-   drift from the actual supply.
+   external-chain destination and decrements the reserve by the same amount,
+   so the backing and the supply move together.
 
 **Cross-chain atomicity.** The external-chain release does not sit in the same
 Daml transaction as the Canton burn, so the order is burn first and attested
@@ -839,7 +844,7 @@ This section separates what the ledger enforces from what stays trusted.
 | Property | Enforcement |
 |---|---|
 | Conservation of funds | Settlement cannot output more value than its input allocations. Every settlement path archives the locked inputs and asserts, per instrument, that they cover the authorizer's sender-side amounts. Any surplus returns as one change holding. |
-| 1:1 reserve backing | Minted wrapped supply never exceeds the total amount locked against the valid, unredeemed lock attestations. The wTOK registry exposes no unattested admin mint, so no relayer, attester, or operator mints without an attestation. The wTOK admin signs every holding and can create one directly, so this row binds every party except that admin ([section 4.3](#43-threat-model)). |
+| 1:1 reserve backing | Minted wrapped supply never exceeds the escrow's balance, the credited deposits less the released redemptions. The wTOK registry exposes no unattested admin mint, so no relayer, attester, or operator mints without an attestation. The wTOK admin signs every holding and can create one directly, so this row binds every party except that admin ([section 4.3](#43-threat-model)). |
 | Redemption claim backed by a burn | No redemption attestation exists without the burn that produced it. The holder signs the attestation, so the only transaction that can create one is the gateway's burn-and-create, and no party can fabricate a claim against the escrow on its own ([section 3.3](#33-outbound-redemption)). |
 | Replay protection | One external-chain lock can credit Canton at most once. The mint records the lock's nonce in the transaction that credits the recipient, and it refuses a nonce the registry already holds. It holds provided the registry the mint fetches is the one the wTOK admin maintains ([section 3.4](#34-registry-uniqueness-under-non-unique-keys)). |
 | Privacy partitioning | The amount, payer, and the metadata of a settled leg project only to that leg's counterparties, the executing relayer, the attester whose attestation the settlement checks, and the wTOK admin. No KYC issuer observes a settlement leg. |
@@ -865,7 +870,7 @@ This section separates what the ledger enforces from what stays trusted.
 |---|---|---|
 | Malicious relayer routing | Routes valid inbound funds to an unauthorized or sanctioned account. | The signed lock attestation pins the Canton recipient, and D3 requires a credential whose subject matches it. The relayer cannot spoof the destination. |
 | Unbacked mint | A relayer, or anyone without attester authorization, mints wTOK with no real external-chain lock. | The wTOK admin co-authorizes every mint, so a relayer cannot mint at all. Two sources of unbacked supply remain: an attester quorum that signs a lock which never happened, and the admin key, which signs every holding of its own instrument and can create one directly. |
-| Fabricated redemption claim | The wTOK admin creates a redemption attestation with no burn behind it, names real lock attestations, and drains that backing on the external chain while Canton supply stays untouched. | The holder is a signatory of the attestation, so an admin-only create carries no authority and only the gateway's burn-and-create transaction produces a claim ([section 3.3](#33-outbound-redemption)). The residual is a holder that colludes, which costs that holder its own holding. |
+| Fabricated redemption claim | The wTOK admin creates a redemption attestation with no burn behind it and drains the backing on the external chain while Canton supply stays untouched. | The holder is a signatory of the attestation, so an admin-only create carries no authority and only the gateway's burn-and-create transaction produces a claim ([section 3.3](#33-outbound-redemption)). The residual is a holder that colludes, which costs that holder its own holding. |
 | Replay of a used lock | A consumed message, or a second message for the same lock, is submitted again to mint twice. | One-time message consumption, and then the credited-lock registry that the mint writes as it credits. A nonce the registry already holds is rejected even if the attesters misbehave. |
 | Shadowing registry duplicate | Two versions of one keyed contract are active under the same key, and the submitter presents whichever suits it. The contract may be a credited-lock registry, a trusted-issuer list, or an attester registry. | A key names the party that maintains it, so no other party creates a second version, and a rotation archives the version it replaces. |
 | Refund of a credited lock | The escrow refunds a lock whose credit already settled on Canton, so the same value stands on both chains. | The mint refuses an expired attestation, and the escrow refunds only against an attester statement that no credit was recorded. A deadline on its own does not authorize a refund ([section 3.1](#31-inbound-credit)). |
@@ -891,7 +896,7 @@ not depend on the workflow contract surviving.
 | The attestation expires with no credit | Nothing on Canton | The attester quorum signs the refund statement, and the escrow refunds the originator ([section 3.1](#31-inbound-credit)) | Nothing on Canton |
 | The relayer crashes before the gateway transaction | Nothing consumed | Any relayer resubmits, because the message is standing | Nothing |
 | The relayer crashes after the gateway transaction | The message is consumed, and the settlement is pending | Complete the allocation and settle on restart. If the deadline lapses, nothing credits, and the lock stays creditable under a fresh attestation | Settlement deadline |
-| A second message reaches settlement for a lock that already credited | A committed allocation stands against a lock with no backing left to claim | The mint refuses the recorded nonce, and the allocation is withdrawn or expires. The attesters' own read of the registry rejects most duplicates earlier ([section 3.2](#32-reserve-and-lock-attestation)) | Settlement deadline |
+| A second message reaches settlement for a lock that already credited | A committed allocation stands against a lock that already credited | The mint refuses the recorded nonce, and the allocation is withdrawn or expires. The attesters' own read of the registry rejects most duplicates earlier ([section 3.2](#32-reserve-and-lock-attestation)) | Settlement deadline |
 | The attestation expires before settlement | Settlement is blocked | Re-attest within the window, or let the deadline lapse and withdraw | Settlement deadline |
 | The recipient has no allocation preapproval | The delegated accept fails, and nothing is locked | The recipient establishes the preapproval, and the relayer retries | Nothing |
 | The pause state is set during an in-flight settlement | Settlement is blocked by the pause state | Clear the pause state, or let the deadline lapse and withdraw ([section 2.3](#23-decentralization-and-trust-topology)) | Settlement deadline |
