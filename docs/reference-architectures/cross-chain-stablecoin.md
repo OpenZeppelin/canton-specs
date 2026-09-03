@@ -393,11 +393,13 @@ attester set, and this design adds no automatic cross-chain recovery protocol.
 A message that re-drives a credit from the external chain would need
 multi-round message passing, with its own delay, cost, and failure surface. What
 remains is structural and fail-closed. Command deduplication over 24 hours makes
-the three relayer commands safe to resubmit after a
-crash, and a stall blocks only this rail ([section
-4.5](#45-throughput-and-contention)). [Section
+the three relayer commands safe to resubmit after a crash, provided the retry
+goes to the same participant, because deduplication is scoped to the submitting
+participant and not to the synchronizer. A stall blocks only this rail
+([section 4.5](#45-throughput-and-contention)). [Section
 4.4](#44-failure-modes-and-recovery) maps each failure to its recovery path,
-including a duplicate from a second relayer host. A
+including a duplicate from a second relayer host, which the credited-lock
+registry rejects instead. A
 timeout that refunds the external-chain lock is the escrow's own path, and the
 escrow is out of scope ([section 1.2](#12-scope)). The condition of that refund
 belongs here, because it decides whether one lock pays out twice.
