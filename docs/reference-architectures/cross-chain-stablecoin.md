@@ -655,10 +655,10 @@ supply, so the wTOK admin maintains it.
 
 | Contract | Key | Maintainer |
 |---|---|---|
-| Credited-lock registry | The admin, and the instrument | wTOK admin |
-| Attester registry | The admin | wTOK admin |
-| Trusted-issuer list | The admin, and the instrument | Trusted-issuer list admin |
-| Pause state | The admin, and the instrument | Pause authority |
+| Credited-lock registry | The maintainer, and the instrument | wTOK admin |
+| Attester registry | The maintainer | wTOK admin |
+| Trusted-issuer list | The maintainer, and the instrument | Trusted-issuer list admin |
+| Pause state | The maintainer, and the instrument | Pause authority |
 
 An upgrade can neither add nor remove a key field, so each key carries every
 scope field the rail can ever need ([section 3.7](#37-upgrade-path)).
