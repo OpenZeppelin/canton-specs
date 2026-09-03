@@ -217,8 +217,9 @@ Consequences:
   not visibility, so attester membership is a privacy decision as well as a
   compliance one.
 - **The gateway admin is a standing observer of every contract the rail
-  checks.** A fetch needs the caller to be a stakeholder of the fetched
-  contract, and the gateway choice carries only the gateway admin's authority.
+  checks.** A fetch needs a party in the enclosing choice's authorizing set to
+  be a stakeholder of the fetched contract, and the gateway choice carries only
+  the gateway admin's authority.
   The pause state, the trusted-issuer list, and each identity credential
   therefore name the gateway admin as an observer. This puts durable visibility
   on one accountable party and keeps it off the relayer, whose set the design
@@ -668,11 +669,12 @@ supply, so the wTOK admin maintains it.
 An upgrade can neither add nor remove a key field, so each key carries every
 scope field the rail can ever need ([section 3.7](#37-upgrade-path)).
 
-**Visibility.** A party can fetch only a contract that it is a stakeholder of
-([section 2.2](#22-privacy-and-visibility)), so the party whose authority runs
-a consumer must be a signatory or an observer of every contract that consumer
-fetches. The gateway choices run with the gateway admin's authority, so the
-pause state and the trusted-issuer list name the gateway admin as an observer.
+**Visibility.** A fetch needs a party in the enclosing choice's authorizing set
+to be a stakeholder of the fetched contract
+([section 2.2](#22-privacy-and-visibility)). Every contract a consumer fetches
+by key therefore names one of that consumer's authorizing parties as a signatory
+or an observer. The gateway choices run with the gateway admin's authority, so
+the pause state and the trusted-issuer list name the gateway admin as an observer.
 The mint runs inside a settlement, which carries the wTOK admin's authority,
 and the wTOK admin is already the signatory of the attester registry and the
 credited-lock registry as their maintainer. Those two registries therefore need
