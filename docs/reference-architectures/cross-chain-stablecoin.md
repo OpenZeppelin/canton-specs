@@ -624,12 +624,17 @@ burn-first claim.
 The pause state, the trusted-issuer list, the credited-lock registry, and the
 attester registry are all fetched by key. A [Canton 3.x
 key](https://docs.canton.network/appdev/modules/m3-contract-keys) does not
-enforce uniqueness, so two contracts can share one key, and a submitter that
-holds both decides which one a fetch by key returns. A credited-lock registry
-that lacks an entry lets a lock that already credited credit again. A
-trusted-issuer list that is wider passes an identity check that the narrower one
-refuses. An attester registry with one extra member passes a settlement that the
-real roster refuses.
+enforce uniqueness. Two contracts can share one key, and when a submitter holds
+both, that submitter chooses which one a fetch by key returns. A submitter that
+can create a second contract under a registry key can therefore make a check
+read from a copy that says what the submitter wants.
+
+Each registry fails in its own way. A second credited-lock registry that omits
+the nonce of a lock lets the mint credit that lock a second time, because the
+mint reads the copy and finds no record of the first credit. A second
+trusted-issuer list with an extra issuer passes an identity check that the real
+list refuses. A second attester registry with an extra member passes a
+settlement that the real roster refuses.
 
 **Decision.** Every key carries the party that maintains it, together with every
 field that scopes the contract it names. A consumer, meaning the mint, the
