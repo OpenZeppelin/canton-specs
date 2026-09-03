@@ -68,7 +68,7 @@ tables below define its scope.
 | Interest Model | A fixed, immutable `interestRate`; open-term positions with no maturity date. Accrual is **simple (non-compounding) interest** off the tracked principal ([section 3](#3-target-design)). |
 | Core Flows | The five vault flows: **vault creation with collateral deposit**, **borrow**, **repay**, **liquidation**, and **close** (collateral return on a fully repaid position), plus the **treasury funding** flow that provisions and reclaims borrow liquidity. How each flow moves value is specified in [section 3](#3-target-design). |
 | Asset Representation | Fungible digital assets compliant with the CIP-0112 Token Standard V2 holding interfaces. Both the debt token and the collateral may be issued by any third party: each is custodied and transferred, never minted or burned ([section 3](#3-target-design)). |
-| Pricing | The keyed `PriceOracle` interface the vaults consume, naming both the collateral and quote instruments, with max-staleness and per-update deviation guards enforced by every price-dependent choice ([section 4](#44-component-price-oracle-interface)). |
+| Pricing | The keyed `PriceOracle` interface the vaults consume, naming both the collateral and quote instruments, with max-staleness and per-update deviation guards enforced by every price-dependent choice ([section 4](#44-component-price-oracle-interface)). Deploying a vault for an instrument pair presupposes that pair is priceable: the oracle mechanism must be able to produce a `price` for it, by a direct feed or by composing per-instrument feeds off-ledger before publishing. |
 | Fees | Interest arrives in the treasury with the payment that carries it and accrues to the treasury funder as revenue. The `liquidationBonus` is the liquidator's seizure premium, paid from the borrower's collateral. The funder's treasury capital absorbs bad debt; the interest revenue is its compensation for that risk. |
 | Compliance & Control | **Compliance attestation** (optional per deployment, [section 3](#compliance-is-re-checked-on-every-operation)): when the gate is enabled, no value-moving operation executes unless an attester has signaled compliance, re-checked per operation; attestation mentions elsewhere in this report assume the gate is enabled. **Identity verification**: single-synchronizer KYC. |
 | Component Integration | Direct reuse of `openzeppelin-access-control-v1`, `openzeppelin-ownable-v1`, `openzeppelin-pausable-v1`, CIP-0112 holdings and transfers, as well as the vault, oracle, and identity patterns from the [`OpenZeppelin/canton-stablecoin`](https://github.com/OpenZeppelin/canton-stablecoin), [`OpenZeppelin/canton-token-template`](https://github.com/OpenZeppelin/canton-token-template) and [`ShapeB`](../../experiments/identity/hook-shape-b/daml/OpenZeppelin/Experimental/Identity/ShapeB.daml#L6) codebases. |
@@ -146,7 +146,7 @@ flowchart TB
     Factory -->|"creates"| Vault
     Borrower -->|"deposit, borrow,<br/>repay, close"| Vault
     Liquidator -->|"flag, liquidate"| Vault
-    Attester -.->|"single-use attestation per<br/>value-moving choice (if enabled)"| Vault
+    Attester -.->|"attestation (if enabled)"| Vault
     Vault -->|"fresh price"| Oracle
     Vault -->|"borrow: draw liquidity;<br/>repay: return payment"| Treasury
     Vault ==>|"deposit and release collateral<br/>(direct transfer, joint authority)"| Custody
@@ -288,7 +288,7 @@ Taking each element of the codeblock in turn:
 
 - **Proportional seizure.** `debtRepaid` is the amount the liquidator's own exercise pays into the treasury in the same transaction, never the vault's full accrued debt, so a liquidator can never take more collateral than their payment (plus bonus) buys.
 - **Restorable vault (`collateralRatio > 1 + liquidationBonus`).** Repaying `x` reduces the debt to `accruedDebt - x` and the collateral value to `collateralAmount · price - x · (1 + liquidationBonus)`. While the ratio sits above `1 + liquidationBonus`, every such repayment raises it, so the vault can be cured. `restoreAmount` is the exact `x` that brings the ratio back to `minCollateralRatio`, and it caps the payment: a smaller `debtRepaid` moves the vault partway back to health, one equal to `restoreAmount` restores it fully, and the choice rejects anything larger, so a liquidation never repays or seizes more than the cure requires. The restore target is `minCollateralRatio` rather than `liquidationRatio`, so a cured vault lands inside the margin-call buffer instead of restarting on the liquidation boundary.
-- **Underwater vault (`collateralRatio <= 1 + liquidationBonus`).** No repayment can restore health, so the cap becomes what the remaining collateral can pay for: the pass seizes all of it, and the uncovered remainder is quantified as `badDebt`.
+- **Underwater vault (`collateralRatio <= 1 + liquidationBonus`).** No repayment can restore health, so the cap becomes what the remaining collateral can pay for: the pass seizes all of it, writes the uncovered remainder off against the treasury as bad debt, and closes the position, so no zero-collateral vault survives.
 - **Well-definedness.** Protocol configuration requires `minCollateralRatio > liquidationRatio > 1 + liquidationBonus`. The first gap is the margin-call buffer; the second keeps the restorable regime reachable, so a freshly flagged vault can still be partially cured; and the chain keeps `restoreAmount`'s denominator positive and its value within what the collateral supports.
 
 ### Data and State Flow
@@ -380,11 +380,30 @@ This walkthrough names the concrete choices behind the flows:
 1. **Treasury funding.** The funder provisions borrow liquidity with `Treasury_Fund`, transferring debt tokens into the treasury account and raising its `availableAmount`; `Treasury_Defund` reclaims un-borrowed liquidity and accrued fees.
 2. **Vault creation and deposits.** The borrower presents a collateral holding to `VaultFactory_CreateVault`, which checks the KYC claim, transfers the initial collateral into the custody account, and instantiates the `Vault` with the deposited `collateralAmount`. Top-ups use `Vault_DepositCollateral`; `Vault_WithdrawCollateral` releases collateral back as long as the solvency check passes.
 3. **Borrow.** `Vault_Borrow` consumes the compliance attestation, fetches the live `KycClaim`, ensures the treasury's `availableAmount` covers the the request, and requires that existing plus requested debt keeps `collateralRatio` at or above `minCollateralRatio` at a fresh `PriceOracle` reading, before drawing the tokens from the treasury to the borrower and incrementing `debtAmount`.
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant B as Borrower
+    participant V as Vault
+    participant O as PriceOracle
+    participant T as Treasury
+
+    B->>V: Vault_Borrow (borrowAmount)
+    activate V
+    V->>V: abort if paused (fetchByKey PauseState)
+    V->>V: fetch live KycClaim, consume attestation (if enabled)
+    V->>O: fetchByKey (assert instruments + freshness)
+    V->>V: accrueDebt, assert solvency with debtAmount += borrowAmount
+    V->>T: archive + recreate: assert liquidity, availableAmount -= borrowAmount
+    T->>B: release borrowAmount from the treasury account (direct transfer)
+    V->>V: archive old Vault, create new (debtAmount += borrowAmount)
+    V-->>B: newVaultCid
+    deactivate V
+```
+
 4. **Repay and close.** `Vault_Repay` transfers the payment into the treasury account, reduces `debtAmount`, and updates the `Treasury` by key: liquidity up by the principal portion, `feesAccrued` up by the interest portion. `Vault_Close` winds the fully repaid position down, releasing the residual collateral.
-5. **Margin call and liquidation.** `Vault_FlagForLiquidation` opens the grace window; once it elapses on a still-unhealthy vault, `Vault_Liquidate` names `debtRepaid` (capped by the health-restore formula), consumes a compliance attestation checking the liquidator, transfers the payment into the treasury, releases the proportional collateral, and recreates the residual `Vault`.
-
-The sequence diagram below traces the margin-call and liquidation flow end to end:
-
+5. **Margin call and liquidation.** `Vault_FlagForLiquidation` opens the grace window; once it elapses on a still-unhealthy vault, `Vault_Liquidate` names `debtRepaid` (capped by the health-restore formula), consumes a compliance attestation checking the liquidator, transfers the payment into the treasury, and releases the proportional collateral. It recreates the residual `Vault`, unless a full seizure leaves residual debt: then it writes the remainder off against the treasury and closes the position.
 ```mermaid
 sequenceDiagram
     autonumber
@@ -412,8 +431,13 @@ sequenceDiagram
     V->>T: transfer liquidator's payment into the treasury account
     V->>T: archive + recreate: availableAmount += principal, feesAccrued += interest
     V->>L: release collateralToSeize (direct transfer, joint authority)
-    V->>V: archive old Vault, create new (debtAmount -= debtRepaid, collateralAmount -= collateralToSeize)
-    V-->>L: newVaultCid
+    alt full seizure leaves residual debt
+        V->>T: Treasury_WriteOff: badDebtWrittenOff += remainingDebt
+        V->>V: archive old Vault, no successor
+    else position survives
+        V->>V: archive old Vault, create new (debtAmount -= debtRepaid, collateralAmount -= collateralToSeize)
+    end
+    V-->>L: Optional newVaultCid
     deactivate V
 ```
 
@@ -500,7 +524,7 @@ No flow waits on a receiver acceptance or a settlement counterparty: the sender 
 
 ### The Treasury
 
-Borrow liquidity lives in the **treasury**: a debt-token account owned by the vault admin, fronted by a keyed `Treasury` contract `(vaultAdmin, debtInstrumentId)` carrying two accounting figures: `availableAmount`, the un-borrowed liquidity, and `feesAccrued`, the funder's collected interest. The privileged `TREASURY` funder provisions it with `Treasury_Fund` and reclaims un-borrowed liquidity and revenue with `Treasury_Defund`; in exchange it earns the protocol's interest, and its capital absorbs any bad debt.
+Borrow liquidity lives in the **treasury**: a debt-token account owned by the vault admin, fronted by a keyed `Treasury` contract `(vaultAdmin, debtInstrumentId)` carrying the accounting: `availableAmount`, the un-borrowed liquidity; `feesAccrued`, the funder's collected interest; and `badDebtWrittenOff`, the funder's recognized losses. The privileged `TREASURY` funder provisions it with `Treasury_Fund` and reclaims un-borrowed liquidity and revenue with `Treasury_Defund`; in exchange it earns the protocol's interest, and its capital absorbs any bad debt.
 
 Admin ownership of the account is what keeps every flow a single atomic exercise: the admin signs each `Vault`, so a borrow releases treasury holdings under authority the vault choice already carries, and a repayment or liquidation payment transfers in with the payer signing as the choice's controller. Borrow asserts `availableAmount` covers the request and decrements it; **an exhausted treasury blocks new borrows** - repay, close, withdraw, and liquidation never depend on treasury liquidity. The same accounting-equals-holdings discipline as collateral applies: `availableAmount + feesAccrued == Σ(treasury-account holdings)`, updated in the same transaction as every movement.
 
@@ -692,7 +716,7 @@ template Vault
           debtAmount = accruedDebt; lastAccrualTime = now
           liquidationFlaggedAt = Some now
 
-    choice Vault_Liquidate : ContractId Vault
+    choice Vault_Liquidate : Optional (ContractId Vault)
       with
         liquidator : Party
         paymentHoldingCid : ContractId TokenHolding
@@ -736,26 +760,38 @@ template Vault
 
         let remainingDebt = accruedDebt - debtRepaid
             remainingCollateral = collateralAmount - collateralToSeize
-            stillUnhealthy = remainingDebt > 0.0 &&
-              collateralRatio remainingCollateral remainingDebt oracle.price < params.liquidationRatio
-        create this with
-          collateralAmount = remainingCollateral
-          debtAmount = remainingDebt
-          principalAmount = principalAmount - principalRepaid
-          lastAccrualTime = now
-          liquidationFlaggedAt = if stillUnhealthy then liquidationFlaggedAt else None
+        if remainingCollateral == 0.0 && remainingDebt > 0.0
+          then do
+            -- Full absorption: the uncovered remainder is bad debt. Write it
+            -- off against the treasury and close the position, so no
+            -- zero-collateral vault survives. (A production implementation
+            -- also sweeps residual dust below a threshold.)
+            _ <- exerciseByKey @Treasury (vaultAdmin, debtInstrumentId)
+                   Treasury_WriteOff with badDebt = remainingDebt
+            pure None
+          else do
+            let stillUnhealthy = remainingDebt > 0.0 &&
+                  collateralRatio remainingCollateral remainingDebt oracle.price < params.liquidationRatio
+            cid <- create this with
+              collateralAmount = remainingCollateral
+              debtAmount = remainingDebt
+              principalAmount = principalAmount - principalRepaid
+              lastAccrualTime = now
+              liquidationFlaggedAt = if stillUnhealthy then liquidationFlaggedAt else None
+            pure (Some cid)
 ```
 
 ### 4.3 Component: Treasury
 
 The `Treasury` fronts the protocol's borrow liquidity: an admin-signed, keyed contract `(vaultAdmin, debtInstrumentId)` accounting for the admin-owned treasury account, with the funder as observer; prospective borrowers learn the available capacity through explicit disclosure. As with vaults and the oracle, duplicates are excluded by an application-level check at creation, since contract keys are not unique.
 
-Four choices cover its lifecycle, each moving holdings and updating the accounting in the same transaction:
+Five choices cover its lifecycle, each updating the accounting in the same transaction as any holdings it moves:
 
 - **`Treasury_Fund`** (controller: the funder) transfers debt tokens into the treasury account and raises `availableAmount`.
 - **`Treasury_Defund`** (controller: the funder) reclaims accrued fees and un-borrowed liquidity, drawing `feesAccrued` down first. It is bounded by `availableAmount + feesAccrued`, so it can never touch lent-out principal, which sits with borrowers.
 - **`Treasury_Draw`** (controllers: the vault admin **and** the borrowing party) asserts the treasury is not exhausted, releases the requested amount to the borrower, and decrements `availableAmount`. Requiring both authorities pins the draw inside `Vault_Borrow`: there the admin's signature is inherited from the `Vault` and the borrower exercises the choice, and that choice is where the solvency check lives. The admin quorum alone cannot draw.
 - **`Treasury_AcceptPayment`** (controllers: the payer and the vault admin) transfers a repayment or liquidation payment into the account, replenishing `availableAmount` by the principal portion and accruing the interest portion to `feesAccrued`. It is exercised from inside `Vault_Repay` and `Vault_Liquidate`, where the payer signs as the enclosing choice's controller.
+- **`Treasury_WriteOff`** (controller: the vault admin, exercised from inside `Vault_Liquidate`) records unrecoverable debt in `badDebtWrittenOff` when a full seizure leaves residual debt. It moves no holdings: the written-off principal simply never returns to `availableAmount`, making the funder's loss explicit on-ledger.
 
 Because the admin signs the `Treasury` and owns its account, these choices bound every party except the admin quorum itself: a full quorum could move the account's holdings at the registry level, outside the choices - the custodial caveat of [section 5.1](#51-security-invariants), bounded by the pool balance.
 
@@ -784,7 +820,7 @@ per-party projections provide privacy and disclosure boundaries.
   - Collateral can never be withdrawn, and a borrow can never succeed, if it would push `collateralRatio` below `VaultParams.minCollateralRatio`.
   - Liquidation is reachable only below `liquidationRatio`, after the margin-call grace period.
 - **Lending conservation (no unbacked lending)**:
-  - Debt tokens leave the treasury only with a solvency-checked `debtAmount` increment gated by `availableAmount`, or through the funder's own defund; payments return against a matching decrement. Outstanding principal never exceeds what the funder provisioned plus what repayments restored, and an exhausted treasury blocks borrows. The protocol issues nothing; the residual caveat is custodial - the full admin quorum could move treasury holdings outside the choices, bounded by the pool balance, since Daml gates holdings by signatories, not choices.
+  - Debt tokens leave the treasury only with a solvency-checked `debtAmount` increment gated by `availableAmount`, or through the funder's own defund; payments return against a matching decrement. Outstanding principal never exceeds what the funder provisioned plus what repayments restored, less what liquidations wrote off into `badDebtWrittenOff`, and an exhausted treasury blocks borrows. The protocol issues nothing; the residual caveat is custodial - the full admin quorum could move treasury holdings outside the choices, bounded by the pool balance, since Daml gates holdings by signatories, not choices.
 - **Seizure is payment-bound**:
   - Liquidation seizes collateral exactly proportional to the debt tokens the liquidator actually pays: `debtRepaid` transfers into the treasury in the same transaction that releases the collateral. A liquidator can never take more than their payment (plus bonus) buys.
 - **Margin call before seizure**:
@@ -808,7 +844,7 @@ per-party projections provide privacy and disclosure boundaries.
 | Under-paying liquidator | The liquidator supplies a tiny debt-token amount and seizes the whole vault. | Seizure is bound on-ledger to the liquidator's signed payment: `collateralToSeize = min(collateralAmount, debtRepaid · (1 + bonus) / price)` with `debtRepaid` paid from the liquidator's own holdings into the treasury in the same exercise. A small payment seizes only a small, proportional slice. |
 | Liquidation front-running the borrower | A liquidation lands before the borrower can top up. | The two-phase margin call: flagging opens a `gracePeriod` the borrower owns for curing, and liquidation asserts the period has elapsed, so it cannot pre-empt the cure window. |
 | Under-funded transfer leg | An under-funded deposit, repayment, or liquidation exercise attempts a broken operation. | Daml atomicity: the whole transaction reverts, collateral stays where it was, no debt is cleared. Liquidations are partial and proportional, so a well-formed smaller payment simply liquidates less. |
-| Bad debt on a deeply under-water position | Collateral is worth less than debt, creating a shortfall. | The shortfall is recognized and quantified as `badDebt` and written off against the treasury: the funder's capital absorbs it, compensated by the interest revenue; whether a dedicated buffer should sit ahead of the funder's principal is an open design question ([section 7](#7-open-design-questions)). |
+| Bad debt on a deeply under-water position | Collateral is worth less than debt, creating a shortfall. | The final liquidation pass seizes all remaining collateral, records the shortfall in the treasury's `badDebtWrittenOff`, and closes the position, so no insolvent zombie vault survives; the funder's capital absorbs the loss, compensated by the interest revenue. Whether a dedicated buffer should sit ahead of the funder's principal is an open design question ([section 7](#7-open-design-questions)). |
 | Compliance evasion, including post-open drift | A borrower bypasses KYC, or becomes non-compliant after opening. | The `KycClaim` is validated at open and fetched live by each risk-increasing vault choice (unexpired, issuer still in the `TrustedIssuerRegistry`), and, when the attestation gate is enabled, the compliance attestation is re-checked per operation, fail-closed, with no caching; a deployment with the gate disabled relies on the KYC layer alone. A revoked or expired claim blocks new borrows, top-ups, and withdrawals immediately, while repay, close, and liquidation stay open so a position is never trapped. |
 | Unauthorized admin action | An attacker with the admin key tries to drain the treasury or drain custodied collateral. | The admin party is an N-of-M quorum, so a single key exercises nothing; treasury outflows are reachable only through the solvency-coupled borrow choice and the funder-controlled defund, and even a full-quorum compromise is bounded by the pool balance; custody holdings carry the borrower's signature too, so the admin alone cannot move them outside a vault choice. |
 | Forced upgrades breaking live contracts (SCU) | A poorly executed upgrade mutates fields, rendering existing vaults, treasuries, or holdings unusable. | Programmatic adherence to the SCU rule (Optional appends and new choices only): existing choices on the `Vault` and `Treasury` stay operable across the transition. |
