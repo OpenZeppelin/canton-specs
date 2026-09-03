@@ -495,11 +495,12 @@ does a relayer that asks for a fresh attestation for a lock it already minted.
 The mint fetches the credited-lock registry on-ledger, so the check holds even
 when the whole attester quorum signs that second message.
 
-**Reserve invariant.** Each lock attestation states the amount that the source
-chain holds against it. Minted wrapped supply never exceeds the total of those
-amounts, across the attestations that are valid and not yet redeemed. A mint
-increments the claimed reserve, and a redemption decrements it. One escrow
-holds the backing, so a burn is payable whenever the invariant holds.
+**Reserve invariant.** The backing is the total that the escrow holds for locks
+that Canton credited and that no redemption has released yet.
+Both sides move together: a mint adds one lock amount to the supply and to the
+backing, and a redemption burns the same amount from the supply and releases it
+from the backing. **Because one escrow holds all of the backing, the invariant
+means the escrow can pay out every burn.**
 
 **Supply creation.** Settlement funds the recipient's leg from a sender's locked
 holdings, so the exposure to unbacked issuance is the creation of those
