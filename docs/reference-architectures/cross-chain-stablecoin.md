@@ -257,7 +257,7 @@ credited Canton ([section 3.1](#31-inbound-credit)), so that one lock mints once
 even when a valid attestation for it arrives a second time. Splitting those would create a
 second key that can break the reserve without being able to mint, so the answer
 to the concentration is the posture below and not a division of the contracts.
-Canton offers two routes to an N-of-M posture, and the choice between them is
+Canton offers three routes to an N-of-M posture, and the choice between them is
 open ([section 6](#6-open-design-questions)):
 
 - **On-ledger approval workflow.** The multisig is written in Daml, as a
@@ -269,6 +269,11 @@ open ([section 6](#6-open-design-questions)):
   sees this, and each action costs one ledger transaction. The [Bitsafe
   decentralization-manager](https://github.com/DLC-link/decentralization-manager)
   is one candidate implementation.
+- **Multi-hosted party with a confirmation threshold.** The role party is
+  hosted on M participants that independent organizations operate, and N of
+  them must confirm each transaction. The trust sits with the participant
+  operators rather than with key holders, and the party needs another party's
+  submission or external signing to act.
 
 | Role | Target posture | Why |
 |---|---|---|
@@ -1027,7 +1032,7 @@ activation vote.
 |---|---|---|---|
 | **Attester set and quorum shape.** The attesters carry the trust that an external-chain lock is real. Open: the set size M, the threshold N, and who admits or removes a member. Open too: whether the quorum check reads one combined attestation or M separate ones. | An N-of-M quorum signs the message, with M, N, and the admission path unset ([section 2.3](#23-decentralization-and-trust-topology)) | The quorum check, and any production attester set | **High**, the largest trust surface in the design |
 | **Shape of the allocation preapproval.** CIP-0112 makes the recipient sign an allocation for the leg it receives, and an offline recipient cannot sign it live. No upstream contract supplies that signature, because Canton Coin's transfer preapproval approves a transfer and covers Canton Coin only. Open: the preapproval's shape. It stands in for a per-payment signature, so it has to bound what it authorizes: the instrument, an amount ceiling, an expiry, and the party that may exercise it. | The recipient signs the preapproval, and the relayer exercises it through a delegated accept ([section 3.1](#31-inbound-credit)) | The whole inbound path, because no credit commits without the recipient's signature | **High**, every inbound settlement rests on it |
-| **Multisig for the wTOK admin and the Custodian.** The admin can mint supply, and the Custodian can sweep locked value. Open: whether each role uses the on-ledger approval workflow or an external party with threshold signing keys. The N, M, and confirmation threshold per role are open too. | A single key holds each role | Party onboarding for both roles | **High**, one stolen key is enough under the default |
+| **Multisig for the wTOK admin and the Custodian.** The admin can mint supply, and the Custodian can sweep locked value. Open: whether each role uses the on-ledger approval workflow, an external party with threshold signing keys, or a multi-hosted party with a confirmation threshold. The N, M, and confirmation threshold per role are open too. | A single key holds each role | Party onboarding for both roles | **High**, one stolen key is enough under the default |
 | **Closing the admin mint and the direct burn.** The shared registry rules template ships a mint that needs no attestation, so the wTOK registry must not expose that path, and it must expose no burn outside the redemption path either. Open: whether wTOK gets its own registry rules template, or the shared template gains an attestation check on the mint and routes the burn. An upgrade cannot drop a choice, so the answer has to land before the first deployment. | wTOK gets its own registry rules template, without the admin mint and with the burn reachable only from the redemption gateway ([section 4.3](#43-threat-model)) | The registry rules template that wTOK deploys, and with it the reserve invariant | **High**, the 1:1 backing claim rests on it |
 | **Registry key shapes and rotation.** A key cannot change after the template that carries it first deploys. Open: the exact key fields of each contract, the rotation procedure that keeps one active version under each key, and whether a credited-lock registry key carries a shard discriminator. | Each key carries its maintainer and the scope of the contract, and a rotation archives the version it replaces ([section 3.4](#34-registry-uniqueness-under-non-unique-keys)) | The keys themselves, because no upgrade changes them | **High**, replay protection, the identity check, and the D1 roster all rest on them |
 | **Where the D1 and D3 checks sit.** Each control must fail at the step that [section 1.1](#11-institutional-controls) states, and both a registry-side and an application-side check can meet that. Open: whether the wTOK registry carries the compliance check and the identity check, or the bridge application carries them. The answer decides which party must observe the contracts that D3 fetches ([section 2.2](#22-privacy-and-visibility)). | The settle choice carries D1, and the gateway transaction carries D3 ([section 3.6](#36-control-enforcement)) | The D3 observers, and which choice carries the D1 check | Medium |
