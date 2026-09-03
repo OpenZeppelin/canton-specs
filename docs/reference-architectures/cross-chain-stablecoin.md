@@ -805,11 +805,13 @@ sequenceDiagram
 the lock attestation names, so a relayer cannot route a credit to an account
 that holds no credential.
 
-The check runs under the authority of the party that runs it, and that party has
-to be a stakeholder of the credential and of the trusted-issuer list
-([section 2.2](#22-privacy-and-visibility)). The default places the check in the
-gateway transaction, so both contracts name the gateway admin as an observer.
-Another placement moves those entries ([section 6](#6-open-design-questions)).
+A fetch inside a choice succeeds only if a party in that choice's authorizing
+set, its controllers plus the signatories of the exercised contract, is a
+stakeholder of the fetched contract ([section 2.2](#22-privacy-and-visibility)).
+The submitter's own identity plays no part. The default places the check in a
+gateway choice, which carries the gateway admin's authority, so the credential
+and the trusted-issuer list both name the gateway admin as an observer. Another
+placement moves those entries ([section 6](#6-open-design-questions)).
 
 The check binds at request time, and no later choice fetches the credential, so
 a revocation or an expiry before settlement still credits the recipient. The
@@ -940,10 +942,11 @@ hosts, and a host that loses the race treats the rejection as a no-op.
 ### 4.5 Throughput and Contention
 
 The credited-lock registry serializes every inbound mint of the rail, because
-each credit archives and recreates that one contract. Its key scopes it to one
-instrument ([section 3.4](#34-registry-uniqueness-under-non-unique-keys)), so
-the rail has one shard, and that shard is the throughput ceiling. Splitting an
-instrument's nonces across shards needs a discriminator in the key, which no
+each credit archives and recreates that one contract. Its contract key scopes
+it to one instrument ([section
+3.4](#34-registry-uniqueness-under-non-unique-keys)), so the rail has one
+shard, and that shard is the throughput ceiling. Splitting an instrument's
+nonces across shards needs a discriminator in that contract key, which no
 upgrade adds later. Independent rails settle in parallel, and several
 allocations can be part of a single settlement batch.
 
