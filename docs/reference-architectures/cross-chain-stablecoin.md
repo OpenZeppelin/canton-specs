@@ -471,14 +471,19 @@ or as the id of the lock transaction. Every attester then reads the same value
 off the same lock, which is what lets a quorum sign one message
 ([section 2.3](#23-decentralization-and-trust-topology)).
 
-The registry therefore records credits. A flow that stalls or lapses leaves the
-lock creditable, so an honest retry proceeds under a fresh attestation, and the
-refund path of [section 3.1](#31-inbound-credit) reads the registry as the
-answer to whether Canton credited a lock. The attester set observes the
-registry, so the parties who must not re-attest a credited lock read that state
-directly. They also read it before they attest, which stops most duplicates
-before they reach Canton. The mint's own check is what protects the reserve, so
-an attester that cannot reach the registry still signs.
+The registry records successful mints, not attempts. A nonce enters the
+registry only when the mint executes, so a flow that stalls or lapses before
+the mint leaves no record, and the lock stays creditable. An honest retry then
+proceeds under a fresh attestation. The refund path of [section 3.1](#31-inbound-credit)
+uses the same record: the attester quorum signs a refund statement only after
+the attestation expires and the registry does not hold the nonce.
+
+The attester set is an observer of the registry. Before an attester signs a
+lock, it checks the registry for the nonce and declines a lock that Canton
+already credited. That check stops most duplicates before they reach Canton,
+but it is an optimization and not a safety control. The mint's own check
+protects the reserve, so an attester that cannot reach the registry still
+signs, and the mint rejects the duplicate.
 
 Without that record, one lock of *N* units can credit Canton twice and leave
 2*N* of wrapped supply against *N* of backing. Message consumption does not
