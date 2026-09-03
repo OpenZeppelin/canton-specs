@@ -663,17 +663,17 @@ supply, so the wTOK admin maintains it.
 An upgrade can neither add nor remove a key field, so each key carries every
 scope field the rail can ever need ([section 3.7](#37-upgrade-path)).
 
-**Rotation.** A new version of a contract arrives through a choice on the active
-one, which archives that version in the same transaction. A replaced version
-cannot be fetched afterwards, because a fetch by key returns active contracts
-only.
-
-A consumer fetches by key, so it must be a stakeholder of every contract it
-fetches ([section 2.2](#22-privacy-and-visibility)). The gateway admin is an
-observer of the pause state and the trusted-issuer list. The attester registry
-and the credited-lock registry need no observer for the mint, because the wTOK
-admin maintains both and every settlement already carries that authority. The
-attester set stays an observer of the credited-lock registry for its own reads.
+**Visibility.** A party can fetch only a contract that it is a stakeholder of
+([section 2.2](#22-privacy-and-visibility)), so the party whose authority runs
+a consumer must be a signatory or an observer of every contract that consumer
+fetches. The gateway choices run with the gateway admin's authority, so the
+pause state and the trusted-issuer list name the gateway admin as an observer.
+The mint runs inside a settlement, which carries the wTOK admin's authority,
+and the wTOK admin is already the signatory of the attester registry and the
+credited-lock registry as their maintainer. Those two registries therefore need
+no extra observer for the mint. The attester set observes the credited-lock
+registry for its own reads, when it checks a nonce before it signs an
+attestation.
 
 **Residual.** Nothing stops a maintainer from holding two active versions of a
 registry under one key and presenting a different one to different transactions.
