@@ -785,13 +785,14 @@ template Vault
 
 The `Treasury` fronts the protocol's borrow liquidity: an admin-signed, keyed contract `(vaultAdmin, debtInstrumentId)` accounting for the admin-owned treasury account, with the funder as observer; prospective borrowers learn the available capacity through explicit disclosure. As with vaults and the oracle, duplicates are excluded by an application-level check at creation, since contract keys are not unique.
 
-Five choices cover its lifecycle, each updating the accounting in the same transaction as any holdings it moves:
+Four choices cover its lifecycle, each updating the accounting in the same transaction as any holdings it moves:
 
 - **`Treasury_Fund`** (controller: the funder) transfers debt tokens into the treasury account and raises `availableAmount`.
 - **`Treasury_Defund`** (controller: the funder) reclaims accrued fees and un-borrowed liquidity, drawing `feesAccrued` down first. It is bounded by `availableAmount + feesAccrued`, so it can never touch lent-out principal, which sits with borrowers.
-- **`Treasury_Draw`** (controllers: the vault admin **and** the borrowing party) asserts the treasury is not exhausted, releases the requested amount to the borrower, and decrements `availableAmount`. Requiring both authorities pins the draw inside `Vault_Borrow`: there the admin's signature is inherited from the `Vault` and the borrower exercises the choice, and that choice is where the solvency check lives. The admin quorum alone cannot draw.
 - **`Treasury_AcceptPayment`** (controllers: the payer and the vault admin) transfers a repayment or liquidation payment into the account, replenishing `availableAmount` by the principal portion and accruing the interest portion to `feesAccrued`. It is exercised from inside `Vault_Repay` and `Vault_Liquidate`, where the payer signs as the enclosing choice's controller.
 - **`Treasury_WriteOff`** (controller: the vault admin, exercised from inside `Vault_Liquidate`) records unrecoverable debt in `badDebtWrittenOff` when a full seizure leaves residual debt. It moves no holdings: the written-off principal simply never returns to `availableAmount`, making the funder's loss explicit on-ledger.
+
+The borrow path deliberately has no choice of its own: `Vault_Borrow` archives and recreates the `Treasury` directly, under the vault admin authority it already carries, decrementing `availableAmount` and releasing the tokens only after its own solvency check passes. With no callable draw surface, liquidity leaves the treasury only inside the borrow flow or through the funder's defund.
 
 Because the admin signs the `Treasury` and owns its account, these choices bound every party except the admin quorum itself: a full quorum could move the account's holdings at the registry level, outside the choices - the custodial caveat of [section 5.1](#51-security-invariants), bounded by the pool balance.
 
