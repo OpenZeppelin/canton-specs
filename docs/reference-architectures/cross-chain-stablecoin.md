@@ -441,7 +441,7 @@ sequenceDiagram
 
 The inbound flow of [section 3.1](#31-inbound-credit) settles a payment
 privately. This section binds that mint to the backing locked on the external
-chain. That binding makes the rail a bridge.
+chain.
 
 **Attested claim.** The lock attestation asserts that backing is locked on the
 external chain, and that the backing is claimable only by a mint of the matching
