@@ -576,26 +576,19 @@ Institutional lending requires administrative power to be explicit and accountab
 ### Smart Contract Upgrade Process
 
 The lending application will use Smart Contract Upgrade (SCU) for additive
-changes to its own packages. An additive version will keep the package name,
-advance the package version, and set `upgrades:` to the prior deployed DAR. It
-will keep module and template names, existing field names, types, and order,
-and the consuming status of each existing choice. Template, record, and
-choice-argument additions will only append `Optional` fields; new choices and
-serializable definitions will be allowed. A signatory or key expression may
-change only if it computes the same value for every persisted contract, and a
-changed `ensure` predicate will be re-evaluated when that contract is used.
-Interfaces and exceptions will remain in stable packages separate from their
-implementations. See the
+changes to its own packages. An additive release will keep the package name,
+raise the version, set `upgrades:` to the prior deployed DAR, and only append
+`Optional` fields to existing templates, records, and choice arguments; the
 [Canton SCU guide](https://docs.canton.network/appdev/deep-dives/smart-contract-upgrade)
-for the complete compatibility boundary.
+defines the remaining compatibility rules. SCU preserves a representable data
+shape, not loan economics.
 
-SCU preserves a representable data shape, not loan economics. Every release
-will first define what each new `Optional` field means for a v1 `Vault`,
-`VaultParams`, `Treasury`, and oracle record: v1 contracts read as `None`
-under v2 code, but a v2 record carrying `Some` may not be usable by an old,
-exact-version workflow. The release will test both directions: v1 positions
-under the v2 implementation, v2 flows over v1 positions, and the expected
-rejection of an old client facing newly populated data.
+Every release will first define what each new `Optional` field means for a v1
+`Vault`, `VaultParams`, `Treasury`, and oracle record: v1 contracts read as
+`None` under v2 code, but a v2 record carrying `Some` may not be usable by an
+old, exact-version workflow. The release will test both directions: v1
+positions under the v2 implementation, and the expected rejection of an old
+client facing populated v2 data.
 
 As a worked example, take a new per-vault debt ceiling.
 
@@ -616,20 +609,17 @@ existing liquidation path, and binding every caller needs the same data-level
 cutoff or the breaking-change path below.
 
 Changes to interest accrual, fee allocation, collateral valuation, or the
-liquidation terms will require a separate economic decision. New vaults can
-carry an immutable model or terms revision; existing borrowers will keep their
-agreed terms, migrating only with the required authority and their consent. A change to parties, key shape, custody, or a policy that must be
-unavailable to every eligible caller is a breaking change: the application
-will deploy a separately named package and template, add a consuming
-migration choice to the old template, and migrate active positions during a
-maintenance window.
+liquidation terms will require a separate economic decision: new vaults can
+carry revised terms, and existing borrowers keep theirs unless they consent to
+migrate. A change to parties, keys, custody, or a policy that must be unusable
+for every caller is breaking: a separately named package and template, with
+active positions migrated during a maintenance window.
 
-Before release, the operators will build the complete DAR lineage with
-`dpm build`, run `dpm upgrade-check --both`, validate the DAR against the
-target participant, vet source and target DARs wherever the transaction is
-visible, and switch services and wallets together to the announced target
-package preference. On LocalNet, they will exercise borrow, repay, withdraw,
-liquidation, oracle update, and emergency recovery against live v1 positions.
+Before release, the operators will run `dpm build` with the `upgrades:`
+lineage and `dpm upgrade-check --both`, vet the DARs at the affected
+participants, switch services and wallets together to the target package
+preference, and exercise borrow, repay, withdraw, liquidation, oracle update,
+and emergency recovery on LocalNet against live v1 positions.
 
 ### Extension Points
 

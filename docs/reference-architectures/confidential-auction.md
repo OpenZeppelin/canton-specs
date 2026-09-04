@@ -847,22 +847,17 @@ implementation handling a v1 round will therefore keep applying the v1 rule,
 never silently reinterpreting accepted bids, rounding, eligibility, ordering,
 visibility, or recovery rights under a later one.
 
-An additive release will keep the package name, advance the package version,
-and set `upgrades:` to the prior deployed DAR. It will keep module and template
-names, existing field names, types, and ordering, and whether existing choices
-consume their contracts. Template, record, and choice-argument additions will
-only append `Optional` fields; new choices and serializable definitions will
-be allowed. Key and signatory expressions may change only when they compute
-the same values for every live contract. Interfaces and exceptions will remain
-in stable packages separate from their template implementations. See the
+An additive release will keep the package name, raise the version, set
+`upgrades:` to the prior deployed DAR, and only append `Optional` fields to
+existing templates, records, and choice arguments; the
 [Canton SCU guide](https://docs.canton.network/appdev/deep-dives/smart-contract-upgrade)
-for the full compatibility boundary.
+defines the remaining compatibility rules.
 
 Every release will first define what `None` means on each v1 `RoundProposal`,
-`Round`, prepared bid, accepted bid, issuer sale authority, and result. It will
-test both directions explicitly: v1 round state and allocations under the v2
-implementation, v2 flows over v1 records, and the expected rejection of an old
-exact-version workflow that cannot represent populated v2 data.
+`Round`, prepared bid, accepted bid, issuer sale authority, and result, and
+will test both directions: v1 round state and allocations under the v2
+implementation, and the expected rejection of an old exact-version workflow
+facing populated v2 data.
 
 As a worked example, take a new rule requiring a sanctions screen on every
 accepted bid.
@@ -889,13 +884,12 @@ auditors to the announced package preference together.
 
 This path covers compatible changes only. Changes to the clearing formula, bid
 ordering, economic terms, party or observer topology, or asset authorization
-are breaking changes even if a choice body can technically be replaced. They
-will use a separately named target package and template and a maintenance
-window. The deployment will open new rounds only under the new design; it will
-complete, cancel, or expire every active old round and recover its allocations
-under the terms it published. An unopened proposal may be recreated under the
-new design only with the authorities that approved it. This keeps an upgrade
-authority from becoming authority to alter a bidder's accepted terms.
+are breaking, even if a choice body can technically be replaced: they will use
+a separately named package and template, open new rounds only under the new
+design, and drain every active old round under the terms it published. An
+unopened proposal may be recreated only with the authorities that approved it,
+so an upgrade authority never becomes authority to alter a bidder's accepted
+terms.
 
 Before release, the operators will run `dpm build` with the `upgrades:`
 lineage and `dpm upgrade-check --both`, validate the DAR against the target

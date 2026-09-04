@@ -661,25 +661,18 @@ DEX-owned packages. It will not upgrade a pinned Token Standard, settlement, or
 library DAR: the package owner of that dependency will govern its upgrade
 lineage, and the venue's listing policy will record the version it accepts.
 
-An additive DEX release will keep its package name, increment its package
-version, and set `upgrades:` to the prior deployed DAR. It will keep module and
-template names, existing field names, types, and ordering, and the consuming
-status of each existing choice. Template, record, and choice-argument additions
-will only append `Optional` fields. New choices and serializable definitions will be
-allowed. The signatory and key expressions may evolve only when they compute the
-same values for every live contract; a changed `ensure` predicate will be
-re-evaluated when a contract is used. Interfaces and exceptions will remain in
-stable packages separate from their template implementations. These are
-compatibility rules, not a promise that a change will preserve trading economics
-or security policy. See the
-[Canton SCU guide](https://docs.canton.network/appdev/deep-dives/smart-contract-upgrade).
+An additive DEX release will keep its package name, increment its version, set
+`upgrades:` to the prior deployed DAR, and only append `Optional` fields to
+existing templates, records, and choice arguments; the
+[Canton SCU guide](https://docs.canton.network/appdev/deep-dives/smart-contract-upgrade)
+defines the remaining compatibility rules. These are compatibility rules, not
+a promise that a change preserves trading economics or security policy.
 
-Every upgrade will first define what each new `Optional` field will mean for a
-v1 pool. V1 pools will appear to v2 code with the field set to `None`, but a v2
-pool carrying `Some` may not be usable by an old, exact-version workflow. The
-release will test both directions explicitly: v1 pools and pending allocations
-under the v2 implementation, v2 flows over v1 pool state, and the expected
-rejection of a v1 workflow that cannot represent new v2 data.
+Every upgrade will first define what each new `Optional` field means for a v1
+pool: v1 pools read as `None` under v2 code, but a v2 pool carrying `Some` may
+not be usable by an old, exact-version workflow. The release will test both
+directions: v1 pools and pending allocations under the v2 implementation, and
+the expected rejection of a v1 workflow facing populated v2 data.
 
 As a worked example, take a new rule requiring jurisdictional approval on
 every swap.

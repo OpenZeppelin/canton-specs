@@ -850,35 +850,26 @@ sits on a separate role grant, so a change of holder recreates no contract.
 ### 3.7 Smart Contract Upgrade Process
 
 The rail will use Smart Contract Upgrade (SCU) for additive changes to its own
-gateway and registry packages. An additive version will keep the package name,
-advance the package version, and set `upgrades:` to the prior deployed DAR. It
-will keep module and template names, existing field names, types, and order,
-and the consuming status of each existing action. Template, record, and
-action-argument additions will only append `Optional` fields; new actions and
-serializable definitions will be allowed. A choice body may change, so
-compatibility does not by itself preserve the meaning of an attestation, a
-mint, or a redemption. See the
+gateway and registry packages. An additive release will keep the package name,
+raise the version, set `upgrades:` to the prior deployed DAR, and only append
+`Optional` fields to existing templates, records, and action arguments; the
 [Canton SCU guide](https://docs.canton.network/appdev/deep-dives/smart-contract-upgrade)
-for the full compatibility boundary.
+defines the remaining compatibility rules. A choice body may change, so
+compatibility does not by itself preserve the meaning of an attestation, a
+mint, or a redemption.
 
-A template cannot add, remove, or retype its key, and its key expression may
-evolve only when every persisted contract computes the same key. The keyed
-registries can therefore gain fields and actions, but a scope field required
-for uniqueness must exist from first deployment: a credited-lock shard
-discriminator that distinguishes live nonce namespaces belongs in the original
-key, since an upgrade cannot add it later. Signatory and observer results for
-live records must also remain compatible.
+A template key cannot be added, removed, or retyped, so a scope field required
+for registry uniqueness must exist from first deployment: a credited-lock
+shard discriminator cannot be added later.
 
 Each release will first define what each new `Optional` field means for a v1
-gateway, registry, or attestation record. It will test both directions: v1
+gateway, registry, or attestation record, and will test both directions: v1
 pending inbound allocations and redemption requests under the v2
-implementation, v2 flows over v1 state, and the expected rejection of an old
-exact-version workflow facing v2 data. The gateways will also retain a
-protocol-level message revision: they will accept every unsettled v1 message
-and nonce, introduce v2 without reinterpreting v1, and reconcile backing,
-credited locks, burns, and external releases across both revisions. A package
-rollout alone does not drain an external-chain lock or make an already signed
-attestation disappear.
+implementation, and the expected rejection of an old exact-version workflow
+facing v2 data. The gateways will also keep a protocol-level message revision:
+unsettled v1 messages and nonces stay valid and reconcile with v2. A package
+rollout alone does not drain an external-chain lock or void a signed
+attestation.
 
 As a worked example, take a new compliance requirement on every mint.
 
@@ -895,16 +886,13 @@ old action body, so a deprecation marker is not an access control. Once the
 gateway is recreated with `Some hook`, its data no longer downgrades to a v1
 view, so the old mint action cannot execute against it.
 
-For deployment, the operators will build and validate the complete DAR lineage
-with `dpm build` and `dpm upgrade-check --both`, dry-run the DAR against the
-target participant, and vet source and target DARs at every participant
-informed of an affected transaction. Wallets, relayers, attesters, and gateways
-will move to the announced target package preference together. If a mint/burn
-authority, key shape, party set, reserve invariant, or message interpretation
-must cease to be usable, the rail will deploy a separately named package and
-template and migrate or drain affected state during a maintenance window. The
-[identity upgrade experiment](../../experiments/identity/upgrade/) provides the
-bounded v1-state-through-v2 evidence pattern.
+Before release, the operators will run `dpm build` with the `upgrades:`
+lineage and `dpm upgrade-check --both`, vet the DARs at every affected
+participant, and switch wallets, relayers, attesters, and gateways together to
+the target package preference. If a mint/burn authority, key shape, party set,
+reserve invariant, or message interpretation must cease to be usable, the rail
+will deploy a separately named package and template and migrate or drain
+affected state during a maintenance window.
 
 ### 3.8 Extension Points
 
