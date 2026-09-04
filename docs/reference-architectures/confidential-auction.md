@@ -854,14 +854,13 @@ what `None` means on each v1 record and test v1 round state under the v2
 implementation, including the expected rejection of an old workflow facing
 populated v2 data.
 
-As a worked example, a sanctions screen on every accepted bid follows the DEX
-pattern ([dex.md](./dex.md#smart-contract-upgrade-process)): the v2 acceptance
-choice enforces a screening policy stored as a new `Optional` field on the
+As a worked example, take a sanctions screen on every accepted bid: the v2
+acceptance choice enforces a screening policy stored as a new `Optional` field on the
 `Round`, and the v2 opening choice refuses to open a round without
 `Some policy`. An active v1 round reads as `None` and completes under the rule
 its final opening published. A vetted v1 DAR stays callable, so deprecation is
 not an access control; the cutoff is the populated field, which no longer
-downgrades to a v1 view. Unlike the DEX, no live state is migrated: v1 rounds
+downgrades to a v1 view. No live state is migrated: v1 rounds
 drain by completing, expiring, or being cancelled, and the rollout is vetting
 the v2 DAR at every affected participant and switching wallets and services
 together to the announced package preference.

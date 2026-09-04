@@ -869,8 +869,7 @@ data. The gateways will also keep a protocol-level message revision: unsettled
 v1 messages and nonces stay valid and reconcile with v2, and a package rollout
 alone does not drain an external-chain lock or void a signed attestation.
 
-As a worked example, a new compliance requirement on every mint follows the
-DEX pattern ([dex.md](./dex.md#smart-contract-upgrade-process)): the v2
+As a worked example, take a new compliance requirement on every mint: the v2
 release changes the existing mint action to require a hook, stored as a new
 `Optional` field on the inbound gateway, with `None` meaning "minting disabled
 until configured". A vetted v1 DAR stays callable, so deprecation is not an
