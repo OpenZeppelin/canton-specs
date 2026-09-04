@@ -863,28 +863,20 @@ for registry uniqueness must exist from first deployment: a credited-lock
 shard discriminator cannot be added later.
 
 Each release will first define what each new `Optional` field means for a v1
-gateway, registry, or attestation record, and will test both directions: v1
-pending inbound allocations and redemption requests under the v2
-implementation, and the expected rejection of an old exact-version workflow
-facing v2 data. The gateways will also keep a protocol-level message revision:
-unsettled v1 messages and nonces stay valid and reconcile with v2. A package
-rollout alone does not drain an external-chain lock or void a signed
-attestation.
+gateway, registry, or attestation record, and will test v1 state under the v2
+implementation, including the expected rejection of an old workflow facing v2
+data. The gateways will also keep a protocol-level message revision: unsettled
+v1 messages and nonces stay valid and reconcile with v2, and a package rollout
+alone does not drain an external-chain lock or void a signed attestation.
 
-As a worked example, take a new compliance requirement on every mint.
-
-Adding a new, hardened mint action is not enough: the existing one stays
-callable, so the requirement would be optional. The v2 release changes the body
-of the existing mint action to require a compliance hook, stored as a new
-`Optional` field on the inbound gateway record. Existing gateways read as
-`None` under v2 code, so the release must define what `None` means: here,
-"minting disabled until configured", never "skip the check".
-
-The populated field is also what retires the old path. SCU does not delete the
-v1 DAR: while it stays vetted, a caller can pin the old package id and run the
-old action body, so a deprecation marker is not an access control. Once the
-gateway is recreated with `Some hook`, its data no longer downgrades to a v1
-view, so the old mint action cannot execute against it.
+As a worked example, a new compliance requirement on every mint follows the
+DEX pattern ([dex.md](./dex.md#smart-contract-upgrade-process)): the v2
+release changes the existing mint action to require a hook, stored as a new
+`Optional` field on the inbound gateway, with `None` meaning "minting disabled
+until configured". A vetted v1 DAR stays callable, so deprecation is not an
+access control; the cutoff is recreating the gateway with `Some hook`, whose
+data no longer downgrades to a v1 view, so the old mint action cannot execute
+against it.
 
 Before release, the operators will run `dpm build` with the `upgrades:`
 lineage and `dpm upgrade-check --both`, vet the DARs at every affected

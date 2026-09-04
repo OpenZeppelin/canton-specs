@@ -841,52 +841,35 @@ transaction is submitted.
 
 The auction application will use Smart Contract Upgrade (SCU) for additive
 changes to its packages, but an upgrade will never change the published terms
-of an active round. A round's final opening records the clearing-rule revision and the
-approved application package identity in its audit evidence. A v2
-implementation handling a v1 round will therefore keep applying the v1 rule,
-never silently reinterpreting accepted bids, rounding, eligibility, ordering,
-visibility, or recovery rights under a later one.
+of an active round: the final opening records the clearing-rule revision and
+the approved package identity, and a v2 implementation handling a v1 round
+keeps applying the v1 rule.
 
 An additive release will keep the package name, raise the version, set
 `upgrades:` to the prior deployed DAR, and only append `Optional` fields to
 existing templates, records, and choice arguments; the
 [Canton SCU guide](https://docs.canton.network/appdev/deep-dives/smart-contract-upgrade)
-defines the remaining compatibility rules.
+defines the remaining compatibility rules. Every release will first define
+what `None` means on each v1 record and test v1 round state under the v2
+implementation, including the expected rejection of an old workflow facing
+populated v2 data.
 
-Every release will first define what `None` means on each v1 `RoundProposal`,
-`Round`, prepared bid, accepted bid, issuer sale authority, and result, and
-will test both directions: v1 round state and allocations under the v2
-implementation, and the expected rejection of an old exact-version workflow
-facing populated v2 data.
-
-As a worked example, take a new rule requiring a sanctions screen on every
-accepted bid.
-
-Adding a new, hardened acceptance choice is not enough: the existing one stays
-callable, so the screen would be optional. The v2 release therefore changes the
-body of the existing acceptance choice to enforce a screening policy, stored as
-a new `Optional` field on the `Round` (the only kind of field SCU may add).
-The enforcement point is round opening: the v2 opening choice refuses to open
-a round without `Some policy`, so every new round carries the screen. An
-active v1 round reads as `None`, meaning "opened before the rule": it
-completes under the rule its final opening published and is never
-reinterpreted retroactively.
-
-The populated field is also what retires the old code path. SCU does not
-delete the v1 DAR: while it stays vetted, a caller can pin the old package id
-and run the old choice body, so a deprecation marker is not an access control.
-But a round carrying `Some policy` no longer downgrades to a v1 view, so the
-old acceptance choice cannot execute against it. Unlike the DEX, no live state
-is migrated: v1 rounds drain naturally by completing, expiring, or being
-cancelled. The rollout is therefore: vet the v2 DAR at every affected
-participant, then switch wallets, issuer services, auctioneer services, and
-auditors to the announced package preference together.
+As a worked example, a sanctions screen on every accepted bid follows the DEX
+pattern ([dex.md](./dex.md#smart-contract-upgrade-process)): the v2 acceptance
+choice enforces a screening policy stored as a new `Optional` field on the
+`Round`, and the v2 opening choice refuses to open a round without
+`Some policy`. An active v1 round reads as `None` and completes under the rule
+its final opening published. A vetted v1 DAR stays callable, so deprecation is
+not an access control; the cutoff is the populated field, which no longer
+downgrades to a v1 view. Unlike the DEX, no live state is migrated: v1 rounds
+drain by completing, expiring, or being cancelled, and the rollout is vetting
+the v2 DAR at every affected participant and switching wallets and services
+together to the announced package preference.
 
 This path covers compatible changes only. Changes to the clearing formula, bid
-ordering, economic terms, party or observer topology, or asset authorization
-are breaking, even if a choice body can technically be replaced: they will use
-a separately named package and template, open new rounds only under the new
-design, and drain every active old round under the terms it published. An
+ordering, economic terms, topology, or asset authorization are breaking: a
+separately named package and template, new rounds opened only under the new
+design, and every active old round drained under the terms it published. An
 unopened proposal may be recreated only with the authorities that approved it,
 so an upgrade authority never becomes authority to alter a bidder's accepted
 terms.
