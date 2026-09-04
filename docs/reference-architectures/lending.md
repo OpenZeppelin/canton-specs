@@ -579,24 +579,23 @@ The lending application will use Smart Contract Upgrade (SCU) for additive
 changes to its own packages. An additive version will keep the package name,
 advance the package version, and set `upgrades:` to the prior deployed DAR. It
 will keep module and template names, existing field names, types, and order,
-and whether an existing choice consumes its contract. Template, record, and
-choice-argument extensions will only append `Optional` fields; new choices and
+and the consuming status of each existing choice. Template, record, and
+choice-argument additions will only append `Optional` fields; new choices and
 serializable definitions will be allowed. A signatory or key expression may
 change only if it computes the same value for every persisted contract, and a
 changed `ensure` predicate will be re-evaluated when that contract is used.
 Interfaces and exceptions will remain in stable packages separate from their
-implementations. The complete
-compatibility boundary is defined by the
-[Canton SCU guide](https://docs.canton.network/appdev/deep-dives/smart-contract-upgrade).
+implementations. See the
+[Canton SCU guide](https://docs.canton.network/appdev/deep-dives/smart-contract-upgrade)
+for the complete compatibility boundary.
 
 SCU preserves a representable data shape, not loan economics. Every release
-will first define the meaning of `None` on a v1 `Vault`, `VaultParams`,
-`Treasury`, and oracle record. A v1 contract can be interpreted by v2 with
-appended fields set to `None`, but a v2 record carrying `Some` may not
-downgrade into an old, exact-version workflow. The release will test both
-directions explicitly: v1 positions under the target implementation, target
-flows over v1 positions, and the intended failure of old clients that cannot
-represent newly populated data.
+will first define what each new `Optional` field means for a v1 `Vault`,
+`VaultParams`, `Treasury`, and oracle record: v1 contracts read as `None`
+under v2 code, but a v2 record carrying `Some` may not be usable by an old,
+exact-version workflow. The release will test both directions: v1 positions
+under the v2 implementation, v2 flows over v1 positions, and the expected
+rejection of an old client facing newly populated data.
 
 As a worked example, take a new per-vault debt ceiling.
 
@@ -611,26 +610,25 @@ The populated field is also what retires the old code path. SCU does not delete
 the v1 DAR: while it stays vetted, a caller can pin the old package id and run
 the old choice body, so a deprecation marker is not an access control. Once
 `VaultParams` is recreated with `Some ceiling`, its data no longer downgrades
-to a v1 view, so the old `Vault_Borrow` cannot execute against it. The same
-principle applies to liquidation fixes: the selected implementation of the
-existing liquidation path must carry the fix, and a fix that must bind every
-caller needs the same data-level cutoff or the breaking-change path below.
+to a v1 view, so the old `Vault_Borrow` cannot execute against it.
+Liquidation fixes follow the same principle: the fix lands in the body of the
+existing liquidation path, and binding every caller needs the same data-level
+cutoff or the breaking-change path below.
 
 Changes to interest accrual, fee allocation, collateral valuation, or the
 liquidation terms will require a separate economic decision. New vaults can
-carry an immutable model or terms revision, while existing borrowers will
-retain their agreed terms or migrate with the authority and consent the target
-design requires. A change to parties, key shape, custody, or a policy that must
-be unavailable to every eligible caller is a breaking change: the application
-will introduce a separately named target package and template, add a consuming
+carry an immutable model or terms revision; existing borrowers will keep their
+agreed terms, migrating only with the required authority and their consent. A change to parties, key shape, custody, or a policy that must be
+unavailable to every eligible caller is a breaking change: the application
+will deploy a separately named package and template, add a consuming
 migration choice to the old template, and migrate active positions during a
 maintenance window.
 
-The operational rollout will build and validate the complete DAR lineage with
-`dpm build` and `dpm upgrade-check --both`, validate the DAR against the target
-participant, vet source and target DARs wherever the transaction is visible,
-and switch services and wallets together to the announced target package
-preference. It will include LocalNet tests for borrow, repay, withdraw,
+Before release, the operators will build the complete DAR lineage with
+`dpm build`, run `dpm upgrade-check --both`, validate the DAR against the
+target participant, vet source and target DARs wherever the transaction is
+visible, and switch services and wallets together to the announced target
+package preference. On LocalNet, they will exercise borrow, repay, withdraw,
 liquidation, oracle update, and emergency recovery against live v1 positions.
 
 ### Extension Points
