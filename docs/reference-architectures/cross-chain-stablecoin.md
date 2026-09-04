@@ -686,8 +686,9 @@ supply, so the wTOK admin maintains it.
 | Trusted-issuer list | The admin, and the instrument | Trusted-issuer list admin |
 | Pause state | The admin, and the instrument | Pause authority |
 
-An upgrade can neither add nor remove a key field, so each key carries every
-scope field the rail can ever need ([section 3.7](#37-upgrade-path)).
+An upgrade can neither add nor remove a key definition or change its type, so
+each key carries every scope field the rail can ever need
+([section 3.7](#37-smart-contract-upgrade-process)).
 
 **Rotation.** A new version of a record arrives through an action on the live
 one, which archives that version in the same transaction. A replaced version
@@ -846,15 +847,65 @@ the trusted-issuer list with its own admin. A permission whose holder never
 changes sits on the contract itself. A permission that must move or be revoked
 sits on a separate role grant, so a change of holder recreates no contract.
 
-### 3.7 Upgrade Path
+### 3.7 Smart Contract Upgrade Process
 
-The design extends through additive Smart Contract Upgrade: an existing action
-keeps its fields and its meaning, and a new capability arrives as a new action or
-as an appended optional argument. The keyed registries of
-[section 3.4](#34-registry-uniqueness-under-non-unique-keys) cannot take that
-path at all, because an upgrade can neither add nor remove a key definition, so
-every one of them must carry its final key definition in the package that first
-deploys it.
+The rail will use Smart Contract Upgrade (SCU) for additive changes to its own
+gateway and registry packages. An additive version will keep the package name,
+advance the package version, and set `upgrades:` to the prior deployed DAR. It
+will keep module and template names, existing field names, types, and order,
+and the consuming status of existing actions. New fields on templates, records,
+and existing action arguments will only be appended `Optional` fields, while
+new actions and serializable definitions will be allowed. A choice body may change, so
+compatibility does not by itself preserve the meaning of an attestation, a mint,
+or a redemption. The
+[Canton SCU guide](https://docs.canton.network/appdev/deep-dives/smart-contract-upgrade)
+defines the full compatibility boundary.
+
+A template cannot add or remove a key definition or change its key type. Its key
+expression may evolve only when every persisted contract computes the same key.
+The keyed registries can therefore receive additive fields and actions, but a
+scope field required for their uniqueness must exist from first deployment. For
+example, a credited-lock shard discriminator belongs in the original key if it
+must distinguish live nonce namespaces; an upgrade cannot add it later. The
+signatory and observer results for live records must also remain compatible.
+
+Each release will first define the meaning of `None` for v1 gateway, registry,
+and attestation records. It will test v1 pending inbound allocations and
+redemption requests through the target implementation, target flows over v1
+state, and the expected rejection when an old exact-version workflow cannot
+represent v2 data. The inbound and outbound gateways will also retain a
+protocol-level message revision: they will accept every unsettled supported v1
+message and nonce, introduce v2 without changing the interpretation of v1, and
+reconcile backing, credited locks, burns, and external releases across both
+revisions. A package rollout alone does not
+drain an external-chain lock or make an already signed attestation disappear.
+
+As a worked example, take a new compliance requirement on every mint.
+
+Adding a new, hardened mint action is not enough: the existing one stays
+callable, so the requirement would be optional. The v2 release changes the body
+of the existing mint action to require a compliance hook, stored as a new
+`Optional` field on the inbound gateway record. Existing gateways read as
+`None` under v2 code, so the release must define what `None` means: here,
+"minting disabled until configured", never "skip the check".
+
+The populated field is also what retires the old path. SCU does not delete the
+v1 DAR: while it stays vetted, a caller can pin the old package id and run the
+old action body, so a deprecation marker is not an access control. Once the
+gateway is recreated with `Some hook`, its data no longer downgrades to a v1
+view, so the old mint action cannot execute against it.
+
+For deployment, the operators will build and validate the complete DAR lineage
+with `dpm build` and `dpm upgrade-check --both`, dry-run the DAR against the
+target participant, and vet source and target DARs at every participant
+informed of an affected transaction. Wallets, relayers, attesters, and gateways
+will move to the announced target package preference together. If a mint/burn
+authority, key shape, party set, reserve invariant, or message interpretation
+must cease to be usable, the rail will deploy a separately named target package
+and template and explicitly migrate or drain affected state during a
+maintenance window. The
+[identity upgrade experiment](../../experiments/identity/upgrade/) provides the
+bounded v1-state-through-v2 evidence pattern.
 
 ### 3.8 Extension Points
 
@@ -911,7 +962,7 @@ This section separates what the ledger enforces from what stays trusted.
 | Unattributable inbound origin | A deposit arrives over a privacy pool or a shielded-provenance path, so no sender can be attributed to it. | Nothing mints without an attestation, so an unresolved origin means the attesters withhold the signature, the deposit stays locked on the external chain, and a refund is the escrow's own path ([section 4.4](#44-failure-modes-and-recovery)). The origin resolution is a precondition on issuing one attestation, and not a stored flag, a score, or a threshold ([section 1.2](#12-scope)). |
 | Compromised admin key | A compromised wTOK admin or Custodian key attempts arbitrary expropriation. | A sweep reaches only the holdings an allocation locks, so a credited holding stays beyond both keys ([section 3.6](#36-control-enforcement)). A sweep is hardcoded to the preset custodian destination, and a sweep past the settlement deadline needs an order the admin cannot sign. An in-flight seizure inside the deadline needs no such order, so that window is the residual exposure. Supply-changing authority is mitigated by N-of-M multisig. |
 | D1 deployed unset | The wTOK registry is created with no trusted roster admin, so every settle passes with no attestation. | The settlement package cannot catch this, because an unset party is a silent no-op. The wTOK deployment has to set that party and assert it before the rail accepts a settle. |
-| Upgrade breaks in-flight allocations | An upgrade of a deployed rail changes how its live contracts are interpreted, so an allocation created under the previous version can no longer settle. | Programmatic adherence to the upgrade rule: optional appends and new actions only. Each deployed action stays operable, and a pending settlement concludes before its parties move to the new version. |
+| Failed SCU rollout | An upgrade changes how live gateway, registry, or allocation state is interpreted, leaving a pending settlement or bridge message stranded. | The release preserves the SCU-compatible surface, specifies `None` and message-revision semantics, validates the full DAR lineage, and tests v1 pending allocations and redemption requests through the selected v2 workflow. Source and target DARs are vetted wherever affected transactions are visible; breaking authority, key, reserve, or message changes use an explicit migration or drain plan. |
 | Package unvetting | A participant that hosts a stakeholder party unvets the rail's package, which blocks every action on the contracts that party is a stakeholder of. | Unvetting freezes contracts rather than freeing them. The holder cannot move the asset either, and the locked value stays sweepable once re-vetted. If one attester unvets the package, the remaining attesters still reach the threshold. Holder-side unvetting is an inherent Canton vetting property with no protocol-level bypass. |
 
 ### 4.4 Failure Modes and Recovery
@@ -1035,8 +1086,8 @@ activation vote.
 | **Attester set and quorum shape.** The attesters carry the trust that an external-chain lock is real. Open: the set size M, the threshold N, and who admits or removes a member. Open too: whether the quorum check reads one combined attestation or M separate ones. | An N-of-M quorum signs the message, with M, N, and the admission path unset ([section 2.3](#23-decentralization-and-trust-topology)) | The quorum check, and any production attester set | **High**, the largest trust surface in the design |
 | **Shape of the allocation preapproval.** CIP-0112 makes the recipient sign an allocation for the leg it receives, and an offline recipient cannot sign it live. No upstream contract supplies that signature, because Canton Coin's transfer preapproval approves a transfer and covers Canton Coin only. Open: the preapproval's shape. It stands in for a per-payment signature, so it has to bound what it authorizes: the instrument, an amount ceiling, an expiry, and the party that may exercise it. | The recipient signs the preapproval, and the relayer exercises it through a delegated accept ([section 3.1](#31-inbound-credit)) | The whole inbound path, because no credit commits without the recipient's signature | **High**, every inbound settlement rests on it |
 | **Multisig for the wTOK admin and the Custodian.** The admin can mint supply, and the Custodian can sweep locked value. Open: whether each role uses the on-ledger approval workflow or an external party with threshold signing keys. The N, M, and confirmation threshold per role are open too. | A single key holds each role | Party onboarding for both roles | **High**, one stolen key is enough under the default |
-| **Closing the admin mint and the direct burn.** The shared registry rules template ships a mint that needs no attestation, so the wTOK registry must not expose that path, and it must expose no burn outside the redemption path either. Open: whether wTOK gets its own registry rules template, or the shared template gains an attestation gate on the mint and routes the burn. An upgrade cannot drop an action, so the answer has to land before the first deployment. | wTOK gets its own registry rules template, without the admin mint and with the burn reachable only from the redemption gateway ([section 3.2](#32-reserve-and-lock-attestation)) | The registry rules template that wTOK deploys, and with it the reserve invariant | **High**, the 1:1 backing claim rests on it |
-| **Registry key shapes and rotation.** A key cannot change after the template that carries it first deploys. Open: the exact key fields of each record, the rotation procedure that keeps one live version under each key, and whether a credited-lock registry key carries a shard discriminator. | Each key carries its maintainer and the scope of the record, and a rotation archives the version it replaces ([section 3.4](#34-registry-uniqueness-under-non-unique-keys)) | The keys themselves, because no upgrade changes them | **High**, replay protection, the identity gate, and the D1 roster all rest on them |
+| **Closing the admin mint and the direct burn.** The shared registry rules template ships a mint that needs no attestation, so the wTOK registry must not expose that path, and it must expose no burn outside the redemption path either. Open: whether wTOK gets its own registry rules template, or the shared template gains an attestation gate on the mint and routes the burn. A compatible upgrade cannot remove an action, and an older vetted implementation can remain selectable, so this control belongs in the first deployment or in a breaking migration. | wTOK gets its own registry rules template, without the admin mint and with the burn reachable only from the redemption gateway ([section 3.2](#32-reserve-and-lock-attestation)) | The registry rules template that wTOK deploys, and with it the reserve invariant | **High**, the 1:1 backing claim rests on it |
+| **Registry key shapes and rotation.** A key definition and type cannot change after the template that carries it first deploys. Open: the exact key fields of each record, the rotation procedure that keeps one live version under each key, and whether a credited-lock registry key carries a shard discriminator. | Each key carries its maintainer and the scope of the record, and a rotation archives the version it replaces ([section 3.4](#34-registry-uniqueness-under-non-unique-keys)) | The keys themselves, because no compatible upgrade adds a new scope field or changes their type | **High**, replay protection, the identity gate, and the D1 roster all rest on them |
 | **Where the D1 and D3 checks sit.** Each control must fail at the step that [section 1.1](#11-institutional-controls) states, and both a registry-side and an application-side check can meet that. Open: whether the wTOK registry carries the compliance check and the identity check, or the bridge application carries them. The answer decides which party needs the observer entries that D3 reads ([section 2.2](#22-privacy-and-visibility)). | The settle entrypoint carries D1, and the gateway transaction carries D3 ([section 3.6](#36-control-enforcement)) | The D3 observer entries, and which action carries the D1 gate | Medium |
 | **Capability revoke and rotate.** The seizure capability names one holder and cannot move to another. Open: whether revoke and rotate arrive as new actions on one capability contract, or a registry of capabilities holds them. | The admin archives a capability to revoke it, and no action rotates a holder ([section 3.6](#36-control-enforcement)) | Any deployment where a capability holder can change | Medium |
 | **Restitution after a sweep.** A sweep leaves the value in the Custodian's account, and no action returns it. Open: whether the return gets its own action, tied to the case reference and to the account the sweep emptied. Open too: whether that action needs the non-admin authority that a past-deadline sweep needs. | The Custodian moves the funds like any other holding, and nothing ties the return to the case ([section 3.6](#36-control-enforcement)) | The Custodian's runbook, and the audit trail for a returned seizure | Medium, an unbound return can land in any account and proves nothing |

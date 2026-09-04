@@ -573,24 +573,74 @@ application design.
 
 Institutional lending requires administrative power to be explicit and accountable: every privileged action traces to a named authority. There is no single admin holding every privilege. Each action sits with the role responsible for it: treasury releases with the `VAULT_ADMIN`, reachable only through the solvency-coupled vault choices; liquidity provisioning and fee withdrawal with the `TREASURY` funder; liquidation with the `LIQUIDATOR`; price publication with the oracle operators; and the emergency brake with the `PAUSER`. These privileges are granted, transferred, and revoked through `openzeppelin-access-control-v1` role administration and the `openzeppelin-ownable-v1` two-step ownership handover, so authority can move between parties without redeploying.
 
-### Implementing Smart Contract Upgrades
+### Smart Contract Upgrade Process
 
-An upgraded package version extends templates and choices by appending `Optional` fields and adding new templates, choices, and interfaces. It must not rename, remove, reorder, or retype existing fields, and must not change the signatory or key computation of existing contracts. Interface definitions are immutable and belong in a separate package from the templates that implement them, but an upgrade can add a new interface instance to the deployed `Vault`, so existing positions gain new capabilities without redeployment.
+The lending application will use Smart Contract Upgrade (SCU) for additive
+changes to its own packages. An additive version will keep the package name,
+advance the package version, and set `upgrades:` to the prior deployed DAR. It
+will keep module and template names, existing field names, types, and order,
+and whether an existing choice consumes its contract. Template, record, and
+choice-argument extensions will only append `Optional` fields; new choices and
+serializable definitions will be allowed. A signatory or key expression may
+change only if it computes the same value for every persisted contract, and a
+changed `ensure` predicate will be re-evaluated when that contract is used.
+Interfaces and exceptions will remain in stable packages separate from their
+implementations. The complete
+compatibility boundary is defined by the
+[Canton SCU guide](https://docs.canton.network/appdev/deep-dives/smart-contract-upgrade).
 
-For example, per-vault debt ceilings ([section 7](#7-open-design-questions))
-could be implemented as an appended `debtCeiling : Optional Decimal` on `VaultParams` and a
-new ceiling-enforcing borrow choice. Existing contracts read the appended
-field as `None`, while the `Vault_Borrow` and `Vault_Repay`
-signatures remain unchanged for existing clients.
+SCU preserves a representable data shape, not loan economics. Every release
+will first define the meaning of `None` on a v1 `Vault`, `VaultParams`,
+`Treasury`, and oracle record. A v1 contract can be interpreted by v2 with
+appended fields set to `None`, but a v2 record carrying `Some` may not
+downgrade into an old, exact-version workflow. The release will test both
+directions explicitly: v1 positions under the target implementation, target
+flows over v1 positions, and the intended failure of old clients that cannot
+represent newly populated data.
 
-SCU extensions are not security retrofits: adding a stricter choice does not close the looser one. If a hardened liquidation choice shipped while the original stayed live, anyone could call the weaker path directly. Hence such an upgrade must also make the superseded choice fail unconditionally and be marked as `deprecated`.
+As a worked example, take a new per-vault debt ceiling.
+
+Adding a new, hardened borrow choice is not enough: the existing `Vault_Borrow`
+stays callable, so the ceiling would be optional. The v2 release therefore
+changes the body of `Vault_Borrow` itself to enforce a ceiling stored as a new
+`debtCeiling : Optional Decimal` on `VaultParams`. Existing params read as `None` under v2 code, so the release must
+state what `None` means: an uncapped grandfathered vault, a defined
+conservative cap, or a vault that must migrate before borrowing again.
+
+The populated field is also what retires the old code path. SCU does not delete
+the v1 DAR: while it stays vetted, a caller can pin the old package id and run
+the old choice body, so a deprecation marker is not an access control. Once
+`VaultParams` is recreated with `Some ceiling`, its data no longer downgrades
+to a v1 view, so the old `Vault_Borrow` cannot execute against it. The same
+principle applies to liquidation fixes: the selected implementation of the
+existing liquidation path must carry the fix, and a fix that must bind every
+caller needs the same data-level cutoff or the breaking-change path below.
+
+Changes to interest accrual, fee allocation, collateral valuation, or the
+liquidation terms will require a separate economic decision. New vaults can
+carry an immutable model or terms revision, while existing borrowers will
+retain their agreed terms or migrate with the authority and consent the target
+design requires. A change to parties, key shape, custody, or a policy that must
+be unavailable to every eligible caller is a breaking change: the application
+will introduce a separately named target package and template, add a consuming
+migration choice to the old template, and migrate active positions during a
+maintenance window.
+
+The operational rollout will build and validate the complete DAR lineage with
+`dpm build` and `dpm upgrade-check --both`, validate the DAR against the target
+participant, vet source and target DARs wherever the transaction is visible,
+and switch services and wallets together to the announced target package
+preference. It will include LocalNet tests for borrow, repay, withdraw,
+liquidation, oracle update, and emergency recovery against live v1 positions.
 
 ### Extension Points
 
-Protocol-level extensions the architecture supports, each landing SCU-safe per the rules above:
+Protocol-level extensions the architecture supports follow the classification
+above. They use SCU only when they preserve the data and economics of live
+positions:
 
-- **Debt ceilings.** A per-vault `Optional` cap in `VaultParams` and an aggregate ceiling on the `VaultFactory`, enforced by a new borrow choice; bounds the damage of a bad price or a bad borrower ([section 7](#7-open-design-questions)).
-- **Compounding interest variant.** An `Optional` accrual mode on `VaultParams` selecting discrete compounding where required, served by a new accrual-aware choice pair; currently tracked as an open design question ([section 7](#7-open-design-questions)).
+- **Debt ceilings.** A per-vault `Optional` cap in `VaultParams` and an aggregate ceiling on the `VaultFactory`, enforced by the target implementation of `Vault_Borrow`; bounds the damage of a bad price or a bad borrower. The design states the legacy `None` policy before deployment ([section 7](#7-open-design-questions)).
+- **Compounding interest variant.** A new immutable terms revision for vaults that select discrete compounding. It does not retroactively alter the accrual terms of an existing vault; currently tracked as an open design question ([section 7](#7-open-design-questions)).
 - **Liquidity providers.** Opening the treasury to multiple independent depositors: each funds debt tokens, shares `feesAccrued` and splits the risk with the rest.
 
 ---
@@ -848,7 +898,7 @@ per-party projections provide privacy and disclosure boundaries.
 | Bad debt on a deeply under-water position | Collateral is worth less than debt, creating a shortfall. | The final liquidation pass seizes all remaining collateral, records the shortfall in the treasury's `badDebtWrittenOff`, and closes the position, so no insolvent zombie vault survives; the funder's capital absorbs the loss, compensated by the interest revenue. Whether a dedicated buffer should sit ahead of the funder's principal is an open design question ([section 7](#7-open-design-questions)). |
 | Compliance evasion, including post-open drift | A borrower bypasses KYC, or becomes non-compliant after opening. | The `KycClaim` is validated at open and fetched live by each risk-increasing vault choice (unexpired, issuer still in the `TrustedIssuerRegistry`), and, when the attestation gate is enabled, the compliance attestation is re-checked per operation, fail-closed, with no caching; a deployment with the gate disabled relies on the KYC layer alone. A revoked or expired claim blocks new borrows, top-ups, and withdrawals immediately, while repay, close, and liquidation stay open so a position is never trapped. |
 | Unauthorized admin action | An attacker with the admin key tries to drain the treasury or drain custodied collateral. | The admin party is an N-of-M quorum, so a single key exercises nothing; treasury outflows are reachable only through the solvency-coupled borrow choice and the funder-controlled defund, and even a full-quorum compromise is bounded by the pool balance; custody holdings carry the borrower's signature too, so the admin alone cannot move them outside a vault choice. |
-| Forced upgrades breaking live contracts (SCU) | A poorly executed upgrade mutates fields, rendering existing vaults, treasuries, or holdings unusable. | Programmatic adherence to the SCU rule (Optional appends and new choices only): existing choices on the `Vault` and `Treasury` stay operable across the transition. |
+| Failed SCU rollout | A poorly executed upgrade renders an active vault, treasury, holding, or a client workflow unusable. | The release preserves the SCU-compatible surface, specifies `None` semantics and economic treatment of live positions, validates the complete DAR lineage, and tests v1 positions through the selected v2 workflow. All participants informed of affected transactions vet the required source and target DARs; a breaking terms or custody change uses an explicit position migration. |
 | DAR unvetting on a stakeholder's participant node | A party (malicious or misconfigured) unvets the protocol DAR on their participant node, so transactions on contracts they are a stakeholder of can no longer be confirmed: co-signed flows they participate in stall. | Signatories and observers alike must have the same DAR version vetted for a transaction to succeed, and the freeze cuts both ways: the unvetting party cannot move the asset either, so the contract stays frozen rather than extractable, and re-vetting restores operation. Liveness-critical sets (oracle operators, liquidators) are multi-member with sub-unanimous quorums precisely so one unvetted participant cannot stall the protocol. A borrower who unvets freezes their own custody account: every withdrawal is blocked, and the debt keeps accruing until they re-vet. |
 
 ### 5.3 Failure Modes and Recovery

@@ -654,29 +654,69 @@ Deployment order:
 5. A keyed **pool directory** contract listing live pools per pair: without
    global state, traders cannot otherwise discover that a pool exists.
 
-### Implementing Smart Contract Upgrades
+### Smart Contract Upgrade Process
 
-For a smart contract upgrade, an existing choice's arguments must never be
-mutated to require a new field. Extensions are managed via appended `Optional`
-fields, new serializable types, and **new choices**.
+The venue will use Smart Contract Upgrade (SCU) for additive changes to
+DEX-owned packages. It will not upgrade a pinned Token Standard, settlement, or
+library DAR: the package owner of that dependency will govern its upgrade
+lineage, and the venue's listing policy will record the version it accepts.
 
-Consider `Pool_Swap`. Identity gating is handled by inclusion in the
-`TrustedIssuerRegistry`. Granular jurisdictional compliance (e.g. US users may
-not trade a given security token) uses a separate `Pool_SwapWithJurisdiction`
-choice and an appended `Optional JurisdictionalComplianceHook` field on the
-`Pool`, while the existing `Pool_Swap` signature stays stable.
+An additive DEX release will keep its package name, increment its package
+version, and set `upgrades:` to the prior deployed DAR. It will keep module and
+template names, existing field names, types, and ordering, and the consuming
+status of each existing choice. Template, record, and choice-argument additions
+will only append `Optional` fields. New choices and serializable definitions will be
+allowed. The signatory and key expressions may evolve only when they compute the
+same values for every live contract; a changed `ensure` predicate will be
+re-evaluated when a contract is used. Interfaces and exceptions will remain in
+stable packages separate from their template implementations. These are
+compatibility rules, not a promise that a change will preserve trading economics
+or security policy. See the
+[Canton SCU guide](https://docs.canton.network/appdev/deep-dives/smart-contract-upgrade).
 
-SCU extensions are not security retrofits: adding a stricter choice does
-not close the looser one. If `Pool_Swap` were simply left live and the
-frontend routed around it, anyone could bypass the frontend and call the weaker
-path directly, making the jurisdiction check optional in practice. A compatible
-upgrade must therefore make the superseded `Pool_Swap` choice fail
-unconditionally and mark it as `deprecated`.
+Every upgrade will first define what each new `Optional` field will mean for a
+v1 pool. V1 pools will appear to v2 code with the field set to `None`, but a v2
+pool carrying `Some` may not be usable by an old, exact-version workflow. The
+release will test both directions explicitly: v1 pools and pending allocations
+under the v2 implementation, v2 flows over v1 pool state, and the expected
+rejection of a v1 workflow that cannot represent new v2 data.
+
+As a worked example, take a new rule requiring jurisdictional approval on
+every swap.
+
+Adding a new `Pool_SwapWithJurisdiction` choice is not enough: the old
+`Pool_Swap` stays callable, so the control would be optional. The v2 release
+therefore changes the body of `Pool_Swap` itself to require a jurisdictional
+hook, stored as a new `Optional` field on the `Pool`. Existing pools read as `None` under v2 code, so the release
+must define what `None` means: here, "swaps disabled until configured",
+never "skip the check".
+
+The same field is what retires the old code path. SCU does not delete the v1
+DAR: while it stays vetted, a caller can pin the old package id and run the
+old choice body, so a deprecation marker is not an access control. But once
+a pool is recreated with `Some hook` (a consuming configuration choice,
+under the pool signatories' authority), its data no longer downgrades to a
+v1 view, so the old `Pool_Swap` cannot execute against it. The rollout is
+therefore: vet the v2 DAR on every affected participant, pause swaps, drain
+pending allocations (settle the ready ones, cancel or deadline-lapse the
+rest), recreate each pool with its hook, switch wallets and services to
+by-package-name identifiers with the v2 package preference, and resume.
+
+This path covers compatible changes only. If the curve, parties, key, or
+pool accounting changes incompatibly, the venue instead deploys a separately
+named package and template, adds a consuming migration choice to the old
+template, and migrates pools in a maintenance window, one or more
+transactions per active pool.
+
+Before release, the venue will run `dpm build` with the `upgrades:` lineage and
+`dpm upgrade-check --both`, validate the DAR against the target participant, and
+exercise the workflow on LocalNet with the actual stakeholder vetting topology.
 
 ### Extension Points
 
-Each extension lands SCU-compatibly (new templates, new choices, `Optional`
-appends):
+Each extension is classified by the process above. It uses a compatible SCU
+release only when it preserves existing data and policy; otherwise it uses a new
+template and an explicit migration:
 
 - **Alternative curves.** A stable-swap or concentrated-liquidity pool is a new
   template over the same allocation lifecycle and settlement spine; only the
@@ -891,7 +931,7 @@ or formal analysis when supported by the implementation toolchain.
 | Malicious venue operator state manipulation | Venue operator submits a settlement batch favoring their own holdings, bypassing the price curve or extracting excessive slippage. | `Pool_Swap` enforces the curve on-ledger: it re-derives the output, asserts the `x·y=k` invariant, and binds the settled legs to the amounts the trader signed. A batch that favors the operator or departs from the curve fails these checks, so the operator cannot manipulate reserves even though it drives the swap. |
 | Compliance evasion (D1) | A sanctioned party tries to settle without a valid attestation, or with a stale, forged, or untrusted one. | A registry with `requiredAttesterRegistryCid` set forces settlement through `SettlementFactory_SettleBatch`, which verifies and consumes a `ComplianceAttestation` signed by a party in the factory admin's `TrustedAttesterRegistry`, bound to this settlement and within its validity window. No valid attestation, no settlement. |
 | Rogue seizure / asset burning (D2) | A compromised instrument registrar key attempts to maliciously burn user assets or return seized funds to unverified actors. | [`TokenAllocation_SweepD2Seizure`](https://github.com/OpenZeppelin/canton-contracts/blob/7696749737885e25cd88422847105f890f03b00d/experiments/token/tokenCIP112-v1/daml/OpenZeppelin/TokenCIP112V1/Allocation.daml#L207) hardcodes the destination to the preset `custodianDestination`; arbitrary burn is forbidden. A compromised instrument registrar can only sweep to the pre-approved, monitored custodian. |
-| Forced upgrades breaking in-flight allocations (SCU) | A poorly executed upgrade mutates fields, rendering existing `TokenAllocation` contracts un-settleable. | Programmatic adherence to the SCU rule (Optional appends + new choices only). The `Pool` template's existing choices stay operable; in-flight transactions conclude before users transition. |
+| Failed SCU rollout | A poorly executed upgrade makes a live `Pool` or pending allocation unusable, or a client selects an unintended package version. | The release preserves the SCU-compatible surface, specifies `None` semantics, validates the complete DAR lineage, and tests v1 state and pending allocations through the selected v2 workflow. Every informed participant vets the required source and target DARs, and wallets and services switch under one announced package preference. A breaking pool change uses an explicit migration rather than claiming that active contracts upgrade automatically. |
 | Venue Operator swap re-ordering / private MEV | The venue operator sees traders' allocations before batching and can order or delay batch-settlement submissions to its own benefit (e.g. sandwiching a large swap). MEV does **not** disappear on Canton - it moves from a public mempool into the venue operator's private view. | The on-ledger invariant blocks *off-curve* execution, but **not** ordering. Candidate mitigations are commit-reveal or fair-ordering for allocation intake, per-swap slippage bounds carried on the trader's signed request ([section 3](#3-target-design)), and batching rules that minimize venue-operator discretion. See [section 5.5](#55-throughput-and-contention). |
 | Malicious or buggy token registry | Settlement executes registry-implemented code for both legs. A hostile registry can fail legs selectively (griefing one side of a pair), inflate supply and drain the pool through the curve, freeze the pool account's holdings via its own D2 capability, or break settlement with a bad upgrade. | Listing is a trust decision, gated by an **instrument listing policy**: audited TSv2 registry code, bounded admin powers, disclosed D2/freeze capabilities, and SCU-conformant upgrade governance. The curve cannot defend against supply inflation of a listed asset; the policy is the only mitigation. |
 | Infrastructure censorship or delay | A sequencer or the venue's validator delays submissions until `settlementDeadline` lapses, stalling the venue and handing traders a free withdraw option (exit if the price moved against them). | Multi-hosted parties ([section 2](#decentralization-and-trust-topology)), deadline monitoring with re-quote on lapse, and deadlines long enough to absorb transient delay. Residual risk is accepted as part of the infrastructure trust assumptions. |
@@ -1099,11 +1139,11 @@ The following application decisions remain open before implementation.
   pair) and venue operator-side swap batching (one settlement batch applying a net reserve
   delta) are the candidate mitigations; both need fairness modeling before
   adoption.
-- **LP token force-upgrade semantics.** Active holdings upgrade-on-use during
-  factory routing, but passive LP tokens held idly do not trigger an upgrade
-  cycle. The threshold criteria and off-ledger events for an issuer to invoke a
-  force-upgrade on passive assets remain an operational policy decision for the
-  `LP_TOKEN_ISSUER`.
+- **LP token migration semantics.** Active holdings encounter the selected
+  implementation during factory routing, but passive LP tokens held idly do not
+  re-create themselves. The threshold criteria and off-ledger events for an
+  issuer to begin an application-level migration of passive assets remain an
+  operational policy decision for the `LP_TOKEN_ISSUER`.
 - **Composability with the other reference architectures**: DEX pools can be
   seeded with base/quote liquidity from **cross-chain stablecoin inflows** settled via the
   cross-chain stablecoin design ([cross-chain stablecoin](./cross-chain-stablecoin.md)), and the DEX is the

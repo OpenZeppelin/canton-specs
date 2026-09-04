@@ -837,6 +837,71 @@ and wallet derive the required account parties and disclosures from the selected
 registries' documented rules, then verify them before each preparation
 transaction is submitted.
 
+### 6.3 Smart Contract Upgrade Process
+
+The auction application will use Smart Contract Upgrade (SCU) to evolve its
+surface, but an upgrade will never change the published terms of an active
+round. A round's final opening records the clearing-rule revision and the
+approved application package identity in its audit evidence. A v2
+implementation that handles a v1 round will therefore continue to apply the v1
+rule; it will never silently reinterpret accepted bids, rounding, eligibility,
+ordering, visibility, or recovery rights under a later rule.
+
+An additive release will keep the package name, advance the package version,
+and set `upgrades:` to the prior deployed DAR. It will keep module and template
+names, existing field names, types, and ordering, and whether existing choices
+consume their contracts. New fields on templates, records, and existing choice
+arguments will only be appended `Optional`; new choices and serializable
+definitions will be allowed. Key and signatory expressions may change only when
+they compute the same values for every live contract. Interfaces and exceptions
+will remain in stable packages separate from their template implementations. The
+[Canton SCU guide](https://docs.canton.network/appdev/deep-dives/smart-contract-upgrade)
+defines the full compatibility boundary.
+
+Every release will first define what `None` means on each v1 `RoundProposal`,
+`Round`, prepared bid, accepted bid, issuer sale authority, and result. It will
+test both directions explicitly: v1 round state and allocations under the v2
+implementation, v2 flows over v1 records, and the expected rejection of an old
+exact-version workflow that cannot represent populated v2 data.
+
+As a worked example, take a new rule requiring a sanctions screen on every
+accepted bid.
+
+Adding a new, hardened acceptance choice is not enough: the existing one stays
+callable, so the screen would be optional. The v2 release therefore changes the
+body of the existing acceptance choice to enforce a screening policy, stored as
+a new `Optional` field on the `Round` (the only kind of field SCU may add).
+The enforcement point is round opening: the v2 opening choice refuses to open
+a round without `Some policy`, so every new round carries the screen. An
+active v1 round reads as `None`, and here `None` means "a round opened before
+the rule": it completes under the rule its final opening published, per the
+published-terms rule above, and is never reinterpreted retroactively.
+
+The populated field is also what retires the old code path. SCU does not
+delete the v1 DAR: while it stays vetted, a caller can pin the old package id
+and run the old choice body, so a deprecation marker is not an access control.
+But a round carrying `Some policy` no longer downgrades to a v1 view, so the
+old acceptance choice cannot execute against it. Unlike the DEX, no live state
+is migrated: v1 rounds drain naturally by completing, expiring, or being
+cancelled. The rollout is therefore: vet the v2 DAR at every participant
+informed of affected transactions, then switch wallets, issuer services,
+auctioneer services, and auditors to the announced package preference
+together.
+
+This path covers compatible changes only. Changes to the clearing formula, bid
+ordering, economic terms, party or observer topology, or asset authorization
+are breaking changes even if a choice body can technically be replaced. They
+will use a separately named target package and template and a maintenance
+window. The deployment will open new rounds only under the new design; it will
+complete, cancel, or expire every active old round and recover its allocations
+under the terms it published. An unopened proposal may be recreated under the
+new design only with the authorities that approved it. This keeps an upgrade
+authority from becoming authority to alter a bidder's accepted terms.
+
+Before release, `dpm build` with the `upgrades:` lineage,
+`dpm upgrade-check --both`, a participant-side DAR validation, and a LocalNet
+workflow test will provide the minimum release evidence.
+
 ## 7. Production Decisions
 
 We make these decisions before round preparation begins:
