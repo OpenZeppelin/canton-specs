@@ -860,7 +860,7 @@ mint, or a redemption.
 
 A template key cannot be added, removed, or retyped, so a scope field required
 for registry uniqueness must exist from first deployment: a credited-lock
-shard discriminator cannot be added later.
+registry shard discriminator cannot be added later ([section 4.5](#45-throughput-and-contention)).
 
 Each release will first define what each new `Optional` field means for a v1
 gateway, registry, or attestation record, and will test v1 state under the v2
