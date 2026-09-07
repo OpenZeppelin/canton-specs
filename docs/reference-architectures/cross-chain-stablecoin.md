@@ -669,8 +669,9 @@ supply, so the wTOK admin maintains it.
 | Trusted-issuer list | The maintainer, and the instrument | Trusted-issuer list admin |
 | Pause state | The maintainer, and the instrument | Pause authority |
 
-An upgrade can neither add nor remove a key field, so each key carries every
-scope field the rail can ever need ([section 3.7](#37-upgrade-path)).
+An upgrade can neither add nor remove a key definition or change its type, so
+each key carries every scope field the rail can ever need
+([section 3.7](#37-smart-contract-upgrade-process)).
 
 **Visibility.** A fetch needs a party in the enclosing choice's authorizing set
 to be a stakeholder of the fetched contract
@@ -840,15 +841,43 @@ the trusted-issuer list with its own admin. A permission whose holder never
 changes sits on the contract itself. A permission that must move or be revoked
 sits on a separate role grant, so a change of holder recreates no contract.
 
-### 3.7 Upgrade Path
+### 3.7 Smart Contract Upgrade Process
 
-The design extends through additive Smart Contract Upgrade: an existing choice
-keeps its fields and its meaning, and a new capability arrives as a new choice
-or as an appended optional argument. The keyed registries of [section
-3.4](#34-registry-uniqueness-under-non-unique-keys) cannot take that path at
-all, because an upgrade can neither add nor remove a key definition, so every
-one of them must carry its final key definition in the package that first
-deploys it.
+The rail will use Smart Contract Upgrade (SCU) for additive changes to its own
+gateway and registry packages. An additive release will keep the package name,
+raise the version, set `upgrades:` to the prior deployed DAR, and only append
+`Optional` fields to existing templates, records, and action arguments; the
+[Canton SCU guide](https://docs.canton.network/appdev/deep-dives/smart-contract-upgrade)
+defines the remaining compatibility rules. A choice body may change, so
+compatibility does not by itself preserve the meaning of an attestation, a
+mint, or a redemption.
+
+A template key cannot be added, removed, or retyped, so a scope field required
+for registry uniqueness must exist from first deployment: a credited-lock
+registry shard discriminator cannot be added later ([section 4.5](#45-throughput-and-contention)).
+
+Each release will first define what each new `Optional` field means for a v1
+gateway, registry, or attestation record, and will test v1 state under the v2
+implementation, including the expected rejection of an old workflow facing v2
+data. The gateways will also keep a protocol-level message revision: unsettled
+v1 messages and nonces stay valid and reconcile with v2, and a package rollout
+alone does not drain an external-chain lock or void a signed attestation.
+
+As a worked example, take a new compliance requirement on every mint: the v2
+release changes the existing mint action to require a hook, stored as a new
+`Optional` field on the inbound gateway, with `None` meaning "minting disabled
+until configured". A vetted v1 DAR stays callable, so deprecation is not an
+access control; the cutoff is recreating the gateway with `Some hook`, whose
+data no longer downgrades to a v1 view, so the old mint action cannot execute
+against it.
+
+Before release, the operators will run `dpm build` with the `upgrades:`
+lineage and `dpm upgrade-check --both`, vet the DARs at every affected
+participant, and switch wallets, relayers, attesters, and gateways together to
+the target package preference. If a mint/burn authority, key shape, party set,
+reserve invariant, or message interpretation must cease to be usable, the rail
+will deploy a separately named package and template and migrate or drain
+affected state during a maintenance window.
 
 ### 3.8 Extension Points
 
@@ -904,9 +933,9 @@ This section separates what the ledger enforces from what stays trusted.
 | Toxic or spam inflow | A sender forces a settlement onto an unwilling recipient. | No allocation commits without the recipient's approval ([section 4.1](#41-ledger-enforced-properties)), and an unsettled allocation expires and returns to sender. An offline recipient gives that approval in advance, so the bound is the preapproval's own: its instrument, its ceiling, its expiry, and the party it names. The recipient signs the preapproval, so it can archive it at any time ([section 6](#6-open-design-questions)). |
 | Unattributable inbound origin | A deposit arrives over a privacy pool or a shielded-provenance path, so no sender can be attributed to it. | Nothing mints without an attestation, so an unresolved origin means the attesters withhold the signature, the deposit stays locked on the external chain, and a refund is the escrow's own path ([section 4.4](#44-failure-modes-and-recovery)). The origin resolution is a precondition on issuing one attestation, and not a stored flag, a score, or a threshold ([section 1.2](#12-scope)). |
 | Compromised admin key | A compromised wTOK admin or Custodian key attempts arbitrary expropriation. | A sweep reaches only the holdings an allocation locks, so a credited holding stays beyond both keys ([section 3.6](#36-control-enforcement)). A sweep is hardcoded to the preset custodian destination, and a sweep past the settlement deadline needs an order the admin cannot sign. An in-flight seizure inside the deadline needs no such order, so that window is the residual exposure. Supply-changing authority is mitigated by N-of-M multisig. |
-| D1 deployed unset | The wTOK registry is created with no trusted attester registry admin, so every settlement passes with no attestation. | The settlement package cannot catch this, because an unset party is a silent no-op. The wTOK deployment has to set that party and assert it before the rail accepts a settlement. |
-| Upgrade breaks in-flight allocations | An upgrade of a deployed rail changes how its active contracts are interpreted, so an allocation created under the previous version can no longer settle. | Programmatic adherence to the upgrade rule: optional appends and new choices only. Each deployed choice stays operable, and a pending settlement concludes before its parties move to the new version. |
-| Package unvetting | A participant that hosts a stakeholder party unvets the rail's package, which blocks every choice on the contracts that party is a stakeholder of. | Unvetting freezes contracts rather than freeing them. The holder cannot move the asset either, and the locked value stays sweepable once re-vetted. If one attester unvets the package, the remaining attesters still reach the threshold. Holder-side unvetting is an inherent Canton vetting property with no protocol-level bypass. |
+| D1 deployed unset | The wTOK registry is created with no trusted roster admin, so every settle passes with no attestation. | The settlement package cannot catch this, because an unset party is a silent no-op. The wTOK deployment has to set that party and assert it before the rail accepts a settle. |
+| Failed SCU rollout | An upgrade changes how live gateway, registry, or allocation state is interpreted, leaving a pending settlement or bridge message stranded. | The release preserves the SCU-compatible surface, specifies `None` and message-revision semantics, validates the full DAR lineage, and tests v1 pending allocations and redemption requests through the selected v2 workflow. Source and target DARs are vetted wherever affected transactions are visible; breaking authority, key, reserve, or message changes use an explicit migration or drain plan. |
+| Package unvetting | A participant that hosts a stakeholder party unvets the rail's package, which blocks every action on the contracts that party is a stakeholder of. | Unvetting freezes contracts rather than freeing them. The holder cannot move the asset either, and the locked value stays sweepable once re-vetted. If one attester unvets the package, the remaining attesters still reach the threshold. Holder-side unvetting is an inherent Canton vetting property with no protocol-level bypass. |
 
 ### 4.4 Failure Modes and Recovery
 

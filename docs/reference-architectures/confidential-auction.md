@@ -837,6 +837,47 @@ and wallet derive the required account parties and disclosures from the selected
 registries' documented rules, then verify them before each preparation
 transaction is submitted.
 
+### 6.3 Smart Contract Upgrade Process
+
+The auction application will use Smart Contract Upgrade (SCU) for additive
+changes to its packages, but an upgrade will never change the published terms
+of an active round: the final opening records the clearing-rule revision and
+the approved package identity, and a v2 implementation handling a v1 round
+keeps applying the v1 rule.
+
+An additive release will keep the package name, raise the version, set
+`upgrades:` to the prior deployed DAR, and only append `Optional` fields to
+existing templates, records, and choice arguments; the
+[Canton SCU guide](https://docs.canton.network/appdev/deep-dives/smart-contract-upgrade)
+defines the remaining compatibility rules. Every release will first define
+what `None` means on each v1 record and test v1 round state under the v2
+implementation, including the expected rejection of an old workflow facing
+populated v2 data.
+
+As a worked example, take a sanctions screen on every accepted bid: the v2
+acceptance choice enforces a screening policy stored as a new `Optional` field on the
+`Round`, and the v2 opening choice refuses to open a round without
+`Some policy`. An active v1 round reads as `None` and completes under the rule
+its final opening published. A vetted v1 DAR stays callable, so deprecation is
+not an access control; the cutoff is the populated field, which no longer
+downgrades to a v1 view. No live state is migrated: v1 rounds
+drain by completing, expiring, or being cancelled, and the rollout is vetting
+the v2 DAR at every affected participant and switching wallets and services
+together to the announced package preference.
+
+This path covers compatible changes only. Changes to the clearing formula, bid
+ordering, economic terms, topology, or asset authorization are breaking: a
+separately named package and template, new rounds opened only under the new
+design, and every active old round drained under the terms it published. An
+unopened proposal may be recreated only with the authorities that approved it,
+so an upgrade authority never becomes authority to alter a bidder's accepted
+terms.
+
+Before release, the operators will run `dpm build` with the `upgrades:`
+lineage and `dpm upgrade-check --both`, validate the DAR against the target
+participant, and exercise the round workflow on LocalNet as the minimum
+release evidence.
+
 ## 7. Production Decisions
 
 We make these decisions before round preparation begins:
