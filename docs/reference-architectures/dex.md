@@ -244,7 +244,7 @@ governed by super-validator vote. The residual assumptions per component:
 
 ### The AMM Math
 
-A pool's reserve ratio (`quoteReserves / baseReserves`) denotes the **marginal spot price** - the
+A pool's reserve ratio (`quoteState.reserves / baseState.reserves`) denotes the **marginal spot price** - the
 limiting price of an infinitesimally small trade. A concrete trade's effective
 price depends on its `Δin` (or target `Δout`) through the swap arithmetic and is
 always worse than the reserve ratio - the
@@ -254,7 +254,7 @@ the venue operator backend, which reads the current `Pool` and evaluates the
 curve.
 
 **How traders view the current price.** The price is derived from the **`Pool` reserves**
-(`quoteReserves`, `baseReserves`, adjusted for `feeBps`), quoted by the
+(`quoteState.reserves`, `baseState.reserves`, adjusted for `feeBps`), quoted by the
 operator's API rather than read on-ledger
 ([privacy model](#privacy-and-visibility-model)).
 
@@ -532,7 +532,7 @@ lifecycle, with the LP-token mint as a sibling consequence of the settlement:
    also credits the holding to its account. The
    share amount is computed inside the choice from the deposit just settled
    (`sqrt(Δbase · Δquote)` on the first provision, less a `MINIMUM_LIQUIDITY`
-   tranche; `min(Δbase / baseReserves, Δquote / quoteReserves) · totalSupply`
+   tranche; `min(Δbase / baseState.reserves, Δquote / quoteState.reserves) · totalSupply`
    thereafter), and the new `Pool` records the increased reserves and supply.
 
 Removal is the inverse. The LP presents its LP-token
@@ -565,19 +565,20 @@ pause blocks new swaps and in-flight settlements alike - and inherit the same
 D1 compliance check per settlement leg.
 
 **Reserves vs. actual holdings - where the pool's value physically lives.** The
-`Pool`'s `baseReserves` / `quoteReserves` are `Decimal` *accounting* figures;
+`Pool`'s `baseState.reserves` / `quoteState.reserves` are `Decimal` *accounting* figures;
 they are **not** the assets themselves. The real value lives in TSv2 holdings
-owned by a dedicated **pool account** (an `Account` whose parties are the pool's
-signatories), and every flow above moves holdings into or out of that account, in the same transaction that updates the reserve numbers:
+owned by dedicated **pool accounts** (an `Account` per asset, since accounts are
+registry-specific and the two assets live in different registries), and every flow above moves holdings into or
+out of those accounts, in the same transaction that updates the reserve numbers:
 
 - **On provision**, the LP's two committed `TokenAllocation`s settle *into* the pool
-  account (new holdings owned by the pool), and `baseReserves`/`quoteReserves`
+  accounts (new holdings owned by the pool), and both `reserves` figures
   are incremented to match.
-- **On removal**, the withdrawal legs are funded *from* the pool account's own
-  holdings (the pool account is the sender), and reserves are decremented to match.
+- **On removal**, the withdrawal legs are funded *from* the pool accounts' own
+  holdings (each pool account is the sender of its asset), and reserves are decremented to match.
 - **The invariant** that must hold is **`reserves == Σ(pool-account holdings)` per instrument**. Because reserve updates and holding movements commit co-atomically, the two cannot drift within a
 transaction; the caveat is *fragmentation* - many small holdings accumulating in
-the pool account over time. A periodic **consolidation** step (the pool merges
+the pool accounts over time. A periodic **consolidation** step (the pool merges
 its holdings for an instrument into one, leaving reserves unchanged) keeps settlement cheap.
 
 ### Privacy and Visibility Model
@@ -730,11 +731,15 @@ These snippets are illustrative rather than production code: they exemplify the 
 
 ### 4.1 Component: Pool State and Configuration
 
-The `Pool` holds the constant-product AMM state. The reserve-update logic lives
+The `Pool` holds the constant-product AMM state. The per-asset state
+(instrument, account, reserves) is factored into a shared `PoolAssetState`: the
+two assets live in different registries, so each side carries its own
+registry-specific account and settles through its own registry's settlement
+factory. The reserve-update logic lives
 **here**, as a *consuming* choice (`Pool_Swap`) controlled by `venueOperator`,
 which archives this `Pool` and recreates the successor with updated reserves.
-The `Pool` carries a contract key `(venueOperator, baseInstrumentId,
-quoteInstrumentId)`, so consumers reference it by pair rather than by a cid that
+The `Pool` carries a contract key `(venueOperator, baseState.instrumentId,
+quoteState.instrumentId)`, so consumers reference it by pair rather than by a cid that
 changes every swap. `Pool_Swap` is the venue's **single swap entry point** and is
 **pause-gated**: it looks up that pool's `PauseState` (keyed by the same tuple) and fails while paused.
 
@@ -746,80 +751,105 @@ import Splice.Api.Token.HoldingV2 (InstrumentId)
 import Splice.Api.Token.AllocationV2 (SettlementInfo, TransferLeg)
 import OpenZeppelin.PausableV1 (PauseState, whenNotPaused)
 
--- | Constant-product AMM state. Reserves are `Decimal` accounting figures; the
--- assets themselves live in `poolAccount`.
+-- | Per-asset pool state, shared by the base and quote sides.
+-- |`reserves` is a `Decimal` accounting figure; the asset itself
+-- lives in `account`.
+data PoolAssetState = PoolAssetState with
+    instrumentId : InstrumentId
+    account : Account          -- registry-specific; one per asset
+    reserves : Decimal
+  deriving (Eq, Show)
+
+-- | Constant-product AMM state.
 template Pool
   with
     venueOperator : Party
     lpTokenIssuer : Party
-    baseInstrumentId : InstrumentId
-    quoteInstrumentId : InstrumentId
-    poolAccount : Account
-    baseReserves : Decimal
-    quoteReserves : Decimal
+    baseState : PoolAssetState
+    quoteState : PoolAssetState
     feeBps : Decimal
   where
     signatory venueOperator, lpTokenIssuer
-    key (venueOperator, baseInstrumentId, quoteInstrumentId) : (Party, InstrumentId, InstrumentId)
+    key (venueOperator, baseState.instrumentId, quoteState.instrumentId) : (Party, InstrumentId, InstrumentId)
     maintainer key._1
 
     -- Consuming: archives this Pool and recreates it with updated reserves.
     -- Controlled by venueOperator; correctness is enforced in the body.
-    choice Pool_Swap : (ContractId TokenEventLog, ContractId Pool)
+    choice Pool_Swap : ([ContractId TokenEventLog], ContractId Pool)
       with
         traderAllocationId : ContractId Allocation   -- trader's committed input
         poolAllocationId : ContractId Allocation      -- pool's own output leg
         baseToQuote : Bool
         amountIn : Decimal
-        settlementFactoryId : ContractId SettlementFactory
+        baseSettlementFactoryCid : ContractId SettlementFactory
+        quoteSettlementFactoryCid : ContractId SettlementFactory
         settlement : SettlementInfo
         transferLegs : [TransferLeg]
-        attestationCid : ContractId ComplianceAttestation
+        -- Attestations are single-use and bound to a batch's exact leg set
+        -- (section 4.2), so each factory's batch carries its own.
+        baseAttestationCid : ContractId ComplianceAttestation
+        quoteAttestationCid : ContractId ComplianceAttestation
       controller venueOperator
       do
         -- Pause is resolved by key, per pool (same key tuple as the Pool).
-        (_, pause) <- fetchByKey @PauseState (venueOperator, baseInstrumentId, quoteInstrumentId)
+        (_, pause) <- fetchByKey @PauseState (venueOperator, baseState.instrumentId, quoteState.instrumentId)
         whenNotPaused pause
-        let (reserveIn, reserveOut, inInstrument, outInstrument) =
-              if baseToQuote then (baseReserves, quoteReserves, baseInstrumentId, quoteInstrumentId)
-                             else (quoteReserves, baseReserves, quoteInstrumentId, baseInstrumentId)
+        let (inState, outState) =
+              if baseToQuote then (baseState, quoteState) else (quoteState, baseState)
             amountInWithFee = amountIn * (10000.0 - feeBps) / 10000.0
-            dOut = (reserveOut * amountInWithFee) / (reserveIn + amountInWithFee)
+            dOut = (outState.reserves * amountInWithFee) / (inState.reserves + amountInWithFee)
         assertMsg "constant-product invariant violated"
-          ((reserveIn + amountInWithFee) * (reserveOut - dOut) >= reserveIn * reserveOut)
+          ((inState.reserves + amountInWithFee) * (outState.reserves - dOut)
+            >= inState.reserves * outState.reserves)
 
         -- KEY: bind the curve to what the trader signed, so the reserve math
         -- cannot run off amounts that never settle. Require the trader's signed
-        -- input side == (amountIn, input, poolAccount), output side == (dOut,
-        -- output, poolAccount), and `transferLegs` to be exactly those two legs.
+        -- input side == (amountIn, input instrument, its pool account), output
+        -- side == (dOut, output instrument, its pool account), and
+        -- `transferLegs` to be exactly those two legs.
         traderAlloc <- fetch traderAllocationId
         let sides = traderAlloc.allocation.transferLegSides
         inSide  <- case filter (\s -> s.side == SenderSide)   sides of [s] -> pure s; _ -> abort "one input side"
         outSide <- case filter (\s -> s.side == ReceiverSide) sides of [s] -> pure s; _ -> abort "one output side"
         assertMsg "input side mismatch"
-          (inSide.amount == amountIn && inSide.instrumentId == inInstrument.id && inSide.otherside == poolAccount)
+          (inSide.amount == amountIn && inSide.instrumentId == inState.instrumentId.id && inSide.otherside == inState.account)
         assertMsg "output side mismatch"
-          (outSide.amount == dOut && outSide.instrumentId == outInstrument.id && outSide.otherside == poolAccount)
+          (outSide.amount == dOut && outSide.instrumentId == outState.instrumentId.id && outSide.otherside == outState.account)
 
-        -- Atomic DvP: settle the trader's input and the pool's output in one
-        -- batch. The attestation rides the choice context - `SettleBatch` is a
-        -- fixed Token Standard interface choice - and the factory verifies it
-        -- against its own attester registry, resolved by key, so no
-        -- caller-supplied registry is trusted.
-        receipts <- exercise settlementFactoryId SettlementFactory_SettleBatch with
-          settlement; transferLegs
-          allocationCids = [traderAllocationId, poolAllocationId]
+        -- Atomic DvP across two registries: split the legs by registry admin
+        -- and settle each asset through its own registry's factory. Both
+        -- `SettleBatch` exercises sit in this one choice body, hence in one
+        -- Daml transaction, so the swap stays all-or-nothing; one transaction
+        -- spanning two registries is exactly the execution authority both
+        -- registries already delegate to the venue operator as settlement
+        -- executor. The attestation rides the choice context - `SettleBatch`
+        -- is a fixed Token Standard interface choice - and each factory
+        -- verifies it against its own attester registry, resolved by key, so
+        -- no caller-supplied registry is trusted.
+        let mkExtraArgs attCid = ExtraArgs with
+              context = ChoiceContext with
+                values = TextMap.fromList
+                  [(d1AttestationContextKey, AV_ContractId (toAnyContractId attCid))]
+              meta = emptyMetadata
+            legsOf st = filter (\l -> l.instrumentId.admin == st.instrumentId.admin) transferLegs
+        baseReceipts <- exercise baseSettlementFactoryCid SettlementFactory_SettleBatch with
+          settlement
+          transferLegs = legsOf baseState
+          allocationCids = [if baseToQuote then traderAllocationId else poolAllocationId]
           actors = [venueOperator]
-          extraArgs = ExtraArgs with
-            context = ChoiceContext with
-              values = TextMap.fromList
-                [(d1AttestationContextKey, AV_ContractId (toAnyContractId attestationCid))]
-            meta = emptyMetadata
-        let (newBase, newQuote) =
-              if baseToQuote then (baseReserves + amountIn, quoteReserves - dOut)
-                             else (baseReserves - dOut, quoteReserves + amountIn)
-        newPool <- create this with baseReserves = newBase; quoteReserves = newQuote
-        pure (head receipts, newPool)
+          extraArgs = mkExtraArgs baseAttestationCid
+        quoteReceipts <- exercise quoteSettlementFactoryCid SettlementFactory_SettleBatch with
+          settlement
+          transferLegs = legsOf quoteState
+          allocationCids = [if baseToQuote then poolAllocationId else traderAllocationId]
+          actors = [venueOperator]
+          extraArgs = mkExtraArgs quoteAttestationCid
+        let inState'  = inState  with reserves = inState.reserves + amountIn
+            outState' = outState with reserves = outState.reserves - dOut
+        newPool <- create this with
+          baseState  = if baseToQuote then inState'  else outState'
+          quoteState = if baseToQuote then outState' else inState'
+        pure (baseReceipts <> quoteReceipts, newPool)
 ```
 
 ### 4.2 Component: D1 Party Attestation
@@ -891,8 +921,8 @@ containment boundaries.
   - The settlement deadline blocks the trader from withdrawing an allocation before `settlementDeadline`.
   - The venue operator can only drive a settlement over those exact committed allocations. The venue operator cannot deviate from the authorized leg or fabricate a transfer the trader did not commit to. 
 - **AMM Conservation (`x · y = k`)**:
-  - After a swap (minus applied fees), the product of base and quote reserves must be `>=` the product before the swap: `(baseReserves + Δin · (10000 − feeBps)/10000) · (quoteReserves − Δout) ≥
-  baseReserves · quoteReserves`.
+  - After a swap (minus applied fees), the product of base and quote reserves must be `>=` the product before the swap: `(baseState.reserves + Δin · (10000 − feeBps)/10000) · (quoteState.reserves − Δout) ≥
+  baseState.reserves · quoteState.reserves`.
   - The settlement of the swap legs and the update of the pool reserves must happen atomically. 
 - **First-deposit inflation resistance**:
   - Constant-product pool are exposed to the [*first-depositor / share-inflation* attack](https://www.openzeppelin.com/news/a-novel-defense-against-erc4626-inflation-attacks): the
@@ -904,7 +934,7 @@ containment boundaries.
   trusted first provision** so the share price cannot be cheaply manipulated. This is a standard liquidity-pool hazard the reference implementation must address.
 - **Funding Conservation**:
   - On every settle path the engine enforces that an authorizer's archived locked inputs cover its SenderSide obligations per instrument.
-  - Per instrument, the reserves accounted for in the pool state should equal the holdings in the pool account.
+  - Per instrument, the reserves accounted for in the pool state should equal the holdings in that asset's pool account.
 - **Privacy**:
   - Any trader participating in the liquidity pool should have visibility only over their holdings, as well as the transfer legs they are a sender and receiver in.
 
