@@ -94,10 +94,12 @@ platform accepts two contracts sharing one - so uniqueness stays an application
 obligation: the design must guarantee one `Pool` and one `PauseState` per
 instrument pair.
 
-Keys are the design target, not what runs today. The experiment code sits on the
-workspace's pinned SDK baseline and is keyless, so each choice takes a
-caller-supplied registry contract id and asserts it shares the factory's admin.
-By-key resolution lands with the 3.5.1+ SDK migration.
+The linked experiment code predates the 3.5.1 release and is keyless: each
+choice takes a caller-supplied registry contract id and asserts it shares the
+factory's admin. It is exploratory evidence - built without production design,
+testing, or security review - and will not be migrated. A production
+implementation of this design starts on the 3.5.1+ SDK and resolves the `Pool`
+and `PauseState` by key from the outset.
 
 To build a mathematically sound AMM in this privacy-first environment, the
 architecture reconciles the transparency needed for price discovery and
