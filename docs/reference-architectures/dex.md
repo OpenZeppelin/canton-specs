@@ -77,7 +77,7 @@ concerns.
 - **Wallet and Client Integrators** can identify the allocation, authorization,
   and projection assumptions their implementation must support.
 
-### Educational Framing: How to Think About Building a DEX on Canton
+### Background: How to Think About Building a DEX on Canton
 
 In traditional EVM AMMs, smart contracts are autonomous, globally visible state
 machines holding aggregate pool balances. Any trader's transaction updates this
@@ -132,6 +132,17 @@ packages in `OpenZeppelin/canton-contracts` referenced by this document predate
 that release and are keyless exploratory evidence; they will not be migrated. A
 production implementation starts on the 3.5.1+ SDK and resolves the `Pool` and
 resolves the `Pool` by key from the outset.
+
+**Decentralizing a party.** The single-writer decision concentrates execution
+in the venue, so the trust question moves from contracts to parties. Canton
+decentralizes a party along three independent axes:
+
+1. **party governance** - whose signatures can change the party's identity and hosting (re-home the party to their own participant node and act freely);
+2. **validation** - how many independent participant nodes must confirm the party's transactions (the `PartyToParticipant` confirmation threshold; a threshold above 1 defends against a malicious participant node, and such a party can no longer submit Ledger API commands directly - it acts through externally signed submissions or through choices submitted by others);
+3. **authorization** - what the Daml signatory/controller topology requires regardless of hosting.
+
+The design assigns each role a deliberate position on each axis
+([trust topology](#decentralization-and-trust-topology)).
 
 ## 2. Architecture Overview
 
@@ -198,13 +209,6 @@ The design also envisions an **auditor** role - an independent organization fill
   adopter.
 
 ### Decentralization and Trust Topology
-
-Canton decentralizes a party along three independent axes, and the design
-assigns each role a deliberate position on each:
-
-1. **party governance** - whose signatures can change the party's identity and hosting (re-home the party to their own participant node and act freely);
-2. **validation** - how many independent participant nodes must confirm the party's transactions (the `PartyToParticipant` confirmation threshold; a threshold above 1 defends against a malicious participant node, and such a party can no longer submit Ledger API commands directly - it acts through externally signed submissions or through choices submitted by others).
-3. **authorization** - what the Daml signatory/controller topology requires regardless of hosting.
 
 Two questions decide each party's security posture: **how it is hosted and
 validated**, and **who submits transactions in its name**. The following table answers both:
