@@ -233,10 +233,11 @@ curve, `minOut`, and ordering checks at little extra cost - the
 observation-mode auditor adds one more independent checker, outside the
 hosting consortium and free of confirmation duties.
 
-The **auditor** will work from the `dvv` party's projection; arrival
-order will be measured by the record time of the traders' allocations.
-Violations will be provable from its own node, feeding governance, reputation,
-and the pause decision.
+The **auditor** will work from the `dvv` party's projection and from the
+operator's compliance log ([D1 screening](#d1-compliance-through-off-ledger-screening)):
+arrival order will be measured by the record time of the traders' allocations,
+and a compliance-driven exclusion will be asserted against the logged screening
+decision.
 
 The **pause authority** keeps a confirmation threshold of 1 because an
 emergency stop must be instant. The price is a griefing window - a malicious
@@ -246,7 +247,7 @@ reclaim their funds after `settlementDeadline`.
 **Compliance and identity checks** are off-ledger backend functions
 ([D1 screening](#d1-compliance-through-off-ledger-screening)). The ledger records
 no per-settlement compliance evidence, so every screening decision must land
-in an auditable off-ledger compliance log.
+in an auditable off-ledger compliance log, shared with the auditor.
 
 **Traders and liquidity providers** trust only their own keys and their own
 participant node: the design is non-custodial.
@@ -650,7 +651,7 @@ Consequences:
 
 Institutional DeFi requires that sanctioned or unverified parties cannot trade. The design enforces this **off-ledger, at the venue backend**: the backend will run custom checks on each party and settlement - through the compliance systems the operator already runs - before submitting; no attester party, attestation contract, or on-ledger registry will be operated. The gate covers every trade path because the `dvv` party is the **sole settlement executor**, exercised only through the operator's delegated submissions.
 
-The trade-off is explicit: compliance is an operational guarantee of the venue, not a ledger-enforced one - a compromised or negligent operator can submit an unscreened settlement, and the ledger records no per-settlement compliance evidence ([section 5.3](#53-threat-model)) - so every screening decision must land in an auditable off-ledger compliance log.
+The trade-off is explicit: compliance is an operational guarantee of the venue, not a ledger-enforced one - a compromised or negligent operator can submit an unscreened settlement, and the ledger records no per-settlement compliance evidence ([section 5.3](#53-threat-model)) - so every screening decision must land in an auditable off-ledger compliance log. The **auditor will be given access to that log**: a swap that was skipped or cancelled for compliance reasons is asserted against the logged screening decision, rather than counted as an ordering violation.
 
 ### D2: Seizure
 
