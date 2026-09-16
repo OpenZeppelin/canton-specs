@@ -8,7 +8,7 @@ V2.
 
 ## 1. Product Definition
 
-This report specifies a privacy-preserving DEX for the Canton Network. To ensure high throughput, the venue is operator-run - a single organization operates the off-ledger backend that quotes, sequences, and submits - yet the design is decentralized across the following four axes: **custody** (the operator never takes custody: in-flight funds stay locked on-ledger with a trader-controlled exit), **correctness** (the swap math is enforced on-ledger, not by operator discretion), **authority** (the venue's executor power is held by a decentralized venue validation party (`dvv`) hosted across independent participant nodes), and **infrastructure** (the venue runs on the decentralized Global Synchronizer, governed by super-validator vote). No single organization can move funds or bypass the rules.
+This report specifies a privacy-preserving DEX for the Canton Network. To ensure high throughput, the venue is operator-run - a single organization operates the off-ledger backend that quotes, sequences, and submits - yet the design is decentralized across the following four axes: **custody** (the operator never takes custody: in-flight funds stay locked on-ledger with a trader-controlled exit), **correctness** (the swap math is enforced on-ledger, not by operator discretion), **authority** (the venue's executor power is held by a decentralized venue validation party (`dvv`) hosted across multiple participant nodes (ideally of independent organizations), and **infrastructure** (the venue runs on the decentralized Global Synchronizer, governed by super-validator vote). No single organization can move funds or bypass the rules.
 
 The design uses a **constant-product automated market maker (AMM)**: a pool holds reserves of two assets, `x` and `y`, and prices every trade from the invariant `x · y = k`. A trader deposits some amount `Δx` of one asset and withdraws whatever `Δy` keeps the product unchanged, i.e.
 `(x + Δx) · (y − Δy) = k`. The price is thus implied by the ratio of the
@@ -162,8 +162,8 @@ Duties are segregated and mapped to discrete Daml parties:
   allocation. It also owns the registry-specific account holding the pool's
   reserves and administers the LP-token registry, minting and burning the
   pool-share receipt. It is
-  **decentralized**: hosted across several independent participant nodes with
-  a confirmation threshold above 1. It holds the pool's reserves, but never
+  **decentralized**: hosted across several participant nodes, ideally operated by
+  distinct organizations, with a confirmation threshold above 1. It holds the pool's reserves, but never
   custody of, nor any unilateral transfer right over, trader funds. To
   intermediate swaps or liquidity operations, or to move reserves or LP-token
   supply, its authority will be reachable only through choices on contracts
@@ -212,7 +212,7 @@ validated**, and **who submits transactions in its name**. The following table a
 
 | Party | Hosting and validation | Who submits in its name |
 |---|---|---|
-| `dvv` | multi-hosted on several independently operated participant nodes, confirmation threshold above 1; additionally hosted with observation permission on the `AUDITOR`'s node | submits `Pool` parameter and configuration changes itself, as externally signed, consortium-approved transactions (pool creation, `feeBps`, delegation grant and revocation); for swaps and liquidity operations its authority is exercised only through delegation choices submitted by `vo` ([section 4.2](#42-component-venue-operator-delegation)); its LP-token mint and burn authority and the pool reserve legs are likewise reachable only inside the `Pool` choices it signs, so LP-token supply cannot change and pool funds cannot move outside them |
+| `dvv` | multi-hosted on several participant nodes, confirmation threshold above 1; additionally hosted with observation permission on the `AUDITOR`'s node | submits `Pool` parameter and configuration changes itself, as externally signed, consortium-approved transactions (pool creation, `feeBps`, delegation grant and revocation); for swaps and liquidity operations its authority is exercised only through delegation choices submitted by `vo` ([section 4.2](#42-component-venue-operator-delegation)); its LP-token mint and burn authority and the pool reserve legs are likewise reachable only inside the `Pool` choices it signs, so LP-token supply cannot change and pool funds cannot move outside them |
 | `vo` | single-organization backend on its own participant, threshold 1 | submits its own commands: the delegation exercises for swaps, provision, and removal |
 | `INSTRUMENT_REGISTRAR`s | external organizations, vetted by the listing policy | submit their own registry operations, never venue flows |
 | Pause authority | multi-hosted, threshold 1 (the brake must be instant) | submits pause and unpause directly |
@@ -224,6 +224,14 @@ the other, or bypass `Pool_Swap` at a factory directly. Multi-hosting removes
 that key - the delegation choices
 ([section 4.2](#42-component-venue-operator-delegation)) are the only path to
 the executor authority. One hosting candidate is the [covalidation service provider](https://docs.digitalasset.com/covalidation/overview). Which organizations act as **venue governors** - controlling configuration changes, as SV right owners do for Canton Coin - versus the hosting **venue validators** is an open structural question.
+
+Two hosting guidelines follow. First, the confirmation threshold must be
+spread across **distinct organizations**. Second, some hosting organizations should also
+**audit**: as a confirming host it already receives and validates every
+transaction the `dvv` party is a stakeholder in, so it can run the auditor's
+curve, `minOut`, and ordering checks at little extra cost - the
+observation-mode auditor adds one more independent checker, outside the
+hosting consortium and free of confirmation duties.
 
 The **auditor** will work from the `dvv` party's projection; arrival
 order will be measured by the record time of the traders' allocations.
