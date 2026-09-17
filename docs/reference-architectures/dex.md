@@ -95,7 +95,8 @@ actor reads and mutates. The design **fractures settlement into per-authorizer
 allocations**: a trader's intent meets the `Pool`'s logic, but the asset
 movement rides on per-party `Allocation` contracts (the
 CIP-0112 Token Standard V2 interfaces), and each counterparty observes only its
-own legs. Prices are quoted by the operator's API rather than read on-ledger.
+own legs. Prices are computed client-side from reserves served by the
+operator's API rather than read on-ledger.
 
 **No in-place mutation.** State changes by archive-and-recreate, therefore changing `contractId`s. Two things follow. First, the pool
 needs an identity that survives each recreate: the design will resolve the
@@ -395,7 +396,9 @@ flowchart TD
 
 **C. Liquidity provision (LP minting).** The provider will commit both
 instruments into the pool accounts, and the venue operator will drive the
-provision choice through its delegation, as with swaps. The LP-token mint is itself a transfer
+provision choice through its delegation, scheduled through the same batch
+pipeline as swaps since it consumes the same `Pool`
+([section 5.5](#55-throughput-and-contention)). The LP-token mint is itself a transfer
 leg from the special `cip-112/mint` account, authorized by the `dvv` party
 as that registry's admin and settled in the same transaction: if the settlement
 does not happen, no LP tokens will be minted.
@@ -446,9 +449,11 @@ sequenceDiagram
     participant PoolAcct as Pool accounts (`dvv` party)
     participant PoolContract as Pool State
 
+    Note over Trader, VenueOperator: Quote - off-ledger, no Daml tx
     Trader->>VenueUI: Initiate swap (Token A for Token B)
-    VenueUI->>VenueOperator: Request swap (intent)
-    VenueOperator-->>VenueUI: quote (legs, minOut, settlement info)
+    VenueUI->>VenueOperator: request pool state (pair only, no amounts)
+    VenueOperator-->>VenueUI: Pool reserves + settlement info
+    VenueUI->>VenueUI: compute legs + minOut client-side
     VenueUI->>Wallet: prepare allocations (CIP-0103)
     rect rgb(235, 245, 235)
     Note over Wallet, RegB: Trader's allocations - one Daml tx
@@ -477,12 +482,13 @@ sequenceDiagram
    [CIP-0103](https://github.com/canton-foundation/cips/blob/6f37c896a5a76ec3bc1aa67bc045623ae5df41e5/cip-0103/cip-0103.md)
    dApp API for the allocation signatures (step 2). The venue operator backend will check the trader against its
    KYC/KYB systems and custom compliance checks
-   ([D1 screening](#d1-compliance-through-off-ledger-screening)), read
-   current `Pool` state, and return the quote **off-ledger**: the expected
-   output, the exact legs, the `minOut` to sign, and the settlement info
-   naming `dvv` as executor. Nothing will be created on-ledger for
-   a quote. The same screening will re-run before the settle submission in
-   step 3.
+   ([D1 screening](#d1-compliance-through-off-ledger-screening)) and serve,
+   **off-ledger**, the current `Pool` reserves and the settlement info naming
+   `dvv` as executor - but no amounts: the **UI computes the exact legs and
+   `minOut` client-side**, so the operator learns a trade's size only from
+   the committed allocation. Nothing will be created
+   on-ledger for a quote. The same screening will re-run before the settle
+   submission in step 3.
 2. **Trader Allocation.** Through the UI, the trader will sign and submit a
    **single transaction** exercising `AllocationFactory_Allocate` at each
    registry: at the input registry it will lock their Token A into an iterated
@@ -635,11 +641,12 @@ out of those accounts, in the same transaction that updates the reserve numbers:
   own holdings (each pool account is the sender of its asset), and reserves
   will be decremented to match.
 - **The invariant** that must hold is **`reserves == Σ(pool-account holdings)` per instrument**. Because reserve updates and holding movements commit atomically, the two cannot drift within a
-transaction; the caveat is *fragmentation* - many small holdings accumulating in
-the pool accounts over time. The target is a **single consolidated `Holding`
-per asset, referenced from the `Pool`** (`holdingCid`) and rolled over at each
-settlement; a periodic consolidation step (the pool account parties merge their holdings for an instrument into one, leaving reserves unchanged) will keep
-settlement cheap.
+transaction; the caveat is *fragmentation* - incoming legs create new
+holdings. The pool funds are therefore kept in a **single consolidated
+`Holding` per asset, referenced from the `Pool`** (`holdingCid`): each batch
+settlement merges the incoming holdings into it, and the recreated `Pool`
+references the new cid. Every flow that touches pool funds runs through the
+batch, so no separate consolidation step is needed.
 
 ### Privacy and Visibility Model
 
