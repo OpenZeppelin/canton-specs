@@ -216,16 +216,17 @@ registrars, traders, and LPs are the pre-existing network structure ([Background
   their deposits leave their account for the pool's reserve account (owned
   by `dvv`), against LP tokens redeemable on removal.
 
-The design also envisions an **auditor** role - an independent organization fills it
-  by operating a participant node that hosts `dvv` with
-  **observation permission** (no submission, no confirmation). That node
-  receives every transaction the `dvv` party is a stakeholder in -
-  swaps, provisions, removals - as they commit, and independently
-  re-derives the curve, checks each fill against its trader's signed
-  `minOut`, and checks each batch's composition against arrival order. It
-  detects and escalates, it cannot block. The detection and escalation
-  implementation is out of scope, to be built in a customized manner by each
-  adopter.
+The design also envisions an **optional auditor** role - an independent
+  organization fills it by operating a participant node that hosts `dvv`
+  with **observation permission** (no submission, no confirmation), or as a
+  full confirming validator, which also strengthens the consortium's
+  integrity. That node receives every transaction the `dvv` party is a
+  stakeholder in - swaps, provisions, removals - as they commit, and
+  independently re-derives the curve, checks each fill against its trader's
+  signed `minOut`, and checks each batch's composition against arrival
+  order. It detects and escalates, it cannot block. The detection and
+  escalation implementation is out of scope, to be built in a customized
+  manner by each adopter.
 
 ### Decentralization and Trust Topology
 
@@ -234,7 +235,7 @@ validated**, and **who submits transactions in its name**. The following table a
 
 | Party | Hosting and validation | Who submits in its name |
 |---|---|---|
-| `dvv` | multi-hosted on several participant nodes, confirmation threshold above 1; additionally hosted with observation permission on the `AUDITOR`'s node | submits `Pool` parameter and configuration changes itself, as externally signed, consortium-approved transactions (pool creation, `feeBps`, delegation grant and revocation); for swaps and liquidity operations its authority is exercised only through delegation choices submitted by `vo` ([section 4.2](#42-component-venue-operator-delegation)); its LP-token mint and burn authority and the pool reserve legs are likewise reachable only inside the `Pool` choices it signs, so LP-token supply cannot change and pool funds cannot move outside them |
+| `dvv` | multi-hosted on several participant nodes, confirmation threshold above 1; optionally also hosted on an auditor's node, with observation permission or confirming | submits `Pool` parameter and configuration changes itself, as externally signed, consortium-approved transactions (pool creation, `feeBps`, delegation grant and revocation); for swaps and liquidity operations its authority is exercised only through delegation choices submitted by `vo` ([section 4.2](#42-component-venue-operator-delegation)); its LP-token mint and burn authority and the pool reserve legs are likewise reachable only inside the `Pool` choices it signs, so LP-token supply cannot change and pool funds cannot move outside them |
 | `vo` | single-organization backend on its own participant, threshold 1 | submits its own commands: the delegation exercises for swaps, provision, and removal |
 | `INSTRUMENT_REGISTRAR`s | external organizations, vetted by the listing policy | submit their own registry operations, never venue flows |
 | Trader / LP | their own participant node or locally hosted, their own keys | submit allocations from their wallet (CIP-0103) |
@@ -251,7 +252,7 @@ the executor authority. One hosting candidate is the [covalidation service provi
 | Organization | For the `dvv` party | For the `vo` party | Other responsibilities |
 |---|---|---|---|
 | Venue operator | hosts and confirms (1 of 3) | hosts it; sole submitter of venue flows | pausing the venue; applies compliance gate and publishes log |
-| Venue validator A (covalidation offering) | hosts and confirms (1 of 3) | - | runs the audit backend off the projection it already receives as a confirming host |
+| Venue validator A (covalidation offering) | hosts and confirms (1 of 3) | - | - |
 | Venue validator B (covalidation offering) | hosts and confirms (1 of 3) | - | - |
 
 The `dvv` confirmation threshold of 2 of 3 means breaking the guarantees it
@@ -261,7 +262,7 @@ consortium action. Instrument registrars, traders, and
 LPs stay outside the venue consortium, on their own organizations' nodes.
 
 Larger deployments grow along the same lines: more covalidation
-organizations hosting `dvv` and a higher threshold. Other organizations can be granted auditor role by hosting the `dvv` party in observer mode on their participant nodes. 
+organizations hosting `dvv` and a higher threshold.
 
 The **auditor** will combine its own projection of the `dvv` party with the
 venue's shared off-ledger transaction log
@@ -546,6 +547,23 @@ Assumptions:
 - A batch that fails because one trader's node does not confirm in time will
   be resubmitted without that trader's swaps; the exclusion and its cause
   land in the venue's shared transaction log.
+
+**Batch formation.** CIP-0112 requires the settlement value to
+[match across every allocation in a batch](https://github.com/canton-network/splice/blob/22e775d614ad67af0290380ae4ab07dd2dceb62d/token-standard/splice-api-token-allocation-v2/daml/Splice/Api/Token/AllocationV2.daml#L413-L420);
+sharing one `SettlementInfo`, with `transferLegId` distinguishing the
+trades, is what lets one pool allocation per instrument and one
+`SettleBatch` per registry cover the whole batch. How a trader's allocation
+comes to carry the shared value is deferred to the implementation phase,
+with two candidate designs:
+
+1. **Constant per-pool value.** Every allocation for a pool names the same
+   `SettlementInfo`, so the backend batches freely with no coordination.
+2. **Backend batch counter.** The UI queries the backend's current batch id
+   at preparation time and stamps it into the allocation; the backend
+   batches by id, gaining explicit batch boundaries.
+
+Either way, an allocation that does not carry the expected value is never
+batched and simply expires at its `settlementDeadline`.
 
 **Progress tracking.** The venue backend will track each swap as a state
 machine keyed by `SettlementInfo.id`, driven by **ACS ingestion**: the backend
