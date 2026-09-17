@@ -566,11 +566,6 @@ the trader can unilaterally withdraw. Ledger time is accurate only to
 `ledgerTimeRecordTimeTolerance` (60s default), so the bound is fuzzy by that
 much. Guidance per flow: minutes for both swaps and liquidity operations, since we assume the operator backend is automated, and will act quickly on the needs of the users.
 
-A trader will also be able to **cancel a pending swap before the deadline**,
-through the venue: the backend removes the swap from the pending set and the
-executor cancels the trader's allocations (`Allocation_Cancel`), unlocking the
-funds immediately.
-
 ### Provision (LP mint) and Removal (LP burn) flows
 
 Liquidity provision will reuse the swap's allocation lifecycle, with the
@@ -721,8 +716,7 @@ A trader-facing wallet must support, per CIP-0112:
   presented by the venue UI, and the trader's signature covers it either way.
   Rendering that key meaningfully to the signer is an explicit assumption on
   wallet providers integrating with the venue;
-- requesting early cancellation through the venue, and exercising the
-  unilateral withdraw once the deadline lapses;
+- exercising the unilateral withdraw once the deadline lapses;
 - accepting disclosed contracts (quotes, `Pool` reserve verification);
 - tracking swap status (pending step, owing party, deadline);
 - exposing these flows to venue UIs over the
@@ -969,7 +963,7 @@ containment boundaries.
 - **Non-custodial venue (no unilateral execution)**:
   - The venue - `dvv` and operator alike - never holds custody of, nor any unilateral right to move, trader funds.
   - The trader is the sole party able to lock their own holding into an allocation.
-  - The settlement deadline blocks the trader from *unilaterally* withdrawing an allocation before `settlementDeadline`; earlier cancellation runs through the venue ([time model](#time-model)).
+  - The settlement deadline blocks the trader from withdrawing an allocation before `settlementDeadline` ([time model](#time-model)).
   - Within one registry, the venue operator can only drive a settlement over the exact committed allocations: it cannot deviate from an authorized leg or fabricate a transfer the trader did not commit to. The output leg is drawn only from the trader's receipt approval and never below their signed `minOut`.
   - Across registries, partial settlement is prevented structurally, not by trust in a key: the executor's authority is reachable only through delegation choices that settle both batches in one Daml transaction ([trust topology](#decentralization-and-trust-topology)), so no key can settle one leg alone or reach a settlement factory outside `Pool_Swap`.
 - **AMM Conservation (`x · y = k`)**:
@@ -1058,7 +1052,7 @@ and is an accepted risk of the operator-serialized design.
 |---|---|---|---|
 | Quote RPC times out | nothing on-ledger; the quote is the only synchronous off-ledger call in the flow | trader retries the quote | nothing locked |
 | Trader never allocates | nothing on-ledger; the quote simply lapses | trader re-quotes when ready | nothing locked |
-| Trader wants out before the deadline | funds locked until `settlementDeadline` otherwise | trader requests cancellation; the executor cancels the allocations, unlocking immediately; if the venue stalls, deadline lapse + withdraw | `settlementDeadline` |
+| Trader wants out before the deadline | funds locked until `settlementDeadline` |  deadline lapse + withdraw | `settlementDeadline` |
 | Operator crashes or griefs (never settles) | both legs locked | committed allocations become withdrawable after the deadline (the griefing cap in the [time model](#time-model)) | `settlementDeadline` |
 | Trader's node fails to confirm the batch | the whole batch's settle rejected | backend resubmits without that trader's swaps ([execution model](#execution-model)); the trader re-quotes or withdraws at the deadline | `settlementDeadline` |
 | Venue validator out of traffic | venue submissions rejected at the sequencer | traffic top-up and monitoring ([section 6](#6-network-economics-traffic-costs-and-app-rewards)); trader exit unaffected (own validator) | `settlementDeadline` |
@@ -1185,7 +1179,9 @@ The settle, being the heaviest of them ([section 6.1](#61-traffic-costs)),
 debits the venue the most credit. Important to note, the venue's own traffic purchases also mint `ValidatorRewardCoupon`s to its validator operator, a further rebate on the traffic bill.
 
 Rewards partially offset the traffic bill: the credit is an issuance-scaled
-fraction of the settle transaction's own burn, so venue fees are also needed to carry the business model; rewards are a rebate.
+fraction of the settle transaction's own burn, so venue fees are also needed
+to carry the business model - e.g. the protocol-fee switch
+([extension points](#extension-points)); rewards are a rebate.
 
 A precise calculation of the application rewards and traffic cost, under
 CIP-0104 accounting, is deferred to M2, to be done once the implementation and
