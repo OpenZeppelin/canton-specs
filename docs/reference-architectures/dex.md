@@ -141,8 +141,27 @@ decentralizes a party along three independent axes:
 2. **validation** - how many independent participant nodes must confirm the party's transactions (the `PartyToParticipant` confirmation threshold; a threshold above 1 defends against a malicious participant node, and such a party can no longer submit Ledger API commands directly - it acts through externally signed submissions or through choices submitted by others);
 3. **authorization** - what the Daml signatory/controller topology requires regardless of hosting.
 
+Three layers carry these axes: **organizations**
+(the legal entities that operate infrastructure and can be held accountable),
+their **participant nodes** (the infrastructure that hosts and confirms), and
+**parties** (the on-ledger identities hosted on those nodes). Guarantees are
+only as strong as the organizations behind the nodes: a party confirmed at
+threshold `f + 1` keeps its guarantees until `f + 1` distinct participant nodes
+collude, so ideally the threshold should be spread across participant nodes of different organizations.
+
 The design assigns each role a deliberate position on each axis
 ([trust topology](#decentralization-and-trust-topology)).
+
+**New versus existing components.** The venue adds one organization - the
+venue operator - and three components: the `Pool`, the delegation contracts,
+and the LP-token registry; its `dvv` hosting consortium can be assembled from
+the operator and existing covalidation offerings
+([trust topology](#decentralization-and-trust-topology)). Everything else
+already exists. Each traded asset is administered by its issuer's own
+**registry** application (its instrument admin), whose contracts hold the
+asset's holdings, allocations, and settlement factory; the design assumes
+every traded registry implements the CIP-0112 Token Standard V2 interfaces,
+and base and quote generally have different registrars.
 
 ## 2. Architecture Overview
 
@@ -165,7 +184,9 @@ packages consumed as pinned dependencies.
 
 ### Party and Role Model Topology
 
-Duties are segregated and mapped to discrete Daml parties:
+Duties are segregated and mapped to discrete Daml parties. The venue
+introduces two - `dvv` and `vo` - plus the auditor role; instrument
+registrars, traders, and LPs are the pre-existing network structure ([Background](#background-how-to-think-about-building-a-dex-on-canton)):
 
 - **Decentralized Venue Validation (`dvv`)** - the party that signs all venue
   state (the `Pool`) and is the settlement executor named in every
@@ -185,11 +206,8 @@ Duties are segregated and mapped to discrete Daml parties:
   permitted call patterns (`Pool_Swap`, provision, removal), so the operator
   times and orders actions but holds no venue authority of its own.
 - **Instrument Registrars (`INSTRUMENT_REGISTRAR`)** - the token-standard
-  registries of the traded instruments. Base and quote generally have **different registrars**: each asset
-  settles through its own registry's settlement factory. Contrast: the `dvv`
-  party issues the pool's receipt token (the LP token); an instrument
-  registrar administers an asset being traded (EVM analogy: the pair contract
-  minting UNI-V2 versus Circle issuing USDC).
+  registries of the traded instruments, pre-existing network structure
+  ([Background](#background-how-to-think-about-building-a-dex-on-canton)).
 - **Trader** - an end-user authoring swap `Allocation`s from their wallet:
   only they can lock their input, and it stays in their own account until
   settlement.
@@ -225,34 +243,38 @@ is executor trust**: an executor key could settle one registry's batch without
 the other, or bypass `Pool_Swap` at a factory directly. Multi-hosting removes
 that key - the delegation choices
 ([section 4.2](#42-component-venue-operator-delegation)) are the only path to
-the executor authority. One hosting candidate is the [covalidation service provider](https://docs.digitalasset.com/covalidation/overview). Which organizations act as **venue governors** - controlling configuration changes, as SV right owners do for Canton Coin - versus the hosting **venue validators** is an open structural question.
+the executor authority. One hosting candidate is the [covalidation service provider](https://docs.digitalasset.com/covalidation/overview).
 
-Two hosting guidelines follow. First, the confirmation threshold must be
-spread across **distinct organizations**. Second, some hosting organizations should also
-**audit**: as a confirming host it already receives and validates every
-transaction the `dvv` party is a stakeholder in, so it can run the auditor's
-curve, `minOut`, and ordering checks at little extra cost - the
-observation-mode auditor adds one more independent checker, outside the
-hosting consortium and free of confirmation duties.
+**A minimal viable deployment.**
 
-The **auditor** will work from the `dvv` party's projection and from the
-operator's compliance log ([D1 screening](#d1-compliance-through-off-ledger-screening)):
-arrival order will be measured by the record time of the traders' allocations,
-and a compliance-driven exclusion will be asserted against the logged screening
-decision.
+| Organization | For the `dvv` party | For the `vo` party | Other responsibilities |
+|---|---|---|---|
+| Venue operator | hosts and confirms (1 of 3) | hosts it; sole submitter of venue flows | pausing the venue; applies compliance gate and publishes log |
+| Venue validator A (covalidation offering) | hosts and confirms (1 of 3) | - | runs the audit backend off the projection it already receives as a confirming host |
+| Venue validator B (covalidation offering) | hosts and confirms (1 of 3) | - | - |
 
-**Halting the venue needs no on-ledger pause**: every consuming `Pool` choice
-is submitted by the operator, so the ordinary stop is the backend ceasing to
-submit. The emergency brake for a compromised operator is on-ledger anyway:
-the `dvv` party revokes the delegation
-([section 4.2](#42-component-venue-operator-delegation)), after which the
-operator's submissions carry no authority. Either way, in-flight traders are
-capped by their right to reclaim funds after `settlementDeadline`.
+The `dvv` confirmation threshold of 2 of 3 means breaking the guarantees it
+checks takes two colluding organizations; revoking the operator's
+delegation is likewise a 2-of-3
+consortium action. Instrument registrars, traders, and
+LPs stay outside the venue consortium, on their own organizations' nodes.
+
+Larger deployments grow along the same lines: more covalidation
+organizations hosting `dvv` and a higher threshold. Other organizations can be granted auditor role by hosting the `dvv` party in observer mode on their participant nodes. 
+
+The **auditor** will combine its own projection of the `dvv` party with the
+venue's shared off-ledger transaction log
+([D1 screening](#d1-compliance-through-off-ledger-screening)) to validate
+that swaps are only dropped honestly. The operator will
+cancel the allocations (`Allocation_Cancel`) of swaps that do not meet their
+`minOut`.
+
+**Halting.** The venue pauses trading in cases of need: the operator stops
+submitting, needing no on-ledger pause. In-flight traders reclaim their
+funds after `settlementDeadline`.
 
 **Compliance and identity checks** are off-ledger backend functions
-([D1 screening](#d1-compliance-through-off-ledger-screening)). The ledger records
-no per-settlement compliance evidence, so every screening decision must land
-in an auditable off-ledger compliance log, shared with the auditor.
+([D1 screening](#d1-compliance-through-off-ledger-screening)).
 
 **Traders and liquidity providers** trust only their own keys and their own
 participant node: the design is non-custodial.
@@ -515,6 +537,9 @@ Assumptions:
   a settle cannot double-execute. Additionally, a batch swap can not execute twice due to not having the necessary funds and allocations.
 - Rejections, including a lost contention race on a hot `Pool`, will arrive on
   the completion stream; the backend will re-quote and retry. Note that because of all on-ledger liquidity operations running through the venue backend, contention should not be a concern.
+- A batch that fails because one trader's node does not confirm in time will
+  be resubmitted without that trader's swaps; the exclusion and its cause
+  land in the venue's shared transaction log.
 
 **Progress tracking.** The venue backend will track each swap as a state
 machine keyed by `SettlementInfo.id`, driven by **ACS ingestion**: the backend
@@ -652,7 +677,7 @@ Consequences:
 
 Institutional DeFi requires that sanctioned or unverified parties cannot trade. The design enforces this **off-ledger, at the venue backend**: the backend will run custom checks on each party and settlement - through the compliance systems the operator already runs - before submitting; no attester party, attestation contract, or on-ledger registry will be operated. The gate covers every trade path because the `dvv` party is the **sole settlement executor**, exercised only through the operator's delegated submissions.
 
-The trade-off is explicit: compliance is an operational guarantee of the venue, not a ledger-enforced one - a compromised or negligent operator can submit an unscreened settlement, and the ledger records no per-settlement compliance evidence ([section 5.3](#53-threat-model)) - so every screening decision must land in an auditable off-ledger compliance log. The **auditor will be given access to that log**: a swap that was skipped or cancelled for compliance reasons is asserted against the logged screening decision, rather than counted as an ordering violation.
+The trade-off is explicit: compliance is an operational guarantee of the venue, not a ledger-enforced one - a compromised or negligent operator can submit an unscreened settlement, and the ledger records no per-settlement compliance evidence ([section 5.3](#53-threat-model)) - so every screening decision must land in the venue's shared off-ledger transaction log, accessible to the **auditor**. A funded allocation that fails screening is cancelled on-ledger (`Allocation_Cancel`) rather than silently skipped, so the operator commits publicly to the exclusion and its timing.
 
 ### D2: Seizure
 
@@ -960,6 +985,7 @@ containment boundaries.
   - Any trader participating in the liquidity pool should have visibility only over their holdings, as well as the transfer legs they are a sender and receiver in.
 - **Auditability**:
   - Every committed swap is independently verifiable by the auditor from its own node's projection: curve math, the trader's signed `minOut` bound, and arrival-order batch composition ([trust topology](#decentralization-and-trust-topology)).
+  - Every exclusion from a batch is recorded with its cause in the venue's shared transaction log, verifiable by the auditor.
 
 ### 5.2 Validation strategy
 
@@ -990,7 +1016,7 @@ failure path, in the style of the token standard's
 | Compliance evasion | A non-compliant or unverified party attempts to trade, or a settlement is submitted that was never checked. | The backend screens every party and settlement before submission and logs each decision ([D1 screening](#d1-compliance-through-off-ledger-screening)). Residual: enforcement is operational, not ledger-enforced; mitigated by the audit log and operator supervision. |
 | Failed SCU rollout | A poorly executed upgrade makes a live `Pool` or pending allocation unusable, or a client selects an unintended package version. | Releases preserve the SCU-compatible surface, define `None` semantics, and test v1 state under the v2 workflow; breaking changes use an explicit migration ([SCU process](#smart-contract-upgrade-process)). |
 | Malicious venue package upgrade | An SCU release deploys choices that abuse the `dvv` party's authority (new delegation shapes, an altered curve). | Upgrades bind at the vetting layer: the `dvv` party's hosting nodes vet only third-party-audited venue DARs, and an upgrade takes effect only once their confirmation threshold accepts it ([SCU process](#smart-contract-upgrade-process)). |
-| Venue Operator swap re-ordering / private MEV | The venue operator sees traders' allocations before batching and can order or delay batch-settlement submissions to its own benefit (e.g. sandwiching a large swap). MEV does **not** disappear on Canton - it moves from a public mempool into the venue operator's private view. | The signed `minOut` bounds every fill, and the auditor makes ordering abuse provable after the fact ([trust topology](#decentralization-and-trust-topology)); fee revenue from honest volume is itself a mitigation - the venue and its validators earn more from running a good business than from extraction. |
+| Venue Operator swap re-ordering / private MEV | The venue operator sees traders' allocations before batching and can order or delay batch-settlement submissions to its own benefit (e.g. sandwiching a large swap). MEV does **not** disappear on Canton - it moves from a public mempool into the venue operator's private view. | The signed `minOut` bounds every fill, and the auditor makes ordering abuse provable after the fact ([trust topology](#decentralization-and-trust-topology)); fee revenue from honest volume is another mitigation - the venue and its validators earn more from running a good business than from extraction. |
 | Malicious or buggy token registry | Settlement executes registry-implemented code for both legs. A hostile registry can fail legs selectively (griefing one side of a pair), inflate supply and drain the pool through the curve, freeze the pool account's holdings via its own freeze or seizure capability, or break settlement with a bad upgrade. | Listing is a trust decision gated by an **instrument listing policy**: audited TSv2 code, bounded admin powers, disclosed freeze or seizure capabilities, SCU-conformant upgrades. The curve cannot defend against supply inflation; the policy is the only mitigation. |
 | Infrastructure censorship or delay | A sequencer or the venue's participant node delays submissions until `settlementDeadline` lapses, stalling the venue and handing traders a free withdraw option (exit if the price moved against them). | Multi-hosted parties, deadline monitoring with re-quote on lapse, deadlines sized to absorb transient delay; residual risk accepted. |
 
@@ -1027,6 +1053,7 @@ and is an accepted risk of the operator-serialized design.
 | Trader never allocates | nothing on-ledger; the quote simply lapses | trader re-quotes when ready | nothing locked |
 | Trader wants out before the deadline | funds locked until `settlementDeadline` otherwise | trader requests cancellation; the executor cancels the allocations, unlocking immediately; if the venue stalls, deadline lapse + withdraw | `settlementDeadline` |
 | Operator crashes or griefs (never settles) | both legs locked | committed allocations become withdrawable after the deadline (the griefing cap in the [time model](#time-model)) | `settlementDeadline` |
+| Trader's node fails to confirm the batch | the whole batch's settle rejected | backend resubmits without that trader's swaps ([execution model](#execution-model)); the trader re-quotes or withdraws at the deadline | `settlementDeadline` |
 | Venue validator out of traffic | venue submissions rejected at the sequencer | traffic top-up and monitoring ([section 6](#6-network-economics-traffic-costs-and-app-rewards)); trader exit unaffected (own validator) | `settlementDeadline` |
 | Synchronizer outage | ledger halted: no one can settle, and no one can withdraw | service resumes; if `settlementDeadline` lapsed during the outage the allocation is withdraw-only | outage duration + `settlementDeadline` |
 | Venue operator or `dvv` party gone permanently | no new settles; LP removal blocked | a lost operator gets a new delegation from the `dvv` party ([authority transfer](#d4-authority-and-privilege-transfer)); a lost `dvv` party is re-homed by its hosting consortium; reserves stranded only if the `dvv` party is unrecoverable | allocations: `settlementDeadline`; reserves: until a successor operates |
