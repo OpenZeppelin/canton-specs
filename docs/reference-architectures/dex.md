@@ -57,7 +57,7 @@ concerns.
 | Market Structure | A **spot** exchange whose enabling primitive is the **atomic DvP swap**. The venue built out in full is a constant-product AMM with a single liquidity pool per instrument pair (`x · y = k`). |
 | Core Flows | Four flows (parties defined in [party topology](#party-and-role-model-topology)) modeled over one settlement boundary: **pool creation** (the `dvv` party instantiates a `Pool`), **liquidity provision / removal** (depositing both instruments mints LP tokens; burning LP tokens returns proportional reserves), **swap execution** (two-leg atomic settlement), and **fee collection** (a percentage (`feeBps`) of each swap accrues into reserves, raising LP-token redemption value). |
 | Asset Representation | Fungible digital assets compliant with the CIP-0112 Token Standard V2 holding interfaces. LP tokens represent pool-share ownership and are minted/burned via CIP-0112. |
-| Compliance & Control | D1: the venue backend runs custom operator-defined checks on every settlement before submission - enforced off-ledger. D2: lock-and-sweep seizure is registry-level and optional - each traded instrument's registry, and the LP-token registry for pool shares, may implement it ([seizure](#d2-seizure)). D3: identity established at off-ledger onboarding. |
+| Compliance & Control | D1: the venue backend runs custom operator-defined checks on every settlement before submission - enforced off-ledger. D2: lock-and-sweep seizure is registry-level and optional - each traded instrument's registry, and the LP-token registry for pool shares, may implement it ([seizure](#d2-seizure)). D3: identity established at off-ledger onboarding. D4: every privileged action traces to a named role or party, transferable through access control ([authority transfer](#d4-authority-and-privilege-transfer)) or controllership. |
 | Trust Topology | Validation-anchored venue: the `Pool` is signed by the `dvv` party, which also holds the pool's reserves and issues the LP token, and swap correctness is enforced on-ledger by the swap choice rather than by operator discretion. The full party topology and submission model is documented in [party topology](#party-and-role-model-topology). |
 | Component Integration | Direct reuse of `openzeppelin-access-control-v1`, the CIP-0112 Splice interfaces, as well as patterns from the [`OpenZeppelin/canton-token-template`](https://github.com/OpenZeppelin/canton-token-template) and [`OpenZeppelin/canton-stablecoin`](https://github.com/OpenZeppelin/canton-stablecoin) codebases. |
 
@@ -266,8 +266,11 @@ that swaps are only dropped honestly. The operator cancels the allocations
 slippage, and each cancel carries a coarse reason code in its choice metadata
 (`extraArgs.meta`, under a documented key), so the auditor needs no data feed
 beyond the ledger ([D1 screening](#d1-compliance-through-off-ledger-screening)).
-Sharing the venue's off-ledger transaction log with the auditor is a
-complement.
+A swap dropped because its trader's participant node did not confirm cannot be
+cancelled, since the cancel needs that same node for confirmation; the resubmitted `Pool_Swap`
+instead names the timed-out allocations and the cause in its own choice
+metadata, which the auditor sees as a `dvv` stakeholder
+([execution model](#execution-model)).
 
 **Halting.** The venue pauses trading in cases of need: the operator stops
 submitting. In-flight traders reclaim their
@@ -332,7 +335,7 @@ compute `Δout` on live reserves at settlement, abort if `Δout < minOut`, and
 attach the actual legs to the allocations (`extraTransferLegSides`). A stale quote will fill at the live price or abort, 
 never below the signed `minOut`, since the executor authority is reachable
 only through `Pool_Swap`
-([trust topology](#decentralization-and-trust-topology)). The allocations of an aborted swap will be cancelled early (`Allocation_Cancel`) rather than left to expire. Traded registries must
+([trust topology](#decentralization-and-trust-topology)). The allocations of an aborted swap will be cancelled early (`Allocation_Cancel`, with a reason code in the choice metadata, [D1 screening](#d1-compliance-through-off-ledger-screening)) rather than left to expire. Traded registries must
 implement iterated allocations and support allocating and settling in one
 transaction, part of the instrument listing policy
 ([section 5.3](#53-threat-model)).
@@ -356,13 +359,11 @@ flowchart TD
     Backend["Venue backend"]
     Kyb[("KYC/KYB system<br/>off-ledger")]
     Checks[("Custom checks<br/>off-ledger")]
-    Log[("Compliance audit log (optional)<br/>off-ledger")]
     Settle{{Atomic settlement}}
 
     Trader -->|"onboard (KYC)"| Backend
     Backend -->|"verify identity"| Kyb
     Backend -->|"check each settlement"| Checks
-    Backend -->|"record decision"| Log
     Backend ==>|"submit only if cleared"| Settle
 ```
 
@@ -465,8 +466,8 @@ sequenceDiagram
     rect rgb(240, 248, 255)
     Note over VenueOperator, PoolContract: Private venue-operator execution - one Daml tx for the whole batch
     VenueOperator->>PoolContract: Pool_Swap (batch of swaps)
-    PoolContract->>RegA: allocate pool leg + SettleBatch (A legs, >= minOut)
-    PoolContract->>RegB: allocate pool leg + SettleBatch (B legs)
+    PoolContract->>RegA: allocate pool leg + SettleBatch (A legs)
+    PoolContract->>RegB: allocate pool leg + SettleBatch (B legs, >= minOut)
     RegA->>PoolAcct: credit Δin Token A
     RegB->>Wallet: credit Δout Token B to trader
     PoolContract->>PoolContract: Archive old Pool, create new (net reserves)
@@ -537,11 +538,20 @@ Assumptions:
 - A stalled workflow will block nothing else on the ledger, only the venue or other entity's backend.
 - Command deduplication (24h) makes backend crash-restart safe: re-submitting
   a settle cannot double-execute. Additionally, a batch swap can not execute twice due to not having the necessary funds and allocations.
-- A batch that fails because one trader's node does not confirm in time will
-  be resubmitted without that trader's swaps; the excluded allocations will be
-  cancelled (`Allocation_Cancel`) with a reason code in the choice metadata,
-  so the exclusion and its cause are on-ledger
-  ([D1 screening](#d1-compliance-through-off-ledger-screening)). If the trader's participant node fails to confirm this transaction as well, the operator will log this failure, off-ledger, and report it to the auditor through other means. 
+- A batch that fails because one trader's participant node does not confirm
+  in time will be resubmitted without that trader's swaps. Their allocations
+  cannot be cancelled: the trader signs their allocation, so
+  `Allocation_Cancel` needs the same node to confirm. They stay live until the
+  trader withdraws them after `settlementDeadline`. The resubmitted
+  `Pool_Swap` records the exclusion on the batch itself: its choice metadata
+  (`meta`, under a documented key,
+  [section 4.1](#41-component-pool-state-and-configuration)) lists the
+  excluded allocations and the cause (`no-confirmation`), so the auditor can
+  tell why allocations that match the batch's `SettlementInfo` are missing
+  from it. If no swap remains to resubmit, the next batch on that pool
+  carries the report. The report is the operator's assertion; the auditor
+  corroborates it against the allocation staying unsettled and the trader's later
+  `Allocation_Withdraw`.
 
 **Batch formation.** CIP-0112 requires the settlement value to
 [match across every allocation in a batch](https://github.com/canton-network/splice/blob/22e775d614ad67af0290380ae4ab07dd2dceb62d/token-standard/splice-api-token-allocation-v2/daml/Splice/Api/Token/AllocationV2.daml#L413-L420);
@@ -636,7 +646,9 @@ holdings. The pool funds are therefore kept in a **single consolidated
 `Holding` per asset, referenced from the `Pool`** (`holdingCid`): each batch
 settlement merges the incoming holdings into it, and the recreated `Pool`
 references the new cid. Every flow that touches pool funds runs through the
-batch, so no separate consolidation step is needed.
+batch, so no separate consolidation step is needed. This requires the
+registry to support merging into an existing holding on receipt, or a
+`dvv`-authorized self-transfer within the same `Pool_Swap`.
 
 ### Privacy and Visibility Model
 
@@ -664,9 +676,10 @@ Consequences:
 - **The venue operator sees everything.**
 - **No compliance data on ledger.** Identity and check results live in the
   operator's off-ledger KYC/KYB and compliance systems. The only on-ledger
-  trace is an enumerated reason code on a cancelled allocation, carrying no
-  PII and no screening detail, so the right-to-erasure conflict does not
-  arise, and no third party learns who was screened or why.
+  traces are an enumerated reason code on a cancelled allocation and the
+  exclusion report on a `Pool_Swap` batch ([execution model](#execution-model)),
+  both carrying no PII and no screening detail, so the right-to-erasure
+  conflict does not arise, and no third party learns who was screened or why.
 - **The optional auditor sees what the `dvv` sees.** Observation-mode hosting of
   `dvv` is a deliberate disclosure that turns the venue's private
   view into an accountable one
@@ -729,7 +742,7 @@ Deployment order:
    gates adoption.
 3. Off-ledger venue systems deployed: the operator backend (quoting, ACS
    ingestion and triggers, batch scheduling), the venue UI, the compliance
-   integration (KYC/KYB connections, the check policy, the audit log), and
+   integration (KYC/KYB connections, the check policy), and
    optionally the auditor's checker replaying from its own node.
 4. The `dvv` party signs the operator's delegation contracts
    ([section 4.2](#42-component-venue-operator-delegation)).
@@ -863,12 +876,17 @@ the per-asset half (instrument, reserve holding, reserves).
 - **Trader bounds.** Each trader locks only their input; `Δout` is decided at
   settlement on live reserves, bounded below by their signed `minOut`
   ([the AMM math](#the-amm-math)).
+- **Exclusion report.** `meta` carries, under documented keys, the
+  allocations the operator left out of this batch and why, so the auditor
+  can account for every pending allocation
+  ([execution model](#execution-model)).
 
 ```daml
 module OpenZeppelin.Experimental.Dex.Amm where
 
 import Splice.Api.Token.HoldingV2 (Holding, InstrumentId)
 import Splice.Api.Token.AllocationV2
+import Splice.Api.Token.MetadataV1 (Metadata)
 
 data PoolAssetState = PoolAssetState with
     instrumentId : InstrumentId
@@ -907,6 +925,7 @@ template Pool
         baseSettlementFactoryCid : ContractId SettlementFactory
         quoteSettlementFactoryCid : ContractId SettlementFactory
         settlement : SettlementInfo
+        meta : Metadata   -- exclusion report and other batch annotations, documented keys
       controller dvv
 
     -- Pool_Provision
@@ -973,13 +992,14 @@ containment boundaries.
   baseState.reserves · quoteState.reserves`.
   - The settlement of the swap legs and the update of the pool reserves must happen atomically. 
 - **First-deposit inflation resistance**:
-  - Constant-product pool are exposed to the [*first-depositor / share-inflation* attack](https://www.openzeppelin.com/news/a-novel-defense-against-erc4626-inflation-attacks): the
+  - Constant-product pools are exposed to the [*first-depositor / share-inflation* attack](https://www.openzeppelin.com/news/a-novel-defense-against-erc4626-inflation-attacks): the
   first LP mints a tiny LP-token supply, then donates assets directly into the
   pool to inflate share price and round later depositors' minted shares
   down to zero. The LP-token mint path (`dvv` as the LP-token
   registry admin) must therefore
-  either **burn a minimum initial liquidity** (lock the first `MINIMUM_LIQUIDITY`
-  shares to a null party, the Uniswap-v2 approach) or **seed the pool from a
+  either **burn a minimum initial liquidity** (count the first `MINIMUM_LIQUIDITY`
+  shares in `lpTokenSupply` without minting a holding for them, so they are
+  unredeemable) or **seed the pool from a
   trusted first provision** so the share price cannot be cheaply manipulated. This is a standard liquidity-pool hazard the reference implementation must address.
 - **Funding Conservation**:
   - On every settle path the engine enforces that an authorizer's archived locked inputs cover its SenderSide obligations per instrument.
@@ -988,7 +1008,7 @@ containment boundaries.
   - Any trader participating in the liquidity pool should have visibility only over their holdings, as well as the transfer legs they are a sender and receiver in.
 - **Auditability**:
   - Every committed swap is independently verifiable by the auditor from its own node's projection: curve math, the trader's signed `minOut` bound, and arrival-order batch composition ([trust topology](#decentralization-and-trust-topology)).
-  - Every exclusion from a batch is recorded on-ledger as an `Allocation_Cancel` carrying its reason code, verifiable by the auditor from its own projection. If a batch failed due to the trader's participant node not confirming, the swap will be excluded and the operator will log this off-ledger, to share with the auditor.
+  - Every exclusion from a batch is recorded on-ledger and verifiable by the auditor from its own projection: a screening or slippage exclusion as an `Allocation_Cancel` carrying its reason code; a trader whose participant node did not confirm as an entry in the resubmitted `Pool_Swap`'s exclusion report, with the allocation left unsettled until its owner withdraws it ([execution model](#execution-model)).
 
 ### 5.2 Validation strategy
 
@@ -1014,7 +1034,7 @@ failure path, in the style of the token standard's
 |---|---|---|
 | Malicious venue operator state manipulation | Venue operator submits a settlement batch favoring their own holdings, bypassing the price curve or extracting excessive slippage. | `Pool_Swap` re-derives each output on live reserves, asserts the constant-product invariant ([section 5.1](#51-security-invariants)), and binds every fill to the trader's signed input and `minOut`; an off-curve batch fails on-ledger. |
 | Executor partial settlement / `Pool_Swap` bypass | With allocations committed at two registries, a settlement-executor key settles the trader's input batch without the pool's output batch (taking the input), or exercises a settlement factory directly, skipping the curve and reserve update. | The executor authority is reachable only through `dvv`-signed delegation choices calling `Pool_Swap`, which settles both registries in one transaction ([trust topology](#decentralization-and-trust-topology)). A compromised backend can delay or reorder, never partially settle. |
-| Compliance evasion | A non-compliant or unverified party attempts to trade, or a settlement is submitted that was never checked. | The backend screens every party and settlement before submission and logs each decision ([D1 screening](#d1-compliance-through-off-ledger-screening)). Residual: enforcement is operational, not ledger-enforced; mitigated by the audit log and operator supervision. |
+| Compliance evasion | A non-compliant or unverified party attempts to trade, or a settlement is submitted that was never checked. | The backend screens every party and settlement before submission and logs each decision ([D1 screening](#d1-compliance-through-off-ledger-screening)). Residual: enforcement is operational, not ledger-enforced; mitigated by the on-ledger cancel reason codes and the auditor. |
 | Failed SCU rollout | A poorly executed upgrade makes a live `Pool` or pending allocation unusable, or a client selects an unintended package version. | Releases preserve the SCU-compatible surface, define `None` semantics, and test v1 state under the v2 workflow; breaking changes use an explicit migration ([SCU process](#smart-contract-upgrade-process)). |
 | Malicious venue package upgrade | An SCU release deploys choices that abuse the `dvv` party's authority (new delegation shapes, an altered curve). | Upgrades bind at the vetting layer: the `dvv` party's hosting nodes vet only third-party-audited venue DARs, and an upgrade takes effect only once their confirmation threshold accepts it ([SCU process](#smart-contract-upgrade-process)). |
 | Venue Operator swap re-ordering / private MEV | The venue operator sees traders' allocations before batching and can order or delay batch-settlement submissions to its own benefit (e.g. sandwiching a large swap). MEV does **not** disappear on Canton - it moves from a public mempool into the venue operator's private view. | The signed `minOut` bounds every fill; an auditor, where the venue deploys one, makes ordering abuse provable after the fact ([trust topology](#decentralization-and-trust-topology)); fee revenue from honest volume is another mitigation - the venue and its validators earn more from running a good business than from extraction. |
@@ -1054,12 +1074,12 @@ and is an accepted risk of the operator-serialized design.
 | Trader never allocates | nothing on-ledger; the quote simply lapses | trader re-quotes when ready | nothing locked |
 | Trader wants out before the deadline | funds locked until `settlementDeadline` |  deadline lapse + withdraw | `settlementDeadline` |
 | Operator crashes or griefs (never settles) | both legs locked | committed allocations become withdrawable after the deadline (the griefing cap in the [time model](#time-model)) | `settlementDeadline` |
-| Trader's node fails to confirm the batch | the whole batch's settle rejected | backend resubmits without that trader's swaps ([execution model](#execution-model)); the trader re-quotes or withdraws at the deadline | `settlementDeadline` |
+| Trader's node fails to confirm the batch | the whole batch's settle rejected | backend resubmits without that trader's swaps and reports the exclusion in the resubmitted batch ([execution model](#execution-model)); the allocation cannot be cancelled without that node, so the trader withdraws at the deadline, or re-quotes with other funds | `settlementDeadline` |
 | Venue validator out of traffic | venue submissions rejected at the sequencer | traffic top-up and monitoring ([section 6](#6-network-economics-traffic-costs-and-app-rewards)); trader exit unaffected (own validator) | `settlementDeadline` |
 | Synchronizer outage | ledger halted: no one can settle, and no one can withdraw | service resumes; if `settlementDeadline` lapsed during the outage the allocation is withdraw-only | outage duration + `settlementDeadline` |
 | Venue operator or `dvv` party gone permanently | no new settles; LP removal blocked | a lost operator gets a new delegation from the `dvv` party ([authority transfer](#d4-authority-and-privilege-transfer)); a lost `dvv` party is re-homed by its hosting consortium; reserves stranded only if the `dvv` party is unrecoverable | allocations: `settlementDeadline`; reserves: until a successor operates |
 
-Each row becomes a Daml Script test in the RI test suite.
+Each row becomes a Daml Script test in the reference implementation (RI) test suite.
 
 Bounded custody caps the loss, not the inconvenience. A trader whose
 counterparties stall (an operator that
