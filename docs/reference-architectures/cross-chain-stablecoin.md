@@ -894,14 +894,19 @@ carries it from creation. A registry created without that party verifies
 nothing, and every settlement then passes with no attestation
 ([section 4.3](#43-threat-model)).
 
-A withheld compliance attestation leaves no record on the ledger: the
-allocation stands until `br` cancels it or its deadline lapses. Where
-the deployment must show that a credit was denied, and why, `br`
-cancels the allocation on-ledger through `Allocation_Cancel`, with the denial
-reference in the cancel's metadata. The denial then commits under `br`'s
-signature, and the recipient and the wTOK admin see it as stakeholders. Which
-denials the rail records this way, and which stay in the attesters' off-ledger
-compliance log alone, is a policy the deployment states before it goes live.
+A withheld compliance attestation leaves no record on the ledger by itself:
+the allocation stands until `br` cancels it or its deadline lapses. `br`
+therefore cancels the allocation on-ledger through `Allocation_Cancel` as soon
+as the attesters decline, with the denial reference in the cancel's metadata.
+The denial then commits under `br`'s signature, and the recipient and the wTOK
+admin see it as stakeholders. The ledger is the record of a denial because
+provisioning access to an off-ledger compliance log is harder for most
+organizations than reading their own projection of the ledger. The attesters'
+off-ledger compliance log holds the reasoning behind a denial and the one case
+the cancel cannot reach: the recipient signs the allocation, so its participant
+must confirm the cancel, and a recipient whose participant is down neither
+settles nor cancels until it returns ([section
+4.4](#44-failure-modes-and-recovery)).
 
 **D2.** Seizure is a strict lock-and-sweep. A mark locks the allocation, and a
 sweep moves the locked holdings to the preset custodian account. The settlement
@@ -1147,7 +1152,7 @@ not depend on the workflow contract surviving.
 | The attestation expires before settlement | Settlement is blocked | Re-attest within the window, or let the deadline lapse and withdraw | Settlement deadline |
 | The recipient has no allocation preapproval | The delegated accept fails, and nothing is locked | The recipient establishes the preapproval, and `br` retries | Nothing |
 | The pause state is set during an in-flight settlement | Settlement is blocked by the pause state | Clear the pause state, or let the deadline lapse and withdraw ([section 2.3](#23-decentralization-and-trust-topology)) | Settlement deadline |
-| A recipient's participant does not confirm the settlement in time | The whole batch is rejected, and every allocation in it stays pending. The completion tells `br` which party's confirmation timed out, and only the submitter learns that | `br` resubmits the batch without that recipient's legs, and retries the excluded payment on its own until its deadline lapses. Each payment is its own allocation, so an exclusion changes no other payment. A recipient that times out repeatedly is an operational signal and not a safety problem | Settlement deadline |
+| A recipient's participant does not confirm the settlement in time | The whole batch is rejected, and every allocation in it stays pending. The completion tells `br` which party's confirmation timed out, and only the submitter learns that | `br` resubmits the batch without that recipient's legs, and retries the excluded payment on its own until its deadline lapses. Each payment is its own allocation, so an exclusion changes no other payment. A cancel of the excluded allocation needs the same confirmation, so while the participant stays down the denial is recorded in the attesters' off-ledger log and the on-ledger cancel follows once it returns ([section 3.6](#36-control-enforcement)). A recipient that times out repeatedly is an operational signal and not a safety problem | Settlement deadline |
 | `br`'s validator runs out of traffic | The rail halts, because every inbound submission is relayer-paid | Top up the traffic, and monitor it ([section 5.1](#51-traffic-costs)) | Settlement deadline |
 | Synchronizer outage | The ledger is halted, so no one can settle and no one can withdraw | Service resumes. An allocation whose deadline lapsed during the outage is withdraw-only | Outage duration plus settlement deadline |
 | Marked for seizure, never swept | The settle, withdraw, and cancel choices are all blocked | The admin lifts the mark, or any stakeholder releases it once the window lapses | Seizure window end, itself capped by the maximum seizure extension |
@@ -1159,9 +1164,10 @@ and a lawful-process reference.
 settle, because its attestation expired, its lock already credited, or its
 compliance attestation was withheld, should not wait for its deadline. The
 `br`, as the allocation's executor, cancels it through
-`Allocation_Cancel` as soon as the outcome is known, so the pending state
-clears at once and the recipient's wallet sees a closed allocation rather than
-a lapsed one.
+`Allocation_Cancel` as soon as the outcome is known, with the reason in the
+cancel's metadata ([section 3.6](#36-control-enforcement)), so the pending
+state clears at once and the recipient's wallet sees a closed allocation with a
+stated cause rather than a lapsed one.
 
 **Duplicate submission across relayer hosts.** `br` is multi-hosted on
 several participants ([section 2.3](#23-decentralization-and-trust-topology)),
@@ -1311,7 +1317,7 @@ activation vote.
 | **Deadline values.** [Section 3.5](#35-time-and-deadlines) names the ceilings and sets no values. Open: the allocation lifetime, the attestation validity, the seizure extension, the margin between external-chain finality and Canton ledger time, the attester turnaround, and how long an attester waits past an expired attestation before it signs a refund statement. | The registry stamps its ceilings at creation ([section 3.5](#35-time-and-deadlines)) | Every deployment, because those ceilings are stamped once | Medium |
 | **Reclaim after an expired inbound flow.** An inbound allocation becomes withdrawable when the settlement deadline lapses, and no component of this design withdraws it. Open: who runs that reclaim, because an automated handler needs the authority of the executor or of the leg's authorizer. | The allocation becomes withdrawable after the deadline, with no automated handler | The reclaim automation and its authority model | Medium |
 | **Fee model.** The rail's traffic is relayer-paid, and app rewards pay confirmers and not submitters ([section 5.2](#52-app-rewards)). Open: whether the rail charges a fee, and whether it is a fee leg settled inside the inbound batch, an off-ledger invoice, or an operator subsidy. A fee leg changes the amount the recipient receives, so the attested message and the preapproval have to carry it. | No fee. The reward is the only income | Whether the `br` operation is fundable, and the shape of the preapproval if a fee leg is chosen | Medium, an economic decision that reaches into the preapproval and the attested message |
-| **Who holds the featured app right.** CIP-0104 pays the parties that confirm a request, and `ga` confirms only the gateway transaction. Open: whether the right sits with `ga`, the wTOK admin, or the relay set. Open too: how the holder points each round's rewards at the parties that paid the traffic. | `ga` holds the right, and the rail earns nothing until the vote passes ([section 5.2](#52-app-rewards)) | Who earns each round, and no code | Low, an attribution choice and not a mechanism |
+| **Who holds the featured app right.** CIP-0104 pays the parties that confirm a request, and `ga` confirms only the gateway transaction. Open: whether the right sits with `ga` or the relay set. Open too: how the holder points each round's rewards at the parties that paid the traffic, and how the answer changes in case a [proposed CIP-0104 amendment](https://github.com/canton-foundation/cips/pull/262/changes) that credits the submitting featured app is live. | `ga` holds the right, and the rail earns nothing until the vote passes ([section 5.2](#52-app-rewards)) | Who earns each round, and no code | Low, an attribution choice and not a mechanism |
 
 **Composability with the other reference architectures** needs no new mechanism.
 A recipient that holds an instrument settled here can supply a
