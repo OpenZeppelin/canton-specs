@@ -245,11 +245,11 @@ the executor authority. One hosting candidate is the [covalidation service provi
 
 **A minimal viable deployment.**
 
-| Organization | For the `dvv` party | For the `vo` party | Other responsibilities |
+| Organization | Hosts the `dvv` party (confirmation threshold 2 of 3) | For the `vo` party | Other responsibilities |
 |---|---|---|---|
-| Venue operator | hosts and confirms (1 of 3) | hosts it; sole submitter of venue flows | halting the venue; applies compliance gate and publishes log |
-| Venue validator A (covalidation offering) | hosts and confirms (1 of 3) | - | - |
-| Venue validator B (covalidation offering) | hosts and confirms (1 of 3) | - | - |
+| Venue operator | yes, confirming | hosts it; sole submitter of venue flows | halting the venue; applies compliance gate; records exclusion causes ([D1 screening](#d1-compliance-through-off-ledger-screening)) |
+| Venue validator A (covalidation offering) | yes, confirming | - | - |
+| Venue validator B (covalidation offering) | yes, confirming | - | - |
 
 The `dvv` confirmation threshold of 2 of 3 means breaking the guarantees it
 checks takes two colluding organizations; revoking the operator's
@@ -260,11 +260,14 @@ LPs stay outside the venue consortium, on their own organizations' nodes.
 Larger deployments grow along the same lines: more covalidation
 organizations hosting `dvv` and a higher confirmation threshold.
 
-The optional **auditor** will combine its own projection of the `dvv` party with the
-venue's shared off-ledger transaction log
-([D1 screening](#d1-compliance-through-off-ledger-screening)) to validate
-that swaps are only dropped honestly. The operator will
-cancel the allocations (`Allocation_Cancel`) of swaps that exceed the accepted slippage.
+The optional **auditor** validates from its own projection of the `dvv` party
+that swaps are only dropped honestly. The operator cancels the allocations
+(`Allocation_Cancel`) of swaps that fail screening or exceed the accepted
+slippage, and each cancel carries a coarse reason code in its choice metadata
+(`extraArgs.meta`, under a documented key), so the auditor needs no data feed
+beyond the ledger ([D1 screening](#d1-compliance-through-off-ledger-screening)).
+Sharing the venue's off-ledger transaction log with the auditor is a
+complement.
 
 **Halting.** The venue pauses trading in cases of need: the operator stops
 submitting. In-flight traders reclaim their
@@ -535,8 +538,10 @@ Assumptions:
 - Command deduplication (24h) makes backend crash-restart safe: re-submitting
   a settle cannot double-execute. Additionally, a batch swap can not execute twice due to not having the necessary funds and allocations.
 - A batch that fails because one trader's node does not confirm in time will
-  be resubmitted without that trader's swaps; the exclusion and its cause
-  land in the venue's shared transaction log.
+  be resubmitted without that trader's swaps; the excluded allocations will be
+  cancelled (`Allocation_Cancel`) with a reason code in the choice metadata,
+  so the exclusion and its cause are on-ledger
+  ([D1 screening](#d1-compliance-through-off-ledger-screening)). If the trader's participant node fails to confirm this transaction as well, the operator will log this failure, off-ledger, and report it to the auditor through other means. 
 
 **Batch formation.** CIP-0112 requires the settlement value to
 [match across every allocation in a batch](https://github.com/canton-network/splice/blob/22e775d614ad67af0290380ae4ab07dd2dceb62d/token-standard/splice-api-token-allocation-v2/daml/Splice/Api/Token/AllocationV2.daml#L413-L420);
@@ -658,8 +663,9 @@ Consequences:
   the current `Pool`.
 - **The venue operator sees everything.**
 - **No compliance data on ledger.** Identity and check results live in the
-  operator's off-ledger KYC/KYB and compliance systems; no PII or compliance evidence
-  touches the immutable ledger, so the right-to-erasure conflict does not
+  operator's off-ledger KYC/KYB and compliance systems. The only on-ledger
+  trace is an enumerated reason code on a cancelled allocation, carrying no
+  PII and no screening detail, so the right-to-erasure conflict does not
   arise, and no third party learns who was screened or why.
 - **The optional auditor sees what the `dvv` sees.** Observation-mode hosting of
   `dvv` is a deliberate disclosure that turns the venue's private
@@ -670,7 +676,7 @@ Consequences:
 
 Institutional DeFi requires that sanctioned or unverified parties cannot trade. The design enforces this **off-ledger, at the venue backend**: the backend will run custom checks on each party and settlement - through the compliance systems the operator already runs - before submitting; no attester party, attestation contract, or on-ledger registry will be operated. The gate covers every trade path because the `dvv` party is the **sole settlement executor**, exercised only through the operator's delegated submissions.
 
-The trade-off is explicit: compliance is an operational guarantee of the venue, not a ledger-enforced one - a compromised or negligent operator can submit an unscreened settlement, and the ledger records no per-settlement compliance evidence ([section 5.3](#53-threat-model)) - so every screening decision must land in the venue's shared off-ledger transaction log, accessible to the **auditor**. A funded allocation that fails screening is cancelled on-ledger (`Allocation_Cancel`) rather than silently skipped, so the operator commits publicly to the exclusion and its timing.
+The trade-off is explicit: compliance is an operational guarantee of the venue, not a ledger-enforced one - a compromised or negligent operator can submit an unscreened settlement, and the ledger holds no evidence that a settled swap was screened ([section 5.3](#53-threat-model)) - so every screening decision must be checkable by the **auditor**. A funded allocation that fails screening is cancelled on-ledger (`Allocation_Cancel`) rather than silently skipped, with the cause as a coarse reason code in the choice metadata (`extraArgs.meta`, under a documented key). The exclusion and its timing are then visible to the trader and to the auditor, and to nobody else.
 
 ### D2: Seizure
 
@@ -982,7 +988,7 @@ containment boundaries.
   - Any trader participating in the liquidity pool should have visibility only over their holdings, as well as the transfer legs they are a sender and receiver in.
 - **Auditability**:
   - Every committed swap is independently verifiable by the auditor from its own node's projection: curve math, the trader's signed `minOut` bound, and arrival-order batch composition ([trust topology](#decentralization-and-trust-topology)).
-  - Every exclusion from a batch is recorded with its cause in the venue's shared transaction log, verifiable by the auditor.
+  - Every exclusion from a batch is recorded on-ledger as an `Allocation_Cancel` carrying its reason code, verifiable by the auditor from its own projection. If a batch failed due to the trader's participant node not confirming, the swap will be excluded and the operator will log this off-ledger, to share with the auditor.
 
 ### 5.2 Validation strategy
 
