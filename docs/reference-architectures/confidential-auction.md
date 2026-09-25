@@ -26,6 +26,8 @@ and each bid's authorizers receive the disclosures needed for their roles.
 Registry rules govern asset visibility. The application checks bidder eligibility
 at acceptance and before awarding tokens.
 
+See the [auction lifecycle](#22-auction-lifecycle) for an overview of the workflow.
+
 The registries use [Token Standard V2](https://github.com/canton-foundation/cips/blob/6f37c896a5a76ec3bc1aa67bc045623ae5df41e5/cip-0112/cip-0112.md)
 **allocations** to authorize movements and reserve holdings when needed.
 **Committed allocations** restrict withdrawal of allocated funds until the
@@ -390,6 +392,11 @@ A payment lock reveals the bid's maximum payment amount to the parties that
 can see it, even when they cannot read the bid contract.
 [Canton Coin movements are public](https://github.com/canton-foundation/cips/blob/6f37c896a5a76ec3bc1aa67bc045623ae5df41e5/cip-0112/cip-0112.md#431-configurable-executors-and-batch-settlement-via-settlementfactory)
 even when bid records are private.
+
+Acceptance numbers reveal how many bids were accepted earlier in the round.
+Parties that see multiple accepted bids can compare their numbers and timing to
+infer acceptance activity, even when other bids' prices and quantities remain
+private. Acceptance order does not reveal when requests reached the operator.
 
 The clearing rule determines the result. The closed round's private list
 determines which bids must be included. Together they prevent omissions,
@@ -763,8 +770,8 @@ leg IDs, and complete sender/receiver coverage without extra or missing sides.
 The clear supplies the exact legs and finalized allocations produced by the
 validated result. Where D1 applies, the factory must verify and consume an
 approval binding the full `SettlementInfo`, including `cid` and `meta`, and the
-exact legs. This prevents approval reuse for another round with the same textual
-batch ID and movements.
+exact legs. This prevents an approval for one round from being used in another,
+even if both use the same textual batch ID and movements.
 
 The [reference approval contract](https://github.com/OpenZeppelin/canton-contracts/blob/7696749737885e25cd88422847105f890f03b00d/experiments/token/tokenCIP112-v1/daml/OpenZeppelin/TokenCIP112V1/D1.daml)
 checks `settlement.id`, executors, exact legs, trusted attester, and validity. It
@@ -789,10 +796,15 @@ or the current registry seizure state. The aggregate record retains the
 accepted count, price, total sold, total payments, and unsold supply for issuer,
 `av`, and operator. Monetary totals use the sum of individually rounded payments.
 
-A zero-fill bid's finalization records its outcome without cancelling its lock.
-This also covers a live marked payment allocation: fetching its status is
-distinct from performing a prohibited asset movement. The outcome is not a
-claim that a refund has completed. The bidder and account parties may still be
+A zero-fill bid's finalization records its outcome and leaves its lock for
+separate recovery, keeping those cancellation operations outside the atomic
+clear. After clear commits, the operator can use delegated `av` authority to
+cancel an unmarked lock without waiting for the settlement deadline, subject
+to registry rules.
+
+For a live marked payment allocation, fetching its status is distinct from
+performing a prohibited asset movement. The outcome is not a claim that a
+refund has completed. The bidder and account parties may still be
 needed to confirm that outcome branch, so exclusion does not solve participant
 unavailability.
 
