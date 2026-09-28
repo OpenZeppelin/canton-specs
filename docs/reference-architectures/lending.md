@@ -113,47 +113,40 @@ Three layers carry these axes: **organizations** (the legal entities that operat
 ## 2. Architecture Overview
 
 The two block diagrams below show the main components of the target
-architecture; the table that follows maps each block to its source. Solid
-edges are on-ledger interactions, dashed edges are off-ledger or optional.
+architecture; the table that follows maps each block to its source.
 
 The first diagram shows the actors, the venue's own contracts, and the external components they touch:
 
 ```mermaid
 flowchart TB
     Consortium([dvv])
-    Provider([Oracle provider])
+    Operator([Venue operator, vo])
+    Funder([Treasury funder])
     Borrower([Borrower])
     Liquidator([Liquidator])
-    Funder([Treasury funder])
-    Operator([Venue operator, vo])
+    Provider([Oracle provider])
 
     subgraph Target["Lending venue"]
         Factory["PositionFactory<br/>signed: dvv"]
-        Position[["Position<br/>signed: dvv + borrower"]]
-        Collateral[("Collateral holdings<br/>owned by dvv, one per position")]
+        Position[["Position<br/>signed: dvv, observed by borrower"]]
         Treasury[["Treasury<br/>signed: dvv, holding owned by dvv"]]
+        Collateral[("Collateral holdings<br/>owned by dvv, one per position")]
     end
 
     Oracle[["Price oracle (external)"]]
-    Registries["CIP-0112 registries<br/>(debt token + collateral)"]
-    Attester([Compliance attester])
-    Oracle ~~~ Attester
 
-    Consortium -->|"configure parameters,<br/>attester and issuer lists"| Factory
-    Provider -->|"publish updates"| Oracle
+    Consortium -->|"configure"| Factory
     Operator -->|"pause, unpause"| Factory
-    Operator -.->|"discloses terms and capacity,<br/>monitors positions"| Factory
-    Funder -->|"fund and defund liquidity,<br/>withdraw accrued fees"| Treasury
+    Funder -->|"fund, defund"| Treasury
     Borrower -->|"create position"| Factory
     Factory -->|"creates"| Position
     Borrower -->|"deposit, borrow,<br/>repay, close"| Position
     Liquidator -->|"liquidate"| Position
-    Attester -.->|"attestation (optional)"| Position
+    Provider -->|"publish"| Oracle
     Position -->|"abort if paused"| Factory
-    Position -->|"fresh price"| Oracle
-    Position -->|"borrow: draw liquidity;<br/>repay: return payment"| Treasury
-    Position ==>|"deposit and release collateral"| Collateral
-    Position -->|"all transfers ride the<br/>registries' holdings"| Registries
+    Position -->|"read price"| Oracle
+    Position -->|"draw, repay"| Treasury
+    Position ==>|"deposit, release"| Collateral
 ```
 
 The second shows the components the position choices depend on, grouped by
@@ -222,7 +215,7 @@ network structure
 ([Background](#background-how-to-think-about-building-a-lending-protocol-on-canton)):
 
 - **Decentralized Venue Validation (`dvv`)** - signs all venue state (the
-  `PositionFactory`, every `Position` with its borrower, the `Treasury`, and the
+  `PositionFactory`, every `Position`, the `Treasury`, and the
   compliance registries) and owns every holding the venue controls: the
   treasury holding and one collateral holding per position. It sets the venue's
   operational parameters (`PositionParams`, the liquidator set, the oracle
@@ -243,7 +236,7 @@ network structure
 - **Borrower** - an end-user locking collateral and drawing debt;
   only the borrower can commit their own holdings as collateral.
 - **Liquidator** - observes positions, monitors solvency from its own
-  projection, as well as exercises liquidations ([liquidation threshold](#liquidation-threshold)).
+  projection, as well as exercises liquidations ([the CDP math](#the-cdp-math)).
 - **Oracle Provider** - the external organization publishing the price
   contract the positions read; `dvv` selects it against the requirements of
   [section 4.4](#44-dependency-price-oracle).
@@ -261,7 +254,7 @@ oracle provider's price contract must be visible, by observership or disclosure,
 every party that submits a price-dependent choice and to `dvv`; the
 `PositionFactory` terms and the `Treasury`'s available
 liquidity reach prospective borrowers through explicit disclosure served by
-`vo`; each `Position` is visible to its signatories (`dvv` and borrower) and
+`vo`; each `Position` is visible to `dvv`, its borrower, and
 its designated liquidators, so `dvv`'s nodes and the operator backend see
 every position while no borrower sees another's.
 
@@ -311,7 +304,7 @@ raise the threshold.
 is instant. The price is griefing: a malicious operator can freeze the venue's
 flows, though no funds are stranded and everything resumes when the pause
 lifts; a pause in a falling market is an open question
-([section 7](#7-open-design-questions)).
+([section 7](#7-open-design-questions-for-the-implementation-phase)).
 
 ### The CDP Math
 
@@ -342,7 +335,7 @@ debtRepaid <= repayCap
 Taking each element of the codeblock in turn:
 
 - **Proportional seizure.** `debtRepaid` is the amount the liquidator's own exercise pays into the treasury in the same transaction, never the position's full accrued debt, so a liquidator can never take more collateral than their payment (plus bonus) buys.
-- **Restorable position (`collateralRatio > 1 + liquidationBonus`).** Repaying `x` reduces the debt to `accruedDebt - x` and the collateral value to `collateralAmount · price - x · (1 + liquidationBonus)`. While the ratio sits above `1 + liquidationBonus`, every such repayment raises it, so the position can be cured. `restoreAmount` is the exact `x` that brings the ratio back to `minCollateralRatio`, and it caps the payment: a smaller `debtRepaid` moves the position partway back to health, one equal to `restoreAmount` restores it fully, and the choice rejects anything larger, so a liquidation never repays or seizes more than the cure requires. The restore target is `minCollateralRatio` rather than `liquidationRatio`, so a cured position lands inside the cure buffer instead of on the liquidation boundary.
+- **Restorable position (`collateralRatio > 1 + liquidationBonus`).** Repaying `x` reduces the debt to `accruedDebt - x` and the collateral value to `collateralAmount · price - x · (1 + liquidationBonus)`. While the ratio sits above `1 + liquidationBonus`, every such repayment raises it, so the position can be cured. `restoreAmount` is the exact `x` that brings the ratio back to `minCollateralRatio`, and it caps the payment: a smaller `debtRepaid` moves the position partway back to health, one equal to `restoreAmount` restores it fully, and the choice rejects anything larger, so a liquidation never repays or seizes more than the cure requires. The restore target is `minCollateralRatio` rather than `liquidationRatio`, so a cured position lands inside the cure buffer instead of on the liquidation boundary. A partial liquidation that leaves the position unhealthy can be liquidated again immediately.
 - **Underwater position (`collateralRatio <= 1 + liquidationBonus`).** No repayment can restore health, so the cap becomes what the remaining collateral can pay for: the pass seizes all of it, writes the uncovered remainder off against the treasury as bad debt, and closes the position, so no zero-collateral position survives.
 - **Well-definedness.** Venue configuration requires `minCollateralRatio > liquidationRatio > 1 + liquidationBonus`. The first gap is the borrower's cure buffer; the second keeps the restorable regime reachable, so a newly liquidatable position can still be partially cured; and the chain keeps `restoreAmount`'s denominator positive and its value within what the collateral supports.
 
@@ -356,18 +349,14 @@ The diagrams below show the five position flows: **A** creation and collateral d
 flowchart TD
     Borrower([Borrower])
     Compliance(["Compliance gate"])
-    Factory["PositionFactory"]
+    Choice["PositionFactory_CreatePosition<br/>(first deposit)<br/>or<br/>Position_DepositCollateral<br/>(top-up)"]
     Position[["Position"]]
     Collateral[("Collateral holding<br/>owned by dvv")]
 
-    Borrower ==>|"first deposit:<br/>PositionFactory_CreatePosition"| Factory
-    Borrower ==>|"later deposits:<br/>Position_DepositCollateral"| Position
-    Compliance -->|"gates"| Factory
-    Compliance -->|"gates"| Position
-    Factory ==>|"transfer initialCollateral<br/>into a new holding"| Collateral
-    Factory -->|"creates, referencing<br/>the holding"| Position
-    Position ==>|"transfer depositAmount<br/>into the holding"| Collateral
-    Position -.->|"archive + recreate:<br/>collateralAmount += depositAmount"| Position
+    Borrower ==>|"presents the<br/>collateral holding"| Choice
+    Compliance -->|"gates"| Choice
+    Choice ==>|"transfer amount<br/>into the holding"| Collateral
+    Choice -.->|"create, or archive + recreate:<br/>collateralAmount += amount"| Position
 ```
 
 **B. Borrow (treasury draw coupled to debt).** The position checks compliance, reads the current price, checks the treasury's un-borrowed liquidity, and asserts that the collateral covers the new debt; if so, it draws the tokens to the borrower and records the higher debt.
@@ -381,10 +370,10 @@ flowchart TD
     Treasury[["Treasury"]]
     Coin["Debt-token holding"]
 
-    Borrower ==>|"Position_Borrow"| Position
+    Borrower ==>|"Position_Borrow (amount)"| Position
     Compliance -->|"gates, checked<br/>inline"| Position
     Oracle -->|"assert fresh price;<br/>solvency check"| Position
-    Position ==>|"draw borrowAmount<br/>availableAmount -= borrowAmount,<br/>debtAmount += borrowAmount"| Treasury
+    Position ==>|"draw amount:<br/>availableAmount -= amount,<br/>debtAmount += amount"| Treasury
     Treasury ==>|"release from<br/>the treasury holding"| Coin
     Coin -->|"to borrower"| Borrower
 ```
@@ -392,16 +381,15 @@ flowchart TD
 **C. Repay.** `Position_Repay` transfers the payment from the borrower's wallet into the treasury and records the lower debt. No quote step is needed: accrual is deterministic and the borrower sees the position, so the user interface computes the exact payoff itself.
 
 ```mermaid
-flowchart TD
+flowchart LR
     Borrower([Borrower])
     Compliance(["Compliance gate"])
-    Position[["Position"]]
-    Treasury[["Treasury"]]
+    Position[["Position<br/>archive + recreate:<br/>debtAmount -= amount"]]
+    Treasury[["Treasury<br/>availableAmount += principal,<br/>feesAccrued += interest"]]
 
-    Borrower ==>|"Position_Repay<br/>(presents the payment)"| Position
+    Borrower ==>|"Position_Repay (amount)"| Position
     Compliance -->|"gates"| Position
-    Position ==>|"transfer payment in:<br/>availableAmount += principal,<br/>feesAccrued += interest"| Treasury
-    Position -.->|"archive + recreate:<br/>debtAmount -= payment"| Position
+    Position ==>|"transfer<br/>payment in"| Treasury
 ```
 
 **D. Close.** `Position_Close` winds down a fully repaid position, returning the remaining collateral to the borrower and archiving the `Position`. A one-shot exit submits repay and close in a single command, and the pair commits atomically.
@@ -454,25 +442,32 @@ sequenceDiagram
     autonumber
     participant B as Borrower
     participant P as Position
+    participant F as PositionFactory
+    participant C as Compliance contracts
     participant O as Price oracle
     participant T as Treasury
     participant R as Debt-token registry
 
     rect rgb(240, 248, 255)
-    Note over B, R: Position_Borrow - one Daml tx
-    B->>P: Position_Borrow (borrowAmount)
+    Note over B, R: Position_Borrow - one Daml tx, all or nothing
+    B->>P: Position_Borrow (amount, kycClaimCid, attestationCid)
     activate P
-    P->>P: abort if paused (PositionFactory flag), then compliance gate
+    P->>F: fetch by key, whenNotPaused
+    P->>C: fetch KycClaim (unexpired, issuer listed) and consume the attestation if the gate is enabled
     P->>O: read price (assert instruments + freshness)
-    P->>P: accrueDebt, assert solvency with debtAmount += borrowAmount
-    P->>T: archive + recreate: assert liquidity, availableAmount -= borrowAmount
-    T->>R: transfer borrowAmount from the treasury holding to the borrower (TransferFactory)
-    R-->>B: holding credited (registry implementation, EventLog)
-    R-->>T: remainder is the new treasury holding (cid recorded)
-    P->>P: archive old Position, create new (debtAmount += borrowAmount)
+    P->>P: accrueDebt
+    alt collateral does not cover debtAmount + amount at minCollateralRatio
+        P-->>B: abort, nothing changes
+    else solvent
+        P->>T: archive + recreate: assert availableAmount >= amount, availableAmount -= amount
+        T->>R: transfer amount from the treasury holding to the borrower (TransferFactory)
+        R-->>B: holding credited (registry implementation, EventLog)
+        R-->>T: remainder is the new treasury holding (cid recorded)
+        P->>P: archive old Position, create new (debtAmount += amount)
+        P-->>B: newPositionCid
+    end
     deactivate P
     end
-    P-->>B: newPositionCid
 ```
 
 5. **Repay.** `Position_Repay` transfers the payment into the treasury and reduces `debtAmount`.
@@ -484,33 +479,39 @@ sequenceDiagram
     autonumber
     participant L as Liquidator
     participant P as Position
+    participant F as PositionFactory
+    participant C as Compliance contracts
     participant O as Price oracle
     participant T as Treasury
     participant RD as Debt-token registry
     participant RC as Collateral registry
 
     rect rgb(240, 248, 255)
-    Note over L, RC: Position_Liquidate - one Daml tx
-    L->>P: Position_Liquidate (debtRepaid, payment holding)
+    Note over L, RC: Position_Liquidate - one Daml tx, all or nothing
+    L->>P: Position_Liquidate (debtRepaid, payment holding, attestationCid)
     activate P
-    P->>P: abort if paused (PositionFactory flag), then compliance gate on the liquidator
+    P->>F: fetch by key, whenNotPaused
+    P->>C: require a designated liquidator and consume the attestation if the gate is enabled
     P->>O: read price (assert instruments + freshness)
-    P->>P: accrue, assert collateralRatio < liquidationRatio
-    P->>P: assert debtRepaid <= health-restore cap
-    P->>P: collateralToSeize = debtRepaid*(1+bonus)/price (capped)
-    P->>T: Treasury_AcceptPayment: availableAmount += principal, feesAccrued += interest
-    T->>RD: transfer the liquidator's payment into the treasury holding
-    P->>RC: release collateralToSeize from the collateral holding to the liquidator
-    RC-->>L: holding credited (registry implementation, EventLog)
-    alt full seizure leaves residual debt
-        P->>T: Treasury_WriteOff: badDebtWrittenOff += remainingDebt
-        P->>P: archive old Position, no successor
-    else position survives
-        P->>P: archive old Position, create new (debtAmount -= debtRepaid, collateralAmount -= collateralToSeize)
+    P->>P: accrueDebt
+    alt collateralRatio >= liquidationRatio, or debtRepaid above the health-restore cap
+        P-->>L: abort, nothing changes
+    else liquidatable
+        P->>P: collateralToSeize = debtRepaid*(1+bonus)/price (capped)
+        P->>T: Treasury_AcceptPayment: availableAmount += principal, feesAccrued += interest
+        T->>RD: transfer the liquidator's payment into the treasury holding
+        P->>RC: release collateralToSeize from the collateral holding to the liquidator
+        RC-->>L: holding credited (registry implementation, EventLog)
+        alt full seizure leaves residual debt
+            P->>T: Treasury_WriteOff: badDebtWrittenOff += remainingDebt
+            P->>P: archive old Position, no successor
+        else position survives
+            P->>P: archive old Position, create new (debtAmount -= debtRepaid, collateralAmount -= collateralToSeize)
+        end
+        P-->>L: Optional newPositionCid
     end
     deactivate P
     end
-    P-->>L: Optional newPositionCid
 ```
 
 **Monitoring.** The operator backend and the liquidator keepers work from
@@ -543,15 +544,13 @@ treasury bill) are compatible. Because `dvv` signs every `Position` and owns
 the holdings, a position choice already carries the authority to transfer
 them: no flow waits on a receiver acceptance or a settlement counterparty.
 
-**Direct-transfer assumption.** Every flow relies on the instruments'
-registries supporting a transfer that completes under exactly that in-choice
-authority. A registry that interposes its own asynchronous step, such as a
-registrar acceptance or a pending state resolved by registry automation,
-still integrates, but its legs split in two: the position transaction issues
-the instruction, and the asset arrives when the registry's step lands. That
-split breaks single-transaction atomicity for deposits, borrows, and
-repayments, so both instruments should support direct transfer under
-account-owner authority.
+**Instant-transfer requirement.** Every flow requires both registries to
+complete a transfer under that in-choice authority, in the same transaction.
+A registry that interposes its own asynchronous step, such as a registrar
+acceptance or a pending state resolved by registry automation, would split
+the flow in two and break its atomicity, so such an instrument is not
+supported; the venue verifies instant direct transfer under account-owner
+authority before listing an instrument.
 
 **Accounting equals holdings.** The `Position`'s `collateralAmount` and the
 `Treasury`'s figures are `Decimal` accounting; the value lives in TSv2
@@ -572,7 +571,7 @@ carrying the accounting: `availableAmount`, the un-borrowed liquidity;
 funder's recognized losses. The funder provisions it with `Treasury_Fund`
 and reclaims un-borrowed liquidity and revenue with `Treasury_Defund`.
 
-Every payment on repay, close, or liquidation is `principal + accrued
+Every payment on repay or liquidation is `principal + accrued
 interest` and transfers into the treasury in full: the principal portion
 replenishes `availableAmount`, immediately borrowable again, and the
 interest portion accrues to `feesAccrued`, the funder's revenue. Borrow
@@ -591,18 +590,6 @@ the `Treasury` the venue's serialization point
 independent liquidity providers is an extension
 ([extension points](#extension-points)).
 
-### Liquidation Threshold
-
-Below `minCollateralRatio` a position can no longer borrow or withdraw; below
-`liquidationRatio` any designated liquidator may liquidate it. The gap
-between the two is the borrower's cure buffer: a price move has to cross it
-before liquidation becomes possible, and the borrower, who sees the position
-and the oracle, tops up or repays in that window. There is no public mempool,
-so a top-up and a liquidation that race on the same position are serialized
-by the ledger, and the loser retries against the new state. A partial
-liquidation that leaves the position unhealthy can be liquidated again
-immediately.
-
 ### Compliance is Re-checked on Every Operation
 
 The **compliance gate** has two layers. Identity: a borrower holds a
@@ -612,8 +599,7 @@ it live, so an archived claim or a delisted issuer blocks those flows
 immediately. Attestation, optional per deployment: when `PositionParams`
 names a trusted-attester registry, every flow except close consumes one
 single-use attestation inline, fail-closed. Both lists are `dvv`
-configuration ([trust topology](#decentralization-and-trust-topology)); the
-Shape B experiment demonstrates the claim checks.
+configuration ([trust topology](#decentralization-and-trust-topology)).
 
 Winding a position down never depends on the borrower's standing: repay and
 close reduce risk, and liquidation checks the liquidator's compliance, so a
@@ -752,11 +738,9 @@ the formulas of [the CDP math](#the-cdp-math).
 
 The `PositionFactory` is the venue's standing position-creation offer: a
 `dvv`-signed contract carrying the terms (`PositionParams` and the instrument
-pair) and the venue's `paused` flag, which every gated choice reads by key
-and `vo` flips. A borrower creates their position unilaterally; creation
+pair) and the venue's `paused` flag. A borrower creates their position unilaterally; creation
 transfers the initial deposit to `dvv` in the same transaction, so a position
-is never created empty, and the borrower's wallet pre-splits the presented
-holding to exactly `initialCollateral`.
+is never created empty.
 
 ```daml
 template PositionFactory
@@ -798,7 +782,7 @@ template PositionFactory
 
 ### 4.2 Component: Position State and Liquidation
 
-The `Position` holds one borrower's CDP state; its consuming choices archive it and recreate the successor with updated figures.
+The `Position` holds one borrower's CDP state; its consuming choices archive it and recreate the successor with updated figures. `dvv` is its only signatory and the borrower an observer, so liquidation needs no confirmation from the borrower's node and a silent or unvetted borrower cannot stall it. The borrower's own choices run under their controller authority, and their protection is the choice logic plus the `dvv` threshold, as for the collateral itself.
 
 ```daml
 template Position
@@ -815,8 +799,8 @@ template Position
     params : PositionParams
     lastAccrualTime : Time
   where
-    signatory dvv, borrower
-    observer params.liquidators
+    signatory dvv
+    observer borrower, params.liquidators
     key (dvv, borrower, positionId) : (Party, Party, Text)
     maintainer key._1
 
@@ -851,8 +835,6 @@ The `Treasury` fronts the venue's borrow liquidity ([the treasury](#the-treasury
 - **`Treasury_Defund`** (controller: the funder) reclaims accrued fees and un-borrowed liquidity, drawing `feesAccrued` down first. It is bounded by `availableAmount + feesAccrued`, so it can never touch lent-out principal, which sits with borrowers.
 - **`Treasury_AcceptPayment`** (controllers: the payer and `dvv`) transfers a repayment or liquidation payment into the holding, replenishing `availableAmount` by the principal portion and accruing the interest portion to `feesAccrued`. It is exercised from inside `Position_Repay` and `Position_Liquidate`, where the payer signs as the enclosing choice's controller.
 - **`Treasury_WriteOff`** (controller: `dvv`, exercised from inside `Position_Liquidate`) records unrecoverable debt in `badDebtWrittenOff` when a full seizure leaves residual debt. It moves no holdings: the written-off principal simply never returns to `availableAmount`, making the funder's loss explicit on-ledger.
-
-The borrow path deliberately has no choice of its own: `Position_Borrow` archives and recreates the `Treasury` directly, under the `dvv` authority it already carries, decrementing `availableAmount` and releasing the tokens only after its own solvency check passes. With no callable draw surface, liquidity leaves the treasury only inside the borrow flow or through the funder's defund.
 
 ### 4.4 Dependency: Price Oracle
 
@@ -915,14 +897,14 @@ authority and validation failure path, in the style of the token standard's
 | Oracle manipulation by a compromised publisher | A single oracle party sets the price near zero and a colluding liquidator seizes every position. | The provider must meet the no-single-writer and bounded-moves requirements before selection ([section 4.4](#44-dependency-price-oracle)); the operator monitors the feed and pauses on a suspect one. |
 | Oracle staleness | A stalled feed drives liquidations or borrows against a dead price. | Every price-dependent choice rejects when `now - updatedAt > maxStaleness`. |
 | Under-paying liquidator | The liquidator supplies a tiny debt-token amount and seizes the whole position. | Seizure is bound on-ledger to the payment the liquidator's own exercise makes into the treasury: `collateralToSeize = min(collateralAmount, debtRepaid · (1 + bonus) / price)` ([the CDP math](#the-cdp-math)). |
-| Liquidation racing the borrower's top-up | A liquidation lands before the borrower can top up. | The buffer between `minCollateralRatio` and `liquidationRatio` is the borrower's warning zone ([liquidation threshold](#liquidation-threshold)); there is no public mempool to front-run in, and a top-up and a liquidation on the same position serialize on the ledger, the loser retrying against the new state. |
+| Liquidation racing the borrower's top-up | A liquidation lands before the borrower can top up. | The buffer between `minCollateralRatio` and `liquidationRatio` is the borrower's warning zone ([the CDP math](#the-cdp-math)); there is no public mempool to front-run in, and a top-up and a liquidation on the same position serialize on the ledger, the loser retrying against the new state. |
 | Under-funded transfer leg | An under-funded deposit, repayment, or liquidation exercise attempts a broken operation. | Daml atomicity: the whole transaction reverts, collateral stays where it was, no debt is cleared. |
-| Bad debt on a deeply under-water position | Collateral is worth less than debt, creating a shortfall. | The final liquidation pass seizes all remaining collateral, records the shortfall in `badDebtWrittenOff`, and closes the position; the funder's capital absorbs the loss ([section 7](#7-open-design-questions) on a dedicated buffer). |
+| Bad debt on a deeply under-water position | Collateral is worth less than debt, creating a shortfall. | The final liquidation pass seizes all remaining collateral, records the shortfall in `badDebtWrittenOff`, and closes the position; the funder's capital absorbs the loss ([section 7](#7-open-design-questions-for-the-implementation-phase) on a dedicated buffer). |
 | Compliance evasion, including post-open drift | A borrower bypasses KYC, or becomes non-compliant after opening. | The compliance gate runs on every risk-increasing choice, fail-closed ([compliance](#compliance-is-re-checked-on-every-operation)); repay, close, and liquidation stay open so a position is never trapped. |
 | Unauthorized `dvv` or operator action | An attacker controlling one `dvv` hosting node, or the operator backend, tries to drain the treasury or the collateral. | `dvv` confirms at a threshold above 1, so a single node exercises nothing, and even an `f + 1` collusion is bounded by the holdings the venue controls ([section 5.1](#51-security-invariants)); `vo` holds no venue authority beyond the pause. |
 | Failed SCU rollout | A poorly executed upgrade renders an active position, treasury, holding, or a client workflow unusable. | The release defines `None` semantics and the economic treatment of live positions and tests v1 positions under the v2 workflow; breaking changes use an explicit migration ([SCU process](#smart-contract-upgrade-process)). |
 | Malicious venue package upgrade | An SCU release deploys choices that abuse the `dvv` authority: a callable draw on the `Treasury`, a weakened liquidation cap. | Upgrades bind at the vetting layer of the `dvv` hosting nodes ([SCU process](#smart-contract-upgrade-process)). |
-| DAR unvetting on a stakeholder's participant node | A party (malicious or misconfigured) unvets the venue DAR on their participant node, so transactions on contracts they are a stakeholder of can no longer be confirmed: co-signed flows they participate in stall. | Signatories and observers alike must have the same DAR version vetted for a transaction to succeed, and the freeze cuts both ways: the unvetting party cannot move the asset either, so the contract stays frozen rather than extractable, and re-vetting restores operation. The liquidator set is multi-member precisely so one unvetted participant cannot stall the venue; the oracle provider's liveness is a dependency requirement ([section 4.4](#44-dependency-price-oracle)). A borrower who unvets freezes their own position: every withdrawal is blocked, and the debt keeps accruing until they re-vet. |
+| DAR unvetting on a stakeholder's participant node | A party (malicious or misconfigured) unvets the venue DAR on their participant node, so transactions on contracts they are a stakeholder of can no longer be confirmed: co-signed flows they participate in stall. | Signatories and observers alike must have the same DAR version vetted for a transaction to succeed, and the freeze cuts both ways: the unvetting party cannot move the asset either, so the contract stays frozen rather than extractable, and re-vetting restores operation. The liquidator set is multi-member precisely so one unvetted participant cannot stall the venue; the oracle provider's liveness is a dependency requirement ([section 4.4](#44-dependency-price-oracle)). A borrower who unvets can no longer submit their own flows, while liquidation proceeds without them, since they observe the position rather than confirm it. |
 
 ### 5.4 Failure Modes and Recovery
 
@@ -939,9 +921,9 @@ the position is healthy, the venue is unpaused, and the borrower's KYC claim
 | Failure | Effect while pending | Recovery path | Funds locked at most |
 |---|---|---|---|
 | Attester never attests, or attestation expires | gated flows blocked (fail closed) | re-request an attestation and retry | nothing locked |
-| Oracle goes stale | borrows and liquidations blocked by the staleness guard | the provider publishes; positions resume at the first fresh price | nothing locked; positions frozen |
+| Oracle goes stale | borrows, withdrawals, and liquidations blocked by the staleness guard; deposits, repayments, and closes unaffected | the provider publishes, or `dvv` switches the venue to a fallback provider by configuration | nothing locked; risk-increasing flows and liquidation paused |
 | Treasury exhausted or defunded | new borrows blocked; repay, close, withdraw, and liquidation unaffected | the funder tops up via `Treasury_Fund` | nothing locked |
-| Pause in a falling market | liquidation blocked while collateral keeps repricing; positions can sink underwater unliquidated | unpause; whether liquidation should stay open while paused is an open question ([section 7](#7-open-design-questions)) | nothing locked |
+| Pause in a falling market | liquidation blocked while collateral keeps repricing; positions can sink underwater unliquidated | unpause; whether liquidation should stay open while paused is an open question ([section 7](#7-open-design-questions-for-the-implementation-phase)) | nothing locked |
 | Venue validator out of traffic | `vo`'s pause submissions rejected; borrower, liquidator, and funder flows are unaffected, since they pay their own traffic | traffic top-up and monitoring ([section 6](#6-network-economics-traffic-costs-and-app-rewards)) | nothing locked |
 | Synchronizer outage | ledger halted: no one can transfer, deposit, or withdraw, while market prices keep moving off-ledger | service resumes; positions may resume underwater, liquidatable at the first fresh price | outage duration |
 
@@ -1041,7 +1023,7 @@ Applying the earn rule to the lending flows
 | `Position_Borrow` | borrower | `dvv` (successor `Position` and `Treasury`) and the debt token's registry admin (it co-signs the released holding) |
 | `Position_Repay` | borrower | `dvv` (successor `Position` and `Treasury`) and the debt token's registry admin (it co-signs the payment holding) |
 | `Treasury_Fund` / `Treasury_Defund` | treasury funder | `dvv` (successor `Treasury`) and the debt token's registry admin |
-| `Position_Liquidate` | liquidator | `dvv` and borrower (successor `Position` and `Treasury`, payment transfer, collateral release), plus the debt-token and collateral registries' admins (they co-sign the moved holdings) |
+| `Position_Liquidate` | liquidator | `dvv` (successor `Position` and `Treasury`, payment transfer, collateral release), plus the debt-token and collateral registries' admins (they co-sign the moved holdings) |
 
 The borrower pays for most flows and, unfeatured, earns nothing; `dvv`
 earns on transactions other parties pay for. The venue's own traffic purchases also mint
@@ -1058,18 +1040,14 @@ implementation and testing/simulations against the DevNet are available.
 
 ---
 
-## 7. Open Design Questions
+## 7. Open Design Questions for the Implementation Phase
 
 The following choices remain open for an application adopting this architecture:
 
-- **Treasury funder authority.** `dvv` is decentralized through multi-hosting ([trust topology](#decentralization-and-trust-topology)); the treasury funder still requires N-of-M authority of its own. Open: whether it uses an on-ledger approval workflow ([Multiple Party Agreement](https://docs.canton.network/appdev/modules/m3-design-patterns#multiple-party-agreement)), an external party with threshold signing keys ([Bitsafe decentralization-manager](https://github.com/DLC-link/decentralization-manager) is one implementation), or multi-hosting at a threshold above 1 like `dvv`; and the N and M.
-- **Oracle instance uniqueness.** Contract keys are not unique, so nothing stops the provider from creating a second active price contract with the same key; the position trusts the provider's key discipline. Open: whether positions should pin a contract-level identifier in `PositionParams` instead of trusting key resolution.
-- **Bad-debt disposition beyond the funder's capital.** Bad debt is written off against the treasury. Open: whether a dedicated buffer should sit ahead of the funder's principal (a fee-split reserve, a capital top-up obligation), and how the `interestRate` is sized against expected loss.
 - **Keeper sizing.** Open: whether the `liquidationBonus` is enough to attract keepers for small restore amounts, and whether a minimum liquidation size is needed to avoid dust liquidations.
 - **Treasury operations.** Open: the funder's fund and defund cadence, whether defunding needs a notice period so prospective borrowers see capacity shrinking, and whether fee withdrawal should be a path separate from liquidity defunding.
 - **Guaranteed liquidatability ahead of bad debt.** The venue stays solvent only if a position can be liquidated before its collateral value falls under its debt, and several design choices delay that: the ratio buffer defines how much adverse movement a position must survive before a keeper may act; the health-restore cap returns a position only to `minCollateralRatio`, so a falling price forces repeated liquidation rounds; the staleness guard and the provider's deviation bound block liquidation exactly when prices move fastest; and the `liquidationBonus` net of traffic costs ([section 6](#6-network-economics-traffic-costs-and-app-rewards)) puts a floor under the position size a keeper will touch. Open: sizing the buffer against collateral volatility, whether debt ceilings are needed, whether liquidation should stay open on a stale-but-bounded price, and stress evidence that expected bad debt fits the funder's risk pricing.
 - **Pause in a falling market.** Liquidation and cure deposits are both pause-gated, and the pause is not solvency-neutral: collateral keeps repricing and interest keeps accruing while liquidation is frozen, so a pause in a falling market deepens both the borrower's debt and the bad-debt exposure the treasury absorbs. Open: whether liquidation should stay open while paused.
-- **Liquidation liveness against a self-hosted borrower.** The borrower is a required stakeholder in every liquidation transaction, so a borrower hosted only on their own participant node can stall liquidation by withholding confirmation or unvetting the packages; above water the freeze is self-punishing, underwater it externalizes the loss to the funder. Candidate mitigations: onboarding-time hosting requirements (a confirming backstop participant for the borrower party), or making the borrower an observer of the `Position` rather than a signatory: `dvv` already holds the collateral, so liquidation would then need no borrower confirmation. Open: which topology, and how much borrower protection to trade for liquidation liveness.
 - **Role-party rotation and per-position parameters.** The `dvv` party is embedded in every position's key and signatory set, and the liquidator set in its parameters, so changing either implies migrating every existing position to a factory carrying the new values. Open: whether position choices should resolve a keyed venue-config contract and lazily migrate stale positions on touch (recreate under the latest terms, archive the old), whether liquidators should be checked against live role grants instead of an embedded list, and how replacing the `dvv` party itself, as opposed to re-homing it, would be executed.
 - **Treasury disclosure granularity.** The `Treasury` carries capacity, revenue, and loss figures in one contract, disclosed to prospective borrowers. Open: how much of it should be visible versus private - for example splitting a disclosed `Treasury` (borrow capacity) from a private `TreasuryState` (`feesAccrued`, `badDebtWrittenOff`), so borrowers can size a request without seeing the funder's revenue and losses.
 - **Asynchronous borrow.** Borrow is a single borrower-submitted exercise. A request-and-accept variant would let the operator run off-ledger checks - existing internal risk and compliance systems - before accepting, through a `dvv`-signed delegation this design does not otherwise need, instead of porting those checks on-chain. Open: whether to offer it alongside or instead of the synchronous path.
