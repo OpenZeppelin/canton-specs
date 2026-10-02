@@ -44,10 +44,7 @@ two-step transfer carries that property. A **transfer instruction** fixes the
 sender, the recipient, the amount, and the instrument on-ledger when it is
 created, and its accept credits exactly that amount in one transaction or fails
 as a whole. Each inbound credit is one transfer instruction that its recipient
-accepts. CIP-0112 also defines allocations and settlement batches, which settle
-several movements atomically. The inbound path does not use them, because a
-bridge credit has no counter-leg on Canton to settle against
-([section 3.1](#31-inbound-credit)).
+accepts.
 
 No transaction spans both chains. The cross-chain hop is therefore
 lock-then-attested-mint, and not an atomic exchange. The binding checks
