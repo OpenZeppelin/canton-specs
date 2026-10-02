@@ -19,5 +19,11 @@ their shared settlement, compliance, identity, and authority assumptions.
 - [Token Standard V2 dependency source](decisions/cip-0112-dependency-source.md)
 - [Token Standard V2 import evidence](decisions/cip-0112-import-evidence.md)
 
+## Milestone delivery
+
+- [M1 delivery map](m1-delivery.md) maps every Milestone 1 delivery element and
+  acceptance criterion of the approved ecosystem-stack proposal to its delivered
+  artifact and validation command.
+
 Executable research, threat models, and experiment-specific documentation live
 with their code under [`experiments/`](../experiments/README.md).
