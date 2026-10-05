@@ -25,7 +25,7 @@ into a transfer instruction, an offer of the credit that its recipient accepts.
 It runs the checks that an inbound credit must pass, and it is the seam where a different bridge mode plugs in ([section 3.8](#38-extension-points)).
 
 [Section 2.1](#21-business-roles) defines the rail's parties. This document
-writes the **bridge relayer** as `br`, the **gateway admin** as `ga`, and the
+writes the **bridge relayer** as `br`, the **bridge admin** as `ba`, and the
 **pause authority** as `pa`.
 
 **Inbound** moves value from the external chain to Canton, by **lock-and-mint**.
@@ -77,7 +77,7 @@ CIP-0112 requirements.
 | **D1** | Compliance | A single-use attestation from an N-of-M quorum of listed attesters, screened against the lock's originator and bound to the credit's recipient, amount, instrument, and lock nonce inbound, or to the redemption request outbound, and never cached. | The bridge: the messaging gateway before any transfer instruction exists, and the redemption gateway before any burn, against the attester set that the bridge's attester registry lists. | No valid attestation, no transfer instruction and no burn. |
 | **D2** | Seizure | Seizure of a pending credit, implemented by a registry that offers it. | The token registry, optionally. The bridge neither requires nor enforces it ([section 3.6](#36-control-enforcement)). | Set by the registry that implements it. |
 | **D3** | KYC identity | Each attester service checks off-ledger that the recipient, or outbound the redeeming holder, passed KYC, and the compliance attestation asserts it. | The bridge's attester backend, before it signs. The gateways enforce the result through D1. | No KYC, no compliance attestation, no transfer instruction and no burn. |
-| **D4** | Authority | Every privileged bridge choice binds to a named role rather than to one admin. | The bridge: each privileged bridge choice, against the role grant that carries the privilege. `ga`, which holds the mint right, is N-of-M. The registry governs its own privileged choices. | Privileges are granted, transferred, and revoked without a redeploy. |
+| **D4** | Authority | Every privileged bridge choice binds to a named role rather than to one admin. | The bridge: each privileged bridge choice, against the role grant that carries the privilege. `ba`, which holds the mint right, is N-of-M. The registry governs its own privileged choices. | Privileges are granted, transferred, and revoked without a redeploy. |
 
 The bridge enforces D1, D3, and D4 in its own contracts and its attester
 backend, so they hold with any registry. D2 needs authority over the registry's own transfer instruction, so
@@ -114,11 +114,11 @@ needs, not that the component is complete or audited.
 
 | Component | Location | Remaining work |
 |---|---|---|
-| Example wTOK registry: the `TokenRules` template, the transfer factory and transfer instruction, holdings, and the event log contract | [`canton-contracts` `tokenCIP112-v1`](https://github.com/OpenZeppelin/canton-contracts/tree/8a81bc86d7e5b2ec38db4c0c5897ccdb20ac25b8/packages/token/tokenCIP112-v1) | A mint right and a burn right that the registry grants to `ga` and scopes to the bridge account ([section 3.9](#39-registry-integration)). The package's [admin mint](https://github.com/OpenZeppelin/canton-contracts/blob/8a81bc86d7e5b2ec38db4c0c5897ccdb20ac25b8/packages/token/tokenCIP112-v1/daml/OpenZeppelin/TokenCIP112V1/Registry.daml#L66-L74) is the admin's own and consumes no attestation, so a wTOK deployment of this package must not use it, or the 1:1 backing fails ([section 4.3](#43-threat-model)) |
+| Example wTOK registry: the `TokenRules` template, the transfer factory and transfer instruction, holdings, and the event log contract | [`canton-contracts` `tokenCIP112-v1`](https://github.com/OpenZeppelin/canton-contracts/tree/8a81bc86d7e5b2ec38db4c0c5897ccdb20ac25b8/packages/token/tokenCIP112-v1) | A mint right and a burn right that the registry grants to `ba` and scopes to the bridge account ([section 3.9](#39-registry-integration)). The package's [admin mint](https://github.com/OpenZeppelin/canton-contracts/blob/8a81bc86d7e5b2ec38db4c0c5897ccdb20ac25b8/packages/token/tokenCIP112-v1/daml/OpenZeppelin/TokenCIP112V1/Registry.daml#L66-L74) is the admin's own and consumes no attestation, so a wTOK deployment of this package must not use it, or the 1:1 backing fails ([section 4.3](#43-threat-model)) |
 | Compliance attestation path (D1) | [Section 3.6](#36-control-enforcement) | The whole implementation: the single-use compliance attestation, the verification of an N-of-M attester quorum against the attester registry ([section 2.3](#23-decentralization-and-trust-topology)), and binding the attestation to the lock's content or to a redemption request and verifying it in the gateway that consumes it |
 | KYC check (D3) | The attester services ([section 3.6](#36-control-enforcement)) | The off-ledger KYC check before each compliance attestation, and the attestation field that asserts it |
 | Role grants (D4) | [`canton-contracts` `scoped-authorization-grant-v1`](https://github.com/OpenZeppelin/canton-contracts/tree/aeca01d043311d8ccc8ab7cda4d7c16e682429fa/packages/access/scoped-authorization-grant-v1) | The wiring into each privileged bridge choice |
-| Pause state | [`canton-contracts` `pausable-v1`](https://github.com/OpenZeppelin/canton-contracts/tree/aeca01d043311d8ccc8ab7cda4d7c16e682429fa/packages/security/pausable-v1) | The pause state template, which `ga` signs, and its set and clear choices, gated by the pause role grant ([section 3.4](#34-registry-identity-and-uniqueness)) |
+| Pause state | [`canton-contracts` `pausable-v1`](https://github.com/OpenZeppelin/canton-contracts/tree/aeca01d043311d8ccc8ab7cda4d7c16e682429fa/packages/security/pausable-v1) | The pause state template, which `ba` signs, and its set and clear choices, gated by the pause role grant ([section 3.4](#34-registry-identity-and-uniqueness)) |
 | Transfer preapproval and delegated accept | [Section 3.1](#31-inbound-credit) | The whole implementation. It is optional: a recipient without one accepts each credit from its wallet. Canton Coin's transfer preapproval is the reference shape, and it covers Canton Coin only ([section 6](#6-open-design-questions)) |
 | Messaging gateway, including the registry adapter that calls a registry's mint right | [Section 3.1](#31-inbound-credit) | The whole implementation |
 | Attested message and nonce registry | [Section 3.2](#32-reserve-and-lock-attestation) | The whole implementation |
@@ -172,8 +172,8 @@ key that the escrow's own verifier accepts.
 |---|---|---|
 | Bridge relayer | `br` | Transport and liveness. It exercises the gateway choices, holds the relayer role that the gateway checks, withdraws, through the gateway, an instruction whose flow is dead, and accepts or rejects each redemption request through the redemption gateway. A relayer without an attestation cannot mint. It sees every transfer instruction it creates. |
 | Attesters, M of them | - | The trust role, separate from the relayer's transport role. They sign the lock attestation ([section 3.1](#31-inbound-credit)), the compliance attestation ([section 3.6](#36-control-enforcement)), the redemption attestation ([section 3.3](#33-outbound-redemption)), and the refund statement ([section 3.1](#31-inbound-credit)). The attester registry lists them. They see what they attest, and no transfer instruction. |
-| Gateway admin | `ga` | The bridge's own admin. Sole signatory of the messaging gateway and the redemption gateway. It holds the mint right and the burn right that the token registry grants the bridge, and it owns the **bridge account**, the registry account where the gateway mints and from which it offers each credit. It maintains the two registries the gateway reads: the attester registry, which lists the parties whose signatures the compliance, mint, and refund checks accept ([section 3.6](#36-control-enforcement)), and the nonce registry, which records the nonce of every lock the bridge minted against ([section 3.2](#32-reserve-and-lock-attestation)). It submits nothing itself, holds the `FeaturedAppRight`, and observes the pause state. As the sender's account owner it sees every inbound credit. |
-| wTOK admin | - | The instrument admin of the token registry, and not a bridge role. It grants `ga` the mint and burn rights, signs wTOK holdings and transfer instructions as the registry defines them, and therefore sees every wTOK payment. Its key custody and its own mint paths are the registry's ([section 3.9](#39-registry-integration)). |
+| Bridge admin | `ba` | The bridge's own admin. Sole signatory of the messaging gateway and the redemption gateway. It holds the mint right and the burn right that the token registry grants the bridge, and it owns the **bridge account**, the registry account where the gateway mints and from which it offers each credit. It maintains the two registries the gateway reads: the attester registry, which lists the parties whose signatures the compliance, mint, and refund checks accept ([section 3.6](#36-control-enforcement)), and the nonce registry, which records the nonce of every lock the bridge minted against ([section 3.2](#32-reserve-and-lock-attestation)). It submits nothing itself, holds the `FeaturedAppRight`, and observes the pause state. As the sender's account owner it sees every inbound credit. |
+| wTOK admin | - | The instrument admin of the token registry, and not a bridge role. It grants `ba` the mint and burn rights, signs wTOK holdings and transfer instructions as the registry defines them, and therefore sees every wTOK payment. Its key custody and its own mint paths are the registry's ([section 3.9](#39-registry-integration)). |
 | Recipient, or Holder outbound | - | Inbound, accepts the transfer instruction that offers its credit, live from its wallet or through a transfer preapproval it signed earlier ([section 3.1](#31-inbound-credit)). Outbound, offers its holding to the bridge account with a standard transfer that names the external-chain destination ([section 3.3](#33-outbound-redemption)). |
 | Pause authority | `pa` | Holds the pause role grant, and through it sets and clears the pause state. A set pause stops new offers, burns, and refunds ([section 3.6](#36-control-enforcement), [section 4.4](#44-failure-modes-and-recovery)). |
 
@@ -184,7 +184,7 @@ the parties above, or it lives on the external chain.
 |---|---|
 | Lock escrow | External-chain contract that holds the backing for the bridged funds. It releases the backing if it receives a verified redemption attestation. Any submitter the attesters hand the signed claim to can present that attestation and release the funds ([section 3.3](#33-outbound-redemption)). |
 | Relayer backend | Off-Canton process. It watches the external chain and submits every inbound command as `br`, with the gateways attached as disclosed contracts. |
-| Gateway admin backend | Off-Canton process on a participant that hosts `ga`. It serves the active attester registry and nonce registry as disclosed contracts to the attester services, and the active gateways to the relayer backend, and it submits nothing. |
+| Bridge admin backend | Off-Canton process on a participant that hosts `ba`. It serves the active attester registry and nonce registry as disclosed contracts to the attester services, and the active gateways to the relayer backend, and it submits nothing. |
 | Attester services | M independent operators on M participants. Each submits as its own attester party, and each runs the compliance and KYC checks before it signs a compliance attestation ([section 3.6](#36-control-enforcement)). |
 | KYC providers | Off-ledger services that the attester services consult for D3. They observe no transfer. |
 | Recipient wallet | Off-Canton process. It accepts pending transfer instructions as the recipient, and it may create a transfer preapproval so that `br` can complete a credit without a live accept. |
@@ -195,7 +195,7 @@ gateway and the redemption gateway have the choices that `br` exercises
 ([section 3.1](#31-inbound-credit), [section 3.3](#33-outbound-redemption)). The pause state, the attester
 registry, and the nonce registry reach the gateway as disclosed contracts,
 and the gateway checks the maintainer and the scope each one carries, so only
-`ga`'s contracts pass ([section 3.4](#34-registry-identity-and-uniqueness)). The
+`ba`'s contracts pass ([section 3.4](#34-registry-identity-and-uniqueness)). The
 lock attestation is a data record inside the attested message, so an attester
 signs the message and not a standalone attestation.
 
@@ -210,21 +210,21 @@ transaction it witnesses divulges it.
 
 | Contract | Signatories | Observers |
 |---|---|---|
-| Inbound transfer instruction, and the factory call that creates it | The wTOK admin and `ga`, as the owner of the sender's account | The recipient |
-| Redemption request, the holder's transfer instruction to the bridge account | The wTOK admin and the holder | `ga`, as the owner of the receiver's account |
+| Inbound transfer instruction, and the factory call that creates it | The wTOK admin and `ba`, as the owner of the sender's account | The recipient |
+| Redemption request, the holder's transfer instruction to the bridge account | The wTOK admin and the holder | `ba`, as the owner of the receiver's account |
 | Event log contract, created and archived in one transaction | The wTOK admin | None |
 | wTOK holding, in the bridge account or the recipient's | The wTOK admin and the account's parties | The lock's observers, while locked |
-| Compliance attestation | The attesters that sign it | `br`, as the party it is issued to, and `ga`, whose authority verifies it inside the gateway |
-| Attester registry | `ga` | None. A listed attester reads it through disclosure ([section 3.6](#36-control-enforcement)) |
-| Pause state | `ga` | None |
-| Pause role grant | `ga` | The current `pa` |
-| Relayer role grant | `ga` | The current `br` |
+| Compliance attestation | The attesters that sign it | `br`, as the party it is issued to, and `ba`, whose authority verifies it inside the gateway |
+| Attester registry | `ba` | None. A listed attester reads it through disclosure ([section 3.6](#36-control-enforcement)) |
+| Pause state | `ba` | None |
+| Pause role grant | `ba` | The current `pa` |
+| Relayer role grant | `ba` | The current `br` |
 | Attested message | The attesters that sign it | `br` |
-| Redemption attestation, and the refund claim | `ga` | None. An attester reads it through disclosure ([section 3.3](#33-outbound-redemption)) |
-| Messaging gateway | `ga` | None. `br` exercises its choices through disclosure |
-| Redemption gateway | `ga` | None. `br` exercises its choices through disclosure |
+| Redemption attestation, and the refund claim | `ba` | None. An attester reads it through disclosure ([section 3.3](#33-outbound-redemption)) |
+| Messaging gateway | `ba` | None. `br` exercises its choices through disclosure |
+| Redemption gateway | `ba` | None. `br` exercises its choices through disclosure |
 | Transfer preapproval, when the recipient creates one | The recipient | `br` |
-| Nonce registry | `ga` | None. An attester reads it through disclosure ([section 3.6](#36-control-enforcement)) |
+| Nonce registry | `ba` | None. An attester reads it through disclosure ([section 3.6](#36-control-enforcement)) |
 
 Consequences:
 
@@ -236,7 +236,7 @@ Consequences:
   readable by construction. This is a trust assumption and not a leak to close.
   The wTOK admin signs every transfer instruction and every holding of its
   instrument, so it cannot be blind to a payment. Any issued instrument
-  puts its own issuer in this position. `ga` sees every inbound credit as the
+  puts its own issuer in this position. `ba` sees every inbound credit as the
   owner of the account that sends it. `br` and the attesters see what
   they handle for the same reason: a transport-only role bounds authority and
   not visibility, so attester membership is a privacy decision as well as a
@@ -274,11 +274,11 @@ open ([section 6](#6-open-design-questions)):
   operators rather than with key holders, and the party needs another party's
   submission or external signing to act.
 
-**Decision.** `ga` creates wTOK supply at the attested mint, through the mint
+**Decision.** `ba` creates wTOK supply at the attested mint, through the mint
 right the registry grants it, and it owns the bridge account where minted and
 returned credits sit. That is critical authority, so no single key may exercise
 the role. Everything that decides whether bridge-minted supply is legitimate
-sits with `ga` by design: the mint right, the attester registry that every
+sits with `ba` by design: the mint right, the attester registry that every
 gateway check reads, and the nonce registry. That registry records the nonce of
 every lock the bridge minted against ([section 3.2](#32-reserve-and-lock-attestation)), so that one lock mints once
 even when a valid attestation for it arrives a second time. Splitting those would create a
@@ -298,10 +298,10 @@ third column is where the posture meets the flows of [section
 | Role | Target posture | Who submits in its name | Why |
 |---|---|---|---|
 | Attesters | M parties, one per independent attester organization, each on its own participant. The attester registry lists them, and every check requires N of M, never all of M | Each attester service submits as its own party | One unavailable or unvetted attester must not halt the rail, and one malicious attester must not mint |
-| `ga` | N-of-M across independent organizations, by one of the three routes above. The route, N, and M are open ([section 6](#6-open-design-questions)) | Nothing on the payment path. Its authority enters the gateway transaction as the gateway's signatory, which is what lets the attested mint and the offer from the bridge account run inside a transaction that `br` submits ([section 3.2](#32-reserve-and-lock-attestation)). Registry rotations and the creation of the gateways are its own transactions, externally signed or run through the approval workflow | It holds the mint right and owns the bridge account, so this role can break the reserve on its own ([section 4.3](#43-threat-model)) |
+| `ba` | N-of-M across independent organizations, by one of the three routes above. The route, N, and M are open ([section 6](#6-open-design-questions)) | Nothing on the payment path. Its authority enters the gateway transaction as the gateway's signatory, which is what lets the attested mint and the offer from the bridge account run inside a transaction that `br` submits ([section 3.2](#32-reserve-and-lock-attestation)). Registry rotations and the creation of the gateways are its own transactions, externally signed or run through the approval workflow | It holds the mint right and owns the bridge account, so this role can break the reserve on its own ([section 4.3](#43-threat-model)) |
 | wTOK admin | Set by the token registry, not by the bridge | The registry's own operations | It signs every holding of its own instrument and can create one directly, so the reserve claim trusts it ([section 4.2](#42-trust-boundaries)) |
 | `br` | One party, multi-hosted on several participants that relayer host organizations operate, confirmation threshold 1 | The relayer backend on any host submits directly | It holds no minting trust and is the most submission-heavy role in the design. Integrity comes from the attester split, and relay should ultimately be permissionless, so no single organization controls liveness |
-| `pa` | One party, multi-hosted, confirmation threshold 1, held by organizations other than the relayer hosts | Any host submits a pause or an unpause directly | A pause must be instant, so no quorum stands in front of it. The pause lives on the ledger and outside `br`, so a party that a compromised relayer does not control can stop it. The price is a griefing window where a malicious `pa` stops new offers, burns, and refunds until it unpauses or `ga` revokes its grant, and the locks stay creditable or refundable in the meantime ([section 3.1](#31-inbound-credit)). Several hosts can each submit, so a pause and an unpause are both idempotent |
+| `pa` | One party, multi-hosted, confirmation threshold 1, held by organizations other than the relayer hosts | Any host submits a pause or an unpause directly | A pause must be instant, so no quorum stands in front of it. The pause lives on the ledger and outside `br`, so a party that a compromised relayer does not control can stop it. The price is a griefing window where a malicious `pa` stops new offers, burns, and refunds until it unpauses or `ba` revokes its grant, and the locks stay creditable or refundable in the meantime ([section 3.1](#31-inbound-credit)). Several hosts can each submit, so a pause and an unpause are both idempotent |
 | Recipients | No rail-side decentralization | The recipient's wallet, live or through the transfer preapproval `br` exercises | Nothing credits a recipient without its own signature, live or carried by a transfer preapproval, so it trusts only its own keys and participant |
 
 `br` is the only party on both sides of the cross-chain boundary. It pays
@@ -399,7 +399,7 @@ sequenceDiagram
    The choice then consumes the message, so that message cannot be replayed,
    and records the nonce in the nonce registry. It mints the attested amount
    into the bridge account under the mint right that the registry grants
-   `ga`, and it exercises the registry's `TransferFactory_Transfer` to create
+   `ba`, and it exercises the registry's `TransferFactory_Transfer` to create
    a **transfer instruction**: the Token Standard V2 contract that offers a
    pending transfer to its receiver. The sender is the bridge account, the
    receiver is the recipient's account, and every field binds to the lock
@@ -410,12 +410,12 @@ sequenceDiagram
    ([section 4.6](#46-off-ledger-reconciliation)). The minted holding stays
    locked in the instruction until the instruction resolves.
 
-   `ga`'s authority comes from the gateway it signs, and it covers both the
+   `ba`'s authority comes from the gateway it signs, and it covers both the
    mint and the sender's side of the transfer. The recipient's participant
    therefore confirms nothing at this step, and a recipient that is offline
    sees the offer when it returns. The bridge account is the sender, so the
-   standard's withdraw belongs to `ga`, and `br` exercises it through a
-   gateway choice that carries `ga`'s authority. That is how a dead flow is
+   standard's withdraw belongs to `ba`, and `br` exercises it through a
+   gateway choice that carries `ba`'s authority. That is how a dead flow is
    closed early ([section 4.4](#44-failure-modes-and-recovery)).
 4. **Accept.** The recipient's wallet exercises the standard's
    `TransferInstruction_Accept`, the one choice that credits. The accept is
@@ -561,7 +561,7 @@ wrong binding refunds one lock with value that another lock returned, and it
 can refund a lock whose credit stands. The reserve still holds, because each
 refund burns its amount before the escrow releases it, so the loss falls on
 the originator whose returned value was spent. That binding is part of the
-trust in `ga` and `br` ([section 4.2](#42-trust-boundaries)).
+trust in `ba` and `br` ([section 4.2](#42-trust-boundaries)).
 
 **Inbound refund**
 
@@ -626,7 +626,7 @@ registry therefore never holds more than `E` nonces, and a mint rewrites only
 the registry of its own epoch, so the bytes each mint writes stay bounded as
 the rail's history grows ([section 4.5](#45-throughput-and-contention)).
 
-`ga` creates the registry of the first epoch. Each later epoch's registry is
+`ba` creates the registry of the first epoch. Each later epoch's registry is
 created by the first transaction that writes its predecessor, in the same
 consuming exercise, and the predecessor records that its successor exists.
 Each registry version is consumed once, so each epoch gets exactly one
@@ -668,7 +668,7 @@ the bridge's mint right is the instrument's only mint path, which the registry
 decides ([section 3.9](#39-registry-integration)).
 
 **Supply creation.** Supply is created only at the gateway's attested mint,
-which `ga` authorizes as the holder of the mint right and the gateway's
+which `ba` authorizes as the holder of the mint right and the gateway's
 signatory. The mint lands in the bridge account, and the offer moves it to the
 recipient only at the accept.
 
@@ -729,7 +729,7 @@ sequenceDiagram
    holder can withdraw its request until then. The destination is the field
    the escrow acts on, so this design assumes the holder's wallet renders the
    amount and the destination in clear before the holder signs.
-2. **Compliance attestation.** `br` reads each request, which `ga` observes as
+2. **Compliance attestation.** `br` reads each request, which `ba` observes as
    the receiver's account owner, and hands it to the attester services. Each
    attester service checks the holder's KYC and screens the destination
    off-ledger, and a quorum signs a single-use compliance attestation bound to
@@ -737,11 +737,11 @@ sequenceDiagram
    the request's contract id. That is D1 and D3 outbound
    ([section 3.6](#36-control-enforcement)).
 3. **Burn.** `br` exercises the **redemption gateway**, the outbound
-   counterpart of the messaging gateway, which carries `ga`'s authority. In
+   counterpart of the messaging gateway, which carries `ba`'s authority. In
    one transaction it checks that the pause state is clear, verifies and
    consumes the compliance attestation,
    accepts the request as the receiver, burns the amount under the burn right
-   that the registry grants `ga`, and creates the **redemption attestation**,
+   that the registry grants `ba`, and creates the **redemption attestation**,
    the claim that carries:
 
    - the instrument the burn removed supply from;
@@ -764,15 +764,15 @@ sequenceDiagram
    without a cleared request.
 
    **No claim stands without a burn.** That direction is the one the escrow
-   depends on. `ga` alone signs the claim, because the holder's authority does
+   depends on. `ba` alone signs the claim, because the holder's authority does
    not reach the transaction that accepts its request, so a direct create by
-   `ga` could produce a claim with no burn behind it. The escrow sees only a
+   `ba` could produce a claim with no burn behind it. The escrow sees only a
    signed message and cannot tell. The attester backend bounds that: an
    attester signs a claim only if it matches a compliance attestation the
    attester issued, and only once per attestation. A claim with no burn
    therefore needs a real, cleared request, it pays only the destination the
    holder named, and it leaves the holder's holding unburned, so value leaves
-   twice only if the holder colludes with `ga`. The rest is the trust in `ga`
+   twice only if the holder colludes with `ba`. The rest is the trust in `ba`
    ([section 4.2](#42-trust-boundaries)).
 
    **Refund of a returned credit.** The refund claim of
@@ -845,12 +845,12 @@ burn-first claim.
 The gateway reads three bridge contracts at execution time: the pause state,
 the attester registry, and the nonce registry. `br` submits the gateway
 transaction and is a stakeholder of none of them, so `br`'s participant does
-not hold them. The gateway admin backend hands them to `br` as disclosed
+not hold them. The bridge admin backend hands them to `br` as disclosed
 contracts, and `br` passes their contract ids into the gateway choice. The
 nonce registry changes id on every mint and refund, and the gateway choice
 returns the new id, which `br` witnesses as the actor of the choice. The
 attester registry and the pause state change id on a rotation or a pause, and
-the gateway admin backend publishes the new contract to `br` after each.
+the bridge admin backend publishes the new contract to `br` after each.
 
 A contract the caller supplies is a contract the caller can substitute. Each
 registry fails in its own way. A second nonce registry that omits the nonce of
@@ -862,14 +862,14 @@ the real attester registry refuses.
 **Decision.** Each of the three templates carries the party that maintains it
 and the fields that scope it, and the gateway validates every one of them
 against a value the caller does not control: the maintainer against the
-gateway's own signatory `ga`, the instrument against the attested message, and
+gateway's own signatory `ba`, the instrument against the attested message, and
 the nonce registry's epoch against the lock's nonce divided by `E`. A contract
 that fails one check fails the transaction.
 
 Uniqueness then rests on authority. The maintainer signs the contract, so only
-`ga` can create a version that passes the maintainer check, and `br` can
-present only what `ga` created. The nonce registry is the contract where this
-decides who can inflate supply, so `ga`, the holder of the mint right,
+`ba` can create a version that passes the maintainer check, and `br` can
+present only what `ba` created. The nonce registry is the contract where this
+decides who can inflate supply, so `ba`, the holder of the mint right,
 maintains it.
 
 **Why not contract keys.** Canton 3 offers contract keys from Daml-LF 2.3, but
@@ -888,16 +888,16 @@ contract.
 
 | Contract | Scope fields beyond the maintainer | Maintainer |
 |---|---|---|
-| Nonce registry | The instrument, and the epoch | `ga` |
-| Attester registry | None | `ga` |
-| Pause state | The instrument | `ga` |
+| Nonce registry | The instrument, and the epoch | `ba` |
+| Attester registry | None | `ba` |
+| Pause state | The instrument | `ba` |
 
 An upgrade adds only `Optional` fields, and every check above reads a required
 field, so each template carries every scope field the rail can ever need from
 its first deployment ([section 3.7](#37-smart-contract-upgrade-process)).
 
-**Visibility.** `ga` signs every contract the gateway reads, and the gateway
-choices run with `ga`'s authority, so none of the three needs an observer for
+**Visibility.** `ba` signs every contract the gateway reads, and the gateway
+choices run with `ba`'s authority, so none of the three needs an observer for
 authorization. Disclosure is what lets `br`'s participant resolve them. The
 attesters are observers of neither registry. Each attester reads them through
 disclosure, when it checks a nonce or its own membership before it signs
@@ -905,11 +905,11 @@ disclosure, when it checks a nonce or its own membership before it signs
 
 **Residual.** Nothing stops a maintainer from holding two active versions of
 its own contract and presenting a different one to different transactions.
-`ga` can hold two nonce registries or two attester registries and hand `br`
-either at its discretion, but the larger exposure is that `ga` holds the mint
+`ba` can hold two nonce registries or two attester registries and hand `br`
+either at its discretion, but the larger exposure is that `ba` holds the mint
 right and can mint at will. The same holds for a second pause state. These
-contracts have no observer beyond `ga`, so a duplicate is visible only to
-`ga`, which already holds the mint right. Each maintainer's own key custody
+contracts have no observer beyond `ba`, so a duplicate is visible only to
+`ba`, which already holds the mint right. Each maintainer's own key custody
 keeps the bridge honest ([section 2.3](#23-decentralization-and-trust-topology)).
 
 ### 3.5 Time and Deadlines
@@ -952,30 +952,30 @@ states where each one is enforced, the authority each enforcement needs, and
 where each one can fail.
 
 **Attester registry.** The bridge contract that lists the attester parties and
-the threshold N a quorum must reach. `ga` signs it and is its only
+the threshold N a quorum must reach. `ba` signs it and is its only
 stakeholder ([section 2.2](#22-privacy-and-visibility)), and its maintainer
-field names `ga`, which the gateway checks ([section 3.4](#34-registry-identity-and-uniqueness)).
+field names `ba`, which the gateway checks ([section 3.4](#34-registry-identity-and-uniqueness)).
 Every check that verifies an attestation, the D1 gateway check below, the
 attested mint ([section 3.2](#32-reserve-and-lock-attestation)), and the
 redemption and refund paths ([section 3.3](#33-outbound-redemption)), reads
 the signer set and the threshold from this one contract.
 
-`ga` changes the set or the threshold by a **rotation**: it archives the
-current version and creates the next one, and the gateway admin backend hands
+`ba` changes the set or the threshold by a **rotation**: it archives the
+current version and creates the next one, and the bridge admin backend hands
 the new contract to `br` ([section 3.4](#34-registry-identity-and-uniqueness)). The bridge trusts
-`ga` with both registries. `ga` already holds the mint right, so it gains
+`ba` with both registries. `ba` already holds the mint right, so it gains
 nothing by rigging a list that only its own gateway reads, and the escrow
 verifies attester signatures against its own keys on the external chain, so
 the Canton attester registry cannot weaken a release or a refund there.
 
 **Attester reads through disclosure.** An attester reads either registry
-without being its stakeholder. The gateway admin backend hands it the registry
+without being its stakeholder. The bridge admin backend hands it the registry
 contract as a disclosed contract, and the attester exercises a nonconsuming
 read choice on it, with the attester as controller, that checks what the
 attester is about to sign against: its own listing on the attester registry,
 or a nonce's status on the nonce registry. The ledger validates the disclosed contract against the active
 version, so the attester reads the current registry and not a stale copy. The
-read informs only `ga` and that attester. A participant that unvets the
+read informs only `ba` and that attester. A participant that unvets the
 package fails only its own reads, while a stakeholder's participant that
 unvets the package blocks every transaction that archives or creates the
 contract ([section 4.3](#43-threat-model)). With no attester as a stakeholder,
@@ -1004,7 +1004,7 @@ The check runs once, at the gateway, and the accept is the registry's own
 choice, which the bridge cannot gate. That is an accepted downside: a denial
 that the attesters reach after the offer exists does not block the credit by
 itself. `br` closes that gap by withdrawing the instruction through the
-gateway, under `ga`'s authority as the sender's account owner, with the denial
+gateway, under `ba`'s authority as the sender's account owner, with the denial
 reference in the withdrawal's metadata. The withdrawal needs no confirmation
 from the recipient's participant, so it lands while the recipient is down. The
 exposure is one instruction deadline, and it is zero under a
@@ -1021,7 +1021,7 @@ holding returns to its holder unburned.
 A denial before the gateway leaves no instruction to withdraw. `br` then closes
 the attested message through a gateway choice that records the lock's nonce as
 closed in the nonce registry, with the denial reference in the choice's
-metadata. The denial commits under `ga`'s authority, the lock becomes
+metadata. The denial commits under `ba`'s authority, the lock becomes
 refundable at once, or held when the denial requires a freeze
 ([section 3.1](#31-inbound-credit)), and the attesters'
 off-ledger compliance log holds the reasoning behind it. The ledger is the
@@ -1060,7 +1060,7 @@ KYC.
 **D4, enforced by the bridge for its own choices.** Each bridge choice sits
 with the role responsible for it: relay with the relayer role grant, the pause
 with the pause role grant, and the attested mint, the refund, and both
-registries with `ga`. A permission whose holder must move or be revoked sits on
+registries with `ba`. A permission whose holder must move or be revoked sits on
 a separate role grant, so a change of holder recreates no contract. The
 registry's own privileged choices follow the registry's own authority model.
 
@@ -1068,17 +1068,17 @@ registry's own privileged choices follow the registry's own authority model.
 backing: the messaging gateway's mint and offer, and the redemption gateway's
 burn and refund. Paths that return value still run: a withdraw, a reject, and
 the registry's accept and expiry. In plain terms, the right to pause is a
-permission slip. `ga` signs a pause role grant that names the current pause
+permission slip. `ba` signs a pause role grant that names the current pause
 holder, and the holder flips the pause state by presenting that slip. The
-gateways check only the pause state, which `ga` signs, and never record who
-`pa` is. To hand the pause to another party, `ga` revokes the old slip and
+gateways check only the pause state, which `ba` signs, and never record who
+`pa` is. To hand the pause to another party, `ba` revokes the old slip and
 issues a new one. No gateway and no pause state
 changes, and the old holder loses the power the moment its slip is revoked.
 
-`ga` holds most bridge privileges by design. Splitting them would add keys that
-can break the reserve, so `ga`'s N-of-M posture is the control and not
+`ba` holds most bridge privileges by design. Splitting them would add keys that
+can break the reserve, so `ba`'s N-of-M posture is the control and not
 separation ([section 2.3](#23-decentralization-and-trust-topology)). Moving
-`ga` to a new party is the one handover the bridge cannot complete alone. The
+`ba` to a new party is the one handover the bridge cannot complete alone. The
 registry re-grants the mint and burn rights to the new party, `br` withdraws
 or lets expire every pending offer, and the bridge account's holdings move to
 the new party's account ([section 3.9](#39-registry-integration)).
@@ -1151,29 +1151,29 @@ for such a registry throughout this document.
 
 **What the bridge asks of a registry.**
 
-- **A mint right**, which lets `ga` mint into the bridge account. The gateway
+- **A mint right**, which lets `ba` mint into the bridge account. The gateway
   exercises it only after every bridge check passes
   ([section 3.1](#31-inbound-credit)).
-- **A burn right**, which lets `ga` burn holdings in the bridge account. The
+- **A burn right**, which lets `ba` burn holdings in the bridge account. The
   redemption gateway exercises it for a redemption and for the refund of a
   returned credit ([section 3.3](#33-outbound-redemption)).
 - **The Token Standard V2 transfer factory and transfer instruction**, which
   the gateways and the recipient's wallet already use.
 - **A sender-side withdraw that works after the deadline.** `br` recovers a
-  lapsed credit by withdrawing it under `ga`'s authority, without the wTOK
+  lapsed credit by withdrawing it under `ba`'s authority, without the wTOK
   admin ([section 4.4](#44-failure-modes-and-recovery)). CIP-0112 forbids the
   accept after `executeBefore`, leaves the withdraw without a time condition,
   and makes the registry's expiry optional, so a registry may restrict the
   withdraw and the bridge has to ask for it. The example registry's withdraw
   has no deadline check.
-- **Continuity of the rights.** The registry re-grants both rights when `ga`
+- **Continuity of the rights.** The registry re-grants both rights when `ba`
   moves to a new party ([section 3.6](#36-control-enforcement)), and it keeps
   the burn right in force while the bridge account holds value or an offer is
   pending. Revoking the mint right stops new credits and fails closed.
   Revoking the burn right early leaves returned credits with no refund path.
 
 Each registry decides how it grants the two rights, for example a role grant or
-a capability contract that its admin signs and that names `ga`. The registry
+a capability contract that its admin signs and that names `ba`. The registry
 adapter calls them ([section 3.8](#38-extension-points)). A right scoped to the
 bridge account is narrower than one that mints into any account, and the
 bridge needs no more.
@@ -1202,10 +1202,10 @@ This section separates what the ledger enforces from what stays trusted.
 | Property | Enforcement |
 |---|---|
 | Conservation of funds | The gateway mints exactly the attested amount into the bridge account and offers exactly that amount, and a refund burns exactly the amount it claims. Conservation inside the accept and every other transfer is the registry's own property: the standard's accept cannot output more value than its instruction states. |
-| 1:1 reserve backing | Bridge-minted supply never exceeds the escrow's balance, the deposits the bridge minted against less the released redemptions and refunds. Only `ga`'s mint right mints for the bridge, and the gateway exercises it only against a valid attestation, so no relayer, attester, or operator mints without one. This binds every party except `ga`, whose key holds the right, and the wTOK admin, which signs every holding and can create one directly ([section 3.9](#39-registry-integration)). |
-| Redemption gated by compliance | No burn runs without a valid compliance attestation for its redemption request, and a denied or lapsed request returns the holding to its holder ([section 3.3](#33-outbound-redemption)). That a claim stands only with a burn behind it is not ledger-enforced: `ga` alone signs a claim, and the attester backend bounds it ([section 4.3](#43-threat-model)). |
-| Replay protection | One external-chain lock mints on Canton at most once. The gateway records the lock's nonce in the transaction that mints, and it refuses a nonce the nonce registry already holds, including a refunded one. It holds provided the registry the gateway fetches is the one `ga` maintains ([section 3.4](#34-registry-identity-and-uniqueness)). |
-| Privacy partitioning | The amount, payer, and the metadata of a credited transfer project only to its recipient, `ga` as the sender's account owner, the `br` that submitted the gateway transaction, and the wTOK admin. The attesters see the attestations they sign and not the transfer. No KYC provider observes a transfer. |
+| 1:1 reserve backing | Bridge-minted supply never exceeds the escrow's balance, the deposits the bridge minted against less the released redemptions and refunds. Only `ba`'s mint right mints for the bridge, and the gateway exercises it only against a valid attestation, so no relayer, attester, or operator mints without one. This binds every party except `ba`, whose key holds the right, and the wTOK admin, which signs every holding and can create one directly ([section 3.9](#39-registry-integration)). |
+| Redemption gated by compliance | No burn runs without a valid compliance attestation for its redemption request, and a denied or lapsed request returns the holding to its holder ([section 3.3](#33-outbound-redemption)). That a claim stands only with a burn behind it is not ledger-enforced: `ba` alone signs a claim, and the attester backend bounds it ([section 4.3](#43-threat-model)). |
+| Replay protection | One external-chain lock mints on Canton at most once. The gateway records the lock's nonce in the transaction that mints, and it refuses a nonce the nonce registry already holds, including a refunded one. It holds provided the registry the gateway fetches is the one `ba` maintains ([section 3.4](#34-registry-identity-and-uniqueness)). |
+| Privacy partitioning | The amount, payer, and the metadata of a credited transfer project only to its recipient, `ba` as the sender's account owner, the `br` that submitted the gateway transaction, and the wTOK admin. The attesters see the attestations they sign and not the transfer. No KYC provider observes a transfer. |
 | Non-custodial recipient binding | No credit lands in the recipient's account without the recipient's signature, live or carried by a transfer preapproval. Until then the minted amount sits locked in the bridge's outgoing instruction, and a rejected or withdrawn instruction returns it to the bridge account. No instruction can be created without a deadline. |
 
 ### 4.2 Trust Boundaries
@@ -1214,10 +1214,10 @@ This section separates what the ledger enforces from what stays trusted.
 |---|---|
 | Attester set | Attests only a finalized lock, with the true amount, recipient, and instrument, and never re-attests a lock that minted. It signs a compliance attestation only for a recipient or a redeeming holder that passed KYC. It signs a redemption claim only if it matches a compliance attestation it issued, and only once ([section 3.3](#33-outbound-redemption)). It signs a refund statement only after an attestation expires with no mint recorded, and a refund claim only after reading it on Canton ([section 3.1](#31-inbound-credit)). A quorum that attests a lock which does not exist mints unbacked supply, and one that signs a refund statement for a minted lock releases backing that live supply still stands on. This is the largest trust surface in the design. |
 | `br` | Submits every attested message, and submits it once. It cannot change the amount or the recipient, so a faulty relayer delays a credit rather than misdirecting it. It binds each returned holding to the lock it came from when the ledger does not ([section 3.1](#31-inbound-credit)). |
-| `ga` | Holds the mint and burn rights, owns the bridge account, and keeps one active version of the attester registry and of the nonce registry it maintains. Exercises the rights only through the gateways. A compromised key can mint unbacked supply, move a returned holding out of the bridge account, or create a claim with no burn behind it; the multisig design mitigates this. |
+| `ba` | Holds the mint and burn rights, owns the bridge account, and keeps one active version of the attester registry and of the nonce registry it maintains. Exercises the rights only through the gateways. A compromised key can mint unbacked supply, move a returned holding out of the bridge account, or create a claim with no burn behind it; the multisig design mitigates this. |
 | wTOK admin | Administers the token registry, signs every wTOK holding and transfer instruction, and grants the bridge its rights. The reserve claim trusts it to mint the instrument only through the bridge's mint right. A compromised key can issue unbacked supply, because it signs holdings of its own instrument and can create one directly. Its key custody is the registry's. |
 | KYC providers | Report a recipient's KYC status truthfully to the attester services. The KYC check is only as strict as the most permissive provider the attesters accept. |
-| `pa` | Sets the pause state for an incident, and not to grief. A malicious `pa` stops new offers, burns, and refunds until it unpauses or `ga` revokes its grant, and the locks stay creditable or refundable in the meantime. |
+| `pa` | Sets the pause state for an incident, and not to grief. A malicious `pa` stops new offers, burns, and refunds until it unpauses or `ba` revokes its grant, and the locks stay creditable or refundable in the meantime. |
 | Lock escrow | Holds the backing, releases only against a verified redemption attestation, and refunds each lock once, only against a verified refund statement or refund claim. A broken escrow strands a redemption, and the Canton burn is already final. |
 | Canton infrastructure | Keeps the required parties hosted, the packages vetted, and transactions confirmable inside each deadline ([section 4.3](#43-threat-model)). |
 
@@ -1226,17 +1226,17 @@ This section separates what the ledger enforces from what stays trusted.
 | Vector | Attack | Mitigation |
 |---|---|---|
 | Malicious relayer routing | Routes valid inbound funds to an unauthorized or sanctioned account. | The signed lock attestation pins the Canton recipient, and the compliance attestation, which carries the KYC check, binds the same recipient. `br` cannot spoof the destination. |
-| Unbacked mint | `br`, or anyone without attester authorization, mints wTOK with no real external-chain lock. | Only `ga`'s mint right mints for the bridge, and the gateway exercises it only after the mint checks, so a relayer cannot mint at all. Three sources of unbacked supply remain: an attester quorum that signs a lock which never happened, `ga`'s key, which holds the right, and the wTOK admin's key, which signs every holding of its own instrument and can create one directly. |
-| Fabricated redemption claim | `ga` creates a redemption attestation with no burn behind it and drains the backing on the external chain while Canton supply stays untouched. | An attester signs a redemption claim only if it matches a compliance attestation the attester issued for a real request, and only once ([section 3.3](#33-outbound-redemption)). A claim with no burn then pays only the destination its holder named and leaves the holder's holding unburned, so value leaves twice only if the holder colludes with `ga`. A refund claim pays only a lock's own originator, once. The rest is the trust in `ga` ([section 4.2](#42-trust-boundaries)). |
+| Unbacked mint | `br`, or anyone without attester authorization, mints wTOK with no real external-chain lock. | Only `ba`'s mint right mints for the bridge, and the gateway exercises it only after the mint checks, so a relayer cannot mint at all. Three sources of unbacked supply remain: an attester quorum that signs a lock which never happened, `ba`'s key, which holds the right, and the wTOK admin's key, which signs every holding of its own instrument and can create one directly. |
+| Fabricated redemption claim | `ba` creates a redemption attestation with no burn behind it and drains the backing on the external chain while Canton supply stays untouched. | An attester signs a redemption claim only if it matches a compliance attestation the attester issued for a real request, and only once ([section 3.3](#33-outbound-redemption)). A claim with no burn then pays only the destination its holder named and leaves the holder's holding unburned, so value leaves twice only if the holder colludes with `ba`. A refund claim pays only a lock's own originator, once. The rest is the trust in `ba` ([section 4.2](#42-trust-boundaries)). |
 | Replay of a used lock | A consumed message, or a second message for the same lock, is submitted again to mint twice. | One-time message consumption, and then the nonce registry that the gateway writes as it mints. A nonce the registry already holds is rejected even if the attesters misbehave. |
-| Shadowing registry duplicate | Two versions of one registry contract are active, and the submitter presents whichever suits it. The contract may be a nonce registry, an attester registry, or the pause state. | The gateway checks the maintainer and the scope of every registry it is handed, so no party but `ga` can create a version that passes, and a rotation archives the version it replaces ([section 3.4](#34-registry-identity-and-uniqueness)). |
-| Refund of a credited lock | The escrow refunds a lock whose credit stands on Canton, so the same value stands on both chains. | A lock that never minted is refunded only against an attester statement, signed after the attestation expired, that the nonce registry holds no mint for it. A lock that minted is refunded only by burning the returned amount first, so the reserve holds. The escrow refunds each lock once ([section 3.1](#31-inbound-credit)). The residual is a wrong binding of a returned holding to its lock, which moves value between originators and rests on the trust in `ga` and `br`. |
+| Shadowing registry duplicate | Two versions of one registry contract are active, and the submitter presents whichever suits it. The contract may be a nonce registry, an attester registry, or the pause state. | The gateway checks the maintainer and the scope of every registry it is handed, so no party but `ba` can create a version that passes, and a rotation archives the version it replaces ([section 3.4](#34-registry-identity-and-uniqueness)). |
+| Refund of a credited lock | The escrow refunds a lock whose credit stands on Canton, so the same value stands on both chains. | A lock that never minted is refunded only against an attester statement, signed after the attestation expired, that the nonce registry holds no mint for it. A lock that minted is refunded only by burning the returned amount first, so the reserve holds. The escrow refunds each lock once ([section 3.1](#31-inbound-credit)). The residual is a wrong binding of a returned holding to its lock, which moves value between originators and rests on the trust in `ba` and `br`. |
 | Toxic or spam inflow | A sender forces a credit onto an unwilling recipient. | No credit lands without the recipient's accept ([section 4.1](#41-ledger-enforced-properties)), and an instruction the recipient rejects or ignores returns to the bridge account. An offline recipient gives that approval in advance, so the bound is the preapproval's own: its instrument, its ceiling, its expiry, and the party it names. The recipient signs the preapproval, so it can archive it at any time ([section 6](#6-open-design-questions)). What a spammer can still do is fill a recipient's wallet with pending offers, each of which costs the relayer's traffic and two attester signatures, so attestation issuance is the rate limit. |
 | Unattributable inbound origin | A deposit arrives over a privacy pool or a shielded-provenance path, so no sender can be attributed to it. | Nothing mints without an attestation, so an unresolved origin means the attesters withhold the signature, the deposit stays locked on the external chain, and a refund is the escrow's own path ([section 4.4](#44-failure-modes-and-recovery)). The origin resolution is a precondition on issuing one attestation, and not a stored flag, a score, or a threshold ([section 1.2](#12-scope)). |
-| Compromised bridge admin key | A compromised `ga` key attempts arbitrary expropriation. | A credited holding sits in its recipient's account and stays beyond `ga`. What `ga` can reach is the bridge account: a pending credit through its own withdraw, and a returned credit directly. Supply-changing authority and the bridge account are mitigated by N-of-M multisig ([section 2.3](#23-decentralization-and-trust-topology)). |
+| Compromised bridge admin key | A compromised `ba` key attempts arbitrary expropriation. | A credited holding sits in its recipient's account and stays beyond `ba`. What `ba` can reach is the bridge account: a pending credit through its own withdraw, and a returned credit directly. Supply-changing authority and the bridge account are mitigated by N-of-M multisig ([section 2.3](#23-decentralization-and-trust-topology)). |
 | Late compliance denial | The attesters deny a credit after the gateway offered it, and the recipient accepts before anyone acts. | The accepted downside of D1 at the gateway ([section 3.6](#36-control-enforcement)). `br` withdraws the instruction as soon as the denial arrives, and the exposure is one instruction deadline. A registry may close it with its own check at the accept. |
 | Failed SCU rollout | An upgrade changes how live gateway, registry, or transfer instruction state is interpreted, leaving a pending instruction or bridge message stranded. | The release preserves the SCU-compatible surface, specifies `None` and message-revision semantics, validates the full DAR lineage, and tests v1 pending instructions and redemption attestations through the selected v2 workflow. Source and target DARs are vetted wherever affected transactions are visible; breaking authority, key, reserve, or message changes use an explicit migration or drain plan. |
-| Malicious package upgrade | A new version in the gateway lineage adds or changes a choice that exercises `ga`'s mint right without an attestation, and the hosting participants vet it. SCU compatibility checks the shape of a package and not what a choice body does. | Vetting is the control. Every participant that hosts `ga` vets only DARs that an independent audit has passed, under a published vetting policy, and under a multi-hosted posture a package that fewer than N hosts have vetted cannot be used in that party's transactions. Under the other two routes of [section 2.3](#23-decentralization-and-trust-topology), the gate is the key holders' approval of the upgrade. The registry's own lineage is the registry's to vet. |
+| Malicious package upgrade | A new version in the gateway lineage adds or changes a choice that exercises `ba`'s mint right without an attestation, and the hosting participants vet it. SCU compatibility checks the shape of a package and not what a choice body does. | Vetting is the control. Every participant that hosts `ba` vets only DARs that an independent audit has passed, under a published vetting policy, and under a multi-hosted posture a package that fewer than N hosts have vetted cannot be used in that party's transactions. Under the other two routes of [section 2.3](#23-decentralization-and-trust-topology), the gate is the key holders' approval of the upgrade. The registry's own lineage is the registry's to vet. |
 | Package unvetting | A participant that hosts a stakeholder party unvets the rail's package, which blocks every action on the contracts that party is a stakeholder of. | Unvetting freezes contracts rather than freeing them. The holder cannot move the asset either, and a pending credit stays acceptable once re-vetted. If one attester unvets the package, the remaining attesters still reach the threshold, and no attester is a stakeholder of the nonce registry, the attester registry, or a redemption attestation, so its unvetting fails only its own reads ([section 3.6](#36-control-enforcement)). `br` is a stakeholder of neither gateway, so its unvetting fails only its own submissions. An attester that signed an attested message or a compliance attestation blocks only the contracts it signed, and the rest of the quorum signs a replacement without it. Holder-side unvetting is an inherent Canton vetting property with no protocol-level bypass. |
 
 ### 4.4 Failure Modes and Recovery
@@ -1275,7 +1275,7 @@ registry's rules rather than the bounds above ([section 3.6](#36-control-enforce
 **Withdrawing a dead flow early.** An instruction whose credit should not land,
 because the attesters denied it after the offer or an incident requires it,
 should not wait for its deadline. `br` withdraws it through a gateway choice
-that exercises `TransferInstruction_Withdraw` under `ga`'s authority as the
+that exercises `TransferInstruction_Withdraw` under `ba`'s authority as the
 sender's account owner, with the reason in the withdrawal's metadata
 ([section 3.6](#36-control-enforcement)). The pending state clears at once, the
 holding returns to the bridge account, and the recipient's wallet sees a
@@ -1322,7 +1322,7 @@ nonce the rail has ever recorded: each mint would cost more traffic
 before it, and the registry would eventually exceed the synchronizer's maximum
 request size, at which point no mint could commit. The epoch caps the map at
 `E` nonces, so a mint's write is bounded by `E` and not by the rail's history.
-What grows with history is the active contract set of `ga`'s participant, by
+What grows with history is the active contract set of `ba`'s participant, by
 one registry of at most `E` nonces per epoch, which no transaction reads in
 bulk. `E` trades the two: a smaller `E` writes fewer bytes per mint, and a
 larger one creates fewer registries and keeps more locks in flight inside one
@@ -1415,7 +1415,7 @@ This rail earns through traffic-based app rewards
 The super validators must vote them on first, so the rail earns nothing before
 that vote.
 
-`ga` holds the `FeaturedAppRight`. Rewards accrue to
+`ba` holds the `FeaturedAppRight`. Rewards accrue to
 the parties that confirm a successful request, and not to the one that submits
 it. CIP-0104 records no per-transaction beneficiary, so the holder assigns
 beneficiaries on-ledger per reward round, before it mints. An external party,
@@ -1427,10 +1427,10 @@ names one provider party, which sits poorly with permissionless relay
 ([section 2.3](#23-decentralization-and-trust-topology)). The relay set either
 shares one party, or leaves most relayers unrewarded. Second, the earn rule pays
 signers and not submitters. `br` signs none of the contracts it submits, while
-`ga` signs the gateways, the bridge account's holdings, and each instruction as
+`ba` signs the gateways, the bridge account's holdings, and each instruction as
 its sender, the wTOK admin signs every holding, and the recipient signs its own
 holding. Most of the credit for relayer-funded transactions therefore goes to
-`ga` and the wTOK admin, and to nobody if only `br` is featured.
+`ba` and the wTOK admin, and to nobody if only `br` is featured.
 
 This document fixes no fee model, so under it the reward is the only income.
 Network issuance parameters that the super validators set decide how much of
@@ -1453,16 +1453,16 @@ activation vote.
 |---|---|---|---|
 | **Attester set and quorum shape.** The attesters carry the trust that an external-chain lock is real. Open: the set size M, the threshold N, and who admits or removes a member. Open too: whether the quorum check reads one combined attestation or M separate ones. | An N-of-M quorum signs the message, with M, N, and the admission path unset ([section 2.3](#23-decentralization-and-trust-topology)) | The quorum check, and any production attester set | **High**, the largest trust surface in the design |
 | **Shape of the transfer preapproval.** A recipient that cannot accept live needs `br` to accept for it, and no upstream contract supplies that authority, because Canton Coin's transfer preapproval covers Canton Coin only. Open: the preapproval's shape. It stands in for a per-credit accept, so it has to bound what it authorizes: the instrument, an amount ceiling, an expiry, and the party that may exercise it. | The recipient signs a bridge-defined preapproval, and `br` exercises the standard accept through it inside the gateway transaction ([section 3.1](#31-inbound-credit)). A recipient without one accepts each credit from its wallet | Automated credit for offline recipients. The inbound path itself needs no preapproval | Medium, it sets the offline recipient's experience and not whether a credit is possible |
-| **Multisig for `ga`.** `ga` holds the mint right and owns the bridge account. Open: whether it uses the on-ledger approval workflow, an external party with threshold signing keys, or a multi-hosted party with a confirmation threshold. The N, M, and confirmation threshold are open too. The wTOK admin's posture is the registry's. | N-of-M across independent organizations, with the route, N, and M unset ([section 2.3](#23-decentralization-and-trust-topology)) | Party onboarding for `ga` | **High**, the answer sets the key custody of the bridge role that can break the reserve |
-| **Shape of the registry's mint and burn rights.** Each registry grants them in its own shape, and the example registry has no right that names another party. Open: the grant shape the example registry adds, whether it bounds the mint, for example per transaction or per period, and how a registry confirms that the bridge's right is the instrument's only mint path. An upgrade cannot drop a choice, so the example registry's grant has to land before the first deployment. | A role grant that the registry admin signs, names `ga`, and scopes to the bridge account, with no bound ([section 3.9](#39-registry-integration)) | The registry adapter, and with it the mint and the refund | **High**, the 1:1 backing claim rests on the sole mint path |
-| **Registry scope fields and rotation.** The identity checks of [section 3.4](#34-registry-identity-and-uniqueness) read fields that no upgrade can add later. Open: the exact scope fields of each contract, the rotation procedure that keeps one active version of each, how the gateway admin backend publishes a new version to `br`, and the nonce registry's epoch size `E`, which bounds the bytes of every mint against the number of registries and locks in flight per epoch ([section 4.5](#45-throughput-and-contention)). One nonce registry exists per instrument and epoch. | Each registry carries its maintainer and scope, the gateway checks both, and a rotation archives the version it replaces ([section 3.4](#34-registry-identity-and-uniqueness)) | The scope fields themselves, because no upgrade adds them | **High**, replay protection and the D1 attester registry rest on them |
-| **Mint at the accept instead of at the gateway.** The default mints into the bridge account at the gateway, so supply exists while an offer is pending. The alternative offers a transfer from the `cip-112/mint` account, and the registry's accept mints into the recipient's account. It needs a mint right exercised at the accept, and a way for `ga` to see each offer that closed without an accept, because a mint offer has no sender account. Making `ga` the mint account's provider gives that visibility, and it deviates from the CIP-0112 guidance that the mint account has no provider. Open: whether a registry that can give that visibility should run this shape. | Mint into the bridge account at the gateway ([section 3.1](#31-inbound-credit)) | The refund path and what the bridge asks of a registry | Medium, it moves the mint and the refund rule but no control |
+| **Multisig for `ba`.** `ba` holds the mint right and owns the bridge account. Open: whether it uses the on-ledger approval workflow, an external party with threshold signing keys, or a multi-hosted party with a confirmation threshold. The N, M, and confirmation threshold are open too. The wTOK admin's posture is the registry's. | N-of-M across independent organizations, with the route, N, and M unset ([section 2.3](#23-decentralization-and-trust-topology)) | Party onboarding for `ba` | **High**, the answer sets the key custody of the bridge role that can break the reserve |
+| **Shape of the registry's mint and burn rights.** Each registry grants them in its own shape, and the example registry has no right that names another party. Open: the grant shape the example registry adds, whether it bounds the mint, for example per transaction or per period, and how a registry confirms that the bridge's right is the instrument's only mint path. An upgrade cannot drop a choice, so the example registry's grant has to land before the first deployment. | A role grant that the registry admin signs, names `ba`, and scopes to the bridge account, with no bound ([section 3.9](#39-registry-integration)) | The registry adapter, and with it the mint and the refund | **High**, the 1:1 backing claim rests on the sole mint path |
+| **Registry scope fields and rotation.** The identity checks of [section 3.4](#34-registry-identity-and-uniqueness) read fields that no upgrade can add later. Open: the exact scope fields of each contract, the rotation procedure that keeps one active version of each, how the bridge admin backend publishes a new version to `br`, and the nonce registry's epoch size `E`, which bounds the bytes of every mint against the number of registries and locks in flight per epoch ([section 4.5](#45-throughput-and-contention)). One nonce registry exists per instrument and epoch. | Each registry carries its maintainer and scope, the gateway checks both, and a rotation archives the version it replaces ([section 3.4](#34-registry-identity-and-uniqueness)) | The scope fields themselves, because no upgrade adds them | **High**, replay protection and the D1 attester registry rest on them |
+| **Mint at the accept instead of at the gateway.** The default mints into the bridge account at the gateway, so supply exists while an offer is pending. The alternative offers a transfer from the `cip-112/mint` account, and the registry's accept mints into the recipient's account. It needs a mint right exercised at the accept, and a way for `ba` to see each offer that closed without an accept, because a mint offer has no sender account. Making `ba` the mint account's provider gives that visibility, and it deviates from the CIP-0112 guidance that the mint account has no provider. Open: whether a registry that can give that visibility should run this shape. | Mint into the bridge account at the gateway ([section 3.1](#31-inbound-credit)) | The refund path and what the bridge asks of a registry | Medium, it moves the mint and the refund rule but no control |
 | **Ownership of the compliance policy.** D1 and D3 rest on each attester's off-ledger policy: which KYC providers count, which screening lists apply, and which denials require a freeze. Nothing makes the quorum apply one policy, and nothing lets an auditor check that it was applied. Open: who sets the policy, how attesters adopt a change, and what record each attester keeps per attestation and per denial. | Each attester applies its own policy and keeps its own compliance log ([section 3.6](#36-control-enforcement)) | A production attester set, and any audit of D1 and D3 | **High**, the compliance and KYC controls are only as consistent as the policy behind them |
-| **KYC proven on-ledger.** The default lets the attester quorum decide KYC off-ledger. The alternative has the gateway also check an issuer-signed credential, which adds a check that the attesters cannot override. It costs a trusted-issuer list, a credential format every KYC issuer adopts, and `ga` observing every credential. Open: whether a deployment needs KYC proven on-ledger. | KYC asserted in the compliance attestation ([section 3.6](#36-control-enforcement)) | A gateway identity check, for a deployment that needs one | Medium |
+| **KYC proven on-ledger.** The default lets the attester quorum decide KYC off-ledger. The alternative has the gateway also check an issuer-signed credential, which adds a check that the attesters cannot override. It costs a trusted-issuer list, a credential format every KYC issuer adopts, and `ba` observing every credential. Open: whether a deployment needs KYC proven on-ledger. | KYC asserted in the compliance attestation ([section 3.6](#36-control-enforcement)) | A gateway identity check, for a deployment that needs one | Medium |
 | **Deadline values.** [Section 3.5](#35-time-and-deadlines) names the ceilings and sets no values. Open: the instruction lifetime the gateway requests within the registry's ceiling, the attestation validity, the margin between external-chain finality and Canton ledger time, the attester turnaround, and how long an attester waits past an expired attestation before it signs a refund statement. | The gateway stamps its ceilings at creation ([section 3.5](#35-time-and-deadlines)) | Every deployment, because those ceilings are stamped once | Medium |
 | **Expiry of stale instructions.** An instruction that its recipient never accepts credits nothing after its deadline, and its locked holding returns to the bridge account only when a party archives it. The registry's own expiry is the wTOK admin's choice, so the bridge cannot rely on it. Open: whether `br` withdraws each lapsed instruction one by one or batches the withdrawals in one gateway choice. | `br` withdraws every instruction at its deadline, and the registry's expiry is a fallback the bridge does not depend on ([section 4.4](#44-failure-modes-and-recovery)) | The relayer backend's cleanup automation | Low |
 | **Fee model.** The rail's traffic is relayer-paid, and app rewards pay confirmers and not submitters ([section 5.2](#52-app-rewards)). Open: whether the rail charges a fee, and whether it is a fee leg at the gateway, an off-ledger invoice, or an operator subsidy. A fee changes the amount the recipient receives, so the attested message, the instruction, and the preapproval have to carry it. | No fee. The reward is the only income | Whether the `br` operation is fundable, and the shape of the preapproval if a fee leg is chosen | Medium, an economic decision that reaches into the preapproval and the attested message |
-| **Who holds the featured app right.** CIP-0104 pays the parties that confirm a request, and `ga` confirms the gateway transaction and, as the sender's account owner, each accept. Open: whether the right sits with `ga` or the relay set. Open too: how the holder points each round's rewards at the parties that paid the traffic, and how the answer changes in case a [proposed CIP-0104 amendment](https://github.com/canton-foundation/cips/pull/262/changes) that credits the submitting featured app is live. | `ga` holds the right, and the rail earns nothing until the vote passes ([section 5.2](#52-app-rewards)) | Who earns each round, and no code | Low, an attribution choice and not a mechanism |
+| **Who holds the featured app right.** CIP-0104 pays the parties that confirm a request, and `ba` confirms the gateway transaction and, as the sender's account owner, each accept. Open: whether the right sits with `ba` or the relay set. Open too: how the holder points each round's rewards at the parties that paid the traffic, and how the answer changes in case a [proposed CIP-0104 amendment](https://github.com/canton-foundation/cips/pull/262/changes) that credits the submitting featured app is live. | `ba` holds the right, and the rail earns nothing until the vote passes ([section 5.2](#52-app-rewards)) | Who earns each round, and no code | Low, an attribution choice and not a mechanism |
 
 **Composability with the other reference architectures** needs no new mechanism.
 A recipient that holds an instrument credited here can supply a
