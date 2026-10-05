@@ -1,0 +1,8 @@
+# Workspace coordinator for the cross-chain stablecoin bridge prototype. It is
+# independent of the repository root workspace and pins the SDK of the CIP-112
+# branch it vendors.
+sdk-version: 3.5.8
+
+packages:
+  - bridge
+  - test

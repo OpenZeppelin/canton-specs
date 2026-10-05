@@ -1,0 +1,52 @@
+-- | The registry adapter: the module through which the gateways exercise the
+-- example registry's mint and burn. The example registry has no delegable
+-- mint or burn right, so this capability carries the wTOK admin's signature
+-- into `TokenRules_Mint` and `TokenRules_Burn` on the bridge account only.
+-- Archiving it revokes both rights. A registry that grants the rights in its
+-- own shape replaces this module.
+module OpenZeppelin.Experimental.Bridge.RegistryAdapter where
+
+import Splice.Api.Token.HoldingV2 qualified as HoldingV2
+import Splice.TokenStandard.Utils (basicAccount, requireMatchExpected)
+
+import OpenZeppelin.TokenCIP112V1.Registry (TokenRules, TokenRules_Mint(..), TokenRules_Burn(..))
+
+-- | The mint right and the burn right the wTOK admin grants `ga`, scoped to
+-- the bridge account and one instrument.
+template BridgeSupplyRight with
+    wtokAdmin : Party
+    ga : Party
+    rulesCid : ContractId TokenRules
+    bridgeAccount : HoldingV2.Account
+    instrumentId : Text
+  where
+    signatory wtokAdmin
+    observer ga
+    ensure bridgeAccount == basicAccount ga
+
+    nonconsuming choice BridgeSupplyRight_Mint : ContractId HoldingV2.Holding
+      with
+        amount : Decimal
+        reason : Text
+      controller ga
+      do exercise rulesCid TokenRules_Mint with
+           account = bridgeAccount; instrumentId; amount; reason
+
+    nonconsuming choice BridgeSupplyRight_Burn : ()
+      with
+        holdingCid : ContractId HoldingV2.Holding
+        reason : Text
+      controller ga
+      do exercise rulesCid TokenRules_Burn with
+           holdingCid; account = bridgeAccount; reason
+
+-- | Fetch the supply right and check that it names the gateway's own `ga`,
+-- instrument, and bridge account.
+fetchSupplyRight
+  : Party -> Text -> HoldingV2.Account -> ContractId BridgeSupplyRight -> Update BridgeSupplyRight
+fetchSupplyRight ga instrumentId bridgeAccount cid = do
+  right <- fetch cid
+  requireMatchExpected ("supplyRight.ga", right.ga) ga
+  requireMatchExpected ("supplyRight.instrumentId", right.instrumentId) instrumentId
+  requireMatchExpected ("supplyRight.bridgeAccount", right.bridgeAccount) bridgeAccount
+  pure right

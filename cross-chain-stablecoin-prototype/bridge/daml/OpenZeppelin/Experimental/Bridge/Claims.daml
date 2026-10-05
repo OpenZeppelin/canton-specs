@@ -1,0 +1,64 @@
+-- | The standing claim a burn leaves on Canton, and the attester confirmation
+-- that lets the relayer archive it once the escrow released it.
+module OpenZeppelin.Experimental.Bridge.Claims where
+
+import DA.List (unique)
+
+import Splice.TokenStandard.Utils (require)
+
+import OpenZeppelin.Experimental.Bridge.Registries
+
+-- | Who the escrow pays: the destination a holder named, or the originator of
+-- a lock whose returned credit was refunded.
+data ClaimPayout
+  = RedemptionPayout with
+      holder : Party
+      destination : Text
+      reference : Text
+        -- ^ The claim's nonce: the reference of the compliance attestation the burn consumed.
+  | RefundPayout with
+      nonce : Int
+        -- ^ The lock whose originator the escrow refunds, once.
+  deriving (Eq, Show)
+
+-- | The redemption attestation, or the refund claim. `ga` alone signs it. An
+-- attester reads it by disclosure before it signs it with its external-chain key.
+template BridgeClaim with
+    ga : Party
+    instrumentId : Text
+    amount : Decimal
+    payout : ClaimPayout
+  where
+    signatory ga
+    ensure amount > 0.0
+
+    nonconsuming choice BridgeClaim_Read : BridgeClaim
+      with
+        reader : Party
+        attesterRegistryCid : ContractId AttesterRegistry
+      controller reader
+      do
+        attesterRegistry <- fetchAttesterRegistry ga attesterRegistryCid
+        requireListedAttester attesterRegistry reader
+        pure this
+
+-- | The attesters' co-signed confirmation that the escrow released a claim.
+template ReleaseConfirmation with
+    signers : [Party]
+    relayer : Party
+    claimCid : ContractId BridgeClaim
+  where
+    signatory signers
+    observer relayer
+    ensure not (null signers) && unique signers
+
+    choice ReleaseConfirmation_Sign : ContractId ReleaseConfirmation
+      with signer : Party
+      controller signer
+      do
+        require "signer has not signed this confirmation" (signer `notElem` signers)
+        create this with signers = signer :: signers
+
+    choice ReleaseConfirmation_Consume : ()
+      controller relayer
+      do pure ()

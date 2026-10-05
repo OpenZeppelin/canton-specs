@@ -10,7 +10,8 @@ the recipient accepts.
 ## 1. Product Definition
 
 Holders accept a wrapped instrument, written wTOK, that the bridge
-mints against an attested lock. On the inbound path, the bridge mints under a
+mints against an for an attested lock that passed compliance checks.
+On the inbound path, the bridge mints under a
 mint right that the instrument's token registry grants it, and it runs every
 bridge check in its own contracts. On the outbound path, the bridge burns wTOK
 under a burn right that the instrument's token registry grants it. wTOK stands
@@ -19,10 +20,6 @@ matching burn right. [Section 3.9](#39-registry-integration) defines everything
 the bridge requires of a registry.
 The credited amount, the payer and payee identities, and the compliance markers
 project only to the authorized parties.
-
-The **messaging gateway** is the Canton contract that turns an attested lock
-into a transfer instruction, an offer of the credit that its recipient accepts.
-It runs the checks that an inbound credit must pass, and it is the seam where a different bridge mode plugs in ([section 3.8](#38-extension-points)).
 
 [Section 2.1](#21-business-roles) defines the rail's parties. This document
 writes the **bridge relayer** as `br`, the **bridge admin** as `ba`, and the
