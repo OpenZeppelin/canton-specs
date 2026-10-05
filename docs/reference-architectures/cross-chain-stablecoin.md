@@ -4,8 +4,8 @@ This reference architecture defines the Canton side of a stablecoin bridge
 (sometimes referred to as the "rail").
 An attested lock on an external chain mints a wrapped instrument on Canton, and a
 burn on Canton releases the backing on that chain. Each inbound credit passes
-compliance checks before it is offered, and it lands as a private transfer
-(mint) that the recipient accepts.
+compliance checks before it is offered, and it lands as a private transfer that
+the recipient accepts.
 
 ## 1. Product Definition
 
@@ -29,7 +29,8 @@ writes the **bridge relayer** as `br`, the **bridge admin** as `ba`, and the
 **pause authority** as `pa`.
 
 **Inbound** moves value from the external chain to Canton, by **lock-and-mint**.
-**Outbound** moves it back, by **burn-and-release**.
+**Outbound** moves it back, by **burn-and-release**, which each cross-chain hop
+being attested by an off-chain attester set ([section 3.2](#32-reserve-and-lock-attestation)).
 
 > NOTE: This document calls the other chain the **external chain** in both directions.
 
@@ -42,12 +43,7 @@ created, and its accept credits exactly that amount in one transaction or fails
 as a whole. Each inbound credit is one transfer instruction that its recipient
 accepts.
 
-No transaction spans both chains. The cross-chain hop is therefore
-lock-then-attested-mint, and not an atomic exchange. The binding checks
-of [section 3.2](#32-reserve-and-lock-attestation) tie the inbound amount,
-recipient, and instrument to the attestation.
-
-`OpenZeppelin/canton-contracts` holds an [experimental registry
+`OpenZeppelin/canton-contracts` holds a [draft registry
 implementation](https://github.com/OpenZeppelin/canton-contracts/tree/8a81bc86d7e5b2ec38db4c0c5897ccdb20ac25b8/packages/token/tokenCIP112-v1/daml/OpenZeppelin/TokenCIP112V1)
 of the Token Standard V2 interfaces, including the transfer instruction. This
 document uses it as the example wTOK registry. Per-party projection is what
@@ -59,12 +55,8 @@ instructions, so it sits inside the trust boundary ([section 2.2](#22-privacy-an
 
 **Privacy scope.** The guarantee covers the Canton side only. The
 external-chain lock is a public transaction, and it must carry enough data to
-route the transfer on Canton. An observer of the external chain can therefore
-link a public lock of amount *N* to a Canton party who will receive *N*.
-Canton's per-party projection hides everything downstream: the credited
-holding, the transfer events, the compliance markers, and every later private
-transfer. Hiding the link itself (hashed commitments, shielded payloads, or
-blinding by `br`) is out of scope.
+route the transfer on Canton. Hiding the link to the Canton recepient (hashed
+commitments, shielded payloads, etc.) is out of scope.
 
 ### 1.1 Institutional Controls
 
