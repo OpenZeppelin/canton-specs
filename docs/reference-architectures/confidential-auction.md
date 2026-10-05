@@ -758,7 +758,7 @@ Changed inputs or validity bounds require new transaction preparation and any
 new signatures. Ledger time and recording-time bounds serve different purposes.
 See [deduplication](https://docs.canton.network/appdev/deep-dives/command-deduplication),
 [time handling](https://docs.canton.network/appdev/modules/m3-working-with-time),
-and [external signing](https://docs.canton.network/appdev/deep-dives/external-signing-transactions).
+and [external signing](https://docs.canton.network/appdev/deep-dives/external-signing-transactions-part-1).
 
 Clear requires the confirming hosts or quorum for every relevant issuer,
 account, registry, and `av` branch. Credential fetches and approval consumption
@@ -967,7 +967,7 @@ staged workflow described here.
 Standards and platform semantics:
 
 - [CIP-0112 Token Standard V2](https://github.com/canton-foundation/cips/blob/6f37c896a5a76ec3bc1aa67bc045623ae5df41e5/cip-0112/cip-0112.md)
-  and the [Allocation V2 interface](https://github.com/hyperledger-labs/splice/blob/22e775d614ad67af0290380ae4ab07dd2dceb62d/token-standard/splice-api-token-allocation-v2/daml/Splice/Api/Token/AllocationV2.daml):
+  and the [Allocation V2 interface](https://github.com/canton-network/splice/blob/22e775d614ad67af0290380ae4ab07dd2dceb62d/token-standard/splice-api-token-allocation-v2/daml/Splice/Api/Token/AllocationV2.daml):
   account authority, allocation sides, executors, lineage, and settlement.
 - [CIP-0103 dApp API](https://github.com/canton-foundation/cips/blob/6f37c896a5a76ec3bc1aa67bc045623ae5df41e5/cip-0103/cip-0103.md):
   user authorization, wallet connectivity, and transaction submission.
