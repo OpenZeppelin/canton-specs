@@ -151,9 +151,9 @@ key that the escrow's own verifier accepts.
 
 | Role | Code | Responsibility and visibility |
 |---|---|---|
-| Bridge relayer | `br` | Transport and liveness. It exercises the gateway choices, holds the relayer role that the gateway checks, withdraws, through the gateway, an instruction whose flow is dead, and accepts or rejects each redemption request through the redemption gateway. A relayer without an attestation cannot mint. It sees every transfer instruction it creates. |
+| Bridge relayer | `br` | Transport and liveness. It exercises the gateway choices, holds the relayer role that the gateway checks, withdraws, through the gateway, an instruction whose flow is dead, and accepts or rejects each redemption request through the redemption gateway. A relayer without an attestation cannot mint. It holds its own `FeaturedAppRight` ([section 5.2](#52-app-rewards)). It sees every transfer instruction it creates. |
 | Attesters, M of them | - | The trust role, separate from the relayer's transport role. They sign the lock attestation ([section 3.1](#31-inbound-credit)), the compliance attestation ([section 3.6](#36-control-enforcement)), the redemption attestation ([section 3.3](#33-outbound-redemption)), and the refund statement ([section 3.1](#31-inbound-credit)). The attester registry lists them. Each listed attester observes every attested message, compliance attestation, and release confirmation created while it is listed, including one it declines to sign, and it sees no transfer instruction. |
-| Bridge admin | `ba` | The bridge's own admin. Sole signatory of the messaging gateway and the redemption gateway. It holds the mint right and the burn right that the token registry grants the bridge, and it owns the **bridge account**, the registry account where the gateway mints and from which it offers each credit. It maintains the two registries the gateway reads: the attester registry, which lists the parties whose signatures the compliance, mint, and refund checks accept ([section 3.6](#36-control-enforcement)), and the nonce registry, which records the nonce of every lock the bridge minted against ([section 3.2](#32-reserve-and-lock-attestation)). It submits nothing itself, holds the `FeaturedAppRight`, and observes the pause state. As the sender's account owner it sees every inbound credit. |
+| Bridge admin | `ba` | The bridge's own admin. Sole signatory of the messaging gateway and the redemption gateway. It holds the mint right and the burn right that the token registry grants the bridge, and it owns the **bridge account**, the registry account where the gateway mints and from which it offers each credit. It maintains the two registries the gateway reads: the attester registry, which lists the parties whose signatures the compliance, mint, and refund checks accept ([section 3.6](#36-control-enforcement)), and the nonce registry, which records the nonce of every lock the bridge minted against ([section 3.2](#32-reserve-and-lock-attestation)). It submits nothing itself, holds one of the two `FeaturedAppRight`s ([section 5.2](#52-app-rewards)), and observes the pause state. As the sender's account owner it sees every inbound credit. |
 | wTOK admin | - | The instrument admin of the token registry, and not a bridge role. It grants `ba` the mint and burn rights, signs wTOK holdings and transfer instructions as the registry defines them, and therefore sees every wTOK payment. Its key custody and its own mint paths are the registry's ([section 3.9](#39-registry-integration)). |
 | Recipient, or Holder outbound | - | Inbound, accepts the transfer instruction that offers its credit, live from its wallet or through a transfer preapproval it signed earlier ([section 3.1](#31-inbound-credit)). Outbound, offers its holding to the bridge account with a standard transfer that names the external-chain destination ([section 3.3](#33-outbound-redemption)). |
 | Pause authority | `pa` | Holds the pause role grant, and through it sets and clears the pause state. A set pause stops new offers, burns, and refunds ([section 3.6](#36-control-enforcement), [section 4.4](#44-failure-modes-and-recovery)). |
@@ -1464,22 +1464,29 @@ This rail earns through traffic-based app rewards
 The super validators must vote them on first, so the rail earns nothing before
 that vote.
 
-`ba` holds the `FeaturedAppRight`. Rewards accrue to
-the parties that confirm a successful request, and not to the one that submits
-it. CIP-0104 records no per-transaction beneficiary, so the holder assigns
+`ba` and `br` each hold a `FeaturedAppRight`. Rewards accrue to the parties
+that confirm a successful request: the signatories of a create node, and the
+input contract signatories and actors of an exercise node. Submitting alone
+earns nothing. `br` is the controller of every gateway choice, so it is an
+actor on the root exercise of each transaction it submits and earns from it.
+CIP-0104 records no per-transaction beneficiary, so each holder assigns
 beneficiaries on-ledger per reward round, before it mints. An external party,
 whether the holder or a beneficiary, needs an active minting delegation to mint
 its share.
 
-Two tensions follow, both specific to this design. First, a `FeaturedAppRight`
-names one provider party, which sits poorly with permissionless relay
-([section 2.3](#23-decentralization-and-trust-topology)). The relay set either
-shares one party, or leaves most relayers unrewarded. Second, the earn rule pays
-signers and not submitters. `br` signs none of the contracts it submits, while
-`ba` signs the gateways, the bridge account's holdings, and each instruction as
-its sender, the wTOK admin signs every holding, and the recipient signs its own
-holding. Most of the credit for relayer-funded transactions therefore goes to
-`ba` and the wTOK admin, and to nobody if only `br` is featured.
+The split follows from who confirms each node. `ba` signs the gateway, so it
+and `br` share the root gateway exercise. The attested mint, the factory call,
+and the offer nested inside it carry `ba`'s and the wTOK admin's authority and
+not `br`'s, so those nodes pay `ba` and the wTOK admin. The recipient earns
+nothing, because it holds no right. The exact share `br` receives depends on
+how Canton splits the gateway transaction into views, and that is unverified.
+Running one credit on Canton LocalNet and reading the activity records from
+Scan would settle it.
+
+A `FeaturedAppRight` names one provider party. That fits the single
+multi-hosted `br` of [section 2.3](#23-decentralization-and-trust-topology).
+It does not fit permissionless relay, where each relayer party would need its
+own voted right, so this reward approach does not carry over to that design.
 
 This document fixes no fee model, so under it the reward is the only income.
 Network issuance parameters that the super validators set decide how much of
@@ -1510,8 +1517,7 @@ activation vote.
 | **KYC proven on-ledger.** The default lets the attester quorum decide KYC off-ledger. The alternative has the gateway also check an issuer-signed credential, which adds a check that the attesters cannot override. It costs a trusted-issuer list, a credential format every KYC issuer adopts, and `ba` observing every credential. Open: whether a deployment needs KYC proven on-ledger. | KYC asserted in the compliance attestation ([section 3.6](#36-control-enforcement)) | A gateway identity check, for a deployment that needs one | Medium |
 | **Deadline values.** [Section 3.5](#35-time-and-deadlines) names the ceilings and sets no values. Open: the instruction lifetime the gateway requests within the registry's ceiling, the attestation validity, the margin between external-chain finality and Canton ledger time, the attester turnaround, and how long an attester waits past an expired attestation before it signs a refund statement. | The gateway stamps its ceilings at creation ([section 3.5](#35-time-and-deadlines)) | Every deployment, because those ceilings are stamped once | Medium |
 | **Expiry of stale instructions.** An instruction that its recipient never accepts credits nothing after its deadline, and its locked holding returns to the bridge account only when a party archives it. The registry's own expiry is the wTOK admin's choice, so the bridge cannot rely on it. Open: whether `br` withdraws each lapsed instruction one by one or batches the withdrawals in one gateway choice. | `br` withdraws every instruction at its deadline, and the registry's expiry is a fallback the bridge does not depend on ([section 4.4](#44-failure-modes-and-recovery)) | The relayer backend's cleanup automation | Low |
-| **Fee model.** The rail's traffic is relayer-paid, and app rewards pay confirmers and not submitters ([section 5.2](#52-app-rewards)). Open: whether the rail charges a fee, and whether it is a fee leg at the gateway, an off-ledger invoice, or an operator subsidy. A fee changes the amount the recipient receives, so the attested message, the instruction, and the preapproval have to carry it. | No fee. The reward is the only income | Whether the `br` operation is fundable, and the shape of the preapproval if a fee leg is chosen | Medium, an economic decision that reaches into the preapproval and the attested message |
-| **Who holds the featured app right.** CIP-0104 pays the parties that confirm a request, and `ba` confirms the gateway transaction and, as the sender's account owner, each accept. Open: whether the right sits with `ba` or the relay set. Open too: how the holder points each round's rewards at the parties that paid the traffic, and how the answer changes in case a [proposed CIP-0104 amendment](https://github.com/canton-foundation/cips/pull/262/changes) that credits the submitting featured app is live. | `ba` holds the right, and the rail earns nothing until the vote passes ([section 5.2](#52-app-rewards)) | Who earns each round, and no code | Low, an attribution choice and not a mechanism |
+| **Fee model.** The rail's traffic is relayer-paid, and app rewards pay `br` only for the gateway exercises it is an actor on ([section 5.2](#52-app-rewards)). Open: whether the rail charges a fee, and whether it is a fee leg at the gateway, an off-ledger invoice, or an operator subsidy. A fee changes the amount the recipient receives, so the attested message, the instruction, and the preapproval have to carry it. | No fee. The reward is the only income | Whether the `br` operation is fundable, and the shape of the preapproval if a fee leg is chosen | Medium, an economic decision that reaches into the preapproval and the attested message |
 
 **Composability with the other reference architectures** needs no new mechanism.
 A recipient that holds an instrument credited here can supply a
