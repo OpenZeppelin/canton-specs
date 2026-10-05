@@ -60,20 +60,14 @@ commitments, shielded payloads, etc.) is out of scope.
 
 ### 1.1 Institutional Controls
 
-We use D1 through D4 as local shorthand for four institutional controls. They
-are shared with the sibling reference architectures, and they are not Canton or
-CIP-0112 requirements.
+We use D1 through D4 as local shorthand for four institutional controls.
 
 | ID | Control | Mechanism | Where enforced | Invariant |
 |---|---|---|---|---|
 | **D1** | Compliance | A single-use attestation from an N-of-M quorum of listed attesters, screened against the lock's originator and bound to the credit's recipient, amount, instrument, and lock nonce inbound, or to the redemption request outbound, and never cached. | The bridge: the messaging gateway before any transfer instruction exists, and the redemption gateway before any burn, against the attester set that the bridge's attester registry lists. | No valid attestation, no transfer instruction and no burn. |
-| **D2** | Seizure | Seizure of a pending credit, implemented by a registry that offers it. | The token registry, optionally. The bridge neither requires nor enforces it ([section 3.6](#36-control-enforcement)). | Set by the registry that implements it. |
+| **D2** | Seizure | Seizure of a pending credit, implemented by a registry that offers it. | The token registry, optionally ([section 3.9](#39-registry-integration)). The bridge neither requires nor enforces it ([section 3.6](#36-control-enforcement)). | Set by the registry that implements it. |
 | **D3** | KYC identity | Each attester service checks off-ledger that the recipient, or outbound the redeeming holder, passed KYC, and the compliance attestation asserts it. | The bridge's attester backend, before it signs. The gateways enforce the result through D1. | No KYC, no compliance attestation, no transfer instruction and no burn. |
 | **D4** | Authority | Every privileged bridge choice binds to a named role rather than to one admin. | The bridge: each privileged bridge choice, against the role grant that carries the privilege. `ba`, which holds the mint right, is N-of-M. The registry governs its own privileged choices. | Privileges are granted, transferred, and revoked without a redeploy. |
-
-The bridge enforces D1, D3, and D4 in its own contracts and its attester
-backend, so they hold with any registry. D2 needs authority over the registry's own transfer instruction, so
-only a registry can enforce it ([section 3.9](#39-registry-integration)).
 
 ### 1.2 Scope
 
