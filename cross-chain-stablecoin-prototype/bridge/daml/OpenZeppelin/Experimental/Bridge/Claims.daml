@@ -43,9 +43,12 @@ template BridgeClaim with
         pure this
 
 -- | The attesters' co-signed confirmation that the escrow released a claim.
+-- Only the redemption gateway consumes it, under the relayer's and the
+-- verifier's (`ba`'s) authority together.
 template ReleaseConfirmation with
     signers : [Party]
     relayer : Party
+    verifier : Party
     claimCid : ContractId BridgeClaim
   where
     signatory signers
@@ -60,5 +63,5 @@ template ReleaseConfirmation with
         create this with signers = signer :: signers
 
     choice ReleaseConfirmation_Consume : ()
-      controller relayer
+      controller relayer, verifier
       do pure ()

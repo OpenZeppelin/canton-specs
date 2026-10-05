@@ -28,11 +28,14 @@ data LockAttestation = LockAttestation with
 isValidLockAttestation : LockAttestation -> Bool
 isValidLockAttestation lock = lock.nonce >= 0 && lock.amount > 0.0
 
--- | The attested message. The relayer it is issued to observes it and
--- consumes it through the gateway.
+-- | The attested message. The relayer it is issued to observes it. Only a
+-- gateway choice consumes it, because the consume needs the relayer's and
+-- the verifier's (`ba`'s) authority together, and only a gateway transaction
+-- carries both.
 template AttestedMessage with
     signers : [Party]
     relayer : Party
+    verifier : Party
     lock : LockAttestation
   where
     signatory signers
@@ -47,7 +50,7 @@ template AttestedMessage with
         create this with signers = signer :: signers
 
     choice AttestedMessage_Consume : ()
-      controller relayer
+      controller relayer, verifier
       do pure ()
 
 -- | What a compliance attestation binds: the content of an inbound credit, or
@@ -70,6 +73,7 @@ data ComplianceSubject
 
 -- | The single-use compliance attestation (D1), which asserts the KYC result
 -- (D3). Issued to the relayer; `ba`'s authority verifies it in the gateway.
+-- Like the attested message, only a gateway choice consumes it.
 template ComplianceAttestation with
     signers : [Party]
     relayer : Party
@@ -90,7 +94,7 @@ template ComplianceAttestation with
         create this with signers = signer :: signers
 
     choice ComplianceAttestation_Consume : ()
-      controller relayer
+      controller relayer, verifier
       do pure ()
 
 -- | Verify and consume a compliance attestation: a listed quorum signed it,

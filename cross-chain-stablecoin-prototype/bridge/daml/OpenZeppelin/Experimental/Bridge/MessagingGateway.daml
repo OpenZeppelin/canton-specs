@@ -68,6 +68,7 @@ template MessagingGateway with
         requireNotPaused ba instrumentId pauseStateCid
         attesterRegistry <- fetchAttesterRegistry ba attesterRegistryCid
         message <- fetch messageCid
+        requireMatchExpected ("attestedMessage.verifier", message.verifier) ba
         let lock = message.lock
         -- D1 and D3: the compliance attestation binds the lock's content.
         subject <- verifyCompliance ba attesterRegistry maxAttestationValidity complianceCid
@@ -128,6 +129,7 @@ template MessagingGateway with
         requireRole ba (relayScope instrumentId) authorization
         attesterRegistry <- fetchAttesterRegistry ba attesterRegistryCid
         message <- fetch messageCid
+        requireMatchExpected ("attestedMessage.verifier", message.verifier) ba
         let lock = message.lock
         requireQuorum attesterRegistry "attested message" message.signers
         requireMatchExpected ("lockAttestation.instrumentId", lock.instrumentId) instrumentId

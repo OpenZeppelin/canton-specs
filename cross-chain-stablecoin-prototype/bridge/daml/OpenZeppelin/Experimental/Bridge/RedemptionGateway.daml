@@ -155,6 +155,7 @@ template RedemptionGateway with
         attesterRegistry <- fetchAttesterRegistry ba attesterRegistryCid
         confirmation <- fetch confirmationCid
         requireMatchExpected ("confirmation.claimCid", confirmation.claimCid) claimCid
+        requireMatchExpected ("confirmation.verifier", confirmation.verifier) ba
         requireQuorum attesterRegistry "release confirmation" confirmation.signers
         claim <- fetch claimCid
         requireMatchExpected ("claim.ba", claim.ba) ba

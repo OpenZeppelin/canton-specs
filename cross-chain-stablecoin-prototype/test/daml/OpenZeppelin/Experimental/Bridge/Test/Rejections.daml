@@ -1,6 +1,7 @@
 -- | The fail-closed checks of the gateway transaction: a replayed nonce, a
 -- nonce whose epoch has no registry, an unlisted signer, a quorum below N,
--- an expired attestation, a mismatched attestation, a relayer without the
+-- an expired attestation, a mismatched attestation, an attestation consumed
+-- outside a gateway, a relayer without the
 -- role, and a registry not maintained by `ba`.
 module OpenZeppelin.Experimental.Bridge.Test.Rejections where
 
@@ -12,7 +13,9 @@ import Daml.Script
 import OpenZeppelin.ScopedAuthorizationGrantV1
 
 import OpenZeppelin.Experimental.Bridge.Attestations
+import OpenZeppelin.Experimental.Bridge.Claims
 import OpenZeppelin.Experimental.Bridge.MessagingGateway
+import OpenZeppelin.Experimental.Bridge.RedemptionGateway
 import OpenZeppelin.Experimental.Bridge.Policy
 import OpenZeppelin.Experimental.Bridge.Registries
 import OpenZeppelin.Experimental.Bridge.Test.Fixtures
@@ -269,3 +272,52 @@ testRegistryNotMaintainedByBa = do
   b2 <- unpause b1
   (_, _) <- process b2 m c None
   pure ()
+
+-- | The attested message, the compliance attestation, and the release
+-- confirmation are consumed only through a gateway choice: the consume needs
+-- `br`'s and `ba`'s authority together. Neither party alone consumes them,
+-- the built-in archive needs the attesters, and the gateway rejects a
+-- contract that names another verifier.
+testConsumedOnlyByGateway : Script ()
+testConsumedOnlyByGateway = do
+  b0 <- setup
+  (lock, m, c) <- attested b0 0 100.0
+  md <- discloseFrom b0.attester1 m
+  cd <- discloseFrom b0.attester1 c
+  -- `br` alone.
+  submitMustFail b0.br do exerciseCmd m AttestedMessage_Consume
+  submitMustFail b0.br do exerciseCmd c ComplianceAttestation_Consume
+  submitMustFail b0.br do archiveCmd m
+  -- `ba` alone.
+  submitMustFail (actAs b0.ba <> disclose md) do exerciseCmd m AttestedMessage_Consume
+  submitMustFail (actAs b0.ba <> disclose cd) do exerciseCmd c ComplianceAttestation_Consume
+  -- A message naming another verifier fails the gateway.
+  outsider <- allocateParty "outsider"
+  wrong <- submit b0.attester1 do
+    createCmd AttestedMessage with signers = [b0.attester1]; relayer = b0.br; verifier = outsider; lock
+  wd <- discloseFrom b0.attester1 wrong
+  wrong2 <- submit (actAs b0.attester2 <> disclose wd) do
+    exerciseCmd wrong AttestedMessage_Sign with signer = b0.attester2
+  submitRelayerMustFail b0 [] (processCmd b0 wrong2 c None)
+  submitRelayerMustFail b0 [] (closeCmd b0 wrong2 "denied")
+  -- Both contracts are still active, and the gateway consumes them.
+  (b1, _) <- process b0 m c None
+  gone <- queryContractId b1.attester1 m
+  gone === None
+  -- The release confirmation, likewise.
+  (b2, holdingCid) <- creditHolder b1 1 10.0
+  requestCid <- requestRedemption b2 holdingCid 10.0 "0xdest"
+  rc <- attestCompliance b2 (quorum b2) (outboundSubject b2 "redeem-1" requestCid 10.0 "0xdest")
+  claimCid <- redeem b2 requestCid rc
+  confirmationCid <- confirmRelease b2 (quorum b2) claimCid
+  fd <- discloseFrom b2.attester1 confirmationCid
+  submitMustFail b2.br do exerciseCmd confirmationCid ReleaseConfirmation_Consume
+  submitMustFail (actAs b2.ba <> disclose fd) do exerciseCmd confirmationCid ReleaseConfirmation_Consume
+  claimDisclosure <- discloseFrom b2.ba claimCid
+  submitRelayer b2 [claimDisclosure] do
+    exerciseCmd b2.redemptionCid RedemptionGateway_ArchiveClaim with
+      authorization = relayerAuth b2
+      claimCid; confirmationCid
+      attesterRegistryCid = b2.attesterRegistryCid
+  archived <- queryContractId b2.ba claimCid
+  archived === None

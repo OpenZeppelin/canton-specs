@@ -229,7 +229,7 @@ attestMessage b signers lock = case signers of
   [] -> fail "a message needs at least one signer"
   first :: rest -> do
     cid <- submit first do
-      createCmd AttestedMessage with signers = [first]; relayer = b.br; lock
+      createCmd AttestedMessage with signers = [first]; relayer = b.br; verifier = b.ba; lock
     foldlA (\current signer -> do
         d <- discloseFrom first current
         submit (actAs signer <> disclose d) do
@@ -263,7 +263,7 @@ confirmRelease b signers claimCid = case signers of
   [] -> fail "a confirmation needs at least one signer"
   first :: rest -> do
     cid <- submit first do
-      createCmd ReleaseConfirmation with signers = [first]; relayer = b.br; claimCid
+      createCmd ReleaseConfirmation with signers = [first]; relayer = b.br; verifier = b.ba; claimCid
     foldlA (\current signer -> do
         d <- discloseFrom first current
         submit (actAs signer <> disclose d) do

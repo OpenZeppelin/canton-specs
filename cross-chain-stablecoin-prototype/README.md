@@ -14,7 +14,7 @@ workspace of this repository does not list its packages.
 
 | Path | Purpose |
 |---|---|
-| [`bridge/`](bridge/) | The bridge package: registries, attester statements, gateways, claims, the transfer preapproval, and the registry adapter |
+| [`bridge/`](bridge/) | The bridge package: registries, attester attestations, gateways, claims, the transfer preapproval, and the registry adapter |
 | [`test/`](test/) | Daml Script tests, one module per flow group, with shared fixtures |
 | [`dars/manifest.yaml`](dars/manifest.yaml) | Provenance of every vendored DAR: name, version, main package id, SHA-256, source commit, source path, license |
 | [`dars/vendor/`](dars/vendor/) | The pinned DARs the two packages build against |
@@ -47,12 +47,12 @@ lists every bridge template and choice as exercised.
 | Proposal | Prototype |
 |---|---|
 | Mint right and burn right (section 3.9) | `BridgeSupplyRight` in `RegistryAdapter.daml`: the wTOK admin signs it, it names `ba`, and its two choices exercise `TokenRules_Mint` and `TokenRules_Burn` on the bridge account only. Archiving it revokes both rights |
-| Attested message with the lock attestation (section 3.1) | `AttestedMessage` in `Attestations.daml`: one co-signed contract per message. The first attester creates it, each further attester adds itself through `AttestedMessage_Sign`, and the relayer it is issued to consumes it |
+| Attested message with the lock attestation (section 3.1) | `AttestedMessage` in `Attestations.daml`: one co-signed contract per message. The first attester creates it, each further attester adds itself through `AttestedMessage_Sign`, and only a gateway choice consumes it |
 | Compliance attestation (sections 3.1 and 3.6) | `ComplianceAttestation`, co-signed the same way, bound to an inbound credit or to a redemption request through `ComplianceSubject`, with the KYC assertion and an expiry |
 | Attester registry, nonce registry, pause state (section 3.4) | `AttesterRegistry`, `NonceRegistry`, and `BridgePauseState` in `Registries.daml`, each with its maintainer and scope fields, and each with the nonconsuming read choice a listed attester exercises |
 | Messaging gateway (section 3.1) | `MessagingGateway` with `_Process`, `_Withdraw`, `_Close`, and `_Reoffer` |
 | Redemption gateway (section 3.3) | `RedemptionGateway` with `_Process`, `_Reject`, `_Refund`, `_Hold`, and `_ArchiveClaim` |
-| Redemption attestation and refund claim (section 3.3) | `BridgeClaim` in `Claims.daml`, with a payout variant for each, and `ReleaseConfirmation`, the co-signed statement that lets `br` archive a released claim |
+| Redemption attestation and refund claim (section 3.3) | `BridgeClaim` in `Claims.daml`, with a payout variant for each, and `ReleaseConfirmation`, the co-signed attester contract that lets `br` archive a released claim |
 | Transfer preapproval (section 3.1) | `TransferPreapproval` in `Preapproval.daml`: recipient-signed, bounded by instrument, amount ceiling, expiry, and delegate |
 | Relayer role and pause role (section 3.6) | `AuthorizationGrant` contracts from `openzeppelin-scoped-authorization-grant-v1`, with the scopes in `Policy.daml`. Every `br` choice on both gateways checks the relayer grant |
 
@@ -60,9 +60,10 @@ Decisions the prototype records, beyond the proposal's text:
 
 - The gateway counts the distinct signers that the attester registry lists
   against the threshold. A signer the registry does not list is ignored.
-- The attester-signed statements carry a consuming choice controlled by the
-  relayer they are issued to, because the gateway needs a controller whose
-  authority is present when it consumes them.
+- The attested message, the compliance attestation, and the release
+  confirmation each name the relayer they are issued to and `ba` as verifier.
+  Their consuming choice needs both parties' authority, which only a gateway
+  transaction carries, so no party archives them outside a gateway.
 - The close of a denied message runs while the pause state is set.
 - The gateways carry the epoch size `E`, the instruction lifetime, and the
   maximum attestation validity as fields. The tests use `E = 4`, one hour,
@@ -84,17 +85,18 @@ Decisions the prototype records, beyond the proposal's text:
 | `Outbound.daml` | `testOutboundBindings` | The attestation must bind the request id, the holder, the instrument, the amount, and the destination. A request without a destination is not processed |
 | `Governance.daml` | `testPauseStopsSupplyPaths` | The pause role grant sets the pause state. Offers, burns, refunds, and holds fail. Withdraw, reject, and the registry's accept still run |
 | `Governance.daml` | `testPauseAuthorityAndHandover` | Only a pause grant from `ba` flips the state, each flip needs the opposite state, and the handover is a revoke and a new grant |
-| `Governance.daml` | `testRelayerRoleHandover` | A relayer without the grant fails. The new relayer needs statements issued to it |
+| `Governance.daml` | `testRelayerRoleHandover` | A relayer without the grant fails. The new relayer needs attestations issued to it |
 | `Governance.daml` | `testAttesterRegistryRotation` | The rotation archives the current registry. Quorums and membership reads follow the new list |
 | `Governance.daml` | `testAttesterReads` | A listed attester reads a nonce's status by disclosure. An unlisted party cannot |
 | `Governance.daml` | `testSupplyRight` | Neither `ba` nor `br` mints through the registry without the supply right, the right cannot name another account, and archiving it stops mints and refunds |
 | `Rejections.daml` | `testReplayedNonce` | A second attested message for a minted lock is rejected |
 | `Rejections.daml` | `testNonceEpochWithoutRegistry` | A nonce whose epoch has no registry is rejected, and each epoch's registry holds only its own nonces |
-| `Rejections.daml` | `testUnlistedSigner` | Unlisted signers do not count toward the quorum and do not invalidate a statement |
-| `Rejections.daml` | `testQuorumBelowThreshold` | Fewer than N listed signers fail, on either statement |
+| `Rejections.daml` | `testUnlistedSigner` | Unlisted signers do not count toward the quorum and do not invalidate an attestation |
+| `Rejections.daml` | `testQuorumBelowThreshold` | Fewer than N listed signers fail, on either attestation |
 | `Rejections.daml` | `testExpiredAttestation` | An expired attestation fails, and so does one whose expiry lies beyond the maximum attestation validity |
 | `Rejections.daml` | `testMismatchedCompliance` | The attestation must bind the nonce, recipient, instrument, and amount, assert KYC, and name `ba` as verifier |
 | `Rejections.daml` | `testRelayerWithoutRole` | Another party's grant, the pause grant, a grant from another authority, a grant for another instrument, and an expired grant all fail |
+| `Rejections.daml` | `testConsumedOnlyByGateway` | Neither `br` nor `ba` alone consumes an attested message, a compliance attestation, or a release confirmation, and the gateway rejects one that names another verifier |
 | `Rejections.daml` | `testRegistryNotMaintainedByBa` | A nonce registry, attester registry, or pause state that `ba` does not maintain, or that carries another instrument or epoch, fails the gateway |
 
 ## Limits
@@ -124,6 +126,6 @@ Decisions the prototype records, beyond the proposal's text:
 - A gateway choice cannot verify that an offer lapsed during a pause or an
   outage. The fresh compliance attestation is the only on-ledger control of
   a re-offer.
-- A relayer handover does not recreate a bridge contract, but statements
+- A relayer handover does not recreate a bridge contract, but attestations
   issued to the old relayer cannot be consumed by the new one, so the
-  attesters issue new statements after a handover.
+  attesters issue new attestations after a handover.

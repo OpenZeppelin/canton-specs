@@ -178,7 +178,10 @@ registry, and the nonce registry reach the gateway as disclosed contracts,
 and the gateway checks the maintainer and the scope each one carries, so only
 `ba`'s contracts pass ([section 3.4](#34-registry-identity-and-uniqueness)). The
 lock attestation is a data record inside the attested message, so an attester
-signs the message and not a standalone attestation.
+signs the message and not a standalone attestation. The attested message, the
+compliance attestation, and the release confirmation each name the `br` they
+are issued to and `ba`. Consuming one needs both parties' authority, which only
+a gateway transaction carries, so no party archives one outside a gateway.
 
 ### 2.2 Privacy and Visibility
 
@@ -1042,8 +1045,10 @@ KYC.
 with the role responsible for it: relay with the relayer role grant, the pause
 with the pause role grant, and the attested mint, the refund, and both
 registries with `ba`. A permission whose holder must move or be revoked sits on
-a separate role grant, so a change of holder recreates no contract. The
-registry's own privileged choices follow the registry's own authority model.
+a separate role grant, so a change of holder recreates no contract. An
+attestation in flight is the exception: it names the `br` it was issued to, so
+a new `br` needs it reissued. The registry's own privileged choices follow the
+registry's own authority model.
 
 **Pause.** The pause stops every bridge path that creates supply or releases
 backing: the messaging gateway's mint and offer, and the redemption gateway's
