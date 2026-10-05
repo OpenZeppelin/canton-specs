@@ -63,7 +63,7 @@ We use D1 through D4 as local shorthand for four institutional controls.
 |---|---|---|---|---|
 | **D1** | Compliance | A single-use attestation from an N-of-M quorum of listed attesters, screened against the lock's originator and bound to the credit's recipient, amount, instrument, and lock nonce inbound, or to the redemption request outbound, and never cached. | The bridge: the messaging gateway before any transfer instruction exists, and the redemption gateway before any burn, against the attester set that the bridge's attester registry lists. | No valid attestation, no transfer instruction and no burn. |
 | **D2** | Seizure | Seizure of a pending credit, implemented by a registry that offers it. | The token registry, optionally ([section 3.9](#39-registry-integration)). The bridge neither requires nor enforces it ([section 3.6](#36-control-enforcement)). | Set by the registry that implements it. |
-| **D3** | KYC identity | Each attester service checks off-ledger that the recipient, or outbound the redeeming holder, passed KYC, and the compliance attestation asserts it. | The bridge's attester backend, before it signs. The gateways enforce the result through D1. | No KYC, no compliance attestation, no transfer instruction and no burn. |
+| **D3** | KYC identity | Each attester service checks off-ledger that the recipient, or outbound the redeeming holder, passed KYC, and the compliance attestation asserts it. | The attester services, before they sign. The gateways enforce the result through D1. | No KYC, no compliance attestation, no transfer instruction and no burn. |
 | **D4** | Authority | Every privileged bridge choice binds to a named role rather than to one admin. | The bridge: each privileged bridge choice, against the role grant that carries the privilege. `ba`, which holds the mint right, is N-of-M. The registry governs its own privileged choices. | Privileges are granted, transferred, and revoked without a redeploy. |
 
 ### 1.2 Scope
@@ -71,13 +71,12 @@ We use D1 through D4 as local shorthand for four institutional controls.
 | Bridge scope | Out of scope |
 |---|---|
 | The Canton side of the bridge: attested mint, private transfer, and attested burn | The deployment and operation of the relayer backend and the attester services, the external-chain lock escrow, external oracles, external-chain validator sets, and light-client proofs |
-| Transfers of wTOK, the wrapped instrument this design mints | The issuance, peg, and collateral mechanism of any stablecoin, and any asset that already has a native Canton rail |
 | The mint and burn rights the bridge asks of a token registry ([section 3.9](#39-registry-integration)) | The token registry itself, its admin's key custody, and any mint path of the registry outside the bridge's grant |
-| Compliance and KYC checks that the attester services run before they sign, and the gateway checks that deny a credit or a redemption without a valid compliance attestation | Any check that reads a stored compliance flag, a risk score, or a threshold |
+| The gateway checks that deny a credit or a redemption without a valid compliance attestation | Compliance and KYC checks that the attester services run before they sign |
 | Token Standard V2 (CIP-0112) two-step transfers: the transfer instruction, its accept, and the transfer preapproval that automates the accept | Token Standard V1 (CIP-0056), and the CIP-0112 allocation and settlement-batch path, which the rail does not use ([section 3.1](#31-inbound-credit)) |
 | One Canton synchronizer, with a cross-chain boundary outside it | Cross-synchronizer settlement, and parties hosted on another synchronizer |
 | One external chain behind the wrapped instrument | Backing one instrument from several external chains, and the per-chain reserve accounting and routing it needs |
-| The controls the bridge enforces itself: D1, D3, and D4 ([section 3.6](#36-control-enforcement)) | Seizure (D2), registry-side compliance and identity checks, and any control over a wTOK holding after it is credited, which each registry implements for itself |
+| The controls the bridge enforces itself: D1 and D4 ([section 3.6](#36-control-enforcement)) | Seizure (D2), the KYC check (D3), which the attester services run and the gateways enforce through D1, registry-side compliance and identity checks, and any control over a wTOK holding after it is credited, which each registry implements for itself |
 
 ### 1.3 Component Status
 
