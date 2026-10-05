@@ -1,0 +1,109 @@
+-- | The co-signed attester statements the messaging gateway and the
+-- redemption gateway verify: the attested message that carries the lock
+-- attestation, and the single-use compliance attestation. The first attester
+-- creates a statement, each further attester adds itself as a signatory
+-- through a choice, and the gateway counts the listed signers.
+module OpenZeppelin.Experimental.Bridge.Attestations where
+
+import DA.List (unique)
+import DA.Time (RelTime)
+
+import Splice.Api.Token.TransferInstructionV2 qualified as TransferInstructionV2
+import Splice.TokenStandard.Utils (require, requireMatchExpected)
+
+import OpenZeppelin.Experimental.Bridge.Policy
+import OpenZeppelin.Experimental.Bridge.Registries
+
+-- | The typed statement that the escrow received `amount` under `nonce`, and
+-- that one mint of the same amount on Canton may credit it.
+data LockAttestation = LockAttestation with
+    nonce : Int
+      -- ^ The escrow's sequence number of the lock.
+    recipient : Party
+    instrumentId : Text
+    amount : Decimal
+    expiresAt : Time
+  deriving (Eq, Show)
+
+isValidLockAttestation : LockAttestation -> Bool
+isValidLockAttestation lock = lock.nonce >= 0 && lock.amount > 0.0
+
+-- | The attested message. The relayer it is issued to observes it and
+-- consumes it through the gateway.
+template AttestedMessage with
+    signers : [Party]
+    relayer : Party
+    lock : LockAttestation
+  where
+    signatory signers
+    observer relayer
+    ensure not (null signers) && unique signers && isValidLockAttestation lock
+
+    choice AttestedMessage_Sign : ContractId AttestedMessage
+      with signer : Party
+      controller signer
+      do
+        require "signer has not signed this message" (signer `notElem` signers)
+        create this with signers = signer :: signers
+
+    choice AttestedMessage_Consume : ()
+      controller relayer
+      do pure ()
+
+-- | What a compliance attestation binds: the content of an inbound credit, or
+-- a redemption request.
+data ComplianceSubject
+  = InboundCredit with
+      nonce : Int
+      recipient : Party
+      instrumentId : Text
+      amount : Decimal
+  | OutboundRedemption with
+      reference : Text
+        -- ^ The attesters' reference, which becomes the redemption claim's nonce.
+      requestCid : ContractId TransferInstructionV2.TransferInstruction
+      holder : Party
+      instrumentId : Text
+      amount : Decimal
+      destination : Text
+  deriving (Eq, Show)
+
+-- | The single-use compliance attestation (D1), which asserts the KYC result
+-- (D3). Issued to the relayer; `ba`'s authority verifies it in the gateway.
+template ComplianceAttestation with
+    signers : [Party]
+    relayer : Party
+    verifier : Party
+    subject : ComplianceSubject
+    kycPassed : Bool
+    expiresAt : Time
+  where
+    signatory signers
+    observer relayer, verifier
+    ensure not (null signers) && unique signers
+
+    choice ComplianceAttestation_Sign : ContractId ComplianceAttestation
+      with signer : Party
+      controller signer
+      do
+        require "signer has not signed this attestation" (signer `notElem` signers)
+        create this with signers = signer :: signers
+
+    choice ComplianceAttestation_Consume : ()
+      controller relayer
+      do pure ()
+
+-- | Verify and consume a compliance attestation: a listed quorum signed it,
+-- it is fresh, it names `ba` as verifier, and it asserts KYC. Returns the
+-- subject for the caller to bind to the credit or the request.
+verifyCompliance
+  : Party -> AttesterRegistry -> RelTime -> ContractId ComplianceAttestation
+  -> Update ComplianceSubject
+verifyCompliance ba attesterRegistry maxValidity complianceCid = do
+  compliance <- fetch complianceCid
+  requireQuorum attesterRegistry "compliance attestation" compliance.signers
+  requireFresh "complianceAttestation.expiresAt" maxValidity compliance.expiresAt
+  requireMatchExpected ("complianceAttestation.verifier", compliance.verifier) ba
+  require "compliance attestation asserts KYC" compliance.kycPassed
+  exercise complianceCid ComplianceAttestation_Consume
+  pure compliance.subject

@@ -1,0 +1,251 @@
+-- | Inbound flows: live accept, delegated accept under a transfer
+-- preapproval, late denial, lapsed instruction, denial before the gateway,
+-- hold, and the re-offer of a credit that lapsed during a pause.
+module OpenZeppelin.Experimental.Bridge.Test.Inbound where
+
+import DA.Assert ((===))
+import DA.List (sort)
+import DA.Optional (isSome)
+import DA.TextMap qualified as TextMap
+import DA.Time (addRelTime, days, minutes)
+import Daml.Script
+
+import OpenZeppelin.TokenCIP112V1.Holding (TokenHolding)
+import Splice.Api.Token.TransferInstructionV2 qualified as TransferInstructionV2
+import Splice.TokenStandard.Utils (basicAccount)
+
+import OpenZeppelin.Experimental.Bridge.Claims
+import OpenZeppelin.Experimental.Bridge.Policy
+import OpenZeppelin.Experimental.Bridge.Preapproval
+import OpenZeppelin.Experimental.Bridge.Registries
+import OpenZeppelin.Experimental.Bridge.Test.Fixtures
+
+acceptMustFail : Party -> ContractId TransferInstructionV2.TransferInstruction -> Script ()
+acceptMustFail party instructionCid =
+  submitMustFail party do
+    exerciseCmd instructionCid TransferInstructionV2.TransferInstruction_Accept with
+      actors = [party]
+      extraArgs = noExtraArgs
+
+mkPreapproval : Bridge -> Party -> Decimal -> Time -> Script (ContractId TransferPreapproval)
+mkPreapproval b recipient maxAmount expiresAt =
+  submit recipient do
+    createCmd TransferPreapproval with
+      recipient
+      delegate = b.br
+      instrumentId = wtokInstrument b
+      maxAmount; expiresAt
+
+-- | The gateway transaction mints into the bridge account and offers the
+-- credit as a pending instruction that carries the lock's nonce. The
+-- recipient's live accept credits it.
+testInboundLiveAccept : Script ()
+testInboundLiveAccept = do
+  b0 <- setup
+  (b, _, result) <- offerLock b0 0 100.0
+  supply <- totalSupply b
+  supply === 100.0
+  recipientBefore <- unlockedAmounts b.recipient
+  recipientBefore === []
+  bridgeBefore <- bridgeHoldings b
+  bridgeBefore === []
+  status <- nonceStatus b 0
+  status === Some Minted
+  Some instruction <- queryInterfaceContractId @TransferInstructionV2.TransferInstruction
+    b.recipient result.offer.instructionCid
+  instruction.transfer.sender === bridgeAccountOf b
+  instruction.transfer.receiver === basicAccount b.recipient
+  instruction.transfer.amount === 100.0
+  TextMap.lookup lockNonceMetaKey instruction.transfer.meta.values === Some "0"
+  -- The first write to the epoch's registry created the next epoch's registry.
+  registries <- query @NonceRegistry b.ba
+  sort [r.epoch | (_, r) <- registries] === [0, 1]
+  _ <- acceptAs b.recipient result.offer.instructionCid
+  recipientAfter <- unlockedAmounts b.recipient
+  recipientAfter === [100.0]
+  supplyAfter <- totalSupply b
+  supplyAfter === 100.0
+
+-- | Under a transfer preapproval the delegated accept runs inside the
+-- gateway transaction. The preapproval bounds the instrument, the amount,
+-- the expiry, the delegate, and the recipient, and the recipient can archive it.
+testInboundPreapproval : Script ()
+testInboundPreapproval = do
+  b0 <- setup
+  now <- getTime
+  preCid <- mkPreapproval b0 b0.recipient 500.0 (now `addRelTime` days 1)
+  lock <- lockFor b0 0 100.0
+  messageCid <- attestMessage b0 (quorum b0) lock
+  complianceCid <- attestCompliance b0 (quorum b0) (inboundSubject lock)
+  (b, result) <- process b0 messageCid complianceCid (Some preCid)
+  isSome result.offer.creditedHoldingCids === True
+  credited <- unlockedAmounts b.recipient
+  credited === [100.0]
+  pending <- queryInterfaceContractId @TransferInstructionV2.TransferInstruction
+    b.recipient result.offer.instructionCid
+  pending === None
+  -- Above the ceiling.
+  lock1 <- lockFor b 1 600.0
+  m1 <- attestMessage b (quorum b) lock1
+  c1 <- attestCompliance b (quorum b) (inboundSubject lock1)
+  submitRelayerMustFail b [] (processCmd b m1 c1 (Some preCid))
+  -- A preapproval of another party.
+  otherCid <- mkPreapproval b b.holder 500.0 (now `addRelTime` days 1)
+  lock2 <- lockFor b 2 100.0
+  m2 <- attestMessage b (quorum b) lock2
+  c2 <- attestCompliance b (quorum b) (inboundSubject lock2)
+  submitRelayerMustFail b [] (processCmd b m2 c2 (Some otherCid))
+  -- An expired preapproval.
+  expiredCid <- mkPreapproval b b.recipient 500.0 (now `addRelTime` minutes 1)
+  passTime (minutes 2)
+  submitRelayerMustFail b [] (processCmd b m2 c2 (Some expiredCid))
+  -- The recipient archives its preapproval, and the delegated accept fails.
+  submit b.recipient do archiveCmd preCid
+  submitRelayerMustFail b [] (processCmd b m2 c2 (Some preCid))
+  -- Without a preapproval the same lock lands as a pending offer.
+  (b', result2) <- process b m2 c2 None
+  result2.offer.creditedHoldingCids === None
+  _ <- acceptAs b'.recipient result2.offer.instructionCid
+  after <- unlockedAmounts b'.recipient
+  after === [100.0, 100.0]
+
+-- | Late compliance denial: `br` withdraws the offer through the gateway
+-- under `ba`'s authority, then refunds the returned credit. The refund burns,
+-- creates the refund claim, and marks the nonce refunded in one transaction.
+testLateDenialWithdrawAndRefund : Script ()
+testLateDenialWithdrawAndRefund = do
+  b0 <- setup
+  (b1, _, result) <- offerLock b0 0 100.0
+  returned <- withdraw b1 result.offer.instructionCid "denied: originator screening"
+  bridgeAfterWithdraw <- bridgeHoldings b1
+  bridgeAfterWithdraw === returned
+  acceptMustFail b1.recipient result.offer.instructionCid
+  [holdingCid] <- pure returned
+  (b2, claimCid) <- refund b1 holdingCid 0
+  Some claim <- queryContractId b2.ba claimCid
+  claim.amount === 100.0
+  claim.payout === RefundPayout with nonce = 0
+  status <- nonceStatus b2 0
+  status === Some Refunded
+  supply <- totalSupply b2
+  supply === 0.0
+  -- An attester reads the refund claim by disclosure; an unlisted party cannot.
+  claimDisclosure <- discloseFrom b2.ba claimCid
+  registryDisclosure <- discloseFrom b2.ba b2.attesterRegistryCid
+  readBack <- submit (actAs b2.attester3 <> discloseMany [claimDisclosure, registryDisclosure]) do
+    exerciseCmd claimCid BridgeClaim_Read with
+      reader = b2.attester3
+      attesterRegistryCid = b2.attesterRegistryCid
+  readBack === claim
+  submitMustFail (actAs b2.holder <> discloseMany [claimDisclosure, registryDisclosure]) do
+    exerciseCmd claimCid BridgeClaim_Read with
+      reader = b2.holder
+      attesterRegistryCid = b2.attesterRegistryCid
+  -- A refunded nonce never mints again.
+  lock <- lockFor b2 0 100.0
+  m <- attestMessage b2 (quorum b2) lock
+  c <- attestCompliance b2 (quorum b2) (inboundSubject lock)
+  submitRelayerMustFail b2 [] (processCmd b2 m c None)
+  -- A later returned credit cannot be refunded against a refunded nonce.
+  (b3, _, result2) <- offerLock b2 1 50.0
+  [returned2] <- withdraw b3 result2.offer.instructionCid "lapsed"
+  d <- discloseFrom b3.ba (fromInterfaceContractId @TokenHolding returned2)
+  submitRelayerMustFail b3 [d] (refundCmd b3 returned2 0)
+
+-- | Lapsed instruction: after `executeBefore` the accept fails, the example
+-- registry's withdraw still runs, and the credit is refunded.
+testLapsedInstruction : Script ()
+testLapsedInstruction = do
+  b0 <- setup
+  (b1, _, result) <- offerLock b0 0 100.0
+  passTime (testInstructionLifetime + minutes 1)
+  acceptMustFail b1.recipient result.offer.instructionCid
+  [holdingCid] <- withdraw b1 result.offer.instructionCid "lapsed"
+  (b2, _) <- refund b1 holdingCid 0
+  status <- nonceStatus b2 0
+  status === Some Refunded
+  supply <- totalSupply b2
+  supply === 0.0
+
+-- | Denial before the gateway: `br` closes the attested message and the
+-- nonce is marked closed. A closed nonce never mints. Closing a duplicate
+-- message for a minted lock consumes it and keeps the record.
+testDenialBeforeGateway : Script ()
+testDenialBeforeGateway = do
+  b0 <- setup
+  lock <- lockFor b0 0 100.0
+  messageCid <- attestMessage b0 (quorum b0) lock
+  b1 <- close b0 messageCid "denied: sanctions hit on originator"
+  status <- nonceStatus b1 0
+  status === Some Closed
+  gone <- queryContractId b1.br messageCid
+  gone === None
+  supply <- totalSupply b1
+  supply === 0.0
+  m <- attestMessage b1 (quorum b1) lock
+  c <- attestCompliance b1 (quorum b1) (inboundSubject lock)
+  submitRelayerMustFail b1 [] (processCmd b1 m c None)
+  (b2, lock1, _) <- offerLock b1 1 20.0
+  duplicate <- attestMessage b2 (quorum b2) lock1
+  b3 <- close b2 duplicate "duplicate message for a minted lock"
+  status1 <- nonceStatus b3 1
+  status1 === Some Minted
+  -- A message below the quorum cannot close a nonce.
+  lock2 <- lockFor b3 2 5.0
+  weak <- attestMessage b3 [b3.attester1] lock2
+  submitRelayerMustFail b3 [] (closeCmd b3 weak "denied")
+
+-- | Hold: the returned credit is burned with no claim, and the nonce is
+-- marked held, so the backing stays in the escrow.
+testHold : Script ()
+testHold = do
+  b0 <- setup
+  (b1, _, result) <- offerLock b0 0 100.0
+  [holdingCid] <- withdraw b1 result.offer.instructionCid "denied: freeze"
+  d <- discloseFrom b1.ba (fromInterfaceContractId @TokenHolding holdingCid)
+  newRegistryCid <- submitRelayer b1 [d] (holdCmd b1 holdingCid 0)
+  let b2 = b1 with nonceRegistryCid = newRegistryCid
+  status <- nonceStatus b2 0
+  status === Some Held
+  claims <- query @BridgeClaim b2.ba
+  claims === []
+  supply <- totalSupply b2
+  supply === 0.0
+  -- A held nonce is neither refunded nor minted again.
+  lock <- lockFor b2 0 100.0
+  m <- attestMessage b2 (quorum b2) lock
+  c <- attestCompliance b2 (quorum b2) (inboundSubject lock)
+  submitRelayerMustFail b2 [] (processCmd b2 m c None)
+
+-- | Re-offer: an offer lapses while the pause state is set, `br` withdraws it
+-- during the pause, and after the unpause offers it once more against a
+-- fresh compliance attestation. The nonce stays recorded as minted.
+testReofferAfterPause : Script ()
+testReofferAfterPause = do
+  b0 <- setup
+  (b1, lock, result) <- offerLock b0 0 100.0
+  b2 <- pause b1
+  passTime (testInstructionLifetime + minutes 1)
+  acceptMustFail b2.recipient result.offer.instructionCid
+  [holdingCid] <- withdraw b2 result.offer.instructionCid "lapsed during pause"
+  fresh <- attestCompliance b2 (quorum b2) (inboundSubject lock)
+  d <- discloseFrom b2.ba (fromInterfaceContractId @TokenHolding holdingCid)
+  -- A re-offer during the pause fails closed.
+  submitRelayerMustFail b2 [d] (reofferCmd b2 holdingCid fresh None)
+  b3 <- unpause b2
+  -- The attestation has to bind the returned holding's content.
+  wrongAmount <- attestCompliance b3 (quorum b3) (inboundSubject (lock with amount = 99.0))
+  submitRelayerMustFail b3 [d] (reofferCmd b3 holdingCid wrongAmount None)
+  -- A re-offer of a holding whose nonce is not recorded as minted fails.
+  unminted <- attestCompliance b3 (quorum b3) (inboundSubject (lock with nonce = 7))
+  submitRelayerMustFail b3 [d] (reofferCmd b3 holdingCid unminted None)
+  offer <- submitRelayer b3 [d] (reofferCmd b3 holdingCid fresh None)
+  status <- nonceStatus b3 0
+  status === Some Minted
+  -- The consumed attestation cannot be presented twice.
+  submitRelayerMustFail b3 [d] (reofferCmd b3 holdingCid fresh None)
+  _ <- acceptAs b3.recipient offer.instructionCid
+  credited <- unlockedAmounts b3.recipient
+  credited === [100.0]
+  supply <- totalSupply b3
+  supply === 100.0
