@@ -1,75 +1,34 @@
--- | The three contracts the gateways read at execution time: the attester
--- registry, the nonce registry, and the pause state. Each carries its
--- maintainer and its scope fields, and the gateways validate both against
--- values the caller does not control.
+-- | The nonce registry and the pause state, two of the three contracts the
+-- gateways read at execution time; the attester registry lives with the
+-- statements it creates, in `Attestations.daml`. Each carries its maintainer
+-- and its scope fields, and the gateways validate both against values the
+-- caller does not control.
 module OpenZeppelin.Experimental.Bridge.Registries where
 
 import DA.Action (unless)
-import DA.List (dedup, unique)
 import DA.Map (Map)
 import DA.Map qualified as Map
 
 import OpenZeppelin.Api.PausableV1 (Pausable, PausableView(..))
 import OpenZeppelin.PausableV1 qualified as Pausable
 import OpenZeppelin.ScopedAuthorizationGrantV1 (Authorization(..))
-import Splice.TokenStandard.Utils (require, requireMatchExpected)
+import Splice.Api.Token.HoldingV2 qualified as HoldingV2
+import Splice.TokenStandard.Utils (requireMatchExpected)
 
+import OpenZeppelin.Experimental.Bridge.Attestations (AttesterRegistry, fetchAttesterRegistry, requireListedAttester)
 import OpenZeppelin.Experimental.Bridge.Policy
-
--- Attester registry
---------------------
-
--- | The attester parties and the threshold N a quorum must reach. `ba` signs
--- it and is its only stakeholder; a listed attester reads it by disclosure.
-template AttesterRegistry with
-    maintainer : Party
-    attesters : [Party]
-    threshold : Int
-  where
-    signatory maintainer
-    ensure threshold > 0 && threshold <= length attesters && unique attesters
-
-    -- | Rotation: archive this version and create the next one.
-    choice AttesterRegistry_Rotate : ContractId AttesterRegistry
-      with
-        newAttesters : [Party]
-        newThreshold : Int
-      controller maintainer
-      do create this with attesters = newAttesters, threshold = newThreshold
-
-    -- | A listed attester checks its own membership before it signs.
-    nonconsuming choice AttesterRegistry_Read : AttesterRegistry
-      with reader : Party
-      controller reader
-      do
-        requireListedAttester this reader
-        pure this
-
-requireListedAttester : AttesterRegistry -> Party -> Update ()
-requireListedAttester registry party =
-  require "reader is a listed attester" (party `elem` registry.attesters)
-
--- | Count the distinct signers the registry lists against the threshold.
--- Signers the registry does not list are ignored.
-requireQuorum : AttesterRegistry -> Text -> [Party] -> Update ()
-requireQuorum registry what signers = do
-  let listed = filter (`elem` registry.attesters) (dedup signers)
-  require (what <> " is signed by a quorum of listed attesters")
-    (length listed >= registry.threshold)
-
--- | Fetch the attester registry and check that `ba` maintains it.
-fetchAttesterRegistry : Party -> ContractId AttesterRegistry -> Update AttesterRegistry
-fetchAttesterRegistry ba cid = do
-  registry <- fetch cid
-  requireMatchExpected ("attesterRegistry.maintainer", registry.maintainer) ba
-  pure registry
 
 -- Nonce registry
 -----------------
 
--- | The four states of a recorded lock nonce.
+-- | The states of a recorded lock nonce. `Returned` records the holding a
+-- gateway withdraw brought back to the bridge account and the ledger time of
+-- that withdraw; a re-offer needs a compliance attestation issued after it.
 data NonceStatus
   = Minted
+  | Returned with
+      holdingCid : ContractId HoldingV2.Holding
+      withdrawnAt : Time
   | Closed
   | Refunded
   | Held

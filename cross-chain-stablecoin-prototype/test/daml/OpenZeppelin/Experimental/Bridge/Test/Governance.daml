@@ -4,6 +4,7 @@
 module OpenZeppelin.Experimental.Bridge.Test.Governance where
 
 import DA.Assert ((===))
+import DA.Time (addRelTime, hours)
 import Daml.Script
 
 import OpenZeppelin.ScopedAuthorizationGrantV1
@@ -11,6 +12,7 @@ import OpenZeppelin.TokenCIP112V1.Holding (TokenHolding)
 import OpenZeppelin.TokenCIP112V1.Registry (TokenRules_Mint(..))
 import Splice.TokenStandard.Utils (basicAccount)
 
+import OpenZeppelin.Experimental.Bridge.Attestations
 import OpenZeppelin.Experimental.Bridge.Policy
 import OpenZeppelin.Experimental.Bridge.Registries
 import OpenZeppelin.Experimental.Bridge.RegistryAdapter
@@ -22,8 +24,8 @@ import OpenZeppelin.Experimental.Bridge.Test.Fixtures
 testPauseStopsSupplyPaths : Script ()
 testPauseStopsSupplyPaths = do
   b0 <- setup
-  (b1, _, r0) <- offerLock b0 0 100.0
-  [returned] <- withdraw b1 r0.offer.instructionCid "lapsed"
+  (b1', _, r0) <- offerLock b0 0 100.0
+  (b1, returned) <- withdraw b1' r0.offer.instructionCid "lapsed"
   (b2, _, r1) <- offerLock b1 1 40.0
   (b3, _, r2) <- offerLock b2 2 30.0
   (b4, holderHolding) <- creditHolder b3 3 60.0
@@ -45,7 +47,7 @@ testPauseStopsSupplyPaths = do
   submitRelayerMustFail b5 [d] (refundCmd b5 returned 0)
   submitRelayerMustFail b5 [d] (holdCmd b5 returned 0)
   -- Withdraw, reject, and the registry's accept still run.
-  [_] <- withdraw b5 r1.offer.instructionCid "incident"
+  (b5', _) <- withdraw b5 r1.offer.instructionCid "incident"
   _ <- submitRelayer b5 requestDisclosures (rejectCmd b5 requestCid "incident")
   _ <- acceptAs b5.recipient r2.offer.instructionCid
   holderAfter <- unlockedAmounts b5.holder
@@ -54,7 +56,7 @@ testPauseStopsSupplyPaths = do
   recipientAfter === [30.0]
   -- After the unpause the offer lands, in the epoch 1 registry that the
   -- first write to epoch 0 created, and the refund runs against epoch 0.
-  b6 <- unpause b5
+  b6 <- unpause b5'
   epoch1 <- registryOfEpoch b6 1
   (_, _) <- process (b6 with nonceRegistryCid = epoch1) m4 c4 None
   (b7, _) <- refund b6 returned 0
@@ -125,21 +127,35 @@ testAttesterRegistryRotation : Script ()
 testAttesterRegistryRotation = do
   b0 <- setup
   attester4 <- allocateParty "attester4"
+  lock <- lockFor b0 0 100.0
+  -- A statement in flight across the rotation keeps the observers it was created with.
+  inFlight <- attestMessage b0 [b0.attester2] lock
   newRegistry <- submit b0.ba do
     exerciseCmd b0.attesterRegistryCid AttesterRegistry_Rotate with
       newAttesters = [b0.attester2, b0.attester3, attester4]
       newThreshold = 2
   let b1 = b0 with attesterRegistryCid = newRegistry
-  lock <- lockFor b1 0 100.0
-  -- The removed attester no longer counts toward the quorum.
-  mOld <- attestMessage b1 [b1.attester1, b1.attester2] lock
-  cOld <- attestCompliance b1 [b1.attester1, b1.attester2] (inboundSubject lock)
+  -- The removed attester can no longer create statements, and a statement
+  -- it signed outside the registry does not count toward the quorum.
+  rd <- discloseFrom b1.ba newRegistry
+  submitMustFail (actAs b1.attester1 <> disclose rd) do
+    exerciseCmd newRegistry AttesterRegistry_AttestLock with
+      creator = b1.attester1; observers = None; relayer = b1.br; lock
+  mOld <- forgeMessage b1 [b1.attester1, b1.attester2] lock
+  cOld <- forgeCompliance b1 [b1.attester1, b1.attester2] b1.ba (inboundSubject lock) t0
   submitRelayerMustFail b1 [] (processCmd b1 mOld cOld None)
+  -- The added attester does not observe the statement in flight and cannot
+  -- sign it; an attester it was created with completes the quorum.
+  submitMustFail attester4 do
+    exerciseCmd inFlight AttestedMessage_Sign with signer = attester4
+  completed <- signMessage inFlight [b1.attester3]
+  -- New statements are observed by the new list.
+  cNew <- attestCompliance b1 [attester4, b1.attester3] (inboundSubject lock)
+  Some compliance <- queryContractId b1.ba cNew
+  compliance.attesters === [b1.attester2, b1.attester3, attester4]
   -- The archived version cannot be handed to the gateway.
-  mNew <- attestMessage b1 [b1.attester3, attester4] lock
-  cNew <- attestCompliance b1 [b1.attester3, attester4] (inboundSubject lock)
-  submitRelayerMustFail b1 [] (processCmd (b1 with attesterRegistryCid = b0.attesterRegistryCid) mNew cNew None)
-  (_, _) <- process b1 mNew cNew None
+  submitRelayerMustFail b1 [] (processCmd (b1 with attesterRegistryCid = b0.attesterRegistryCid) completed cNew None)
+  (_, _) <- process b1 completed cNew None
   -- Membership reads follow the rotation.
   d <- discloseFrom b1.ba newRegistry
   _ <- submit (actAs b1.attester2 <> disclose d) do
@@ -211,8 +227,8 @@ testSupplyRight = do
       rulesCid = b0.rulesCid
       bridgeAccount = basicAccount b0.holder
       instrumentId = instrument
-  (b1, _, r) <- offerLock b0 0 100.0
-  [returned] <- withdraw b1 r.offer.instructionCid "lapsed"
+  (b1', _, r) <- offerLock b0 0 100.0
+  (b1, returned) <- withdraw b1' r.offer.instructionCid "lapsed"
   submit b1.wtokAdmin do archiveCmd b1.supplyRightCid
   lock1 <- lockFor b1 1 10.0
   m1 <- attestMessage b1 (quorum b1) lock1
@@ -222,3 +238,40 @@ testSupplyRight = do
   submitRelayerMustFail b1 [d] (refundCmd b1 returned 0)
   supply <- totalSupply b1
   supply === 100.0
+
+-- | A statement created through the attester registry is observed by every
+-- listed attester, or by a subset of at least N listed attesters that
+-- includes its creator. An attester outside the subset cannot sign it, so
+-- the quorum can route around an attester that blocks what it observes.
+testStatementObservers : Script ()
+testStatementObservers = do
+  b0 <- setup
+  outsider <- allocateParty "outsider"
+  lock <- lockFor b0 0 100.0
+  full <- attestMessage b0 [b0.attester1] lock
+  Some fullView <- queryContractId b0.attester3 full
+  fullView.attesters === [b0.attester1, b0.attester2, b0.attester3]
+  subset <- attestMessageWith b0 (Some [b0.attester1, b0.attester2]) [b0.attester1] lock
+  submitMustFail b0.attester3 do
+    exerciseCmd subset AttestedMessage_Sign with signer = b0.attester3
+  signed <- signMessage subset [b0.attester2]
+  -- Invalid subsets: below N, without the creator, with an unlisted party, with a duplicate.
+  rd <- discloseFrom b0.ba b0.attesterRegistryCid
+  let attempt observers = submitMustFail (actAs b0.attester1 <> disclose rd) do
+        exerciseCmd b0.attesterRegistryCid AttesterRegistry_AttestLock with
+          creator = b0.attester1; observers = Some observers; relayer = b0.br; lock
+  attempt [b0.attester1]
+  attempt [b0.attester2, b0.attester3]
+  attempt [b0.attester1, outsider]
+  attempt [b0.attester1, b0.attester1]
+  -- The compliance attestation follows the same rule, and the ledger stamps its issue time.
+  now <- getTime
+  compliance <- attestComplianceWith b0 (Some [b0.attester1, b0.attester3]) [b0.attester1, b0.attester3]
+    (inboundSubject lock) True (now `addRelTime` hours 1)
+  Some complianceView <- queryContractId b0.ba compliance
+  complianceView.attesters === [b0.attester1, b0.attester3]
+  complianceView.issuedAt === now
+  -- Both reached the quorum without attester2 or attester3 respectively, and the gateway mints.
+  (b1, _) <- process b0 signed compliance None
+  status <- nonceStatus b1 0
+  status === Some Minted

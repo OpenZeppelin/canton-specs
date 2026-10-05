@@ -222,35 +222,60 @@ inboundSubject lock = InboundCredit with
   instrumentId = lock.instrumentId
   amount = lock.amount
 
--- | The first signer creates the message; each further signer receives it as
--- a disclosed contract from the first signer and adds itself.
+-- | The first signer creates the message through the attester registry,
+-- which it reads by disclosure. Every further signer observes the message,
+-- so it signs with no disclosure. `observers` defaults to every listed attester.
+attestMessageWith
+  : Bridge -> Optional [Party] -> [Party] -> LockAttestation -> Script (ContractId AttestedMessage)
+attestMessageWith b observers signers lock = case signers of
+  [] -> fail "a message needs at least one signer"
+  first :: rest -> do
+    registryDisclosure <- discloseFrom b.ba b.attesterRegistryCid
+    cid <- submit (actAs first <> disclose registryDisclosure) do
+      exerciseCmd b.attesterRegistryCid AttesterRegistry_AttestLock with
+        creator = first; observers; relayer = b.br; lock
+    signMessage cid rest
+
 attestMessage : Bridge -> [Party] -> LockAttestation -> Script (ContractId AttestedMessage)
-attestMessage b signers lock = case signers of
+attestMessage b = attestMessageWith b None
+
+signMessage : ContractId AttestedMessage -> [Party] -> Script (ContractId AttestedMessage)
+signMessage = foldlA (\current signer ->
+  submit signer do exerciseCmd current AttestedMessage_Sign with signer)
+
+-- | A message created outside the attester registry, observed by its own
+-- signers. Only parties that are not listed, or a test that needs a field the
+-- registry would set, create one this way; the gateway's checks reject it or
+-- count only its listed signers.
+forgeMessage : Bridge -> [Party] -> LockAttestation -> Script (ContractId AttestedMessage)
+forgeMessage b signers lock = case signers of
   [] -> fail "a message needs at least one signer"
   first :: rest -> do
     cid <- submit first do
-      createCmd AttestedMessage with signers = [first]; relayer = b.br; verifier = b.ba; lock
-    foldlA (\current signer -> do
-        d <- discloseFrom first current
-        submit (actAs signer <> disclose d) do
-          exerciseCmd current AttestedMessage_Sign with signer)
-      cid rest
+      createCmd AttestedMessage with
+        signers = [first]; attesters = signers
+        relayer = b.br; verifier = b.ba; lock
+    signMessage cid rest
 
-attestComplianceAt : Bridge -> [Party] -> ComplianceSubject -> Bool -> Time -> Script (ContractId ComplianceAttestation)
-attestComplianceAt b signers subject kycPassed expiresAt = case signers of
+attestComplianceWith
+  : Bridge -> Optional [Party] -> [Party] -> ComplianceSubject -> Bool -> Time
+  -> Script (ContractId ComplianceAttestation)
+attestComplianceWith b observers signers subject kycPassed expiresAt = case signers of
   [] -> fail "an attestation needs at least one signer"
   first :: rest -> do
-    cid <- submit first do
-      createCmd ComplianceAttestation with
-        signers = [first]
-        relayer = b.br
-        verifier = b.ba
+    registryDisclosure <- discloseFrom b.ba b.attesterRegistryCid
+    cid <- submit (actAs first <> disclose registryDisclosure) do
+      exerciseCmd b.attesterRegistryCid AttesterRegistry_AttestCompliance with
+        creator = first; observers; relayer = b.br
         subject; kycPassed; expiresAt
-    foldlA (\current signer -> do
-        d <- discloseFrom first current
-        submit (actAs signer <> disclose d) do
-          exerciseCmd current ComplianceAttestation_Sign with signer)
-      cid rest
+    signCompliance cid rest
+
+attestComplianceAt : Bridge -> [Party] -> ComplianceSubject -> Bool -> Time -> Script (ContractId ComplianceAttestation)
+attestComplianceAt b = attestComplianceWith b None
+
+signCompliance : ContractId ComplianceAttestation -> [Party] -> Script (ContractId ComplianceAttestation)
+signCompliance = foldlA (\current signer ->
+  submit signer do exerciseCmd current ComplianceAttestation_Sign with signer)
 
 -- | A compliance attestation that asserts KYC and expires two hours from now.
 attestCompliance : Bridge -> [Party] -> ComplianceSubject -> Script (ContractId ComplianceAttestation)
@@ -258,16 +283,36 @@ attestCompliance b signers subject = do
   now <- getTime
   attestComplianceAt b signers subject True (now `addRelTime` attestationValidity)
 
+-- | A compliance attestation created outside the attester registry, with
+-- the given verifier and `issuedAt`, observed by its own signers.
+forgeCompliance
+  : Bridge -> [Party] -> Party -> ComplianceSubject -> Time -> Script (ContractId ComplianceAttestation)
+forgeCompliance b signers verifier subject issuedAt = case signers of
+  [] -> fail "an attestation needs at least one signer"
+  first :: rest -> do
+    now <- getTime
+    cid <- submit first do
+      createCmd ComplianceAttestation with
+        signers = [first]; attesters = signers
+        relayer = b.br; verifier; subject
+        kycPassed = True; issuedAt
+        expiresAt = now `addRelTime` attestationValidity
+    signCompliance cid rest
+
+-- | The first signer reads the claim and the attester registry by disclosure
+-- and creates the confirmation through the claim; the rest observe it.
 confirmRelease : Bridge -> [Party] -> ContractId BridgeClaim -> Script (ContractId ReleaseConfirmation)
 confirmRelease b signers claimCid = case signers of
   [] -> fail "a confirmation needs at least one signer"
   first :: rest -> do
-    cid <- submit first do
-      createCmd ReleaseConfirmation with signers = [first]; relayer = b.br; verifier = b.ba; claimCid
-    foldlA (\current signer -> do
-        d <- discloseFrom first current
-        submit (actAs signer <> disclose d) do
-          exerciseCmd current ReleaseConfirmation_Sign with signer)
+    claimDisclosure <- discloseFrom b.ba claimCid
+    registryDisclosure <- discloseFrom b.ba b.attesterRegistryCid
+    cid <- submit (actAs first <> discloseMany [claimDisclosure, registryDisclosure]) do
+      exerciseCmd claimCid BridgeClaim_Confirm with
+        creator = first; observers = None; relayer = b.br
+        attesterRegistryCid = b.attesterRegistryCid
+    foldlA (\current signer ->
+        submit signer do exerciseCmd current ReleaseConfirmation_Sign with signer)
       cid rest
 
 -- Inbound flow
@@ -314,18 +359,20 @@ acceptAs party instructionCid = do
     TransferInstructionV2.TransferInstructionResult_Completed cids -> pure cids
     other -> fail ("expected a completed transfer, got " <> show other)
 
-withdrawCmd : Bridge -> ContractId TransferInstructionV2.TransferInstruction -> Text -> Commands TransferInstructionV2.TransferInstructionResult
+withdrawCmd : Bridge -> ContractId TransferInstructionV2.TransferInstruction -> Text -> Commands WithdrawResult
 withdrawCmd b instructionCid reason =
   exerciseCmd b.messagingCid MessagingGateway_Withdraw with
     authorization = relayerAuth b
     instructionCid; reason
+    nonceRegistryCid = b.nonceRegistryCid
 
--- | Withdraw through the gateway. Returns the holdings that came back to the bridge account.
-withdraw : Bridge -> ContractId TransferInstructionV2.TransferInstruction -> Text -> Script [ContractId HoldingV2.Holding]
+-- | Withdraw through the gateway. Returns the scenario with the new nonce
+-- registry and the holding that came back to the bridge account.
+withdraw : Bridge -> ContractId TransferInstructionV2.TransferInstruction -> Text -> Script (Bridge, ContractId HoldingV2.Holding)
 withdraw b instructionCid reason = do
   extra <- instructionDisclosures b instructionCid
   result <- submitRelayer b extra (withdrawCmd b instructionCid reason)
-  pure result.senderChangeCids
+  pure ((b with nonceRegistryCid = result.nonceRegistryCid), result.holdingCid)
 
 closeCmd : Bridge -> ContractId AttestedMessage -> Text -> Commands (ContractId NonceRegistry)
 closeCmd b messageCid reason =
@@ -342,7 +389,7 @@ close b messageCid reason = do
 
 reofferCmd
   : Bridge -> ContractId HoldingV2.Holding -> ContractId ComplianceAttestation
-  -> Optional (ContractId TransferPreapproval) -> Commands OfferResult
+  -> Optional (ContractId TransferPreapproval) -> Commands ProcessResult
 reofferCmd b holdingCid complianceCid preapprovalCid =
   exerciseCmd b.messagingCid MessagingGateway_Reoffer with
     authorization = relayerAuth b
@@ -350,6 +397,15 @@ reofferCmd b holdingCid complianceCid preapprovalCid =
     pauseStateCid = b.pauseStateCid
     attesterRegistryCid = b.attesterRegistryCid
     nonceRegistryCid = b.nonceRegistryCid
+
+-- | Re-offer a returned credit. Returns the scenario with the new nonce registry.
+reoffer
+  : Bridge -> ContractId HoldingV2.Holding -> ContractId ComplianceAttestation
+  -> Script (Bridge, OfferResult)
+reoffer b holdingCid complianceCid = do
+  d <- discloseFrom b.ba (fromInterfaceContractId @TokenHolding holdingCid)
+  result <- submitRelayer b [d] (reofferCmd b holdingCid complianceCid None)
+  pure ((b with nonceRegistryCid = result.nonceRegistryCid), result.offer)
 
 -- Outbound flow
 ----------------

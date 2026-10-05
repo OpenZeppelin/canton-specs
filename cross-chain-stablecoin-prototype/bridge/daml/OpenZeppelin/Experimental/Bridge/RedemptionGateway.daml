@@ -63,8 +63,8 @@ template RedemptionGateway with
           Some destination -> pure destination
           None -> fail "redemption request names no external-chain destination"
         -- D1 and D3 outbound: the attestation binds the request.
-        subject <- verifyCompliance ba attesterRegistry maxAttestationValidity complianceCid
-        reference <- case subject of
+        compliance <- verifyCompliance ba attesterRegistry maxAttestationValidity complianceCid
+        reference <- case compliance.subject of
           OutboundRedemption reference boundRequestCid boundHolder boundInstrument boundAmount boundDestination -> do
             requireMatchExpected ("complianceAttestation.subject.requestCid", boundRequestCid) requestCid
             requireMatchExpected ("complianceAttestation.subject.holder", boundHolder) holder
@@ -162,15 +162,21 @@ template RedemptionGateway with
         exercise confirmationCid ReleaseConfirmation_Consume
         archive claimCid
 
--- | Check that the nonce registry records the lock as minted and that the
--- holding is an unlocked bridge-account holding of the instrument, then burn
--- it under the burn right. Returns the burned amount.
+-- | Check that the nonce registry records the lock as minted, or as returned
+-- with this holding, and that the holding is an unlocked bridge-account
+-- holding of the instrument, then burn it under the burn right. A credit
+-- that came back by a reject or a registry expiry is still recorded as
+-- minted, and `br` binds it to its lock. Returns the burned amount.
 burnReturnedCredit
   : RedemptionGateway -> Int -> ContractId HoldingV2.Holding -> ContractId NonceRegistry
   -> Update Decimal
 burnReturnedCredit gateway nonce holdingCid nonceRegistryCid = do
   nonceRegistry <- fetchNonceRegistry gateway.ba gateway.instrumentId gateway.epochSize nonce nonceRegistryCid
-  requireMatchExpected ("nonceRegistry.status", Map.lookup nonce nonceRegistry.nonces) (Some Minted)
+  case Map.lookup nonce nonceRegistry.nonces of
+    Some Minted -> pure ()
+    Some (Returned returnedCid _) ->
+      requireMatchExpected ("nonceRegistry.returned.holdingCid", returnedCid) holdingCid
+    other -> fail ("nonce is neither minted nor returned: " <> show other)
   holding <- fetch holdingCid
   let h = view holding
   requireMatchExpected ("holding.account", h.account) gateway.bridgeAccount

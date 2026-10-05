@@ -71,20 +71,31 @@ testNonceEpochWithoutRegistry = do
   Some registry2 <- queryContractId b3.ba b3.nonceRegistryCid
   Map.keys registry2.nonces === [8]
 
--- | Signers the attester registry does not list do not count. A quorum of
--- listed signers passes whether or not an unlisted party also signed.
+-- | An unlisted party cannot create a statement through the attester
+-- registry and cannot sign one it does not observe. A statement it signs
+-- outside the registry counts only its listed signers, so a quorum of listed
+-- signers passes whether or not an unlisted party also signed.
 testUnlistedSigner : Script ()
 testUnlistedSigner = do
   b0 <- setup
   outsider <- allocateParty "outsider"
   lock <- lockFor b0 0 100.0
-  m <- attestMessage b0 [b0.attester1, outsider] lock
+  rd <- discloseFrom b0.ba b0.attesterRegistryCid
+  submitMustFail (actAs outsider <> disclose rd) do
+    exerciseCmd b0.attesterRegistryCid AttesterRegistry_AttestLock with
+      creator = outsider; observers = None; relayer = b0.br; lock
+  listed <- attestMessage b0 [b0.attester1] lock
+  ld <- discloseFrom b0.attester1 listed
+  submitMustFail (actAs outsider <> disclose ld) do
+    exerciseCmd listed AttestedMessage_Sign with signer = outsider
+  now <- getTime
+  m <- forgeMessage b0 [b0.attester1, outsider] lock
   c <- attestCompliance b0 (quorum b0) (inboundSubject lock)
   submitRelayerMustFail b0 [] (processCmd b0 m c None)
   m2 <- attestMessage b0 (quorum b0) lock
-  c2 <- attestCompliance b0 [b0.attester2, outsider] (inboundSubject lock)
+  c2 <- forgeCompliance b0 [b0.attester2, outsider] b0.ba (inboundSubject lock) now
   submitRelayerMustFail b0 [] (processCmd b0 m2 c2 None)
-  m3 <- attestMessage b0 [b0.attester1, b0.attester2, outsider] lock
+  m3 <- forgeMessage b0 [b0.attester1, b0.attester2, outsider] lock
   (_, _) <- process b0 m3 c None
   pure ()
 
@@ -149,18 +160,8 @@ testMismatchedCompliance = do
   now <- getTime
   noKyc <- attestComplianceAt b0 (quorum b0) (inboundSubject lock) False (now `addRelTime` attestationValidity)
   submitRelayerMustFail b0 [] (processCmd b0 m noKyc None)
-  wrongVerifier <- submit b0.attester1 do
-    createCmd ComplianceAttestation with
-      signers = [b0.attester1]
-      relayer = b0.br
-      verifier = b0.holder
-      subject = inboundSubject lock
-      kycPassed = True
-      expiresAt = now `addRelTime` attestationValidity
-  wv <- discloseFrom b0.attester1 wrongVerifier
-  wrongVerifier2 <- submit (actAs b0.attester2 <> disclose wv) do
-    exerciseCmd wrongVerifier ComplianceAttestation_Sign with signer = b0.attester2
-  submitRelayerMustFail b0 [] (processCmd b0 m wrongVerifier2 None)
+  wrongVerifier <- forgeCompliance b0 (quorum b0) b0.holder (inboundSubject lock) now
+  submitRelayerMustFail b0 [] (processCmd b0 m wrongVerifier None)
   -- The message for an instrument the gateway does not serve fails.
   mOther <- attestMessage b0 (quorum b0) (lock with instrumentId = "OTHER")
   submitRelayerMustFail b0 [] (processCmd b0 mOther wrongInstrument None)
@@ -255,8 +256,9 @@ testRegistryNotMaintainedByBa = do
   fakeAttesters <- submit attacker do
     createCmd AttesterRegistry with maintainer = attacker; attesters = [attacker, outsider]; threshold = 1
   fa <- discloseFrom attacker fakeAttesters
-  mFake <- attestMessage b0 [attacker] lock
-  cFake <- attestCompliance b0 [attacker] (inboundSubject lock)
+  now <- getTime
+  mFake <- forgeMessage b0 [attacker] lock
+  cFake <- forgeCompliance b0 [attacker] b0.ba (inboundSubject lock) now
   submitRelayerMustFail b0 [fa] (processCmd (b0 with attesterRegistryCid = fakeAttesters) mFake cFake None)
   -- A clear pause state the attacker maintains, while the real one is set.
   b1 <- pause b0
@@ -294,10 +296,10 @@ testConsumedOnlyByGateway = do
   -- A message naming another verifier fails the gateway.
   outsider <- allocateParty "outsider"
   wrong <- submit b0.attester1 do
-    createCmd AttestedMessage with signers = [b0.attester1]; relayer = b0.br; verifier = outsider; lock
-  wd <- discloseFrom b0.attester1 wrong
-  wrong2 <- submit (actAs b0.attester2 <> disclose wd) do
-    exerciseCmd wrong AttestedMessage_Sign with signer = b0.attester2
+    createCmd AttestedMessage with
+      signers = [b0.attester1]; attesters = quorum b0
+      relayer = b0.br; verifier = outsider; lock
+  wrong2 <- signMessage wrong [b0.attester2]
   submitRelayerMustFail b0 [] (processCmd b0 wrong2 c None)
   submitRelayerMustFail b0 [] (closeCmd b0 wrong2 "denied")
   -- Both contracts are still active, and the gateway consumes them.

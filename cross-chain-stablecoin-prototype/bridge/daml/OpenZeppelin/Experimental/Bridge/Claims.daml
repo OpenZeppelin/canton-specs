@@ -4,9 +4,7 @@ module OpenZeppelin.Experimental.Bridge.Claims where
 
 import DA.List (unique)
 
-import Splice.TokenStandard.Utils (require)
-
-import OpenZeppelin.Experimental.Bridge.Registries
+import OpenZeppelin.Experimental.Bridge.Attestations
 
 -- | Who the escrow pays: the destination a holder named, or the originator of
 -- a lock whose returned credit was refunded.
@@ -42,24 +40,42 @@ template BridgeClaim with
         requireListedAttester attesterRegistry reader
         pure this
 
+    -- | A listed attester confirms that the escrow released this claim. It
+    -- creates the confirmation signed by itself alone, observed by the
+    -- attesters the registry lists, or by a subset of at least N of them.
+    nonconsuming choice BridgeClaim_Confirm : ContractId ReleaseConfirmation
+      with
+        creator : Party
+        observers : Optional [Party]
+        relayer : Party
+        attesterRegistryCid : ContractId AttesterRegistry
+      controller creator
+      do
+        attesterRegistry <- fetchAttesterRegistry ba attesterRegistryCid
+        audience <- statementAudience attesterRegistry creator observers
+        create ReleaseConfirmation with
+          signers = [creator]; attesters = audience
+          relayer; verifier = ba; claimCid = self
+
 -- | The attesters' co-signed confirmation that the escrow released a claim.
 -- Only the redemption gateway consumes it, under the relayer's and the
 -- verifier's (`ba`'s) authority together.
 template ReleaseConfirmation with
     signers : [Party]
+    attesters : [Party]
     relayer : Party
     verifier : Party
     claimCid : ContractId BridgeClaim
   where
     signatory signers
-    observer relayer
+    observer relayer, attesters
     ensure not (null signers) && unique signers
 
     choice ReleaseConfirmation_Sign : ContractId ReleaseConfirmation
       with signer : Party
       controller signer
       do
-        require "signer has not signed this confirmation" (signer `notElem` signers)
+        requireSigner attesters signers signer
         create this with signers = signer :: signers
 
     choice ReleaseConfirmation_Consume : ()

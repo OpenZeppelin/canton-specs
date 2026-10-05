@@ -7,7 +7,7 @@ import DA.Assert ((===))
 import DA.List (sort)
 import DA.Optional (isSome)
 import DA.TextMap qualified as TextMap
-import DA.Time (addRelTime, days, minutes)
+import DA.Time (addRelTime, days, minutes, seconds)
 import Daml.Script
 
 import OpenZeppelin.TokenCIP112V1.Holding (TokenHolding)
@@ -116,12 +116,11 @@ testLateDenialWithdrawAndRefund : Script ()
 testLateDenialWithdrawAndRefund = do
   b0 <- setup
   (b1, _, result) <- offerLock b0 0 100.0
-  returned <- withdraw b1 result.offer.instructionCid "denied: originator screening"
-  bridgeAfterWithdraw <- bridgeHoldings b1
-  bridgeAfterWithdraw === returned
-  acceptMustFail b1.recipient result.offer.instructionCid
-  [holdingCid] <- pure returned
-  (b2, claimCid) <- refund b1 holdingCid 0
+  (b1', holdingCid) <- withdraw b1 result.offer.instructionCid "denied: originator screening"
+  bridgeAfterWithdraw <- bridgeHoldings b1'
+  bridgeAfterWithdraw === [holdingCid]
+  acceptMustFail b1'.recipient result.offer.instructionCid
+  (b2, claimCid) <- refund b1' holdingCid 0
   Some claim <- queryContractId b2.ba claimCid
   claim.amount === 100.0
   claim.payout === RefundPayout with nonce = 0
@@ -147,8 +146,8 @@ testLateDenialWithdrawAndRefund = do
   c <- attestCompliance b2 (quorum b2) (inboundSubject lock)
   submitRelayerMustFail b2 [] (processCmd b2 m c None)
   -- A later returned credit cannot be refunded against a refunded nonce.
-  (b3, _, result2) <- offerLock b2 1 50.0
-  [returned2] <- withdraw b3 result2.offer.instructionCid "lapsed"
+  (b3', _, result2) <- offerLock b2 1 50.0
+  (b3, returned2) <- withdraw b3' result2.offer.instructionCid "lapsed"
   d <- discloseFrom b3.ba (fromInterfaceContractId @TokenHolding returned2)
   submitRelayerMustFail b3 [d] (refundCmd b3 returned2 0)
 
@@ -160,8 +159,8 @@ testLapsedInstruction = do
   (b1, _, result) <- offerLock b0 0 100.0
   passTime (testInstructionLifetime + minutes 1)
   acceptMustFail b1.recipient result.offer.instructionCid
-  [holdingCid] <- withdraw b1 result.offer.instructionCid "lapsed"
-  (b2, _) <- refund b1 holdingCid 0
+  (b1', holdingCid) <- withdraw b1 result.offer.instructionCid "lapsed"
+  (b2, _) <- refund b1' holdingCid 0
   status <- nonceStatus b2 0
   status === Some Refunded
   supply <- totalSupply b2
@@ -200,8 +199,8 @@ testDenialBeforeGateway = do
 testHold : Script ()
 testHold = do
   b0 <- setup
-  (b1, _, result) <- offerLock b0 0 100.0
-  [holdingCid] <- withdraw b1 result.offer.instructionCid "denied: freeze"
+  (b1', _, result) <- offerLock b0 0 100.0
+  (b1, holdingCid) <- withdraw b1' result.offer.instructionCid "denied: freeze"
   d <- discloseFrom b1.ba (fromInterfaceContractId @TokenHolding holdingCid)
   newRegistryCid <- submitRelayer b1 [d] (holdCmd b1 holdingCid 0)
   let b2 = b1 with nonceRegistryCid = newRegistryCid
@@ -219,15 +218,20 @@ testHold = do
 
 -- | Re-offer: an offer lapses while the pause state is set, `br` withdraws it
 -- during the pause, and after the unpause offers it once more against a
--- fresh compliance attestation. The nonce stays recorded as minted.
+-- compliance attestation issued after the withdraw. The withdraw records the
+-- nonce as returned with the holding, and the re-offer records it as minted.
 testReofferAfterPause : Script ()
 testReofferAfterPause = do
   b0 <- setup
   (b1, lock, result) <- offerLock b0 0 100.0
-  b2 <- pause b1
+  b2' <- pause b1
   passTime (testInstructionLifetime + minutes 1)
-  acceptMustFail b2.recipient result.offer.instructionCid
-  [holdingCid] <- withdraw b2 result.offer.instructionCid "lapsed during pause"
+  acceptMustFail b2'.recipient result.offer.instructionCid
+  (b2, holdingCid) <- withdraw b2' result.offer.instructionCid "lapsed during pause"
+  withdrawnAt <- getTime
+  status0 <- nonceStatus b2 0
+  status0 === Some (Returned with holdingCid; withdrawnAt)
+  passTime (seconds 1)
   fresh <- attestCompliance b2 (quorum b2) (inboundSubject lock)
   d <- discloseFrom b2.ba (fromInterfaceContractId @TokenHolding holdingCid)
   -- A re-offer during the pause fails closed.
@@ -236,16 +240,109 @@ testReofferAfterPause = do
   -- The attestation has to bind the returned holding's content.
   wrongAmount <- attestCompliance b3 (quorum b3) (inboundSubject (lock with amount = 99.0))
   submitRelayerMustFail b3 [d] (reofferCmd b3 holdingCid wrongAmount None)
-  -- A re-offer of a holding whose nonce is not recorded as minted fails.
-  unminted <- attestCompliance b3 (quorum b3) (inboundSubject (lock with nonce = 7))
+  -- A re-offer against a nonce the registry does not hold fails.
+  unminted <- attestCompliance b3 (quorum b3) (inboundSubject (lock with nonce = 3))
   submitRelayerMustFail b3 [d] (reofferCmd b3 holdingCid unminted None)
-  offer <- submitRelayer b3 [d] (reofferCmd b3 holdingCid fresh None)
-  status <- nonceStatus b3 0
+  (b4, offer) <- reoffer b3 holdingCid fresh
+  status <- nonceStatus b4 0
   status === Some Minted
   -- The consumed attestation cannot be presented twice.
-  submitRelayerMustFail b3 [d] (reofferCmd b3 holdingCid fresh None)
+  submitRelayerMustFail b4 [d] (reofferCmd b4 holdingCid fresh None)
+  _ <- acceptAs b4.recipient offer.instructionCid
+  credited <- unlockedAmounts b4.recipient
+  credited === [100.0]
+  supply <- totalSupply b4
+  supply === 100.0
+
+-- | A parallel compliance attestation that the gateway did not consume stays
+-- on the ledger, and it cannot carry a re-offer: it was issued before the
+-- withdraw. Only an attestation issued after the withdraw passes.
+testReofferRejectsLeftoverAttestation : Script ()
+testReofferRejectsLeftoverAttestation = do
+  b0 <- setup
+  lock <- lockFor b0 0 100.0
+  messageCid <- attestMessage b0 (quorum b0) lock
+  consumed <- attestCompliance b0 (quorum b0) (inboundSubject lock)
+  leftover <- attestCompliance b0 [b0.attester2, b0.attester3] (inboundSubject lock)
+  (b1, result) <- process b0 messageCid consumed None
+  passTime (testInstructionLifetime + minutes 1)
+  (b2, holdingCid) <- withdraw b1 result.offer.instructionCid "lapsed"
+  d <- discloseFrom b2.ba (fromInterfaceContractId @TokenHolding holdingCid)
+  submitRelayerMustFail b2 [d] (reofferCmd b2 holdingCid leftover None)
+  -- An attestation issued in the withdraw's own instant is not after it.
+  sameInstant <- attestCompliance b2 (quorum b2) (inboundSubject lock)
+  submitRelayerMustFail b2 [d] (reofferCmd b2 holdingCid sameInstant None)
+  passTime (seconds 1)
+  fresh <- attestCompliance b2 (quorum b2) (inboundSubject lock)
+  (b3, offer) <- reoffer b2 holdingCid fresh
   _ <- acceptAs b3.recipient offer.instructionCid
   credited <- unlockedAmounts b3.recipient
   credited === [100.0]
-  supply <- totalSupply b3
-  supply === 100.0
+  -- The leftover is still active and still cannot carry a re-offer.
+  stillThere <- queryContractId b3.br leftover
+  isSome stillThere === True
+
+-- | A credit that came back by the recipient's reject, not by a gateway
+-- withdraw, stays recorded as minted. It cannot be re-offered, and `br`
+-- refunds it.
+testReofferRequiresGatewayWithdraw : Script ()
+testReofferRequiresGatewayWithdraw = do
+  b0 <- setup
+  (b1, lock, result) <- offerLock b0 0 100.0
+  rejected <- submit b1.recipient do
+    exerciseCmd result.offer.instructionCid TransferInstructionV2.TransferInstruction_Reject with
+      actors = [b1.recipient]
+      extraArgs = noExtraArgs
+  [holdingCid] <- pure rejected.senderChangeCids
+  status <- nonceStatus b1 0
+  status === Some Minted
+  passTime (seconds 1)
+  fresh <- attestCompliance b1 (quorum b1) (inboundSubject lock)
+  d <- discloseFrom b1.ba (fromInterfaceContractId @TokenHolding holdingCid)
+  submitRelayerMustFail b1 [d] (reofferCmd b1 holdingCid fresh None)
+  (b2, _) <- refund b1 holdingCid 0
+  refunded <- nonceStatus b2 0
+  refunded === Some Refunded
+
+-- | The returned record binds the holding to its lock. A re-offer or a
+-- refund that names another lock's returned holding fails, even when the
+-- amounts are equal.
+testReturnedRecordBindsHolding : Script ()
+testReturnedRecordBindsHolding = do
+  b0 <- setup
+  (b1, lock0, r0) <- offerLock b0 0 100.0
+  (b2, _, r1) <- offerLock b1 1 100.0
+  (b3, holding0) <- withdraw b2 r0.offer.instructionCid "lapsed"
+  (b4, holding1) <- withdraw b3 r1.offer.instructionCid "lapsed"
+  passTime (seconds 1)
+  fresh0 <- attestCompliance b4 (quorum b4) (inboundSubject lock0)
+  d1 <- discloseFrom b4.ba (fromInterfaceContractId @TokenHolding holding1)
+  submitRelayerMustFail b4 [d1] (reofferCmd b4 holding1 fresh0 None)
+  submitRelayerMustFail b4 [d1] (refundCmd b4 holding1 0)
+  (b5, _) <- refund b4 holding0 0
+  (b6, _) <- reoffer b5 holding1 =<< attestCompliance b5 (quorum b5) (inboundSubject (lock0 with nonce = 1))
+  status1 <- nonceStatus b6 1
+  status1 === Some Minted
+
+-- | A re-offered credit that lapses again is refunded. A spare attestation
+-- from the re-offer round cannot carry a second re-offer, because it was
+-- issued before the second withdraw.
+testSecondLapseRefunds : Script ()
+testSecondLapseRefunds = do
+  b0 <- setup
+  (b1, lock, result) <- offerLock b0 0 100.0
+  passTime (testInstructionLifetime + minutes 1)
+  (b2, holding) <- withdraw b1 result.offer.instructionCid "lapsed"
+  passTime (seconds 1)
+  round1 <- attestCompliance b2 (quorum b2) (inboundSubject lock)
+  round1Spare <- attestCompliance b2 [b2.attester2, b2.attester3] (inboundSubject lock)
+  (b3, offer) <- reoffer b2 holding round1
+  passTime (testInstructionLifetime + minutes 1)
+  (b4, holdingAgain) <- withdraw b3 offer.instructionCid "lapsed again"
+  d <- discloseFrom b4.ba (fromInterfaceContractId @TokenHolding holdingAgain)
+  submitRelayerMustFail b4 [d] (reofferCmd b4 holdingAgain round1Spare None)
+  (b5, _) <- refund b4 holdingAgain 0
+  status <- nonceStatus b5 0
+  status === Some Refunded
+  supply <- totalSupply b5
+  supply === 0.0
