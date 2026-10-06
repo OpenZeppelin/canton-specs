@@ -130,8 +130,9 @@ testAttesterRegistryRotation = do
   b0 <- setup
   attester4 <- allocateParty "attester4"
   lock <- lockFor b0 0 100.0
-  -- A statement in flight across the rotation keeps the observers it was created with.
-  inFlight <- attestMessage b0 [b0.attester2] lock
+  -- A statement in flight across the rotation keeps the observers it was
+  -- created with, and keeps the signature of an attester the rotation removes.
+  inFlight <- attestMessage b0 [b0.attester2, b0.attester1] lock
   newRegistry <- submit b0.ba do
     exerciseCmd b0.attesterRegistryCid AttesterRegistry_Rotate with
       newAttesters = [b0.attester2, b0.attester3, attester4]
@@ -147,10 +148,14 @@ testAttesterRegistryRotation = do
   cOld <- forgeCompliance b1 [b1.attester1, b1.attester2] b1.ba (inboundSubject lock) t0
   submitRelayerMustFail b1 [] (processCmd b1 mOld cOld None)
   -- The added attester does not observe the statement in flight and cannot
-  -- sign it; an attester it was created with completes the quorum.
+  -- sign it; an attester it was created with completes the quorum. The
+  -- removed attester's signature stays on the message, does not count, and
+  -- does not invalidate it.
   submitMustFail attester4 do
     exerciseCmd inFlight AttestedMessage_Sign with signer = attester4
   completed <- signMessage inFlight [b1.attester3]
+  Some message <- queryContractId b1.br completed
+  (b1.attester1 `elem` message.signers) === True
   -- New statements are observed by the new list.
   cNew <- attestCompliance b1 [attester4, b1.attester3] (inboundSubject lock)
   Some compliance <- queryContractId b1.ba cNew
