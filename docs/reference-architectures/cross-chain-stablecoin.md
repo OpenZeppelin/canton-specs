@@ -1478,10 +1478,14 @@ The split follows from who confirms each node. `ba` signs the gateway, so it
 and `br` share the root gateway exercise. The attested mint, the factory call,
 and the offer nested inside it carry `ba`'s and the wTOK admin's authority and
 not `br`'s, so those nodes pay `ba` and the wTOK admin. The recipient earns
-nothing, because it holds no right. The exact share `br` receives depends on
-how Canton splits the gateway transaction into views, and that is unverified.
-Running one credit on Canton LocalNet and reading the activity records from
-Scan would settle it.
+nothing, because it holds no right. The exact share depends on how Canton
+splits the gateway transaction into views. Measured on Canton LocalNet with
+`scripts/localnet-bridge-app-rewards.sh`, which features all three parties and
+runs one credit with a live accept and one under a preapproval, the round that
+holds the two credits paid `ba` 65.2%, the wTOK admin 20.5%, and `br` 14.2% of
+its app-reward pool, and the SV minted a `RewardCouponV2` for each of the
+three. The setup transactions, measured in a separate round, paid `ba` and the
+wTOK admin and nothing to `br`, which submitted none of them.
 
 A `FeaturedAppRight` names one provider party. That fits the single
 multi-hosted `br` of [section 2.3](#23-decentralization-and-trust-topology).

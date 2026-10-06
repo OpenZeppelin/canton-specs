@@ -97,9 +97,21 @@ grantRole authority grantee scope =
       validFrom = None
       validUntil = None
 
-setup : Script Bridge
-setup = do
-  setTime t0
+-- | The parties of the scenario. A live-ledger run allocates them outside
+-- the script and passes them in; `setup` allocates them itself.
+data BridgeParties = BridgeParties with
+    ba : Party
+    br : Party
+    pa : Party
+    wtokAdmin : Party
+    recipient : Party
+    holder : Party
+    attester1 : Party
+    attester2 : Party
+    attester3 : Party
+
+allocateBridgeParties : Script BridgeParties
+allocateBridgeParties = do
   ba <- allocateParty "ba"
   br <- allocateParty "br"
   pa <- allocateParty "pa"
@@ -109,6 +121,17 @@ setup = do
   attester1 <- allocateParty "attester1"
   attester2 <- allocateParty "attester2"
   attester3 <- allocateParty "attester3"
+  pure BridgeParties{..}
+
+setup : Script Bridge
+setup = do
+  setTime t0
+  allocateBridgeParties >>= setupWith
+
+-- | The registry and the bridge contracts for the given parties. It sets no
+-- ledger time, so it runs on a wall-clock ledger too.
+setupWith : BridgeParties -> Script Bridge
+setupWith BridgeParties{..} = do
   rulesCid <- submit wtokAdmin do
     createCmd TokenRules with
       config = RegistryConfig with admin = wtokAdmin; maxTTL = days 90; lockGrace = hours 1
