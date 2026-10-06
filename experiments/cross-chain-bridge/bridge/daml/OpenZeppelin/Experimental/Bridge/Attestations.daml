@@ -1,0 +1,225 @@
+-- | The attester registry and the co-signed attester statements the
+-- messaging gateway and the redemption gateway verify: the attested message
+-- that carries the lock attestation, and the single-use compliance
+-- attestation. The first attester creates a statement through a creating
+-- choice on the attester registry, which it reads by disclosure. The
+-- statement's observers are the attesters listed when it was created, so
+-- each of them sees every new version without a disclosure. Each further
+-- attester adds itself as a signatory through a choice, and the gateway
+-- counts the listed signers.
+module OpenZeppelin.Experimental.Bridge.Attestations where
+
+import DA.List (dedup, unique)
+import DA.Time (RelTime)
+
+import Splice.Api.Token.TransferInstructionV2 qualified as TransferInstructionV2
+import Splice.TokenStandard.Utils (require, requireMatchExpected)
+
+import OpenZeppelin.Experimental.Bridge.Policy
+
+-- Attester registry
+--------------------
+
+-- | The attester parties and the threshold N a quorum must reach. `ba` signs
+-- it and is its only stakeholder; a listed attester reads it, and creates
+-- statements through it, by disclosure.
+template AttesterRegistry with
+    maintainer : Party
+    attesters : [Party]
+    threshold : Int
+  where
+    signatory maintainer
+    ensure threshold > 0 && threshold <= length attesters && unique attesters
+
+    -- | Rotation: archive this version and create the next one.
+    choice AttesterRegistry_Rotate : ContractId AttesterRegistry
+      with
+        newAttesters : [Party]
+        newThreshold : Int
+      controller maintainer
+      do create this with attesters = newAttesters, threshold = newThreshold
+
+    -- | A listed attester checks its own membership before it signs.
+    nonconsuming choice AttesterRegistry_Read : AttesterRegistry
+      with reader : Party
+      controller reader
+      do
+        requireListedAttester this reader
+        pure this
+
+    -- | A listed attester creates an attested message, signed by itself
+    -- alone. `observers` defaults to every listed attester.
+    nonconsuming choice AttesterRegistry_AttestLock : ContractId AttestedMessage
+      with
+        creator : Party
+        observers : Optional [Party]
+        relayer : Party
+        lock : LockAttestation
+      controller creator
+      do
+        audience <- statementAudience this creator observers
+        create AttestedMessage with
+          signers = [creator]; attesters = audience
+          relayer; verifier = maintainer; lock
+
+    -- | A listed attester creates a compliance attestation, signed by itself
+    -- alone. The ledger stamps `issuedAt`.
+    nonconsuming choice AttesterRegistry_AttestCompliance : ContractId ComplianceAttestation
+      with
+        creator : Party
+        observers : Optional [Party]
+        relayer : Party
+        subject : ComplianceSubject
+        kycPassed : Bool
+        expiresAt : Time
+      controller creator
+      do
+        audience <- statementAudience this creator observers
+        issuedAt <- getTime
+        create ComplianceAttestation with
+          signers = [creator]; attesters = audience
+          relayer; verifier = maintainer
+          subject; kycPassed; issuedAt; expiresAt
+
+requireListedAttester : AttesterRegistry -> Party -> Update ()
+requireListedAttester registry party =
+  require "reader is a listed attester" (party `elem` registry.attesters)
+
+-- | The observers of a new statement: every listed attester, or a subset of
+-- at least N listed attesters that includes the creator. A subset lets the
+-- quorum route around an attester that blocks the statements it observes.
+statementAudience : AttesterRegistry -> Party -> Optional [Party] -> Update [Party]
+statementAudience registry creator observers = do
+  requireListedAttester registry creator
+  case observers of
+    None -> pure registry.attesters
+    Some subset -> do
+      require "observers are listed attesters" (all (`elem` registry.attesters) subset)
+      require "observers include the creator" (creator `elem` subset)
+      require "observers are unique" (unique subset)
+      require "observers can reach the threshold" (length subset >= registry.threshold)
+      pure subset
+
+-- | Count the distinct signers the registry lists against the threshold.
+-- Signers the registry does not list are ignored.
+requireQuorum : AttesterRegistry -> Text -> [Party] -> Update ()
+requireQuorum registry what signers = do
+  let listed = filter (`elem` registry.attesters) (dedup signers)
+  require (what <> " is signed by a quorum of listed attesters")
+    (length listed >= registry.threshold)
+
+-- | Fetch the attester registry and check that `ba` maintains it.
+fetchAttesterRegistry : Party -> ContractId AttesterRegistry -> Update AttesterRegistry
+fetchAttesterRegistry ba cid = do
+  registry <- fetch cid
+  requireMatchExpected ("attesterRegistry.maintainer", registry.maintainer) ba
+  pure registry
+
+-- | A further attester signs only a statement it observes.
+requireSigner : [Party] -> [Party] -> Party -> Update ()
+requireSigner attesters signers signer = do
+  require "signer is an observer of this statement" (signer `elem` attesters)
+  require "signer has not signed this statement" (signer `notElem` signers)
+
+-- Statements
+-------------
+
+-- | The typed statement that the escrow received `amount` under `nonce`, and
+-- that one mint of the same amount on Canton may credit it.
+data LockAttestation = LockAttestation with
+    nonce : Int
+      -- ^ The escrow's sequence number of the lock.
+    recipient : Party
+    instrumentId : Text
+    amount : Decimal
+    expiresAt : Time
+  deriving (Eq, Show)
+
+isValidLockAttestation : LockAttestation -> Bool
+isValidLockAttestation lock = lock.nonce >= 0 && lock.amount > 0.0
+
+-- | The attested message. The relayer it is issued to and the attesters
+-- listed at its creation observe it. Only a gateway choice consumes it,
+-- because the consume needs the relayer's and the verifier's (`ba`'s)
+-- authority together, and only a gateway transaction carries both.
+template AttestedMessage with
+    signers : [Party]
+    attesters : [Party]
+    relayer : Party
+    verifier : Party
+    lock : LockAttestation
+  where
+    signatory signers
+    observer relayer, attesters
+    ensure not (null signers) && unique signers && isValidLockAttestation lock
+
+    choice AttestedMessage_Sign : ContractId AttestedMessage
+      with signer : Party
+      controller signer
+      do
+        requireSigner attesters signers signer
+        create this with signers = signer :: signers
+
+    choice AttestedMessage_Consume : ()
+      controller relayer, verifier
+      do pure ()
+
+-- | What a compliance attestation binds: the content of an inbound credit, or
+-- a redemption request.
+data ComplianceSubject
+  = InboundCredit with
+      nonce : Int
+      recipient : Party
+      instrumentId : Text
+      amount : Decimal
+  | OutboundRedemption with
+      requestCid : ContractId TransferInstructionV2.TransferInstruction
+      holder : Party
+      instrumentId : Text
+      amount : Decimal
+      destination : Text
+  deriving (Eq, Show)
+
+-- | The single-use compliance attestation (D1), which asserts the KYC result
+-- (D3). Issued to the relayer; `ba`'s authority verifies it in the gateway.
+-- Like the attested message, only a gateway choice consumes it. `issuedAt`
+-- is the ledger time of its creation through the attester registry.
+template ComplianceAttestation with
+    signers : [Party]
+    attesters : [Party]
+    relayer : Party
+    verifier : Party
+    subject : ComplianceSubject
+    kycPassed : Bool
+    issuedAt : Time
+    expiresAt : Time
+  where
+    signatory signers
+    observer relayer, verifier, attesters
+    ensure not (null signers) && unique signers
+
+    choice ComplianceAttestation_Sign : ContractId ComplianceAttestation
+      with signer : Party
+      controller signer
+      do
+        requireSigner attesters signers signer
+        create this with signers = signer :: signers
+
+    choice ComplianceAttestation_Consume : ()
+      controller relayer, verifier
+      do pure ()
+
+-- | Verify and consume a compliance attestation: a listed quorum signed it,
+-- it is fresh, it names `ba` as verifier, and it asserts KYC. Returns the
+-- attestation for the caller to bind its subject to the credit or the request.
+verifyCompliance
+  : Party -> AttesterRegistry -> RelTime -> ContractId ComplianceAttestation
+  -> Update ComplianceAttestation
+verifyCompliance ba attesterRegistry maxValidity complianceCid = do
+  compliance <- fetch complianceCid
+  requireQuorum attesterRegistry "compliance attestation" compliance.signers
+  requireFresh "complianceAttestation.expiresAt" maxValidity compliance.expiresAt
+  requireMatchExpected ("complianceAttestation.verifier", compliance.verifier) ba
+  require "compliance attestation asserts KYC" compliance.kycPassed
+  exercise complianceCid ComplianceAttestation_Consume
+  pure compliance

@@ -59,6 +59,7 @@ The interoperability gates run real processes and ledger connections:
 scripts/cip-interop-validation.sh
 scripts/wallet-gateway-cip0103-interop.sh
 scripts/localnet-cip0104-traffic-rewards.sh
+scripts/localnet-bridge-app-rewards.sh
 ```
 
 Every gate above takes its ledger through the shared
@@ -84,8 +85,8 @@ fresh-ledger requirement, and the environment overrides.
 The `ci` workflow runs the identity upgrade and CIP interoperability gates
 against the sandbox on every pull request, so a pull request pays no container
 image pull. The Wallet Gateway gate fetches its npm package at run time, and the
-CIP-0104 traffic-rewards gate waits for mining rounds to close, so both stay out
-of `ci` and run on the schedule alone. The scheduled `live-ledger-gates` workflow
+CIP-0104 traffic-rewards and bridge app-rewards gates wait for mining rounds to
+close, so these three stay out of `ci` and run on the schedule alone. The scheduled `live-ledger-gates` workflow
 runs every gate on LocalNet, which is where authorization, party rights, package
 vetting, and the Amulet reward path on a real synchronizer are validated. Run a
 gate on LocalNet locally before you change it, its harness, or a participant
