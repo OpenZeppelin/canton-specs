@@ -2,11 +2,12 @@
 
 A minimal Daml prototype of the Canton side of the stablecoin bridge that
 [`cross-chain-stablecoin.md`](../../docs/reference-architectures/cross-chain-stablecoin.md)
-describes. It answers one question: can that design be implemented as
-written on the CIP-112 registry of `OpenZeppelin/canton-contracts`, and where
-can it not? It is a feasibility check, not a product, and it has no release
-path. The proposal is the source of truth for behavior; where this prototype
-departs from it, the "Results" section says so.
+describes. It checks whether that design can be implemented as written on the
+CIP-112 registry of `OpenZeppelin/canton-contracts`, and where it cannot. It
+is a feasibility check with no release path. The proposal defines the
+behavior. The "Design mapping" section records the decisions the proposal
+leaves open, and the "Results" section records what the prototype found,
+including where it departs from the proposal.
 
 | Path | Purpose |
 |---|---|
@@ -78,16 +79,8 @@ about ten minutes with the container images already pulled.
 | Transfer preapproval (section 3.1) | `TransferPreapproval` in `Preapproval.daml`: recipient-signed, bounded by instrument, amount ceiling, expiry, and delegate |
 | Relayer role and pause role (section 3.6) | `AuthorizationGrant` contracts from `openzeppelin-scoped-authorization-grant-v1`, with the scopes in `Policy.daml`. Every `br` choice on both gateways checks the relayer grant |
 
-Decisions the prototype records, beyond the proposal's text:
+Decisions the prototype makes that the proposal does not state:
 
-- The gateway counts the distinct signers that the attester registry lists
-  against the threshold. A signer the registry does not list is ignored.
-- The attested message, the compliance attestation, and the release
-  confirmation each name the relayer they are issued to and `ba` as verifier.
-  Their consuming choice needs both parties' authority, which only a gateway
-  transaction carries, so neither `br` nor `ba` archives one outside a
-  gateway. The attesters that signed a statement are its only signatories, so
-  together they can still archive it with the built-in `Archive`.
 - The close of a denied message runs while the pause state is set.
 - A re-offer requires the nonce to be recorded as returned with the named
   holding, and a compliance attestation whose `issuedAt` is strictly after
@@ -166,8 +159,8 @@ Decisions the prototype records, beyond the proposal's text:
   registry, with any observers and any `issuedAt`. The re-offer check
   therefore stops `br` from reusing a leftover attestation, not a colluding
   attester quorum.
-- A leftover compliance attestation stays active, because only a gateway
-  choice consumes a statement.
+- A leftover compliance attestation stays active until a gateway choice
+  consumes it or its signers archive it.
 - The gateway does not limit how often a returned credit is re-offered. The
   proposal's rule of one re-offer, then a refund, is kept by `br` and by the
   attesters, who decline a second fresh attestation.

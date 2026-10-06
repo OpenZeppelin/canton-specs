@@ -79,7 +79,7 @@ testOutboundDenial = do
   supply === 100.0
   submitRelayerMustFail b1 [] (redeemCmd b1 requestCid complianceCid)
   -- The holder withdraws a request nobody decides, which also returns the holding.
-  holdings <- unlockedHoldingsOf b1 b1.holder
+  holdings <- unlockedHoldingsOf b1.holder
   [holding2] <- pure holdings
   requestCid2 <- requestRedemption b1 holding2 100.0 "0xdest"
   _ <- submit b1.holder do

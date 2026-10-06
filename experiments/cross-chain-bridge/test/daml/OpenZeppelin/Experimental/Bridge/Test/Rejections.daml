@@ -1,8 +1,8 @@
 -- | The fail-closed checks of the gateway transaction: a replayed nonce, a
 -- nonce whose epoch has no registry, an unlisted signer, a quorum below N,
 -- an expired attestation, a mismatched attestation, an attestation consumed
--- outside a gateway, a relayer without the
--- role, and a registry not maintained by `ba`.
+-- outside a gateway, a relayer without the role, and a registry not
+-- maintained by `ba`.
 module OpenZeppelin.Experimental.Bridge.Test.Rejections where
 
 import DA.Assert ((===))
@@ -173,7 +173,7 @@ testMismatchedCompliance = do
 testRelayerWithoutRole : Script ()
 testRelayerWithoutRole = do
   b0 <- setup
-  (lock, m, c) <- attested b0 0 100.0
+  (_, m, c) <- attested b0 0 100.0
   outsider <- allocateParty "outsider"
   attacker <- allocateParty "attacker"
   -- Another party presenting the relayer's grant.
@@ -211,12 +211,10 @@ testRelayerWithoutRole = do
   (b1, result) <- process b0 m c None
   extra <- instructionDisclosures b1 result.offer.instructionCid
   submitRelayerMustFail b1 extra (withdrawCmd (b1 with relayerGrantCid = fakeGrant) result.offer.instructionCid "incident")
-  _ <- lockFor b1 0 lock.amount
-  pure ()
 
--- | A contract the caller supplies is a contract the caller can substitute.
--- The gateway validates the maintainer and the scope of the nonce registry,
--- the attester registry, and the pause state against its own values.
+-- | The caller supplies the nonce registry, the attester registry, and the
+-- pause state, so it can substitute any of them. The gateway validates the
+-- maintainer and the scope of each against its own values.
 testRegistryNotMaintainedByBa : Script ()
 testRegistryNotMaintainedByBa = do
   b0 <- setup

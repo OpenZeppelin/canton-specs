@@ -557,11 +557,11 @@ unlockedAmounts owner = do
 
 -- | The unlocked holdings in the bridge account, as interface ids.
 bridgeHoldings : Bridge -> Script [ContractId HoldingV2.Holding]
-bridgeHoldings b = unlockedHoldingsOf b b.ba
+bridgeHoldings b = unlockedHoldingsOf b.ba
 
 -- | The unlocked holdings in an owner's basic account, as interface ids.
-unlockedHoldingsOf : Bridge -> Party -> Script [ContractId HoldingV2.Holding]
-unlockedHoldingsOf _ owner = do
+unlockedHoldingsOf : Party -> Script [ContractId HoldingV2.Holding]
+unlockedHoldingsOf owner = do
   holdings <- query @TokenHolding owner
   pure [toInterfaceContractId cid | (cid, h) <- holdings, h.holding.account == basicAccount owner, isNone h.holding.lock]
 

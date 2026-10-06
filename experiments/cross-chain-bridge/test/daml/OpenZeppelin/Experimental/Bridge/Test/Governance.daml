@@ -65,9 +65,9 @@ testPauseStopsSupplyPaths = do
   status <- nonceStatus b7 0
   status === Some Refunded
 
--- | The pause is a permission slip: only the holder of a pause grant from
--- `ba` flips the state, a flip needs the opposite state, and `ba` hands the
--- pause over by revoking the old slip and issuing a new one.
+-- | Only the holder of a pause grant from `ba` flips the state, a flip needs
+-- the opposite state, and `ba` hands the pause over by revoking the old grant
+-- and issuing a new one.
 testPauseAuthorityAndHandover : Script ()
 testPauseAuthorityAndHandover = do
   b0 <- setup
@@ -89,7 +89,7 @@ testPauseAuthorityAndHandover = do
   -- A second pause fails.
   submitMustFail (actAs b1.pa <> disclose d1) do
     exerciseCmd b1.pauseStateCid BridgePauseState_Pause with authorization = pauseAuth b1
-  -- Handover: the old holder loses the power the moment its slip is revoked.
+  -- Handover: the old holder loses the pause as soon as `ba` revokes its grant.
   submit b1.ba do exerciseCmd b1.pauseGrantCid AuthorizationGrant_Revoke
   submitMustFail (actAs b1.pa <> disclose d1) do
     exerciseCmd b1.pauseStateCid BridgePauseState_Unpause with authorization = pauseAuth b1
