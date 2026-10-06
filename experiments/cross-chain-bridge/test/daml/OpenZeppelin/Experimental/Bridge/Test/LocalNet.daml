@@ -1,0 +1,35 @@
+-- | The inbound credits that the CIP-0104 app-reward check runs on Canton
+-- LocalNet. The harness allocates the parties, features `ba`, `br`, and the
+-- wTOK admin, and passes the parties in. `localnetSetup` creates the registry
+-- and the bridge contracts; `localnetCredit` runs one credit with a live
+-- accept and one under a transfer preapproval. The two run in different
+-- mining rounds, so the setup traffic and the credit traffic are attributed
+-- apart.
+module OpenZeppelin.Experimental.Bridge.Test.LocalNet where
+
+import DA.Assert ((===))
+import DA.Time (addRelTime, days)
+import Daml.Script
+
+import OpenZeppelin.Experimental.Bridge.Test.Fixtures
+import OpenZeppelin.Experimental.Bridge.Test.Inbound (mkPreapproval)
+
+localnetSetup : BridgeParties -> Script Bridge
+localnetSetup = setupWith
+
+localnetCredit : Bridge -> Script ()
+localnetCredit b0 = do
+  -- One credit with a live accept: the gateway transaction, then the
+  -- recipient's accept.
+  (b1, _, result) <- offerLock b0 0 100.0
+  _ <- acceptAs b1.recipient result.offer.instructionCid
+  -- One credit under a preapproval: the delegated accept runs inside the
+  -- gateway transaction, so `br` is the only submitter.
+  now <- getTime
+  preCid <- mkPreapproval b1 b1.recipient 500.0 (now `addRelTime` days 1)
+  lock <- lockFor b1 1 100.0
+  messageCid <- attestMessage b1 (quorum b1) lock
+  complianceCid <- attestCompliance b1 (quorum b1) (inboundSubject lock)
+  (b2, _) <- process b1 messageCid complianceCid (Some preCid)
+  credited <- unlockedAmounts b2.recipient
+  credited === [100.0, 100.0]

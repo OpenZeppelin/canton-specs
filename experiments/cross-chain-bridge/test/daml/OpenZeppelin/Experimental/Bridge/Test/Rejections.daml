@@ -1,0 +1,323 @@
+-- | The fail-closed checks of the gateway transaction: a replayed nonce, a
+-- nonce whose epoch has no registry, an unlisted signer, a quorum below N,
+-- an expired attestation, a mismatched attestation, an attestation consumed
+-- outside a gateway, a relayer without the role, and a registry not
+-- maintained by `ba`.
+module OpenZeppelin.Experimental.Bridge.Test.Rejections where
+
+import DA.Assert ((===))
+import DA.Map qualified as Map
+import DA.Time (addRelTime, days, minutes)
+import Daml.Script
+
+import OpenZeppelin.ScopedAuthorizationGrantV1
+
+import OpenZeppelin.Experimental.Bridge.Attestations
+import OpenZeppelin.Experimental.Bridge.Claims
+import OpenZeppelin.Experimental.Bridge.MessagingGateway
+import OpenZeppelin.Experimental.Bridge.RedemptionGateway
+import OpenZeppelin.Experimental.Bridge.Policy
+import OpenZeppelin.Experimental.Bridge.Registries
+import OpenZeppelin.Experimental.Bridge.Test.Fixtures
+
+-- | A lock and the two quorum-signed statements for it.
+attested
+  : Bridge -> Int -> Decimal
+  -> Script (LockAttestation, ContractId AttestedMessage, ContractId ComplianceAttestation)
+attested b nonce amount = do
+  lock <- lockFor b nonce amount
+  m <- attestMessage b (quorum b) lock
+  c <- attestCompliance b (quorum b) (inboundSubject lock)
+  pure (lock, m, c)
+
+-- | One lock mints at most once, even against a second valid attestation.
+testReplayedNonce : Script ()
+testReplayedNonce = do
+  b0 <- setup
+  (b1, _, _) <- offerLock b0 0 100.0
+  (_, m, c) <- attested b1 0 100.0
+  submitRelayerMustFail b1 [] (processCmd b1 m c None)
+  supply <- totalSupply b1
+  supply === 100.0
+
+-- | A nonce whose epoch has no registry yet is rejected. The first write to
+-- an epoch's registry creates the next epoch's registry, and each registry
+-- holds only its epoch's nonces.
+testNonceEpochWithoutRegistry : Script ()
+testNonceEpochWithoutRegistry = do
+  b0 <- setup
+  (_, m8, c8) <- attested b0 8 10.0
+  -- Only epoch 0 exists: nonce 8 belongs to epoch 2.
+  submitRelayerMustFail b0 [] (processCmd b0 m8 c8 None)
+  -- The first write to epoch 0 creates epoch 1. Epoch 2 still does not exist.
+  (b1, _, _) <- offerLock b0 0 10.0
+  epoch1 <- registryOfEpoch b1 1
+  let b1' = b1 with nonceRegistryCid = epoch1
+  submitRelayerMustFail b1' [] (processCmd b1' m8 c8 None)
+  -- A nonce of epoch 1 against the epoch 0 registry fails; against epoch 1 it mints.
+  (_, m4, c4) <- attested b1 4 10.0
+  submitRelayerMustFail b1 [] (processCmd b1 m4 c4 None)
+  (b2, _) <- process b1' m4 c4 None
+  -- That write created epoch 2, and nonce 8 mints there.
+  epoch2 <- registryOfEpoch b2 2
+  let b2' = b2 with nonceRegistryCid = epoch2
+  (b3, _) <- process b2' m8 c8 None
+  status <- nonceStatus b3 8
+  status === Some Minted
+  Some registry0 <- queryContractId b3.ba b1.nonceRegistryCid
+  Map.keys registry0.nonces === [0]
+  Some registry1 <- queryContractId b3.ba b2.nonceRegistryCid
+  Map.keys registry1.nonces === [4]
+  Some registry2 <- queryContractId b3.ba b3.nonceRegistryCid
+  Map.keys registry2.nonces === [8]
+
+-- | An unlisted party cannot create a statement through the attester
+-- registry and cannot sign one it does not observe. A statement it signs
+-- outside the registry counts only its listed signers, so a quorum of listed
+-- signers passes whether or not an unlisted party also signed.
+testUnlistedSigner : Script ()
+testUnlistedSigner = do
+  b0 <- setup
+  outsider <- allocateParty "outsider"
+  lock <- lockFor b0 0 100.0
+  rd <- discloseFrom b0.ba b0.attesterRegistryCid
+  submitMustFail (actAs outsider <> disclose rd) do
+    exerciseCmd b0.attesterRegistryCid AttesterRegistry_AttestLock with
+      creator = outsider; observers = None; relayer = b0.br; lock
+  listed <- attestMessage b0 [b0.attester1] lock
+  ld <- discloseFrom b0.attester1 listed
+  submitMustFail (actAs outsider <> disclose ld) do
+    exerciseCmd listed AttestedMessage_Sign with signer = outsider
+  now <- getTime
+  m <- forgeMessage b0 [b0.attester1, outsider] lock
+  c <- attestCompliance b0 (quorum b0) (inboundSubject lock)
+  submitRelayerMustFail b0 [] (processCmd b0 m c None)
+  m2 <- attestMessage b0 (quorum b0) lock
+  c2 <- forgeCompliance b0 [b0.attester2, outsider] b0.ba (inboundSubject lock) now
+  submitRelayerMustFail b0 [] (processCmd b0 m2 c2 None)
+  m3 <- forgeMessage b0 [b0.attester1, b0.attester2, outsider] lock
+  (_, _) <- process b0 m3 c None
+  pure ()
+
+-- | Fewer than N listed signers fail, on either statement.
+testQuorumBelowThreshold : Script ()
+testQuorumBelowThreshold = do
+  b0 <- setup
+  lock <- lockFor b0 0 100.0
+  m <- attestMessage b0 [b0.attester1] lock
+  c <- attestCompliance b0 (quorum b0) (inboundSubject lock)
+  submitRelayerMustFail b0 [] (processCmd b0 m c None)
+  m2 <- attestMessage b0 (quorum b0) lock
+  c2 <- attestCompliance b0 [b0.attester3] (inboundSubject lock)
+  submitRelayerMustFail b0 [] (processCmd b0 m2 c2 None)
+  (_, _) <- process b0 m2 c None
+  pure ()
+
+-- | An expired attestation fails, and so does one whose expiry lies beyond
+-- the gateway's maximum attestation validity. This holds for the compliance
+-- attestation and for the lock attestation.
+testExpiredAttestation : Script ()
+testExpiredAttestation = do
+  b0 <- setup
+  now <- getTime
+  lock <- lockFor b0 0 100.0
+  m <- attestMessage b0 (quorum b0) lock
+  expired <- attestComplianceAt b0 (quorum b0) (inboundSubject lock) True (now `addRelTime` minutes 1)
+  passTime (minutes 2)
+  submitRelayerMustFail b0 [] (processCmd b0 m expired None)
+  later <- getTime
+  permanent <- attestComplianceAt b0 (quorum b0) (inboundSubject lock) True (later `addRelTime` days 2)
+  submitRelayerMustFail b0 [] (processCmd b0 m permanent None)
+  fresh <- attestCompliance b0 (quorum b0) (inboundSubject lock)
+  -- An expired lock attestation.
+  lock1 <- lockFor b0 1 10.0
+  m1 <- attestMessage b0 (quorum b0) (lock1 with expiresAt = later `addRelTime` minutes 1)
+  passTime (minutes 2)
+  c1 <- attestCompliance b0 (quorum b0) (inboundSubject lock1)
+  submitRelayerMustFail b0 [] (processCmd b0 m1 c1 None)
+  -- A lock attestation beyond the maximum validity.
+  m1far <- attestMessage b0 (quorum b0) (lock1 with expiresAt = later `addRelTime` days 2)
+  submitRelayerMustFail b0 [] (processCmd b0 m1far c1 None)
+  -- The still-valid message of lock 0 mints against the fresh attestation.
+  (_, _) <- process b0 m fresh None
+  pure ()
+
+-- | The compliance attestation binds the credit's full content, asserts KYC,
+-- and names `ba` as its verifier.
+testMismatchedCompliance : Script ()
+testMismatchedCompliance = do
+  b0 <- setup
+  lock <- lockFor b0 0 100.0
+  m <- attestMessage b0 (quorum b0) lock
+  wrongAmount <- attestCompliance b0 (quorum b0) (inboundSubject (lock with amount = 99.0))
+  submitRelayerMustFail b0 [] (processCmd b0 m wrongAmount None)
+  wrongRecipient <- attestCompliance b0 (quorum b0) (inboundSubject (lock with recipient = b0.holder))
+  submitRelayerMustFail b0 [] (processCmd b0 m wrongRecipient None)
+  wrongNonce <- attestCompliance b0 (quorum b0) (inboundSubject (lock with nonce = 1))
+  submitRelayerMustFail b0 [] (processCmd b0 m wrongNonce None)
+  wrongInstrument <- attestCompliance b0 (quorum b0) (inboundSubject (lock with instrumentId = "OTHER"))
+  submitRelayerMustFail b0 [] (processCmd b0 m wrongInstrument None)
+  now <- getTime
+  noKyc <- attestComplianceAt b0 (quorum b0) (inboundSubject lock) False (now `addRelTime` attestationValidity)
+  submitRelayerMustFail b0 [] (processCmd b0 m noKyc None)
+  wrongVerifier <- forgeCompliance b0 (quorum b0) b0.holder (inboundSubject lock) now
+  submitRelayerMustFail b0 [] (processCmd b0 m wrongVerifier None)
+  -- The message for an instrument the gateway does not serve fails.
+  mOther <- attestMessage b0 (quorum b0) (lock with instrumentId = "OTHER")
+  submitRelayerMustFail b0 [] (processCmd b0 mOther wrongInstrument None)
+  good <- attestCompliance b0 (quorum b0) (inboundSubject lock)
+  (_, _) <- process b0 m good None
+  pure ()
+
+-- | Every gateway choice binds to the relayer role grant.
+testRelayerWithoutRole : Script ()
+testRelayerWithoutRole = do
+  b0 <- setup
+  (_, m, c) <- attested b0 0 100.0
+  outsider <- allocateParty "outsider"
+  attacker <- allocateParty "attacker"
+  -- Another party presenting the relayer's grant.
+  ds <- relayerDisclosures b0
+  gd <- discloseFrom b0.ba b0.relayerGrantCid
+  submitMustFail (actAs outsider <> discloseMany (gd :: ds)) do
+    exerciseCmd b0.messagingCid MessagingGateway_Process with
+      authorization = Authorization with actor = outsider; grantCid = b0.relayerGrantCid
+      messageCid = m
+      complianceCid = c
+      pauseStateCid = b0.pauseStateCid
+      attesterRegistryCid = b0.attesterRegistryCid
+      nonceRegistryCid = b0.nonceRegistryCid
+      preapprovalCid = None
+  -- The relayer presenting the pause grant.
+  submitRelayerMustFail b0 [] (processCmd (b0 with relayerGrantCid = b0.pauseGrantCid) m c None)
+  -- A relay grant from someone other than `ba`.
+  fakeGrant <- grantRole attacker b0.br (relayScope instrument)
+  submitRelayerMustFail b0 [] (processCmd (b0 with relayerGrantCid = fakeGrant) m c None)
+  -- A relay grant for another instrument.
+  otherGrant <- grantRole b0.ba b0.br (relayScope "OTHER")
+  submitRelayerMustFail b0 [] (processCmd (b0 with relayerGrantCid = otherGrant) m c None)
+  -- An expired grant.
+  now <- getTime
+  expiredGrant <- submit b0.ba do
+    createCmd AuthorizationGrant with
+      authority = b0.ba
+      grantee = b0.br
+      scope = relayScope instrument
+      validFrom = None
+      validUntil = Some now
+  submitRelayerMustFail b0 [] (processCmd (b0 with relayerGrantCid = expiredGrant) m c None)
+  -- The close, the withdraw, and the redemption choices bind to the role too.
+  submitRelayerMustFail b0 [] (closeCmd (b0 with relayerGrantCid = fakeGrant) m "denied")
+  (b1, result) <- process b0 m c None
+  extra <- instructionDisclosures b1 result.offer.instructionCid
+  submitRelayerMustFail b1 extra (withdrawCmd (b1 with relayerGrantCid = fakeGrant) result.offer.instructionCid "incident")
+
+-- | The caller supplies the nonce registry, the attester registry, and the
+-- pause state, so it can substitute any of them. The gateway validates the
+-- maintainer and the scope of each against its own values.
+testRegistryNotMaintainedByBa : Script ()
+testRegistryNotMaintainedByBa = do
+  b0 <- setup
+  attacker <- allocateParty "attacker"
+  outsider <- allocateParty "outsider"
+  (lock, m, c) <- attested b0 0 100.0
+  -- A nonce registry the attacker maintains, which omits every nonce.
+  fakeNonces <- submit attacker do
+    createCmd NonceRegistry with
+      maintainer = attacker
+      instrumentId = instrument
+      epoch = 0
+      nonces = Map.empty
+      successorCreated = False
+  fn <- discloseFrom attacker fakeNonces
+  submitRelayerMustFail b0 [fn] (processCmd (b0 with nonceRegistryCid = fakeNonces) m c None)
+  -- A nonce registry `ba` maintains for another instrument, or another epoch.
+  otherInstrument <- submit b0.ba do
+    createCmd NonceRegistry with
+      maintainer = b0.ba
+      instrumentId = "OTHER"
+      epoch = 0
+      nonces = Map.empty
+      successorCreated = False
+  oi <- discloseFrom b0.ba otherInstrument
+  submitRelayerMustFail b0 [oi] (processCmd (b0 with nonceRegistryCid = otherInstrument) m c None)
+  otherEpoch <- submit b0.ba do
+    createCmd NonceRegistry with
+      maintainer = b0.ba
+      instrumentId = instrument
+      epoch = 3
+      nonces = Map.empty
+      successorCreated = False
+  oe <- discloseFrom b0.ba otherEpoch
+  submitRelayerMustFail b0 [oe] (processCmd (b0 with nonceRegistryCid = otherEpoch) m c None)
+  -- An attester registry the attacker maintains, with its own quorum.
+  fakeAttesters <- submit attacker do
+    createCmd AttesterRegistry with maintainer = attacker; attesters = [attacker, outsider]; threshold = 1
+  fa <- discloseFrom attacker fakeAttesters
+  now <- getTime
+  mFake <- forgeMessage b0 [attacker] lock
+  cFake <- forgeCompliance b0 [attacker] b0.ba (inboundSubject lock) now
+  submitRelayerMustFail b0 [fa] (processCmd (b0 with attesterRegistryCid = fakeAttesters) mFake cFake None)
+  -- A clear pause state the attacker maintains, while the real one is set.
+  b1 <- pause b0
+  fakePause <- submit attacker do
+    createCmd BridgePauseState with maintainer = attacker; instrumentId = instrument; paused = False
+  fp <- discloseFrom attacker fakePause
+  submitRelayerMustFail b1 [fp] (processCmd (b1 with pauseStateCid = fakePause) m c None)
+  -- A clear pause state `ba` maintains for another instrument.
+  otherPause <- submit b1.ba do
+    createCmd BridgePauseState with maintainer = b1.ba; instrumentId = "OTHER"; paused = False
+  op <- discloseFrom b1.ba otherPause
+  submitRelayerMustFail b1 [op] (processCmd (b1 with pauseStateCid = otherPause) m c None)
+  b2 <- unpause b1
+  (_, _) <- process b2 m c None
+  pure ()
+
+-- | The attested message, the compliance attestation, and the release
+-- confirmation are consumed only through a gateway choice: the consume needs
+-- `br`'s and `ba`'s authority together. Neither party alone consumes them,
+-- the built-in archive needs the attesters, and the gateway rejects a
+-- contract that names another verifier.
+testConsumedOnlyByGateway : Script ()
+testConsumedOnlyByGateway = do
+  b0 <- setup
+  (lock, m, c) <- attested b0 0 100.0
+  md <- discloseFrom b0.attester1 m
+  cd <- discloseFrom b0.attester1 c
+  -- `br` alone.
+  submitMustFail b0.br do exerciseCmd m AttestedMessage_Consume
+  submitMustFail b0.br do exerciseCmd c ComplianceAttestation_Consume
+  submitMustFail b0.br do archiveCmd m
+  -- `ba` alone.
+  submitMustFail (actAs b0.ba <> disclose md) do exerciseCmd m AttestedMessage_Consume
+  submitMustFail (actAs b0.ba <> disclose cd) do exerciseCmd c ComplianceAttestation_Consume
+  -- A message naming another verifier fails the gateway.
+  outsider <- allocateParty "outsider"
+  wrong <- submit b0.attester1 do
+    createCmd AttestedMessage with
+      signers = [b0.attester1]; attesters = quorum b0
+      relayer = b0.br; verifier = outsider; lock
+  wrong2 <- signMessage wrong [b0.attester2]
+  submitRelayerMustFail b0 [] (processCmd b0 wrong2 c None)
+  submitRelayerMustFail b0 [] (closeCmd b0 wrong2 "denied")
+  -- Both contracts are still active, and the gateway consumes them.
+  (b1, _) <- process b0 m c None
+  gone <- queryContractId b1.attester1 m
+  gone === None
+  -- The release confirmation, likewise.
+  (b2, holdingCid) <- creditHolder b1 1 10.0
+  requestCid <- requestRedemption b2 holdingCid 10.0 "0xdest"
+  rc <- attestCompliance b2 (quorum b2) (outboundSubject b2 requestCid 10.0 "0xdest")
+  claimCid <- redeem b2 requestCid rc
+  confirmationCid <- confirmRelease b2 (quorum b2) claimCid
+  fd <- discloseFrom b2.attester1 confirmationCid
+  submitMustFail b2.br do exerciseCmd confirmationCid ReleaseConfirmation_Consume
+  submitMustFail (actAs b2.ba <> disclose fd) do exerciseCmd confirmationCid ReleaseConfirmation_Consume
+  claimDisclosure <- discloseFrom b2.ba claimCid
+  submitRelayer b2 [claimDisclosure] do
+    exerciseCmd b2.redemptionCid RedemptionGateway_ArchiveClaim with
+      authorization = relayerAuth b2
+      claimCid; confirmationCid
+      attesterRegistryCid = b2.attesterRegistryCid
+  archived <- queryContractId b2.ba claimCid
+  archived === None

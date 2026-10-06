@@ -23,7 +23,10 @@ The reports draw on executable research in this repository:
 - [identity experiments](../../experiments/identity/) for claims, credential
   gates, and Smart Contract Upgrade compatibility;
 - [interoperability experiments](../../experiments/interoperability/) for
-  LocalNet and Canton Wallet Gateway integration evidence.
+  LocalNet and Canton Wallet Gateway integration evidence;
+- the [cross-chain bridge experiment](../../experiments/cross-chain-bridge/)
+  for the bridge gateways, attester quorums, redemption, and app-reward
+  attribution.
 
 The experimental code validates specific mechanisms; the reports specify the
 complete target applications that compose them.

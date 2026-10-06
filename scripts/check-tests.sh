@@ -24,14 +24,26 @@ fail() {
 	exit 1
 }
 
-check_zero() {
+# The vendored DAR packages. Their source repositories measure their coverage,
+# so the gate leaves their templates and choices out.
+vendored_packages="$(sed -n 's/^[[:space:]]*-[[:space:]]*package:[[:space:]]*//p' "$ROOT/dars/manifest.yaml" | sort -u | paste -sd, -)"
+
+# Fail when the report lists an uncovered item for `metric` outside the
+# vendored packages. DPM prefixes an item of another package with that
+# package's name.
+check_uncovered() {
 	local report="$1"
 	local metric="$2"
-	local value=""
+	local uncovered=""
 
-	value="$(sed -n "s/^  ${metric}: //p" "$report")"
-	[ -n "$value" ] || fail "DPM metric not found: $metric"
-	[ "$value" -eq 0 ] || fail "$metric: $value"
+	grep -q "^  ${metric}: " "$report" || fail "DPM metric not found: $metric"
+	uncovered="$(awk -v metric="  ${metric}: " -v vendored="$vendored_packages" '
+		BEGIN { n = split(vendored, names, ","); for (i = 1; i <= n; i++) skip[names[i]] = 1 }
+		index($0, metric) == 1 { listing = 1; next }
+		listing && /^    / { item = substr($0, 5); split(item, parts, ":"); if (!(parts[1] in skip)) print item; next }
+		{ listing = 0 }
+	' "$report")"
+	[ -z "$uncovered" ] || fail "${metric}:"$'\n'"${uncovered}"
 }
 
 script_package_count=0
@@ -77,14 +89,14 @@ DAML_PACKAGE="$aggregate_package" dpm test \
 	--show-coverage \
 	| tee "$coverage_report"
 
-check_zero "$coverage_report" "internal templates never created"
-check_zero "$coverage_report" "internal template choices never exercised"
-check_zero "$coverage_report" "internal interface choices never exercised"
-check_zero "$coverage_report" "external templates never created"
-check_zero "$coverage_report" "external template choices never exercised"
-check_zero "$coverage_report" "external interface choices never exercised"
+check_uncovered "$coverage_report" "internal templates never created"
+check_uncovered "$coverage_report" "internal template choices never exercised"
+check_uncovered "$coverage_report" "internal interface choices never exercised"
+check_uncovered "$coverage_report" "external templates never created"
+check_uncovered "$coverage_report" "external template choices never exercised"
+check_uncovered "$coverage_report" "external interface choices never exercised"
 
-printf 'check-tests: OK (%d Daml Script packages, complete template/choice coverage)\n' \
+printf 'check-tests: OK (%d Daml Script packages, complete template/choice coverage outside the vendored DARs)\n' \
 	"$script_package_count"
 
 if [ -n "${GITHUB_STEP_SUMMARY:-}" ]; then

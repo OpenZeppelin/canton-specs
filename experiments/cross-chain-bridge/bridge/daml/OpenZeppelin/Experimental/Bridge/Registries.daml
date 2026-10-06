@@ -1,0 +1,130 @@
+-- | The nonce registry and the pause state, two of the three contracts the
+-- gateways read at execution time; the attester registry lives with the
+-- statements it creates, in `Attestations.daml`. Each carries its maintainer
+-- and its scope fields, and the gateways validate both against values the
+-- caller does not control.
+module OpenZeppelin.Experimental.Bridge.Registries where
+
+import DA.Action (unless)
+import DA.Map (Map)
+import DA.Map qualified as Map
+
+import OpenZeppelin.Api.PausableV1 (Pausable, PausableView(..))
+import OpenZeppelin.PausableV1 qualified as Pausable
+import OpenZeppelin.ScopedAuthorizationGrantV1 (Authorization(..))
+import Splice.Api.Token.HoldingV2 qualified as HoldingV2
+import Splice.TokenStandard.Utils (requireMatchExpected)
+
+import OpenZeppelin.Experimental.Bridge.Attestations (AttesterRegistry, fetchAttesterRegistry, requireListedAttester)
+import OpenZeppelin.Experimental.Bridge.Policy
+
+-- Nonce registry
+-----------------
+
+-- | The states of a recorded lock nonce. `Returned` records the holding a
+-- gateway withdraw brought back to the bridge account and the ledger time of
+-- that withdraw; a re-offer needs a compliance attestation issued after it.
+data NonceStatus
+  = Minted
+  | Returned with
+      holdingCid : ContractId HoldingV2.Holding
+      withdrawnAt : Time
+  | Closed
+  | Refunded
+  | Held
+  deriving (Eq, Show)
+
+-- | The nonces of one instrument and one epoch, a range of `E` consecutive
+-- nonces. The gateway checks the epoch against the lock's nonce divided by
+-- `E`, which the gateway carries.
+template NonceRegistry with
+    maintainer : Party
+    instrumentId : Text
+    epoch : Int
+    nonces : Map Int NonceStatus
+    successorCreated : Bool
+  where
+    signatory maintainer
+    ensure epoch >= 0
+
+    -- | Record a nonce. The first write of an epoch's registry also creates
+    -- the next epoch's registry, so each epoch gets exactly one registry.
+    choice NonceRegistry_Record : ContractId NonceRegistry
+      with
+        nonce : Int
+        status : NonceStatus
+      controller maintainer
+      do
+        unless successorCreated $ do
+          _ <- create this with epoch = epoch + 1, nonces = Map.empty, successorCreated = False
+          pure ()
+        create this with nonces = Map.insert nonce status nonces, successorCreated = True
+
+    -- | A listed attester reads a nonce's status before it signs a lock
+    -- attestation or a refund statement.
+    nonconsuming choice NonceRegistry_Read : Optional NonceStatus
+      with
+        reader : Party
+        attesterRegistryCid : ContractId AttesterRegistry
+        nonce : Int
+      controller reader
+      do
+        attesterRegistry <- fetchAttesterRegistry maintainer attesterRegistryCid
+        requireListedAttester attesterRegistry reader
+        pure (Map.lookup nonce nonces)
+
+-- | Fetch the nonce registry and check its maintainer, instrument, and epoch
+-- against the gateway's own values and the lock's nonce.
+fetchNonceRegistry
+  : Party -> Text -> Int -> Int -> ContractId NonceRegistry -> Update NonceRegistry
+fetchNonceRegistry ba instrumentId epochSize nonce cid = do
+  registry <- fetch cid
+  requireMatchExpected ("nonceRegistry.maintainer", registry.maintainer) ba
+  requireMatchExpected ("nonceRegistry.instrumentId", registry.instrumentId) instrumentId
+  requireMatchExpected ("nonceRegistry.epoch", registry.epoch) (nonce / epochSize)
+  pure registry
+
+-- Pause state
+--------------
+
+-- | The emergency stop of one instrument's bridge. `ba` signs it; the holder
+-- of the pause role grant flips it.
+template BridgePauseState with
+    maintainer : Party
+    instrumentId : Text
+    paused : Bool
+  where
+    signatory maintainer
+
+    interface instance Pausable for BridgePauseState where
+      view = PausableView with paused
+
+    choice BridgePauseState_Pause : ContractId BridgePauseState
+      with authorization : Authorization
+      controller authorization.actor
+      do
+        requireRole maintainer (pauseScope instrumentId) authorization
+        Pausable.whenNotPaused this
+        create this with paused = True
+
+    choice BridgePauseState_Unpause : ContractId BridgePauseState
+      with authorization : Authorization
+      controller authorization.actor
+      do
+        requireRole maintainer (pauseScope instrumentId) authorization
+        Pausable.whenPaused this
+        create this with paused = False
+
+-- | Fetch the pause state and check its maintainer and instrument.
+fetchPauseState : Party -> Text -> ContractId BridgePauseState -> Update BridgePauseState
+fetchPauseState ba instrumentId cid = do
+  state <- fetch cid
+  requireMatchExpected ("pauseState.maintainer", state.maintainer) ba
+  requireMatchExpected ("pauseState.instrumentId", state.instrumentId) instrumentId
+  pure state
+
+-- | Fail unless the pause state `ba` maintains for the instrument is clear.
+requireNotPaused : Party -> Text -> ContractId BridgePauseState -> Update ()
+requireNotPaused ba instrumentId cid = do
+  state <- fetchPauseState ba instrumentId cid
+  Pausable.whenNotPaused state
