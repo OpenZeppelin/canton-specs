@@ -10,7 +10,7 @@ the recipient accepts.
 ## 1. Product Definition
 
 Holders accept a wrapped instrument, written wTOK, that the bridge
-mints against an for an attested lock that passed compliance checks.
+mints against an attested lock that passed compliance checks.
 On the inbound path, the bridge mints under a
 mint right that the instrument's token registry grants it, and it runs every
 bridge check in its own contracts. On the outbound path, the bridge burns wTOK
@@ -26,8 +26,8 @@ writes the **bridge relayer** as `br`, the **bridge admin** as `ba`, and the
 **pause authority** as `pa`.
 
 **Inbound** moves value from the external chain to Canton, by **lock-and-mint**.
-**Outbound** moves it back, by **burn-and-release**, which each cross-chain hop
-being attested by an off-chain attester set ([section 3.2](#32-reserve-and-lock-attestation)).
+**Outbound** moves it back, by **burn-and-release**, with each cross-chain
+hop attested by an off-chain attester set ([section 3.2](#32-reserve-and-lock-attestation)).
 
 > NOTE: This document calls the other chain the **external chain** in both directions.
 
@@ -52,7 +52,7 @@ instructions, so it sits inside the trust boundary ([section 2.2](#22-privacy-an
 
 **Privacy scope.** The guarantee covers the Canton side only. The
 external-chain lock is a public transaction, and it must carry enough data to
-route the transfer on Canton. Hiding the link to the Canton recepient (hashed
+route the transfer on Canton. Hiding the link to the Canton recipient (hashed
 commitments, shielded payloads, etc.) is out of scope.
 
 ### 1.1 Institutional Controls
@@ -1051,7 +1051,8 @@ choice, which the bridge cannot gate. That is an accepted downside: a denial
 that the attesters reach after the offer exists does not block the credit by
 itself. `br` closes that gap by withdrawing the instruction through the
 gateway, under `ba`'s authority as the sender's account owner, with the denial
-reference in the withdrawal's metadata. The withdrawal needs no confirmation
+reference in the withdrawal's metadata, under the Token Standard reason key
+`splice.lfdecentralizedtrust.org/reason`. The withdrawal needs no confirmation
 from the recipient's participant, so it lands while the recipient is down. The
 exposure is one instruction deadline, and it is zero under a
 transfer preapproval, where the credit lands in the gateway transaction itself.
