@@ -216,11 +216,11 @@ grants use release-specific templates as described in
 | `EndedRound` | Terminal record of cancellation or expiry, retaining accepted membership and sale authority for independent cleanup. |
 | `RecoveryTicket` | `av`-signed lock binding for recovery. Consumed after release or verified administrative reconciliation. |
 
-Recording an account-party identifier does not supply its authority. Preparation
-collects consent through signed contracts, and bid or sale choices carry it into
-the corresponding asset operations. A contract's recreation produces a new ID.
-Round successors retain the stable round identity, while allocation successors
-are checked against the original allocation's ID, called its **root**.
+Preparation obtains account-party consent through signed contracts. Bid and
+sale choices carry that authority into the corresponding asset operations.
+A contract's recreation produces a new ID. Round successors retain the stable
+round identity, while allocation successors are checked against the original
+allocation's ID, called its **root**.
 
 ### 2.2 Auction Lifecycle
 
@@ -282,7 +282,7 @@ Allocation IDs and disclosure responses are sensitive. Registry APIs can use
 an allocation ID to provide settlement context and disclosed contracts. Keep
 other bidders' allocation IDs out of published terms, shared metadata, and
 bid-visible arguments or results. Backend APIs and logs must preserve the same
-boundary. Keeping the accepted list private alone does not establish this.
+boundary.
 
 A payment lock reveals its maximum payment amount to parties that can see it.
 [Canton Coin movements are public](https://github.com/canton-foundation/cips/blob/6f37c896a5a76ec3bc1aa67bc045623ae5df41e5/cip-0112/cip-0112.md#431-configurable-executors-and-batch-settlement-via-settlementfactory)
@@ -494,9 +494,8 @@ batch, leaving all prepared bids, locks, and the prior round unchanged.
 There is still one shared round contract. Competing acceptance transactions can
 consume it only once. The operator reconciles outcomes and retries against its
 current successor while admission remains open. Batching reduces round updates
-from one per bid to one per batch, but does not establish a throughput or cost
-guarantee. The ledger enforces the stored order, not fairness of the operator's
-ordering decision.
+from one per bid to one per batch. The ledger enforces the stored order, not
+fairness of the operator's ordering decision.
 
 `WithdrawPreparedBid` consumes an unaccepted bid and creates `RecoveryTicket`.
 It competes with acceptance and does not itself unlock funds. An accepted bid
@@ -669,8 +668,7 @@ payments, and unsold supply with references to the outcomes. Payment totals sum
 the individually rounded amounts.
 
 Zero-fill finalization retains the payment lock for separate cancellation under
-a recovery ticket. Recording an outcome does not assert that funds have already
-been returned. The bidder's confirming hosts may still be needed for that
+a recovery ticket. The bidder's confirming hosts may still be needed for that
 branch, so exclusion does not solve participant unavailability.
 
 With no winners, clear consumes the same application records, records zero sales
@@ -791,7 +789,7 @@ effective. Reconcile an uncertain submission before treating it as rejected.
 
 Termination and recovery have their own dependencies. Independent cleanup limits
 shared failure, but does not guarantee withdrawal while a required party or
-registry is unavailable. Application closure alone is never evidence of refund.
+registry is unavailable.
 
 ## 5. Security and Auditability
 
@@ -873,7 +871,7 @@ validation costs, and reimbursements. The auction deducts no fee from locked
 funds, payments, deliveries, or refunds.
 
 Budget using measured preparation, batch admission, maximum-size clear,
-retries, and recovery. Batching alone is not proof of lower total traffic.
+retries, and recovery.
 Under [CIP-0104](https://github.com/canton-foundation/cips/blob/6f37c896a5a76ec3bc1aa67bc045623ae5df41e5/cip-0104/cip-0104.md),
 conformant confirmation responses are free in net cost, but traffic is still
 needed pending reimbursement and duplicates can cost more.
