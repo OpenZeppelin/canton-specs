@@ -64,14 +64,13 @@ template RedemptionGateway with
           None -> fail "redemption request names no external-chain destination"
         -- D1 and D3 outbound: the attestation binds the request.
         compliance <- verifyCompliance ba attesterRegistry maxAttestationValidity complianceCid
-        reference <- case compliance.subject of
-          OutboundRedemption reference boundRequestCid boundHolder boundInstrument boundAmount boundDestination -> do
+        case compliance.subject of
+          OutboundRedemption boundRequestCid boundHolder boundInstrument boundAmount boundDestination -> do
             requireMatchExpected ("complianceAttestation.subject.requestCid", boundRequestCid) requestCid
             requireMatchExpected ("complianceAttestation.subject.holder", boundHolder) holder
             requireMatchExpected ("complianceAttestation.subject.instrumentId", boundInstrument) instrumentId
             requireMatchExpected ("complianceAttestation.subject.amount", boundAmount) transfer.amount
             requireMatchExpected ("complianceAttestation.subject.destination", boundDestination) destination
-            pure reference
           _ -> fail "compliance attestation is not bound to a redemption request"
         -- Accept as the receiver, then burn what arrived in the bridge account.
         result <- exercise requestCid TransferInstructionV2.TransferInstruction_Accept with
@@ -83,10 +82,10 @@ template RedemptionGateway with
         forA_ received $ \cid ->
           exercise supplyRightCid BridgeSupplyRight_Burn with
             holdingCid = cid
-            reason = "bridge redemption " <> reference
+            reason = "bridge redemption " <> show requestCid
         create BridgeClaim with
           ba; instrumentId; amount = transfer.amount
-          payout = RedemptionPayout with holder; destination; reference
+          payout = RedemptionPayout with holder; destination; requestCid
 
     -- | Reject a denied request as the receiver. The holding returns to the
     -- holder by the standard's own semantics. Runs during a pause.

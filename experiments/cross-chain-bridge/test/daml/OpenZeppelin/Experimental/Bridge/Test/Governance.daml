@@ -41,7 +41,7 @@ testPauseStopsSupplyPaths = do
   c4 <- attestCompliance b5 (quorum b5) (inboundSubject lock4)
   submitRelayerMustFail b5 [] (processCmd b5 m4 c4 None)
   -- Burns fail.
-  cr <- attestCompliance b5 (quorum b5) (outboundSubject b5 "r" requestCid 60.0 "0xdest")
+  cr <- attestCompliance b5 (quorum b5) (outboundSubject b5 requestCid 60.0 "0xdest")
   requestDisclosures <- instructionDisclosures b5 requestCid
   submitRelayerMustFail b5 requestDisclosures (redeemCmd b5 requestCid cr)
   -- Refunds and holds fail.
@@ -287,7 +287,7 @@ testSignatoriesArchive = do
   b0 <- setup
   (b, holdingCid) <- creditHolder b0 0 100.0
   requestCid <- requestRedemption b holdingCid 100.0 "0xdest"
-  redemptionCompliance <- attestCompliance b (quorum b) (outboundSubject b "redeem-1" requestCid 100.0 "0xdest")
+  redemptionCompliance <- attestCompliance b (quorum b) (outboundSubject b requestCid 100.0 "0xdest")
   claimCid <- redeem b requestCid redemptionCompliance
   confirmationCid <- confirmRelease b (quorum b) claimCid
   lock <- lockFor b 1 50.0

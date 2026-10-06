@@ -309,7 +309,7 @@ testConsumedOnlyByGateway = do
   -- The release confirmation, likewise.
   (b2, holdingCid) <- creditHolder b1 1 10.0
   requestCid <- requestRedemption b2 holdingCid 10.0 "0xdest"
-  rc <- attestCompliance b2 (quorum b2) (outboundSubject b2 "redeem-1" requestCid 10.0 "0xdest")
+  rc <- attestCompliance b2 (quorum b2) (outboundSubject b2 requestCid 10.0 "0xdest")
   claimCid <- redeem b2 requestCid rc
   confirmationCid <- confirmRelease b2 (quorum b2) claimCid
   fd <- discloseFrom b2.attester1 confirmationCid

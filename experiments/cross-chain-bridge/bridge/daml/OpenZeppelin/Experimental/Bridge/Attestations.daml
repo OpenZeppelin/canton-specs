@@ -173,8 +173,6 @@ data ComplianceSubject
       instrumentId : Text
       amount : Decimal
   | OutboundRedemption with
-      reference : Text
-        -- ^ The attesters' reference, which becomes the redemption claim's nonce.
       requestCid : ContractId TransferInstructionV2.TransferInstruction
       holder : Party
       instrumentId : Text

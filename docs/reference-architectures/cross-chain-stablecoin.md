@@ -756,8 +756,8 @@ sequenceDiagram
    - the amount the burn destroyed, which is the amount the escrow releases;
    - the Canton holder whose request the burn consumed;
    - the external-chain destination the holder named;
-   - the claim's nonce, which is the reference of the compliance attestation
-     the burn consumed.
+   - the claim's nonce, which is the contract id of the redemption request the
+     burn consumed, as the compliance attestation binds it.
 
    The instrument and the amount bind the reserve arithmetic. The other three
    identify the redemption, as the lock attestation identifies a deposit

@@ -4,6 +4,8 @@ module OpenZeppelin.Experimental.Bridge.Claims where
 
 import DA.List (unique)
 
+import Splice.Api.Token.TransferInstructionV2 qualified as TransferInstructionV2
+
 import OpenZeppelin.Experimental.Bridge.Attestations
 
 -- | Who the escrow pays: the destination a holder named, or the originator of
@@ -12,8 +14,9 @@ data ClaimPayout
   = RedemptionPayout with
       holder : Party
       destination : Text
-      reference : Text
-        -- ^ The claim's nonce: the reference of the compliance attestation the burn consumed.
+      requestCid : ContractId TransferInstructionV2.TransferInstruction
+        -- ^ The claim's nonce: the redemption request the burn consumed, as
+        -- the compliance attestation binds it.
   | RefundPayout with
       nonce : Int
         -- ^ The lock whose originator the escrow refunds, once.

@@ -475,10 +475,10 @@ requestRedemption b holdingCid amount destination = do
     other -> fail ("expected a pending redemption request, got " <> show other)
 
 outboundSubject
-  : Bridge -> Text -> ContractId TransferInstructionV2.TransferInstruction -> Decimal -> Text
+  : Bridge -> ContractId TransferInstructionV2.TransferInstruction -> Decimal -> Text
   -> ComplianceSubject
-outboundSubject b reference requestCid amount destination = OutboundRedemption with
-  reference; requestCid; amount; destination
+outboundSubject b requestCid amount destination = OutboundRedemption with
+  requestCid; amount; destination
   holder = b.holder
   instrumentId = instrument
 

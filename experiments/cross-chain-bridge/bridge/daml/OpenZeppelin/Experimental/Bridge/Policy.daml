@@ -8,7 +8,7 @@ import DA.Time (RelTime, addRelTime)
 
 import OpenZeppelin.ScopedAuthorizationGrantV1
 import Splice.Api.Token.MetadataV1
-import Splice.TokenStandard.Utils (require)
+import Splice.TokenStandard.Utils (reasonMetaKey, require)
 
 -- | Namespace of every bridge role scope and metadata key.
 bridgeNamespace : Text
@@ -21,10 +21,6 @@ lockNonceMetaKey = bridgeNamespace <> "/lock-nonce"
 -- | Metadata key of the external-chain destination on a redemption request.
 redeemDestinationMetaKey : Text
 redeemDestinationMetaKey = bridgeNamespace <> "/redeem-destination"
-
--- | Metadata key of the denial reference on a withdraw, a close, or a reject.
-bridgeReasonMetaKey : Text
-bridgeReasonMetaKey = bridgeNamespace <> "/reason"
 
 -- | The relayer role. One grant covers both gateways of an instrument.
 relayScope : Text -> AuthorizationScope
@@ -64,8 +60,8 @@ requireFresh name maxValidity expiresAt = do
 noExtraArgs : ExtraArgs
 noExtraArgs = ExtraArgs with context = emptyChoiceContext; meta = emptyMetadata
 
--- | Extra arguments that carry one reason under the bridge's reason key.
+-- | Extra arguments that carry one reason under the Token Standard reason key.
 reasonExtraArgs : Text -> ExtraArgs
 reasonExtraArgs reason = ExtraArgs with
   context = emptyChoiceContext
-  meta = Metadata with values = TextMap.fromList [(bridgeReasonMetaKey, reason)]
+  meta = Metadata with values = TextMap.fromList [(reasonMetaKey, reason)]
