@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 #
 # CIP-0104 app-reward attribution of the cross-chain bridge on Canton LocalNet.
-# The gate starts LocalNet, builds and uploads the bridge prototype, features
+# The gate starts LocalNet, builds and uploads the bridge experiment, features
 # `ba`, `br`, and the wTOK admin, runs two inbound credits through the Daml
 # Script `localnetCredit`, and reports the minting allowance that the network
 # computes for each featured party. This is the check behind section 5.2 of
@@ -31,10 +31,10 @@ export OZ_LOCALNET_TICK_DURATION="${OZ_LOCALNET_TICK_DURATION:-30s}"
 ledger_init bridge-app-rewards "$ROOT" \
 	"${OZ_LEDGER_LOG_DIR:-$ROOT/.cache/bridge-app-rewards}"
 
-PROTO_DIR="$ROOT/cross-chain-stablecoin-prototype"
-BRIDGE_DAR="$PROTO_DIR/bridge/.daml/dist/openzeppelin-experimental-cross-chain-bridge-0.1.0.dar"
-TEST_DAR="$PROTO_DIR/test/.daml/dist/openzeppelin-experimental-cross-chain-bridge-test-0.0.0.dar"
-HARNESS="$PROTO_DIR/localnet/app-rewards-harness.mjs"
+PKG_DIR="$ROOT/experiments/cross-chain-bridge"
+BRIDGE_DAR="$PKG_DIR/bridge/.daml/dist/openzeppelin-experimental-cross-chain-bridge-0.1.0.dar"
+TEST_DAR="$PKG_DIR/test/.daml/dist/openzeppelin-experimental-cross-chain-bridge-test-0.0.0.dar"
+HARNESS="$PKG_DIR/localnet/app-rewards-harness.mjs"
 MODULE="OpenZeppelin.Experimental.Bridge.Test.LocalNet"
 
 ledger_require_node
@@ -51,8 +51,8 @@ cleanup() {
 }
 trap cleanup EXIT
 
-build_prototype() { (cd "$PROTO_DIR" && dpm build --all); }
-ledger_build "the bridge prototype packages" build_prototype
+build_bridge() { (cd "$PKG_DIR/bridge" && dpm build) && (cd "$PKG_DIR/test" && dpm build); }
+ledger_build "the bridge experiment packages" build_bridge
 [ -f "$BRIDGE_DAR" ] || ledger_die "expected DAR not found: $BRIDGE_DAR"
 [ -f "$TEST_DAR" ] || ledger_die "expected DAR not found: $TEST_DAR"
 
@@ -83,7 +83,7 @@ run_script() {
 	[ -z "$output" ] || args+=(--output-file "$output")
 	ledger_log "== dpm script $MODULE:$name"
 	(
-		cd "$PROTO_DIR/test"
+		cd "$PKG_DIR/test"
 		dpm script \
 			--dar "$TEST_DAR" \
 			--script-name "$MODULE:$name" \

@@ -19,3 +19,5 @@ packages:
   - experiments/settlement/test
   - experiments/settlement/exemplar
   - experiments/interoperability/cip-exemplar
+  - experiments/cross-chain-bridge/bridge
+  - experiments/cross-chain-bridge/test

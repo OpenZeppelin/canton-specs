@@ -1,0 +1,24 @@
+sdk-version: 3.4.11
+name: openzeppelin-experimental-cross-chain-bridge-test
+source: daml
+version: 0.0.0
+dependencies:
+  - daml-prim
+  - daml-stdlib
+  - daml-script
+data-dependencies:
+  - ../bridge/.daml/dist/openzeppelin-experimental-cross-chain-bridge-0.1.0.dar
+  - ../../../dars/vendor/openzeppelin-tokenCIP112-workflows-v1-0.1.0.dar
+  - ../../../dars/vendor/openzeppelin-tokenCIP112-v1-0.1.0.dar
+  - ../../../dars/vendor/openzeppelin-scoped-authorization-grant-v1-0.1.0.dar
+  - ../../../dars/vendor/openzeppelin-api-pausable-v1-0.1.0.dar
+  - ../../../dars/vendor/openzeppelin-pausable-v1-0.1.0-8a81bc8.dar
+  - ../../../dars/vendor/splice-api-token-metadata-v1-1.0.0.dar
+  - ../../../dars/vendor/splice-api-token-holding-v2-1.0.0.dar
+  - ../../../dars/vendor/splice-api-token-transfer-events-v2-1.0.0.dar
+  - ../../../dars/vendor/splice-api-token-allocation-v2-1.0.0.dar
+  - ../../../dars/vendor/splice-api-token-transfer-instruction-v2-1.0.0.dar
+  - ../../../dars/vendor/splice-api-token-allocation-instruction-v2-1.0.0.dar
+  - ../../../dars/vendor/splice-token-standard-utils-2.0.0.dar
+build-options:
+  - --target=2.1

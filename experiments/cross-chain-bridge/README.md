@@ -1,23 +1,18 @@
-# Cross-chain stablecoin bridge prototype
+# Cross-chain bridge
 
 A minimal Daml prototype of the Canton side of the stablecoin bridge that
-[`cross-chain-stablecoin.md`](../docs/reference-architectures/cross-chain-stablecoin.md)
+[`cross-chain-stablecoin.md`](../../docs/reference-architectures/cross-chain-stablecoin.md)
 describes. It answers one question: can that design be implemented as
 written on the CIP-112 registry of `OpenZeppelin/canton-contracts`, and where
 can it not? It is a feasibility check, not a product, and it has no release
 path. The proposal is the source of truth for behavior; where this prototype
 departs from it, the "Results" section says so.
 
-The prototype is its own DPM workspace. Its [`multi-package.yaml`](multi-package.yaml)
-pins SDK `3.5.8`, the SDK of the CIP-112 branch it consumes, and the root
-workspace of this repository does not list its packages.
-
 | Path | Purpose |
 |---|---|
 | [`bridge/`](bridge/) | The bridge package: registries, attester attestations, gateways, claims, the transfer preapproval, and the registry adapter |
-| [`test/`](test/) | Daml Script tests, one module per flow group, with shared fixtures |
-| [`dars/manifest.yaml`](dars/manifest.yaml) | Provenance of every vendored DAR: name, version, main package id, SHA-256, source commit, source path, license |
-| [`dars/vendor/`](dars/vendor/) | The pinned DARs the two packages build against |
+| [`test/`](test/) | Daml Script tests, one module per flow group, with shared fixtures, and the two scripts that the LocalNet app-reward gate runs |
+| [`localnet/app-rewards-harness.mjs`](localnet/app-rewards-harness.mjs) | The Node harness of the LocalNet app-reward gate |
 
 ## Dependencies
 
@@ -30,19 +25,43 @@ Splice Token Standard V2 DARs are byte-identical copies of the Splice 0.8.3
 release artifacts that the branch vendors. The CIP-112 packages are consumed
 as published and not modified.
 
+All twelve DARs sit in [`dars/vendor/`](../../dars/vendor/) at the repository
+root, and [`dars/manifest.yaml`](../../dars/manifest.yaml) records their
+provenance. The `pausable-v1` build from this commit has a different package id
+from the one the settlement exemplar consumes, so its file is
+`openzeppelin-pausable-v1-0.1.0-8a81bc8.dar`. The packages build with the
+workspace SDK of [`multi-package.yaml`](../../multi-package.yaml).
+
 ## Build and test
 
-From this directory:
+From the repository root:
 
 ```sh
 dpm build --all
-DAML_PACKAGE=test dpm test --all --show-coverage
+DAML_PACKAGE=experiments/cross-chain-bridge/test dpm test --all --show-coverage
 ```
 
 `dpm test` runs every script on an in-memory ledger. With `--all`, the
 coverage report includes the bridge package, and it lists every bridge
-template and every bridge choice other than the built-in `Archive` as
-exercised.
+template and every bridge choice, including the built-in `Archive`, as
+exercised. The report also lists templates and choices of the vendored DARs
+that the tests do not reach. The repository coverage gate leaves those out.
+
+### App rewards on LocalNet
+
+```sh
+scripts/localnet-bridge-app-rewards.sh
+```
+
+The gate starts Canton LocalNet, votes the network onto CIP-0104
+traffic-based app rewards, gives `ba`, `br`, and the wTOK admin each a
+`FeaturedAppRight`, and runs `localnetSetup` and then `localnetCredit` from
+[`LocalNet.daml`](test/daml/OpenZeppelin/Experimental/Bridge/Test/LocalNet.daml)
+two mining rounds apart. `localnetCredit` runs one credit with a live accept
+and one under a transfer preapproval. The harness then reads, from Scan, the
+minting allowance of each featured party in each round, and writes the result
+to `.cache/bridge-app-rewards/localnet/app-rewards-evidence.json`. A run takes
+about ten minutes with the container images already pulled.
 
 ## Design mapping
 
@@ -66,7 +85,9 @@ Decisions the prototype records, beyond the proposal's text:
 - The attested message, the compliance attestation, and the release
   confirmation each name the relayer they are issued to and `ba` as verifier.
   Their consuming choice needs both parties' authority, which only a gateway
-  transaction carries, so no party archives them outside a gateway.
+  transaction carries, so neither `br` nor `ba` archives one outside a
+  gateway. The attesters that signed a statement are its only signatories, so
+  together they can still archive it with the built-in `Archive`.
 - The close of a denied message runs while the pause state is set.
 - A re-offer requires the nonce to be recorded as returned with the named
   holding, and a compliance attestation whose `issuedAt` is strictly after
@@ -100,6 +121,7 @@ Decisions the prototype records, beyond the proposal's text:
 | `Governance.daml` | `testAttesterRegistryRotation` | The rotation archives the current registry. A removed attester cannot create statements, and its signature does not count. An added attester does not observe a statement created before the rotation, and an existing observer completes that statement's quorum. Membership reads follow the new list |
 | `Governance.daml` | `testStatementObservers` | A statement is observed by every listed attester, or by a subset of at least N that includes its creator. An attester outside the subset cannot sign. A subset below N, without the creator, with an unlisted party, or with a duplicate fails. The ledger stamps `issuedAt` |
 | `Governance.daml` | `testAttesterReads` | A listed attester reads a nonce's status by disclosure. An unlisted party cannot |
+| `Governance.daml` | `testSignatoriesArchive` | Each bridge template's signatories archive it with the built-in `Archive`: the signing quorum archives an attested message, a compliance attestation, and a release confirmation, and `ba` archives the gateways and the registries |
 | `Governance.daml` | `testSupplyRight` | Neither `ba` nor `br` mints through the registry without the supply right, the right cannot name another account, and archiving it stops mints and refunds |
 | `Rejections.daml` | `testReplayedNonce` | A second attested message for a minted lock is rejected |
 | `Rejections.daml` | `testNonceEpochWithoutRegistry` | A nonce whose epoch has no registry is rejected, and each epoch's registry holds only its own nonces |
@@ -118,9 +140,10 @@ Decisions the prototype records, beyond the proposal's text:
   participant. Every submission whose submitter is not a stakeholder passes
   the contracts it reads as explicit disclosures, so the tests show the
   disclosure the design requires, and nothing more.
-- No sandbox or LocalNet gate runs. Authorization under a real synchronizer,
-  package vetting, and the confirmation of a consuming exercise by a
-  controller that is not a stakeholder are untested.
+- The LocalNet gate runs only the setup and two inbound credits, with every
+  party on one participant. Outbound, governance, and rejection flows run
+  only on the in-memory ledger. Disclosure across participants and package
+  vetting on several participants are untested.
 - Every party is a single-key party. The N-of-M posture of `ba` is out of scope.
 - Time moves through `setTime` and `passTime`. The ledger time tolerance of
   a real synchronizer is not modeled.
@@ -148,6 +171,11 @@ Decisions the prototype records, beyond the proposal's text:
 - The gateway does not limit how often a returned credit is re-offered. The
   proposal's rule of one re-offer, then a refund, is kept by `br` and by the
   attesters, who decline a second fresh attestation.
+- With `ba`, `br`, and the wTOK admin each featured, the LocalNet round that
+  held the two credits paid `ba` 65.2%, the wTOK admin 20.5%, and `br` 14.2%
+  of its app-reward pool, and the SV minted a `RewardCouponV2` for each. `br`
+  signs no bridge contract, so its share comes from being the actor of the
+  two gateway exercises. The setup round paid only `ba` and the wTOK admin.
 - A relayer handover does not recreate a bridge contract, but attestations
   issued to the old relayer cannot be consumed by the new one, so the
   attesters issue new attestations after a handover.

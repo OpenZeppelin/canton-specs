@@ -1,9 +1,11 @@
 -- | Governance flows: the pause and what it stops, the pause and relayer
 -- role handovers, the attester registry rotation, the attester reads by
--- disclosure, and the supply right's scope and revocation.
+-- disclosure, the supply right's scope and revocation, and the archive of
+-- each bridge template by its signatories.
 module OpenZeppelin.Experimental.Bridge.Test.Governance where
 
 import DA.Assert ((===))
+import DA.Foldable (forA_)
 import DA.Time (addRelTime, hours)
 import Daml.Script
 
@@ -275,3 +277,34 @@ testStatementObservers = do
   (b1, _) <- process b0 signed compliance None
   status <- nonceStatus b1 0
   status === Some Minted
+
+-- | The signatories of each bridge template archive it with the built-in
+-- `Archive`. For an attester statement those are its signers, so the
+-- quorum that signed a statement can withdraw it outside a gateway. `ba`
+-- archives the gateways and the registries it maintains.
+testSignatoriesArchive : Script ()
+testSignatoriesArchive = do
+  b0 <- setup
+  (b, holdingCid) <- creditHolder b0 0 100.0
+  requestCid <- requestRedemption b holdingCid 100.0 "0xdest"
+  redemptionCompliance <- attestCompliance b (quorum b) (outboundSubject b "redeem-1" requestCid 100.0 "0xdest")
+  claimCid <- redeem b requestCid redemptionCompliance
+  confirmationCid <- confirmRelease b (quorum b) claimCid
+  lock <- lockFor b 1 50.0
+  messageCid <- attestMessage b (quorum b) lock
+  complianceCid <- attestCompliance b (quorum b) (inboundSubject lock)
+  submit (actAs (quorum b)) do archiveCmd messageCid
+  submit (actAs (quorum b)) do archiveCmd complianceCid
+  submit (actAs (quorum b)) do archiveCmd confirmationCid
+  submit b.ba do archiveCmd b.messagingCid
+  submit b.ba do archiveCmd b.redemptionCid
+  submit b.ba do archiveCmd b.pauseStateCid
+  submit b.ba do archiveCmd b.attesterRegistryCid
+  registries <- query @NonceRegistry b.ba
+  forA_ registries $ \(cid, _) -> submit b.ba do archiveCmd cid
+  remaining <- query @NonceRegistry b.ba
+  remaining === []
+  message <- queryContractId b.ba messageCid
+  message === None
+  gateway <- queryContractId b.ba b.messagingCid
+  gateway === None
