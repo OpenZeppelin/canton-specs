@@ -65,6 +65,9 @@ const REWARD_TIMEOUT_MS = Number(process.env.OZ_REWARD_TIMEOUT_S ?? 900) * 1000
 // A fresh app-provider validator holds no synchronizer traffic. It buys traffic
 // from the SV on its own interval, so the first call that costs traffic waits.
 const TRAFFIC_TIMEOUT_MS = Number(process.env.OZ_TRAFFIC_TIMEOUT_S ?? 300) * 1000
+// Scan ingests a transaction from the SV participant after the submitting
+// participant has committed it. This bounds the wait for that ingestion.
+const SCAN_TIMEOUT_MS = 120 * 1000
 const POLL_INTERVAL_MS = 5000
 
 // The token of the participant admin user. The gate mints it, because the same
@@ -447,6 +450,7 @@ async function selfFeature() {
     },
     TRAFFIC_TIMEOUT_MS,
   )
+  let contractId = null
   if (!status.has_featured_app_right) {
     // A fresh validator holds no synchronizer traffic and buys it from the SV on
     // its own interval, and it answers 429 until then.
@@ -462,12 +466,25 @@ async function selfFeature() {
       },
       TRAFFIC_TIMEOUT_MS,
     )
-    log(`self-granted the featured app right (${granted.contract_id.slice(0, 16)}...)`)
+    contractId = granted.contract_id
+    log(`self-granted the featured app right (${contractId.slice(0, 16)}...)`)
   } else {
     log('the app-provider already holds a featured app right')
   }
-  const featured = await scanApi('GET', '/v0/featured-apps')
-  const mine = (featured.featured_apps ?? []).filter((a) => a.payload?.provider === status.party_id)
+  // The wallet answers once the validator has committed the right, and Scan
+  // ingests it from the SV participant later, so the check on Scan polls. A
+  // right granted here matches on its contract id; a right from an earlier run
+  // matches on the provider.
+  const matches = (a) => (contractId ? a.contract_id === contractId : a.payload?.provider === status.party_id)
+  const mine = await waitFor(
+    'Scan to list the featured app right of the app-provider',
+    async () => {
+      const featured = await scanApi('GET', '/v0/featured-apps')
+      const hits = (featured.featured_apps ?? []).filter(matches)
+      return hits.length > 0 ? hits : null
+    },
+    SCAN_TIMEOUT_MS,
+  )
   assertEq('Scan reports one featured app right for the app-provider', mine.length, 1)
   return status.party_id
 }
