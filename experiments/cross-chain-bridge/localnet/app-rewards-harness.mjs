@@ -69,8 +69,16 @@ const LEDGER_TOKEN = process.env.OZ_LEDGER_TOKEN_FILE
   ? readFileSync(process.env.OZ_LEDGER_TOKEN_FILE, 'utf8').trim()
   : null
 
+// Templates of Splice's `splice-amulet` Daml package, addressed by package
+// name (`#<package-name>:<module>:<template>`) so that the Ledger API resolves
+// them across every version of the package instead of one pinned package id.
+// Each link shows the definition at Splice 0.8.3, the LocalNet release that
+// `scripts/ledger.sh` defaults to.
+// https://github.com/canton-network/splice/blob/8460154135f39019b8bb370c9c1321ff13c9bb10/daml/splice-amulet/daml/Splice/AmuletRules.daml#L172
 const AMULET_RULES = '#splice-amulet:Splice.AmuletRules:AmuletRules'
+// https://github.com/canton-network/splice/blob/8460154135f39019b8bb370c9c1321ff13c9bb10/daml/splice-amulet/daml/Splice/Amulet.daml#L447
 const REWARD_COUPON_V2 = '#splice-amulet:Splice.Amulet:RewardCouponV2'
+// https://github.com/canton-network/splice/blob/8460154135f39019b8bb370c9c1321ff13c9bb10/daml/splice-amulet/daml/Splice/Amulet.daml#L303
 const FEATURED_APP_RIGHT = '#splice-amulet:Splice.Amulet:FeaturedAppRight'
 
 // The parties of the Daml Script record `BridgeParties`, in its field names.

@@ -86,9 +86,12 @@ const T = {
   // Splice packages, which LocalNet vets on the app-provider participant. The
   // `#package-name` form resolves to the highest vetted version, so the pin is
   // `OZ_SPLICE_VERSION` of `scripts/ledger.sh`. This client reads the payloads of
-  // Splice 0.7.1, and a release that changes either one fails an assertion below
-  // rather than reporting a version mismatch here.
+  // Splice 0.8.3, and a release that changes either one fails an assertion below
+  // rather than reporting a version mismatch here. Each link shows the
+  // definition at Splice 0.8.3.
+  // https://github.com/canton-network/splice/blob/8460154135f39019b8bb370c9c1321ff13c9bb10/daml/splice-amulet/daml/Splice/Amulet.daml#L447
   rewardCouponV2: '#splice-amulet:Splice.Amulet:RewardCouponV2',
+  // https://github.com/canton-network/splice/blob/8460154135f39019b8bb370c9c1321ff13c9bb10/daml/splice-api-reward-assignment-v1/daml/Splice/Api/RewardAssignmentV1.daml#L40
   rewardCoupon: '#splice-api-reward-assignment-v1:Splice.Api.RewardAssignmentV1:RewardCoupon',
 }
 
