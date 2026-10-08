@@ -61,13 +61,25 @@ const EVIDENCE_FILE = process.env.OZ_EVIDENCE_FILE ?? null
 const REWARD_TIMEOUT_MS = Number(process.env.OZ_REWARD_TIMEOUT_S ?? 900) * 1000
 const TRAFFIC_TIMEOUT_MS = Number(process.env.OZ_TRAFFIC_TIMEOUT_S ?? 300) * 1000
 const POLL_INTERVAL_MS = 5000
+// Scan ingests a transaction from the SV participant after the submitting
+// participant has committed it. This bounds the wait for that ingestion.
+const SCAN_TIMEOUT_MS = 120 * 1000
 
 const LEDGER_TOKEN = process.env.OZ_LEDGER_TOKEN_FILE
   ? readFileSync(process.env.OZ_LEDGER_TOKEN_FILE, 'utf8').trim()
   : null
 
+// Templates of Splice's `splice-amulet` Daml package, addressed by package
+// name (`#<package-name>:<module>:<template>`) so that the Ledger API resolves
+// them across every version of the package instead of one pinned package id.
+// Each link shows the definition at Splice 0.8.3, the LocalNet release that
+// `scripts/ledger.sh` defaults to.
+// https://github.com/canton-network/splice/blob/8460154135f39019b8bb370c9c1321ff13c9bb10/daml/splice-amulet/daml/Splice/AmuletRules.daml#L172
 const AMULET_RULES = '#splice-amulet:Splice.AmuletRules:AmuletRules'
+// https://github.com/canton-network/splice/blob/8460154135f39019b8bb370c9c1321ff13c9bb10/daml/splice-amulet/daml/Splice/Amulet.daml#L447
 const REWARD_COUPON_V2 = '#splice-amulet:Splice.Amulet:RewardCouponV2'
+// https://github.com/canton-network/splice/blob/8460154135f39019b8bb370c9c1321ff13c9bb10/daml/splice-amulet/daml/Splice/Amulet.daml#L303
+const FEATURED_APP_RIGHT = '#splice-amulet:Splice.Amulet:FeaturedAppRight'
 
 // The parties of the Daml Script record `BridgeParties`, in its field names.
 const ROLES = ['ba', 'br', 'pa', 'wtokAdmin', 'recipient', 'holder', 'attester1', 'attester2', 'attester3']
@@ -207,7 +219,10 @@ const latestRound = async () => Number((await scanApi('GET', '/v0/dso')).latest_
 
 // Feature `party` with the DevNet choice. A fresh validator buys its first
 // synchronizer traffic on its own interval, so the first submission that costs
-// traffic may be refused until then; the loop retries.
+// traffic may be refused until then; the loop retries. The submit returns once
+// the participant holds the right, so its ACS confirms the right at once. Scan
+// ingests the right from the SV participant later, so the check on Scan polls
+// for the contract.
 async function featureParty(role, party) {
   const dso = await scanApi('GET', '/v0/dso')
   const rules = dso.amulet_rules.contract
@@ -228,9 +243,13 @@ async function featureParty(role, party) {
       throw err
     }
   }, TRAFFIC_TIMEOUT_MS)
-  const featured = await scanApi('GET', '/v0/featured-apps')
-  const mine = (featured.featured_apps ?? []).filter((a) => a.payload?.provider === party)
-  if (mine.length !== 1) fail(`Scan reports ${mine.length} featured app rights for ${role}, expected 1`)
+  const rights = await acs(party, FEATURED_APP_RIGHT)
+  if (rights.length !== 1) fail(`the participant holds ${rights.length} featured app rights for ${role}, expected 1`)
+  const { contractId } = rights[0]
+  await waitFor(`Scan to list the featured app right of ${role}`, async () => {
+    const featured = await scanApi('GET', '/v0/featured-apps')
+    return (featured.featured_apps ?? []).some((a) => a.contract_id === contractId) ? contractId : null
+  }, SCAN_TIMEOUT_MS)
   log(`featured ${role} (${party.slice(0, 24)}...)`)
 }
 
