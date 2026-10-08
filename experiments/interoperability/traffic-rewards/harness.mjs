@@ -37,7 +37,7 @@
 //   OZ_LOCALNET_AUTH_AUDIENCE  audience that the Splice apps accept
 //   OZ_WALLET_ADMIN_USER     wallet admin user of the app-provider validator
 //   OZ_SV_USER               wallet admin user of the SV
-//   OZ_REWARD_TIMEOUT_S      seconds to wait for the round and the coupon
+//   OZ_REWARD_TIMEOUT_S      seconds to wait for the rounds and the coupon
 //   OZ_TRAFFIC_TIMEOUT_S     seconds to wait for validator traffic and a round
 //   OZ_EVIDENCE_FILE         file for the JSON evidence of the run
 
@@ -515,7 +515,7 @@ async function enableTrafficBasedRewards() {
   const base = dso.amulet_rules.contract.payload.configSchedule.initialValue
   if (base.rewardConfig?.mintingVersion === 'RewardVersion_TrafficBasedAppRewards') {
     log('the network already runs traffic-based app rewards')
-    return
+    return waitForOpenRoundsUnderTrafficRewards()
   }
   
   assertEq('the SV voting threshold is 1', Number(dso.voting_threshold), 1)
@@ -537,6 +537,28 @@ async function enableTrafficBasedRewards() {
     return cfg?.mintingVersion === 'RewardVersion_TrafficBasedAppRewards' ? cfg : null
   })
   log('the network runs traffic-based app rewards')
+  return waitForOpenRoundsUnderTrafficRewards()
+}
+
+// Each open mining round stores the reward configuration of the moment it
+// opened, and the SV processes a round by that stored configuration: a round
+// that opened before the vote goes through the dry-run triggers, which compute
+// the allowances but mint no coupon. Splice keeps three rounds open at once, so
+// the settlements wait until every open round carries the traffic-based
+// configuration. The wait returns the numbers of those rounds.
+async function waitForOpenRoundsUnderTrafficRewards() {
+  const rounds = await waitFor('every open mining round to carry the traffic-based reward configuration', async () => {
+    const res = await scanApi('POST', '/v0/open-and-issuing-mining-rounds', {
+      cached_open_mining_round_contract_ids: [],
+      cached_issuing_round_contract_ids: [],
+    })
+    const open = Object.values(res.open_mining_rounds ?? {}).map((r) => (r.contract ?? r).payload)
+    const stale = open.filter((p) => p.rewardConfig?.mintingVersion !== 'RewardVersion_TrafficBasedAppRewards')
+    if (open.length === 0 || stale.length > 0) return null
+    return open.map((p) => Number(p.round.number)).sort((a, b) => a - b)
+  })
+  log(`open rounds ${rounds.join(', ')} carry the traffic-based reward configuration`)
+  return rounds
 }
 
 const latestRound = async () => {
@@ -650,8 +672,9 @@ async function main() {
   const provider = await selfFeature()
   log(`app-provider party: ${provider}`)
 
-  // Step 2: the network switches to traffic-based app rewards.
-  await enableTrafficBasedRewards()
+  // Step 2: the network switches to traffic-based app rewards, and every open
+  // round carries that configuration.
+  const openRounds = await enableTrafficBasedRewards()
 
   // Step 3: the settlement parties. The app-provider executes every settlement,
   // so the admin user that this client submits as needs `CanActAs` for the
@@ -748,6 +771,7 @@ async function main() {
         {
           runId: RUN_ID,
           provider,
+          openRoundsUnderRewardConfig: openRounds,
           settlements: activity.settlements,
           settledVolumeUsd: activity.settledVolume,
           settleRound,

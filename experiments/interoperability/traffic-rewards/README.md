@@ -24,7 +24,11 @@ reward that the network computes from them.
    `appRewardCouponThreshold` far below its 0.5 USD default, because the reward of
    a run this small stays under that default and a round below the threshold mints
    no coupon. LocalNet has one SV and a voting threshold of 1, so the vote of the
-   requester carries.
+   requester carries. Each open round stores the reward configuration of the
+   moment it opened, and the SV mints no coupon for a round that opened under
+   the old one, so the harness then waits until every open round carries the
+   new configuration. Splice keeps three rounds open at once, so that wait is
+   about three rounds.
 3. The app-provider settles three USD transfers as the settlement executor. These
    settlements are the traffic, and the harness records the ledger record time of
    each settle transaction. On the third batch a party that the settlement does
@@ -90,7 +94,7 @@ The gate reads the variables below.
 | Variable | Purpose |
 |---|---|
 | `OZ_LOCALNET_TICK_DURATION` | Length of a tick, which is half a mining round |
-| `OZ_REWARD_TIMEOUT_S` | Seconds to wait for the closed round and the coupon |
+| `OZ_REWARD_TIMEOUT_S` | Seconds to wait for the open rounds to carry the reward configuration, the closed round, and the coupon |
 | `OZ_TRAFFIC_TIMEOUT_S` | Seconds to wait for validator traffic and for a round to open |
 | `OZ_LEDGER_LOG_DIR` | Move the logs and the evidence of the run |
 | `OZ_VALIDATOR_API_URL`, `OZ_SV_API_URL`, `OZ_SCAN_API_URL` | Splice service endpoints |
