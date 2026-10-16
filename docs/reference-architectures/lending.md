@@ -3,13 +3,13 @@
 This report is the target architecture for a vault-based, overcollateralized
 lending venue on Canton: the on-ledger contract shapes, the borrower wallet
 requirements, the operator's off-ledger services, and the deployment
-topology. It composes the reusable OpenZeppelin pause component with on-chain
+topology. It composes the reusable OpenZeppelin pause and access control components with on-chain
 identity and compliance checks into one application that settles through the
 Canton Network Token Standard V2 (TSv2).
 
 ## 1. Product Definition
 
-The venue is the application that matches a funder's liquidity with
+The venue is an application that matches a funder's liquidity with
 borrowers and then enforces the terms of each resulting debt position. Its
 core object is the **Position**: an isolated collateralized debt position
 (CDP) held as its own Daml contract. Four properties define a position:
@@ -37,25 +37,25 @@ the principal borrowers draw.
 
 ### Operational Scope and Boundaries
 
-The core is deliberately small: one treasury per market, one price
-dependency per instrument pair, one `Position` contract per CDP, and direct
-transfers under authority the choices already carry. Deployment-specific
+The core is deliberately small: multiple markets per venue, one treasury per market, one price
+dependency per instrument pair, one `Position` contract per CDP. Funds move through direct
+transfers under authorities carried in choices. Deployment-specific
 conditions are contract parameters ([consumption and customization](#consumption-and-customization)).
 
 | Feature Category | In-Scope Architectural Components |
 |---|---|
 | Interest Model | Fixed `interestRate`, open term, **simple (non-compounding) interest** on the tracked principal ([the CDP math](#the-cdp-math)). |
-| Core Flows | Position creation with collateral deposit, deposit, withdrawal, borrow, repay, liquidation, and close, plus treasury funding and defunding, the funder's withdrawal of seized collateral, and the operator's fee withdrawal ([the position flows](#the-position-flows)). |
-| Asset Representation | CIP-0112 TSv2 holdings owned by `dvv`: one collateral holding per position, one liquidity holding and one seized-collateral holding per market, moved only inside venue choices; nothing is minted or burned ([custody](#custody)). |
+| Core Flows | Create a market; Create a position; Deposit and withdraw collateral; Borrow; Repay debt; Liquidate an underwater position; Close a position; Fund and defund the treasury; Withdraw seized collateral or operator/funder fees. |
+| Asset Representation | CIP-0112 TSv2 holdings owned by the decentralized venue validation party (`dvv`): one collateral holding per position, one liquidity holding and one seized-collateral holding per market; nothing is minted or burned ([custody](#custody)). |
 | Pricing | Every price-dependent choice fetches the selected provider's price contract and enforces the instrument and staleness guards ([section 4.4](#44-dependency-price-oracle)). |
-| Fees | Interest accrues to the funder, which absorbs bad debt; a configurable share of interest paid in debt tokens goes to the venue operator ([the treasury](#the-treasury)). The `liquidationBonus` is the premium the funder takes in collateral on a restoring liquidation. |
-| Compliance & Control | On-chain **KYC claims** from trusted issuers and optional per-operation **compliance attestations**; both lists are `dvv` configuration. |
-| Trust Topology | Every venue contract is signed, and every venue holding owned, by a **decentralized venue validation party (`dvv`)** hosted across independent participant nodes at a confirmation threshold above 1; solvency and seizure bounds are enforced by Daml code, not operator discretion ([party topology](#party-and-role-model-topology)). |
-| Component Integration | The reused OpenZeppelin package and the CIP-0112 Splice interfaces ([section 2](#core-components-and-library-mapping)), plus patterns from [`OpenZeppelin/canton-token-template`](https://github.com/OpenZeppelin/canton-token-template). |
+| Fees | Interest accrues to the funder, meant as a reward but also to absorb bad debt; a configurable share of interest goes to the venue operator ([the treasury](#the-treasury)). The `liquidationBonus` is the premium the operator takes in collateral on a restoring liquidation. |
+| Compliance & Control | On-chain **KYC claims** from trusted issuers and optional per-operation **compliance attestations**; both lists are configured by the `dvv`. |
+| Trust Topology | Every venue contract is signed, and every venue holding owned, by the `dvv`. The `dvv` is hosted across independent participant nodes at a confirmation threshold above 1; solvency and seizure bounds are enforced by Daml code ([party topology](#party-and-role-model-topology)). |
+| Component Integration | OpenZeppelin packages and the CIP-0112 Splice interfaces ([section 2](#core-components-and-library-mapping)). |
 
 <br/>
 
-| Feature Category | Out-of-Scope Architectural Components |
+| Feature Category | Out-of-Scope Features or Components |
 |---|---|
 | Interest Models | Dynamic or algorithmic rates, utilization curves, fixed maturities. |
 | Leverage Facilities | Undercollateralized loans, flash loans, recursive leverage, rehypothecation. |
@@ -66,7 +66,7 @@ conditions are contract parameters ([consumption and customization](#consumption
 
 ### Target Ecosystem Participants
 
-- **Institutional asset managers and tokenized-fund issuers**: collateralized credit with deterministic outcomes and no public data leakage.
+- **Institutional asset managers and tokenized-fund issuers**: collateralized credit with deterministic outcomes and no private data leakage.
 - **Asset issuers and large token holders**: idle debt-token inventory earns interest as a market's liquidity against overcollateralized debt, on terms the funder sets.
 - **Wallet and client integrators**: borrower flows built on the position choices, exposed to venue UIs over the [CIP-0103](https://github.com/canton-foundation/cips/blob/6f37c896a5a76ec3bc1aa67bc045623ae5df41e5/cip-0103/cip-0103.md) dApp API.
 
@@ -74,11 +74,13 @@ conditions are contract parameters ([consumption and customization](#consumption
 
 In the [ERC-4626](https://docs.openzeppelin.com/contracts/5.x/erc4626) lineage one globally visible contract manages pooled liquidity, debt shares, and accrual for every party, broadcasting each one's balance and liquidation threshold. Canton changes three assumptions.
 
-**Privacy by default.** A contract is visible only to its signatories and observers (per-party projection), so each **position is its own contract** rather than a share in a pool, visible only to the borrower and `dvv`. A party that is an informee of a choice also sees everything the choice does, so the venue keeps one holding per position: a borrower's flows never touch another borrower's collateral ([privacy model](#privacy-and-visibility-model)).
+**Privacy by default.** A contract is visible only to its signatories and observers (per-party projection), so each **position is its own contract** rather than a share in a pool, visible only to the borrower and `dvv`. A party that is an informee of a choice also sees everything the choice does, so the venue keeps one holding per position: a borrower's flows never touch another borrower's position ([privacy model](#privacy-and-visibility-model)).
 
-**No in-place mutation.** State changes by archive-and-recreate, so contract ids change. The design resolves the `PositionFactory`, the `Treasury`, the `Position`, and the price oracle by **contract key** (reintroduced in [Canton 3.5.1+](https://github.com/digital-asset/canton/releases/tag/v3.5.1), Daml-LF 2.3). Keys are not unique, so the venue enforces uniqueness. A production implementation starts on the 3.5.1+ SDK.
+**No in-place mutation.** State changes by archive-and-recreate, so contract ids change. The design resolves the `PositionFactory`, the `Treasury`, the `Position`, and the price oracle by **contract key**. Keys are not unique, so the venue will enforce uniqueness.
 
-**A bounded operator, not no operator.** Canton does not remove the operator from the trust equation; it bounds it. The operator is paid, through the venue fee, to enforce the funder's and the borrower's terms against each other, and the `dvv` hosting consortium exists so that its custody of collateral and liquidity is bounded by code and confirmed by organizations it does not control. The trust question therefore moves from contracts to parties. Canton decentralizes a party on three independent axes: **party governance** (whose signatures can re-home it), **validation** (how many participant nodes must confirm its transactions; above 1, the party can no longer submit Ledger API commands directly and acts through externally signed submissions or through choices submitted by others), and **authorization** (what the Daml signatory and controller topology requires). Guarantees are only as strong as the organizations behind the nodes: a party confirmed at threshold `f + 1` holds until `f + 1` nodes of distinct organizations collude ([trust topology](#decentralization-and-trust-topology)).
+**A bounded operator, not no operator.** Canton does not remove the operator from the trust equation; it bounds it. The operator is paid, through the venue fee, to enforce the funder's and the borrower's terms against each other, and the `dvv` hosting consortium exists so that its custody of collateral and liquidity is bounded by code and confirmed by organizations it does not control. The trust question therefore moves from contracts to parties. 
+
+Canton decentralizes a party on three independent axes: **party governance** (whose signatures can re-home it), **validation** (how many participant nodes must confirm its transactions; above 1, the party can no longer submit Ledger API commands directly and acts through externally signed submissions or through choices submitted by others), and **authorization** (what the Daml signatory and controller topology requires). Guarantees are only as strong as the organizations behind the nodes: a party confirmed at threshold `f + 1` holds until `f + 1` nodes of distinct organizations collude ([trust topology](#decentralization-and-trust-topology)).
 
 **New versus existing components.** The venue adds one organization, the operator, and its own contracts: `PositionFactory`, `Treasury`, and `Position`. KYC claims and compliance attestations come from issuers and attesters `dvv` trusts; the debt token and the collateral are administered by their issuers' own **registries**, which must implement the TSv2 interfaces and meet the [instrument listing policy](#instrument-listing-policy); the price oracle is a provider's contract selected by `dvv`.
 
@@ -162,7 +164,7 @@ provider, funders, and borrowers are pre-existing network structure.
   and defunds the treasury on its own terms, earns the interest net of the
   venue fee, absorbs bad debt, and withdraws seized collateral; typically
   the debt token's issuer or a large holder, possibly the operator itself.
-  It brings liquidity and terms, not infrastructure: the consortium opens
+  It brings liquidity and terms: the consortium opens
   its market under the venue's existing `dvv` and `vo`.
 - **Borrower**: locks collateral and draws debt.
 - **Oracle Provider**: the external organization publishing the price
@@ -182,8 +184,8 @@ validated, and who submits in its name.
 |---|---|---|
 | `dvv` | multi-hosted on several participant nodes, confirmation threshold above 1; optionally also hosted on a regulator's or auditor's node, observing or confirming | only consortium-approved, externally signed transactions: market creation and configuration, issuer and attester lists; in every flow its authority is exercised inside choices on contracts it signs, submitted by the party driving the flow |
 | `vo` | single-hosted on the operator's node, which also hosts a `dvv` replica; the backend reads as `dvv` and submits as `vo` | pauses and unpauses markets, liquidates, withdraws the venue fee; discloses and monitors off-ledger |
-| Funder | its own node and keys; hosting and threshold are its own choice, since it confirms only its own choices; keeps the venue packages vetted as a `Treasury` observer | `Treasury_Fund`, `Treasury_Defund`, and `Treasury_WithdrawCollateral` |
-| Oracle provider | external organization, selected against [section 4.4](#44-dependency-price-oracle) | publishes its own price contract, never venue flows |
+| Funder | its own node and keys; hosting and threshold are its own choice, since it confirms only its own choices | submits by itself |
+| Oracle provider | external organization, selected against [section 4.4](#44-dependency-price-oracle) | publishes its own price contract |
 | Borrowers | hosted on a reputable wallet provider's or validator operator's participant node, their own keys ([custody](#custody)) | creation, deposits, withdrawals, borrows, repayments, and closes from their wallet (CIP-0103) |
 | Instrument registrars | external organizations, vetted by the [listing policy](#instrument-listing-policy) | their own registry operations |
 
@@ -208,7 +210,7 @@ of 3:
 | Venue operator | confirming node | hosts `vo`; runs the backend and the disclosure API; pauses and liquidates |
 | Venue validator A (covalidation offering) | confirming node | - |
 | Venue validator B (covalidation offering) | confirming node | - |
-| Oracle provider (external) | - | publishes the price contract the positions read |
+| Oracle provider | - | publishes the price contract the positions read |
 | Regulator or auditor (optional) | observing node | independent monitoring of every market, position, and price |
 
 Breaking the guarantees `dvv` checks, or changing venue configuration, takes
@@ -253,14 +255,10 @@ debtCleared = if collateralRatio > 1 + liquidationBonus
 
 ### The Position Flows
 
-Each flow is one ledger transaction: the position choice computes the
+Each flow is one ledger transaction: the position choices compute the
 amounts and instructs the transfers ([custody](#custody)), the registries'
-own implementations move the holdings and emit the events, and all of it
-commits or none does. `Compliance gate` stands for the on-chain identity and
-attestation checks on creation, deposit, borrow, and withdrawal. The market
-flows, `Treasury_Fund`, `Treasury_Defund`, `Treasury_WithdrawCollateral`,
-and `Treasury_WithdrawVenueFees`, sit outside the position flows
-([the treasury](#the-treasury)).
+own implementations move the holdings and emit the events. `Compliance gate` stands for the on-chain identity and
+attestation checks on creation, deposit, borrow, and withdrawal.
 
 **A. Position creation, collateral deposit, and withdrawal.** The first deposit goes through `PositionFactory_CreatePosition`: the borrower presents holdings, and the choice transfers the collateral to `dvv` and creates the `Position` referencing the new holding ([section 4.1](#41-component-positionfactory-and-position-creation)). `Position_DepositCollateral` transfers a top-up and merges it into the position's holding. `Position_WithdrawCollateral` returns `withdrawAmount` while the solvency check passes at a fresh price and the remainder stays above the market's `minCollateralAmount`.
 
@@ -278,7 +276,7 @@ flowchart TD
     Choice -.->|"create / recreate:<br/>collateralAmount += amount"| Position
 ```
 
-**B. Borrow.** `Position_Borrow` runs the compliance gate, reads a fresh price, requires `availableAmount` to cover the request and the collateral to cover the new debt at `minCollateralRatio`, then transfers the amount from the liquidity holding to the borrower through `Treasury_Draw`, which the borrower co-controls so the transfer carries both account parties' authority, and records the higher debt.
+**B. Borrow.** `Position_Borrow` reads a fresh price, requires `availableAmount` to cover the request and the collateral to cover the new debt at `minCollateralRatio`, then transfers the amount from the liquidity holding to the borrower through `Treasury_Draw` and records the higher debt.
 
 ```mermaid
 flowchart TD
@@ -295,7 +293,7 @@ flowchart TD
     Position ==>|"Treasury_Draw:<br/>availableAmount -= amount"| Treasury
     Treasury ==>|"transfer amount"| Liquidity
     Liquidity -->|"credited"| Borrower
-    Position -.->|"recreate:<br/>debt and principal += amount"| Position
+    Position -.->|"recreate:<br/>debt += amount<br/>principal += amount"| Position
 ```
 
 **C. Repay.** `Position_Repay` transfers the payment from the borrower's holdings to `dvv`, merges it into the liquidity holding, and records the lower debt. The borrower presents holdings and an amount. Change is returned to the borrower.
@@ -304,7 +302,7 @@ flowchart TD
 flowchart LR
     Borrower([Borrower])
     Position[["Position<br/>recreate:<br/>debt -= amount"]]
-    Treasury[["Treasury<br/>availableAmount += principal,<br/>fee balances += interest"]]
+    Treasury[["Treasury<br/>availableAmount += principal,<br/>fees += interest"]]
     Liquidity[("Liquidity holding")]
 
     Borrower ==>|"Position_Repay (amount)"| Position
@@ -312,7 +310,7 @@ flowchart LR
     Treasury ==>|"transfer in, merge"| Liquidity
 ```
 
-**D. Close.** `Position_Close` winds down a fully repaid position: it transfers the whole collateral holding back to the borrower and archives the `Position`. A one-shot exit submits repay and close in one command, and the pair commits atomically.
+**D. Close.** `Position_Close` winds down a fully repaid position: it transfers the whole collateral holding back to the borrower and archives the `Position`. A one-shot exit submits repay and close in one command.
 
 ```mermaid
 flowchart TD
@@ -341,7 +339,7 @@ flowchart TD
     Operator ==>|"Position_Liquidate"| Position
     Position -->|"paused?"| Factory
     Position -->|"fresh price;<br/>ratio < liquidationRatio"| Oracle
-    Position ==>|"Treasury_RecordSeizure:<br/>collateralSeized, principalCleared,<br/>badDebtWrittenOff"| Treasury
+    Position ==>|"Treasury_RecordSeizure:<br/>collateralSeized,<br/>principalCleared,<br/>badDebtWrittenOff"| Treasury
     Treasury ==>|"one dvv self-transfer<br/>of collateralSeized"| Collateral
     Collateral ==>|"merged in"| Seized
     Position -.->|"recreate / archive"| Position
@@ -403,7 +401,7 @@ Both instruments are only transferred, never minted or burned, so
 third-party-issued assets are compatible. The venue custodies what it
 enforces against: every position's collateral and every market's liquidity
 and seized collateral are TSv2 `Holding`s **owned by `dvv`**, moved only
-inside venue choices through `TransferFactory_Transfer`.
+inside venue choices through transfers.
 
 **One holding per position, two per market.** A `Position` references its
 collateral holding (`collateralHoldingCid`), whose amount equals
@@ -421,13 +419,10 @@ flow. No holding is shared across positions or markets.
 
 **Custody assumptions.** `dvv` uses these holdings only inside venue
 choices; its hosting nodes submit no externally signed transaction against
-them, which an auditor verifies from the holdings' transaction history. The
+them. The
 registries meet the [listing policy](#instrument-listing-policy). Every
-informee's participant keeps the venue packages vetted: a borrower only
-observes its `Position`, so its node confirms nothing, and the one lever left
-to that node, unvetting the venue package, is excluded by hosting borrowers
-on reputable wallet providers' or validator operators' nodes; a borrower
-running its own participant node is outside the target. Funders accept the
+informee's participant keeps the venue packages vetted: the venue should only accept borrowers that are hosted
+on reputable wallet providers' or validator operators' nodes. Funders accept the
 same obligation.
 
 **Alternative considered: committed iterated allocations.** Collateral and
@@ -438,8 +433,6 @@ registry freeze reaches one customer. The design does not adopt it: every
 settlement then needs the owner's node, so liquidation depends on the
 borrower; allocations expire and must be refreshed for open-term positions;
 and both registries must support iterated settlement with reserved funding.
-It is the design to fall back on if the hosting organizations may not
-custody client assets.
 
 ### Privacy and Visibility Model
 
@@ -464,7 +457,7 @@ Consequences:
 Before the consortium opens a market on an instrument pair, it verifies at
 both registries:
 
-- **One-step transfers.** `TransferFactory_Transfer` completes in one step when `actors` cover the sender and the receiver, with no provider or pending step, `dvv` self-transfers included, and returns one receiver holding plus at most one change holding. The standard only recommends this, so the venue verifies it.
+- **One-step transfers.** transfers complete in one step when `actors` cover the sender and the receiver, with no provider or pending step, `dvv` self-transfers included, and returns one receiver holding plus at most one change holding. The standard only recommends this, so the venue verifies it.
 - **Exact amounts.** A transfer deducts nothing from its inputs, the holding view's `amount` is what a transfer honors, and the registry never merges, splits, or expires a holding on its own, except dust whose accrued holding fees exceed its amount; the market's minimum amounts keep every holding clear of that bound.
 - **Context service.** The registry's API serves its transfer factory and choice context to any venue submitter.
 - **Disclosed powers.** Audited TSv2 code, bounded admin powers, disclosed freeze and seizure capabilities, SCU-conformant upgrades. A freeze of `dvv`'s account halts every market in that instrument and cannot be attributed to one borrower ([section 5.3](#53-threat-model)).
@@ -481,14 +474,11 @@ market's liquidity and seized-collateral holdings and tracks:
 - `principalCleared`: principal liquidations removed from positions, covered by collateral or written off.
 - `badDebtWrittenOff`: debt no collateral covered, absorbed by the funder, whose interest is the compensation for that risk.
 
-The consortium creates it with the market; the funder fills it with
+The `dvv`` creates the treasury with the market; the funder fills it with
 `Treasury_Fund` and reclaims un-borrowed liquidity and revenue with
 `Treasury_Defund`. Every repayment is principal plus accrued interest: the
 principal is immediately borrowable again and the interest goes to the fee
-balances. A liquidation returns no debt tokens: the funder's claim converts
-into collateral at the oracle price, plus the bonus on a restoring
-liquidation, so the venue fee applies only to interest paid in debt tokens.
-Borrowers buy the debt tokens they owe as interest on the open market, so
+balances. Borrowers buy the debt tokens they owe as interest on the open market, so
 repayment capacity is never bounded by the market's own liquidity.
 
 ### Oracle Handling
@@ -561,7 +551,7 @@ paths on LocalNet against live v1 positions.
 Extensions use SCU only when they preserve the data and economics of live
 positions:
 
-- **Debt ceilings.** A per-position `Optional` cap in `PositionParams` and an aggregate ceiling on the `PositionFactory`, enforced in `Position_Borrow`; the [SCU process](#smart-contract-upgrade-process) walks through its rollout.
+- **Debt ceilings.** A per-position `Optional` cap in `PositionParams` and an aggregate ceiling on the `PositionFactory`, enforced in `Position_Borrow`.
 - **Compounding interest variant.** A new immutable terms revision for positions that select discrete compounding, never retroactive.
 - **Keeper liquidation.** Third-party liquidators designated by `dvv` whose debt-token payment into the treasury replenishes liquidity instead of converting it into collateral.
 - **Pooled markets.** Several funders sharing one treasury, each with its own share of `feesAccrued` and of the risk.
@@ -576,13 +566,7 @@ Adopters consume the lending packages in one of two ways:
 Package names are global and SCU is scoped to them, so two applications
 sharing a library DAR share its lineage. Either way, deployment-specific
 behavior is configuration on each market's `PositionFactory`, changed
-through governed `dvv` transactions rather than code changes:
-
-- the funder's `PositionParams`, fixed for each position at creation;
-- the oracle selection and `maxStaleness`;
-- `venueFeeShare`, applied to interest paid after a change;
-- the minimum amounts;
-- the trusted issuers and attesters.
+through governed `dvv` transactions rather than code changes.
 
 A position resolves the operational configuration live, by key, so a
 configuration change migrates no position. Beyond the TSv2 asset interfaces
@@ -604,8 +588,7 @@ not yet implemented in any end-to-end Daml Script; `accrueDebt`,
 ### 4.1 Component: PositionFactory and Position Creation
 
 A market is one `PositionFactory` and one `Treasury`, both keyed by `dvv`,
-the funder, and the instrument pair, created together by a
-consortium-approved `dvv` transaction. The `PositionFactory` is the market's
+the funder, and the instrument pair, created together by a `dvv` transaction. The `PositionFactory` is the market's
 standing offer to borrowers; a borrower creates a position unilaterally, and
 creation transfers the presented holdings to `dvv`, so a position is never
 created empty and no holding is accepted from outside.
@@ -638,24 +621,6 @@ template PositionFactory
     observer funder
     key (dvv, funder, collateralInstrumentId, debtInstrumentId) : (Party, Party, InstrumentId, InstrumentId)
     maintainer key._1
-
-    interface instance Pausable for PositionFactory where
-      view = PausableView with paused
-
-    -- whenNotPaused; reject a duplicate (dvv, borrower, positionId); require
-    -- initialCollateral >= minCollateralAmount; transfer it to dvv; create the
-    -- Position referencing the receiver holding, with zero debt.
-    nonconsuming choice PositionFactory_CreatePosition : ContractId Position
-      with
-        borrower : Party
-        positionId : Text
-        initialCollateral : Decimal
-        collateralHoldingCids : [ContractId Holding]
-        extraArgs : ExtraArgs   -- collateral registry context
-      controller borrower
-
-    -- PositionFactory_Pause and PositionFactory_Unpause (controller: the
-    -- operator, checked against vo) flip the flag.
 ```
 
 ### 4.2 Component: Position and Liquidation
@@ -682,22 +647,6 @@ template Position
     observer borrower
     key (dvv, borrower, positionId) : (Party, Party, Text)
     maintainer key._1
-
-    -- whenNotPaused and operator == vo, both from the PositionFactory; fresh
-    -- price; accrue; require collateralRatio < liquidationRatio; compute
-    -- debtCleared and collateralSeized; Treasury_RecordSeizure, which moves
-    -- collateralSeized into the seized-collateral holding and returns the
-    -- position's change holding; recreate with the reduced figures, or
-    -- archive on full absorption.
-    choice Position_Liquidate : Optional (ContractId Position)
-      with
-        operator : Party
-        extraArgs : ExtraArgs   -- collateral registry context
-      controller operator
-
-    -- Position_DepositCollateral, Position_WithdrawCollateral,
-    -- Position_Borrow, Position_Repay, and Position_Close follow the same
-    -- shape, controlled by the borrower.
 ```
 
 ### 4.3 Component: Treasury
@@ -713,8 +662,8 @@ template Treasury
     funder : Party
     collateralInstrumentId : InstrumentId
     debtInstrumentId : InstrumentId
-    liquidityHoldingCid : Optional (ContractId Holding)          -- owned by dvv; None at zero
-    seizedCollateralHoldingCid : Optional (ContractId Holding)   -- owned by dvv; None at zero
+    liquidityHoldingCid : Optional (ContractId Holding)          -- owned by dvv
+    seizedCollateralHoldingCid : Optional (ContractId Holding)   -- owned by dvv
     availableAmount : Decimal
     feesAccrued : Decimal
     venueFeesAccrued : Decimal
@@ -727,15 +676,6 @@ template Treasury
     key (dvv, funder, collateralInstrumentId, debtInstrumentId) : (Party, Party, InstrumentId, InstrumentId)
     maintainer key._1
 ```
-
-- **`Treasury_Fund`** (funder): transfers debt tokens to `dvv`, merges them into the liquidity holding, raises `availableAmount`.
-- **`Treasury_Defund`** (funder): transfers from the liquidity holding to the funder, `feesAccrued` first, then `availableAmount`, never lent-out principal; leaves the holding empty or above `minLiquidityAmount`.
-- **`Treasury_Draw`** (`dvv` and the borrower, inside `Position_Borrow`): transfers the amount to the borrower, lowers `availableAmount`.
-- **`Treasury_AcceptPayment`** (the borrower and `dvv`, inside `Position_Repay`): transfers the payment to `dvv`, merges it in, returns the principal portion to `availableAmount`, splits the interest into the fee balances.
-- **`Treasury_RecordSeizure`** (`dvv`, inside `Position_Liquidate`): moves the seized collateral from the position's holding into the seized-collateral holding in one self-transfer and raises `collateralSeized`, `principalCleared`, and, on full absorption, `badDebtWrittenOff`.
-- **`Treasury_WithdrawCollateral`** (funder): transfers seized collateral to the funder, bounded by `collateralSeized`.
-- **`Treasury_WithdrawVenueFees`** (the operator, checked against the factory's `vo`): transfers `venueFeesAccrued` to the operator.
-
 ### 4.4 Dependency: Price Oracle
 
 The price oracle is not a venue component but a **pinned dependency**, like the token registries: an external provider publishes a price contract carrying `price` and `updatedAt`, keyed by `(provider, collateralInstrumentId, debtInstrumentId)`; the lending package depends on the provider's package as a pinned DAR, and the market's `PositionFactory` names the provider, so every price-dependent choice fetches the current price by key across the provider's archive-and-recreate cycle. `dvv` selects the provider as a configuration decision, and the position choices enforce only the consumer-side guards ([oracle handling](#oracle-handling)). A fallback provider must publish the same pinned template; one on another package is a new lending release. Before selection, a provider must satisfy:
@@ -925,17 +865,3 @@ transaction's own burn, so rewards are a rebate: the funder's interest and
 the venue's fee share ([the treasury](#the-treasury)) carry the two business
 models. A precise CIP-0104 accounting is deferred until the implementation
 can be simulated against DevNet.
-
----
-
-## 7. Open Design Questions for the Implementation Phase
-
-- **Market onboarding.** Which funders the consortium admits, the minimum liquidity per market, and whether a market can be closed and by whom.
-- **Treasury operations.** The funder's fund and defund cadence, whether defunding needs a notice period so prospective borrowers see capacity shrinking, and whether fee withdrawal should be a path separate from liquidity defunding.
-- **Seized collateral.** The funder must be eligible to hold the collateral instrument and disposes of seized collateral off-venue. Open: the withdrawal cadence, whether the venue fee should take a share of seizures, and whether a market should instead sell seized collateral to third-party keepers ([extension points](#extension-points)).
-- **Close factor.** The health-restoring clearance returns a position only to `minCollateralRatio`, so a falling price forces repeated rounds, each serializing on the `Treasury`. Open: whether the funder may have a whole position closed out once it is liquidatable.
-- **Guaranteed liquidatability ahead of bad debt.** Several choices delay liquidation: the ratio buffer, the repeated restore rounds, the staleness guard and the provider's deviation bound that block liquidation exactly when prices move fastest, and the operator's liquidation cadence and traffic cost ([section 6](#6-network-economics-traffic-costs-and-app-rewards)) that floor the position size worth touching. Open: sizing the buffer against collateral volatility, whether debt ceilings are needed, whether liquidation should stay open on a stale-but-bounded price, and stress evidence that expected bad debt fits the funder's risk pricing.
-- **Pull-style price input.** A price-dependent choice could accept a signed price attestation as an argument and verify it inline, in the style of the [Canton data standard](https://github.com/kaikodata/canton-data-standard/blob/master/docs/producer-guide.md), instead of fetching a keyed price contract, which takes the provider's participant off the confirmation path and the oracle out of the contention set. Open: whether to support it beside the keyed contract, and which signer set to accept.
-- **Role-party rotation.** `dvv` is embedded in every position's key and signatory set, and the funder in its market's contracts, so replacing either implies migrating every position in a market. Open: whether position choices should lazily migrate stale positions on touch, and how replacing the `dvv` party itself, as opposed to re-homing it, would be executed.
-- **Treasury disclosure granularity.** Borrowers witness the market's `Treasury` record on their own borrow, repay, and liquidation, revenue and loss figures included. Open: whether those figures should live on a contract that position flows do not consume, so borrowers can size a request without seeing the funder's revenue and losses.
-- **Asynchronous borrow.** A request-and-accept variant would let the operator run its existing off-ledger risk and compliance systems before accepting, through a `dvv`-signed delegation this design does not otherwise need. Open: whether to offer it alongside or instead of the synchronous path.
