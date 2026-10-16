@@ -105,10 +105,17 @@ remain eligible:
 | C | 2 | 50 | 12 | 50 |
 | D | 3 | 40 | 10 | 10 |
 
-A receives 50 tokens. B and C share the remaining 50 proportionally, giving
-approximately 33.33 and 16.67 before lot rounding. Rounding gives 30 and 10.
-B receives the leftover lot because its acceptance number precedes C's. All
-winners pay 10 per token.
+C receives its full 50 tokens because it offers the highest maximum price, even
+though A and B were accepted earlier.
+
+B and D share the remaining 50 tokens proportionally to their requested
+quantities. Their shares are approximately 33.33 and 16.67 tokens. Rounding down
+to whole lots gives B 30 and D 10, leaving one lot of 10 tokens. B receives that
+lot because it was accepted before D.
+
+A receives nothing because the higher-priced bids exhaust the supply, despite
+A being accepted first. All winners pay 10 per token, the lowest maximum price
+among bids receiving a fill.
 
 Retries preserve the accepted set and apply the same rule to current evidence.
 Credential changes can affect price and fills. A timeout alone never permits
