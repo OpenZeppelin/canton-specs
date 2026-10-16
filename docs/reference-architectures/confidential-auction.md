@@ -100,9 +100,10 @@ remain eligible:
 
 | Bid | Acceptance number | Quantity | Maximum price | Fill |
 |---|---:|---:|---:|---:|
-| A | 0 | 50 | 12 | 50 |
+| A | 0 | 40 | 9 | 0 |
 | B | 1 | 80 | 10 | 40 |
-| C | 2 | 40 | 10 | 10 |
+| C | 2 | 50 | 12 | 50 |
+| D | 3 | 40 | 10 | 10 |
 
 A receives 50 tokens. B and C share the remaining 50 proportionally, giving
 approximately 33.33 and 16.67 before lot rounding. Rounding gives 30 and 10.
