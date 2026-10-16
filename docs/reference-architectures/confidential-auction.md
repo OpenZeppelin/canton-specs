@@ -14,17 +14,20 @@ Bidders specify quantities and maximum unit prices under terms published before
 bidding opens. After bidding closes, the clearing rule determines the quantities
 awarded and the common unit price. Payments follow the published rounding rule.
 
-Bids are private from competing bidders. The issuer, operator, validation hosts,
-and each bid's account authorizers receive the disclosures needed for their
+Bids are private from competing bidders. The issuer, operator, validation
+hosts, and each bid's account parties receive the disclosures needed for their
 roles. Registry rules govern asset visibility. The application checks bidder
 eligibility at acceptance and before awarding tokens.
 
 The registries use [Token Standard V2](https://github.com/canton-foundation/cips/blob/6f37c896a5a76ec3bc1aa67bc045623ae5df41e5/cip-0112/cip-0112.md)
-**allocations** to authorize movements and reserve holdings. The issuer reserves
-the supply before opening. Each bidder reserves its maximum payment before
-acceptance. These **committed allocations** restrict account-authorized
-withdrawal until their settlement deadline, subject to registry rules. They
-name the validation party as their sole settlement executor.
+**allocations** to authorize movements and reserve holdings. The issuer
+reserves the supply before opening. Each bidder reserves its maximum payment
+before acceptance. These **committed allocations** restrict account withdrawal
+until their settlement deadline, subject to registry rules. They name the
+validation party as their sole settlement executor. Each recipient account also
+authorizes receipt through an unfunded iterated allocation. The issuer and each
+bidder request their allocation pair in one transaction. Any custodian approvals
+complete through the registries before opening or bid acceptance.
 
 The operator accepts prepared bids in batches. Each committed acceptance appends
 the bids to the round's private list. Preparation alone does not enter a bid in
@@ -33,11 +36,11 @@ it. The operator can refuse or delay admission and chooses the order within
 each batch. Accepted-set validation prevents omission after acceptance, but does
 not guarantee admission or fair ordering of requests.
 
-The **clear** is one atomic transaction. It validates the complete result,
-cancels the supply and winners' payment locks, creates allocations for the exact
-payments and deliveries, and settles them. Previously collected account consent
-authorizes those operations. The round produces one result or ends without a
-sale. Bids awarded no tokens retain their locks for separate recovery.
+The **clear** is one atomic transaction. It validates the complete result and
+adds exact payment and delivery sides to the existing **iterated allocations**.
+During settlement, the registries transfer the assets and return unused funding
+to the original accounts. The round produces one result or ends without a sale.
+Bids awarded no tokens retain their allocations for separate recovery.
 
 See the [auction lifecycle](#22-auction-lifecycle) for the workflow and
 [section 3](#3-target-design) for its transactions and authority.
@@ -75,8 +78,9 @@ Retries retain the numbers already assigned.
 Clearing includes every accepted bid. Authenticated credential expiry or
 revocation gives a bid zero fill and excludes it from price-setting demand.
 Missing evidence, registry cancellation, or an unavailable participant is not
-proof of ineligibility. A required allocation with no valid funded continuation
-prevents the complete clear. Asset restrictions remain enforced by the registry.
+proof of ineligibility. A required allocation with no valid continuation
+prevents the complete clear. Asset restrictions remain enforced by the
+registry.
 
 Eligible bids are ordered by maximum unit price, with higher price bands filling
 first. If a band's demand exceeds the remaining supply, that band
@@ -91,27 +95,19 @@ supply, it is the reserve price. Otherwise it is the lowest maximum unit price
 among bids receiving a fill. With no eligible demand, the result reports zero
 sales at reserve and releases the supply without an empty settlement call.
 
-For example, consider 100 tokens, a reserve price of 8 per token, and a lot size
-of 10. All bids remain eligible:
+For example, consider 100 tokens, a reserve of 8, and a lot size of 10. All bids
+remain eligible:
 
 | Bid | Acceptance number | Quantity | Maximum price | Fill |
 |---|---:|---:|---:|---:|
-| A | 0 | 40 | 9 | 0 |
+| A | 0 | 50 | 12 | 50 |
 | B | 1 | 80 | 10 | 40 |
-| C | 2 | 50 | 12 | 50 |
-| D | 3 | 40 | 10 | 10 |
+| C | 2 | 40 | 10 | 10 |
 
-C receives its full 50 tokens because it offers the highest maximum price, even
-though A and B were accepted earlier.
-
-B and D share the remaining 50 tokens proportionally to their requested
-quantities. Their shares are approximately 33.33 and 16.67 tokens. Rounding down
-to whole lots gives B 30 and D 10, leaving one lot of 10 tokens. B receives that
-lot because it was accepted before D.
-
-A receives nothing because the higher-priced bids exhaust the supply, despite
-A being accepted first. All winners pay 10 per token, the lowest maximum price
-among bids receiving a fill.
+A receives 50 tokens. B and C share the remaining 50 proportionally, giving
+approximately 33.33 and 16.67 before lot rounding. Rounding gives 30 and 10.
+B receives the leftover lot because its acceptance number precedes C's. All
+winners pay 10 per token.
 
 Retries preserve the accepted set and apply the same rule to current evidence.
 Credential changes can affect price and fills. A timeout alone never permits
@@ -126,22 +122,25 @@ Repeated auctions, secondary trading, mint-on-demand delivery, other pricing
 rules, additional executors, and settlement across separately committed
 transactions require separate designs.
 
-The selected registries must support the account authorizations, committed
-locks, synchronous cancellation, allocation creation, settlement, and recovery
-in section 3. Funding must create its allocation and completed application
-record in one transaction. Consent collection may use several transactions.
-Token Standard V2 conformance alone does not guarantee these capabilities.
+The selected registries must support allocation requests initiated by issuers
+and bidders, committed iterated funding, unfunded receipt approvals, synchronous
+final batch settlement, and executor cancellation for recovery. Round funding
+and bid creation may return completed allocations or pending
+`AllocationInstruction` contracts. Opening and admission require both relevant
+allocations to be complete.
 
 The bid limit bounds the accepted list and the largest clearing transaction,
-including zero-fill outcomes. Capacity must be measured for the actual
-registries and participant topology. Partial settlement is outside this design.
+including zero-fill outcomes. Capacity must be measured with concurrent clients
+using the selected registries and participant topology. Partial settlement is
+outside this design.
 
 ## 2. Architecture Overview
 
-The operator submits auction workflows through contracts signed by the
-validation party. Bid and sale contracts carry account consent for bounded
-asset operations. Registries enforce account authority and asset policy, while
-auction contracts enforce the round's terms and complete result.
+The application records auction consent, membership, and results. Issuers
+approve round terms and request funding. Bidders submit through the published
+terms, while the operator uses validation-party grants. Registries collect
+account approvals and enforce asset policy through completed allocations.
+Auction contracts validate those allocations and the complete result.
 
 ### 2.1 Personas and Components
 
@@ -152,8 +151,9 @@ registry may support both auction assets, or each may use a different registry.
 
 | Persona | Responsibility |
 |---|---|
-| Bidder and account parties | Approve quantity, maximum price, payment, and token receipt. |
-| Issuer and its account parties | Approve the terms, supply inventory, and authorize token delivery and payment receipt. |
+| Bidder | Submits quantity, maximum price, accounts, and allocation requests. |
+| Account parties | Approve registry account actions under the account policy. |
+| Issuer | Approves round terms and requests inventory-send and proceeds-receipt allocations. |
 | Auction operator (`ao`) | Runs the backend, coordinates preparation and recovery, proposes results, and submits delegated operations. |
 | Auction validation party (`av`) | Signs auction state and grants. Its approved choices validate transitions. It is the sole allocation executor. |
 | Instrument admins | Enforce account authority, settlement, and asset restrictions through registry code. |
@@ -161,8 +161,8 @@ registry may support both auction assets, or each may use a different registry.
 | Settlement attester, when configured | Approves the exact auction settlement through a separate application contract. |
 | Auditor, when enabled | Records and checks the disclosed history through observation access to `av`. |
 
-The registry determines the **account parties** required to authorize each
-action. An account may require its provider's consent as well as its owner's.
+The registry determines the **account parties** required for each action,
+including any provider approval.
 [Canton Coin supports basic accounts](https://github.com/canton-foundation/cips/blob/6f37c896a5a76ec3bc1aa67bc045623ae5df41e5/cip-0112/cip-0112.md#6-canton-coin-implementation)
 without a provider or additional account identifier.
 
@@ -204,27 +204,28 @@ read access to `av` supplies visibility, not authority to submit as `av`.
 Open and closed are states of `Round`. Operator grants are separate contracts
 for each operation category, referred to as `Grant` in the flows below. Opening
 grants use release-specific templates as described in
-[section 6.3](#63-smart-contract-upgrade-process).
+[section 6.2](#62-smart-contract-upgrade-process).
 
 | Contract | Purpose |
 |---|---|
-| `RoundPreparation` | Collects issuer and account consent. Funding consumes it and creates the supply allocation, `Proposal`, and `SaleAuthority` together. |
-| `BidPreparation` | Collects bidder and account consent. Funding consumes it and creates the payment allocation and `PreparedBid` together. |
-| `Proposal` | Holds completed round preparation. Opening or abandonment consumes it. Its ID becomes the stable round identity on opening. |
-| `Grant` | Signed by `av`. Separate contracts authorize preparation and funding, opening, admission, close, clear, termination, and recovery by `ao`. |
-| `PublishedTerms` | Issuer- and `av`-signed terms and stable round identity, disclosed to prospective bidders without the accepted list. |
-| `Round` | Issuer- and `av`-signed private state, observed by `ao`. Holds terms, phase, sale authority, accepted bid IDs, and the next acceptance number. |
-| `PreparedBid` | Bidder-, account-party-, and `av`-signed bid and payment lock binding. Acceptance or withdrawal consumes it. It has no acceptance number. |
-| `AcceptedBid` | Issuer-, bidder-, account-party-, and `av`-signed accepted bid, observed by `ao`. Carries its immutable terms, lock binding, number, and account authority. |
-| `SaleAuthority` | Signed by `av`, issuer, and required issuer account parties. Authorizes bounded delivery and payment receipt. Opening binds it to the round. |
+| `RoundPreparation` | Signed by `av`. Holds proposed terms. The issuer requests both allocations through `FundRound`, consuming it. Its ID is the stable round identity. |
+| `Proposal` | Signed by issuer and `av`. Holds approved terms, both completed issuer allocation bindings, and the sale authority reference. Opening or abandonment consumes it. |
+| `RoundFundingRequest` | Signed by issuer and `av`. Holds fixed terms, round identity, and initial registry results when either approval is pending. Opening binds completed allocations and consumes it. Abandonment leaves asset cleanup to the registries. |
+| `Grant` | Signed by `av`. Preparation governs round preparation, funding, and bid submission. Separate grants govern opening, admission, close, clear, termination, and recovery. |
+| `PublishedTerms` | Issuer- and `av`-signed terms and round identity, disclosed without the accepted list. Its bidder-controlled `SubmitBid` requests both allocations. |
+| `Round` | Issuer- and `av`-signed private state, observed by `ao`. Holds terms, phase, issuer allocation bindings, sale authority, accepted bid IDs, and next number. |
+| `PreparedBid` | Bidder- and `av`-signed terms and both allocation bindings when creation completes immediately. Acceptance or withdrawal consumes it. It has no acceptance number. |
+| `BidRequest` | Bidder- and `av`-signed terms and initial registry results when either approval is pending. Acceptance binds completed allocations and consumes it. Abandonment leaves asset cleanup to the registries. |
+| `AcceptedBid` | Issuer-, bidder-, and `av`-signed accepted terms, both allocation roots, number, and credential identity. Observed by `ao` and the bid's account parties. Finalization or termination consumes it. |
+| `SaleAuthority` | Signed by `av` and issuer, observed by issuer account parties and `ao`. Binds both issuer allocations and checks bounded payment and delivery legs. Opening binds it to the round. |
 | `BatchApproval` | Optional attester-signed approval of the full settlement reference, exact movements, and validity period. |
 | `Outcome` | Records one accepted bid's fill, payment, and any exclusion or recovery obligation. Visible to that bid's parties, issuer, `av`, and operator. |
 | `ClearedRound` | Terminal aggregate result for issuer, `av`, and operator. |
 | `EndedRound` | Terminal record of cancellation or expiry, retaining accepted membership and sale authority for independent cleanup. |
-| `RecoveryTicket` | Signed by `av`. Records the lock and its terms for recovery. Consumed after release or after governance verifies the registry's final asset outcome. |
+| `RecoveryTicket` | `av`-signed binding of the sending and receiving allocations for recovery. Consumed after release or verified administrative reconciliation. |
 
-Preparation obtains account-party consent through signed contracts. Bid and
-sale choices carry that authority into the corresponding asset operations.
+Completed registry allocations carry account consent. Issuer and bidder auction
+records authenticate terms without making account providers their signatories.
 A contract's recreation produces a new ID. Round successors retain the stable
 round identity, while allocation successors are checked against the original
 allocation's ID, called its **root**.
@@ -233,29 +234,35 @@ allocation's ID, called its **root**.
 
 ```mermaid
 flowchart TB
-    PrepareRound["Prepare and fund round"] --> Open["Open bidding"]
-    Open --> PrepareBid["Prepare and fund independent bids"]
-    PrepareBid --> Accept["Accept ordered batches<br/>One round update per batch"]
+    PrepareRound["Issuer approves terms and requests allocations"] -->|"registry approval if pending"| RoundReady["Completed inventory and proceeds allocations"]
+    RoundReady --> Open["Open bidding"]
+    Open --> PrepareBid["Bidders submit terms and request allocations"]
+    PrepareBid -->|"registry approval if pending"| Ready["Completed payment and receipt allocations"]
+    Ready --> Accept["Accept ordered batches<br/>One round update per batch"]
     Accept -->|"bidding deadline"| Close["Close bidding<br/>Fix accepted list"]
     Open -->|"bidding deadline, including no accepted bids"| Close
     Close --> Propose["Compute proposed result off-ledger<br/>Obtain approval when configured"]
-    Propose --> Clear["Clear atomically<br/>Recompute, allocate, settle, and record"]
+    Propose --> Clear["Clear atomically<br/>Recompute, finalize, settle, and record"]
     Clear -->|"commits"| Done["ClearedRound and private Outcomes"]
     Clear -->|"rejected"| Retry["Round remains closed"]
     Retry -->|"before settlement deadline"| Propose
     Retry -->|"cancel or expire"| End["EndedRound"]
     Open -.->|"cancel or expire"| End
     Close -.->|"cancel or expire"| End
-    PrepareRound -.->|"abandon before opening"| Recover["Separate asset recovery"]
-    PrepareBid -.->|"withdraw before acceptance"| Recover
+    PrepareRound -.->|"abandon request"| Recover["Separate asset recovery"]
+    RoundReady -.->|"abandon before opening"| Recover
+    PrepareBid -.->|"abandon request"| Recover
+    Ready -.->|"withdraw before acceptance"| Recover
     Done -->|"zero-fill locks"| Recover
     End --> Recover
 ```
 
-Consent approvals are separate transactions. Funding, opening, each acceptance
-batch, close, and clear are distinct atomic transactions. Bidding can close with
-any accepted count, including zero. Preparation and funding do not update the
-round. Only committed acceptance establishes membership.
+The issuer's funding submission and each bidder submission record terms and
+request both allocations atomically. Pending account approvals use registry
+transactions. Opening, each acceptance batch, close, and clear are distinct
+atomic transactions. Bidding can close with any accepted count, including zero.
+Bid submission and registry approval do not update the round. Only committed
+acceptance establishes membership.
 
 The round and its allocations have separate lifecycles. Closing, cancellation,
 expiry, or a zero-fill outcome does not itself release a retained payment lock.
@@ -271,25 +278,28 @@ combining roles receive the disclosures of those roles.
 
 | Persona | Private auction records | Asset records |
 |---|---|---|
-| Bidder and bid account parties | Their preparation, prepared and accepted bid, number, and outcome | Their allocations and movements under registry disclosure rules |
-| Issuer, operator, and validation party | All prepared and accepted bids, accepted list, and complete clear | Every movement in the clear |
-| Issuer account parties | Sale authority and its branches. No bid contracts from this role alone | Issuer allocations, including winning accounts and amounts. Further visibility follows registry rules |
+| Bidder and bid account parties | Their request or prepared bid, accepted bid, number, and outcome | Their allocations and movements under registry disclosure rules |
+| Issuer, operator, and validation party | All submitted and accepted bids, accepted list, and complete clear | Funding inputs visible through bid submission and all clear movements, subject to their projections and API rights |
+| Issuer account parties | Round preparation, funding request, and sale authority, including its winning payment and delivery branches. No bid contracts from this role alone | Issuer allocations and movements. Further visibility follows registry rules |
 | Instrument admin | No bid contracts or private outcomes from this role alone | Allocations, holdings, and movements governed by that admin |
-| Account provider | Bids and outcomes for which it signs the account approvals | Holdings and movements for its accounts |
+| Account provider | Complete bids and outcomes involving its accounts, whether approval is immediate or staged | Holdings and movements for its accounts |
 | Eligibility provider | Its credentials and status. No bids from this role alone | No asset records from this role alone |
 | Settlement attester | Approval terms. No bid contracts or private outcomes from this role alone | Exact approved movements, including accounts, instruments, and amounts |
 | Auditor observing `av` | Full validation-party projection, including accepted bids and outcomes | All settlement branches visible to `av` |
 
-Each bid's authorized operations occupy a separate child branch. Factory
-settlement calls sit outside bid and sale branches. The issuer, `av`, and
-operator see the enclosing clear. Actual registry and provider projections must
-be verified before deployment.
+Each bid's finalization occupies a separate child branch. Factory settlement
+calls sit outside bid and sale branches. The issuer, `av`, and operator see the
+enclosing clear. Bid submission on issuer- and `av`-signed terms exposes its
+nested registry operations to both signatories, including selected input
+holdings and change. Before deployment, verify transaction projections and API
+access against these visibility boundaries.
 
-Allocation IDs and disclosure responses are sensitive. Registry APIs can use
-an allocation ID to provide settlement context and disclosed contracts. Keep
-other bidders' allocation IDs out of published terms, shared metadata, and
-bid-visible arguments or results. Backend APIs and logs must preserve the same
-boundary.
+Allocation IDs and disclosure responses are sensitive. Registry APIs can use an
+allocation ID to provide settlement context and disclosed contracts. Keep other
+bidders' allocation IDs out of published terms, shared metadata, and
+bid-visible arguments or results. Disclosure services supply only the account
+policies and current holdings needed for each operation. Backend APIs and logs
+must preserve the same boundary.
 
 A payment lock reveals its maximum payment amount to parties that can see it.
 [Canton Coin movements are public](https://github.com/canton-foundation/cips/blob/6f37c896a5a76ec3bc1aa67bc045623ae5df41e5/cip-0112/cip-0112.md#431-configurable-executors-and-batch-settlement-via-settlementfactory)
@@ -332,11 +342,14 @@ This adds a settlement condition without giving the auditor a confirmation
 vote or submission authority as `av`. Independent approval requires an
 independent organization and the evidence needed for the promised review.
 
-Grant choices are non-consuming during ordinary use. To pause preparation and
-admission, governance consumes their grants, stopping new preparations, funding,
-and bid acceptance. Funding checks a live preparation grant even when called
-directly. Stopping new rounds also requires revoking opening authority. Close,
-clear, termination, and recovery grants remain available for existing commitments.
+Grant choices are non-consuming during ordinary use. Governance pauses starting
+and funding rounds, new bidder submissions, and admission by consuming the
+corresponding grants. `FundRound` and `SubmitBid` check a live preparation
+grant. Existing registry instructions can still complete. Once both allocations
+complete, round funding requests may open under the opening grant and bids may
+be accepted under the admission grant. Stopping new rounds also requires revoking
+opening authority. Close, clear, termination, and recovery grants remain
+available for existing commitments.
 
 Operator replacement preserves the `ao` party used by existing contracts.
 Governance revokes the old grants and transfers `ao` to the replacement host,
@@ -349,163 +362,189 @@ continuing access by the former operator.
 ## 3. Target Design
 
 Each numbered submission below is a separate transaction. Indented calls occur
-inside that transaction. Account services supply the factory and holding
-disclosures needed for submission. A disclosed contract must still be read and
-exercised with the authority required by its API.
+inside that transaction. The auction service discloses published terms and the
+active preparation grant. Wallet and registry services supply scoped account
+context and current holding disclosures. Disclosure supplies visibility, while
+choices still require their controllers' authority.
 
-Users interact through the auction UI and their wallet provider using
+Users interact through an auction UI and wallet provider using
 [CIP-0103](https://github.com/canton-foundation/cips/blob/6f37c896a5a76ec3bc1aa67bc045623ae5df41e5/cip-0103/cip-0103.md).
-The UI displays authenticated terms and constructs approval requests. The wallet
-obtains user authorization and submits through the user's authorized participant
-connection. Account providers submit their required approvals through their own
-services. The operator backend submits `ao` actions through its participant.
+The UI displays authenticated terms and constructs approval requests. The
+wallet obtains user authorization and submits through the user's authorized
+participant connection. Account providers submit their required approvals
+through their own services. The operator backend submits `ao` actions through
+its participant.
 
 ### 3.1 Prepare and Open the Round
 
-The issuer supplies the section 1.1 terms. Preparation collects the approvals
-required for inventory funding, token delivery, and payment receipt. These
-operations may require consent from different account parties.
+The issuer approves the section 1.1 terms and requests both allocations in one
+submission. Both accounts have the issuer as their owner. Registries collect
+any additional account approvals under their own policies.
 
 ```text
 1. ao exercises preparation Grant.StartRound(terms)
    create RoundPreparation, signed by av
 
-2. Each required issuer/account party exercises ApproveRound
-   consume the preparation and add that approver to its successor's signatories
+2. Issuer exercises RoundPreparation.FundRound(preparation grant, inventory holdings)
+   controller = issuer, contract signatory = av
+   check the live grant and bidding deadline
+   request committed iterated inventory-send and proceeds-receipt allocations
+     each factory call uses actors = [issuer]
+   reject Failed results
+   if both results are Completed:
+     create Proposal and SaleAuthority with both allocation bindings
+   otherwise:
+     create RoundFundingRequest with fixed terms and initial registry results
+   consume preparation
+   both paths create records signed by issuer and av
 
-3. ao exercises RoundPreparation.FundRound(preparation grant, inventory holdings)
-   check a live preparation grant for this av and ao
-   require complete consent and a valid bidding deadline
-   allocate the supply using inventory-account authority
-   consume preparation and create Proposal and SaleAuthority
+3. If either result is Pending, its account parties complete the registry's
+   AllocationInstruction workflow
 
-4. ao exercises opening Grant.OpenRound(proposal, current supply allocation)
+4. ao exercises opening Grant.OpenRound(source, current issuer allocations)
+   if the source is RoundFundingRequest:
+     exercise CompleteFunding with av authority, consuming the request
+       validate both completed allocations against fixed terms and round identity
+       preserve the root of any side that completed in the initial submission
+       create Proposal and SaleAuthority
    exercise Proposal.Proposal_Open with av authority, consuming Proposal
-     validate the proposal, consent, supply, and timing
+     validate both allocation bindings, the sale authority, terms, and timing
      exercise SaleAuthority.BindSale to bind its successor to the round
      create Round(Open) and PublishedTerms
 ```
 
-The preparation retains its initial contract ID through consent collection.
-Funding uses that ID in the supply allocation's settlement reference. If funding
-fails, the approved preparation remains active and no lock is created.
+The issuer supplies terms authority through `FundRound`. Completed registry
+allocations carry account consent. The opening grant supplies `av` authority
+to bind and open. `OpenRound` accepts `FundedRound(proposal)` or
+`RegistryPreparedRound(request)`. Request consumption, proposal creation, and
+opening commit together in the latter path.
 
-All auction allocations disable iterated settlement with
-`nextIterationFunding = None`. Executors therefore cannot add transfer sides
-through iterated settlement.
+The `RoundPreparation` contract ID is the stable identity, `roundId`, fixed
+before funding. All issuer and bidder allocations use one full
+`SettlementInfo`: `executors = [av]`, a fixed `id`, `cid = Some roundId`, and
+fixed metadata without private bid data. This reference remains identical at
+settlement.
 
-The initial supply allocation is **sender-only and self-returning**: it
-authorizes the sender side of a transfer whose sender and receiver are the same
-inventory account. It reserves the offered quantity, names `[av]` as executor,
-and remains committed through the settlement deadline. It alone cannot settle
-that transfer because it lacks receiver-side authorization. The clear cancels
-this reservation and uses `SaleAuthority` to authorize actual winner deliveries.
-Bid payment locks use the same form for the bidder's payment account.
+Initial allocations have empty `transferLegSides`, `committed = True`, and the
+round's settlement deadline. Their `nextIterationFunding` enables exact sides
+to be supplied later:
 
-The opening grant supplies `av` authority to `Proposal_Open`. The proposal's
-signatories supply issuer authority inside that choice. Opening verifies the
-exact terms, all required account consent, the sale authority, and the funded
-supply allocation's fields: admin, instrument, account, amount, allocation sides,
-commitment, executor set, preparation reference, and deadline. Section 3.4
-defines the checks for allocation successors.
+| Allocation | Account | Initial `nextIterationFunding` |
+|---|---|---|
+| Inventory send | Issuer inventory | `Some {offered instrument: supply}` |
+| Proceeds receipt | Issuer proceeds | `Some {}` |
+| Payment send | Bidder payment | `Some {payment instrument: maximum payment}` |
+| Token receipt | Bidder delivery | `Some {}` |
 
-The consumed proposal's ID becomes the stable round identity, retained in
-`Round` successors and `PublishedTerms`. The round starts with an empty accepted
-list and next number zero. The bound sale authority retains issuer account
-consent for final movements.
+Sending allocations reserve holdings and receiving allocations authorize
+receipt. Creation with `None` would disable adding sides. Finalization uses
+`None` so registries return unused funding during settlement (section 3.4).
+Restricted `av` authority and approved code control which sides executors add.
 
-Opening must leave the published **preparation margin** before the bidding
-deadline. That deadline must leave the **clearing margin** before the settlement
-deadline. These margins allow time for the corresponding operations and retries.
-The opening grant must remain active when the transaction commits.
+Both allocation requests and their auction records commit atomically. Failure
+preserves the preparation. Registry workflows determine when inventory is
+reserved, so inputs must remain available until then. Pending instructions
+cannot support opening. Opening validates the bindings defined in section 3.4
+and creates an empty accepted list with next number zero. All round records
+retain the stable identity.
 
-Failed opening leaves the proposal, sale authority, and supply lock intact.
-The issuer can instead exercise `AbandonProposal`, which consumes the proposal
-and unbound sale authority and creates a recovery ticket. Opening and abandonment
-compete for the same proposal. Abandoning an unfunded preparation consumes only
-that preparation, since no allocation has been created.
+Opening leaves the published **preparation margin** before the bidding
+deadline. That deadline leaves the **clearing margin** before settlement ends.
+The opening grant remains active when the transaction commits.
 
-### 3.2 Prepare Bids and Accept Batches
+Failed opening preserves its source and prior registry effects. The issuer can
+abandon a funded `Proposal` through `AbandonProposal`, creating a recovery
+ticket for both allocations, or consume `RoundFundingRequest` through
+`AbandonRoundFunding` and clean up through the registries (section 3.5).
+Opening and abandonment compete for their source. Abandoning an unfunded
+preparation consumes only that preparation.
 
-#### Prepare a Bid
+### 3.2 Submit Bids and Accept Batches
 
-The bidder reviews the authenticated terms, quantity, maximum unit price,
-payment and delivery accounts, required approvals, deadlines, and disclosures.
-Both accounts have the bidder as their common owner. The UI requests preparation
-from the operator, then presents each account approval to the responsible party.
+#### Submit a Bid
+
+The bidder reviews the published terms, quantity, maximum price, accounts,
+maximum payment, and deadline. Both accounts have the bidder as their common
+owner. Supported account policies allow bidder-initiated allocation requests.
 
 ```text
-1. ao exercises preparation Grant.StartBid(published terms, bid)
-   create BidPreparation, signed by av
+1. Bidder exercises PublishedTerms.SubmitBid(preparation grant, bid, holdings)
+   controller = bidder, contract signatories = issuer and av
+   check the live grant, exact terms, bid bounds, and bidding deadline
+   request the rounded maximum-payment allocation from the cash registry
+   request the unfunded receipt allocation from the token registry
+     each factory call uses actors = [bidder]
+   reject Failed results
+   if both results are Completed:
+     create PreparedBid with both allocation bindings
+   otherwise:
+     create BidRequest with the initial registry results
+   both application records are signed by bidder and av
 
-2. Each required bidder/account party exercises ApproveBid
-   consume the preparation and add that approver to its successor's signatories
-
-3. ao exercises BidPreparation.FundBid(preparation grant, payment holdings)
-   check a live preparation grant for this av and ao
-   require complete consent and time before the bidding deadline
-   allocate the rounded maximum payment using payment-account authority
-   consume preparation and create PreparedBid
+2. If either result is Pending, its account parties advance the registry's
+   AllocationInstruction workflow until the allocation is Completed
 ```
 
-The maximum lock is the published rounding of `quantity x maximum unit price`.
-The bidder and account parties authorize funding, bounded final payment, and
-token receipt during preparation. The operator submits funding as `ao`, using
-that consent.
+`SubmitBid` is non-consuming. The published terms supply `av` authority to
+record auction consent, while registries collect any remaining account
+approvals. Providers observe the bid records but do not sign them. Immediate allocations and `PreparedBid` commit together. A
+rejected registry call or failed result rolls back the entire submission. A
+pending result commits an instruction and `BidRequest`, whose terms remain
+fixed during registry approval.
 
-`PreparedBid` binds the round, exact terms, accounts, preparation identity, and
-allocation root. Funding consumes the preparation and gives its allocation a
-preparation-specific reference, preventing reuse of the lock across preparations.
+Payment and receipt can complete at different times. Registry workflows
+determine when funds are reserved, and inputs must remain available until then.
+Admission requires both completed allocations before the bidding deadline.
+Pending instructions are insufficient even if a registry has reserved funds.
 
-Different bids prepare independently when they use distinct funding inputs and
-account resources. Preparation does not update `Round` or establish admission.
-If acceptance never occurs, the bidder can withdraw the prepared bid for recovery.
+Different bids use independent application state and funding inputs. Submission
+and registry approval do not update `Round` or establish membership. Completed
+allocations for a `BidRequest` are bound only inside acceptance. Abandoning an
+unaccepted request creates no cancellation ticket for supplied allocations,
+preventing duplicate requests from gaining recovery authority over accepted
+funds.
 
 #### Accept a Batch
 
-The operator queues prepared bids and submits bounded batches against the
-current open round. It chooses their order and limits waiting time under the
-published admission policy.
+The operator queues ready bids and submits ordered batches against the current
+round. A batch can contain immediate `PreparedBid` records and `BidRequest`
+records whose registry workflows have completed.
 
 ```text
-ao exercises admission Grant.AcceptBatch(round, ordered bids, evidence)
+ao exercises admission Grant.AcceptBatch(round, ordered bids, current evidence)
   exercise Round.Round_AcceptBatch with av authority, consuming Round
-    check Open, deadline, batch size, total capacity, and distinct bid IDs
-    validate the current supply allocation
-    for each prepared bid in the supplied order:
-      validate round, terms, accounts, funded allocation, and eligibility
-      exercise PreparedBid.Prepared_Accept with issuer and av authority
-        consume PreparedBid and create AcceptedBid with number n
-      append the returned ID and advance n
-    create one Round successor with the complete appended list
+    check Open, deadline, batch size, capacity, and distinct bid IDs
+    validate both issuer allocations
+    reject allocation roots reused within the batch or by an accepted bid
+    for each bid in the supplied order:
+      validate round, terms, both completed allocations, and eligibility
+      exercise PreparedBid.Prepared_Accept or BidRequest.AcceptRegistryPrepared
+        with issuer and av authority
+        consume the source and create AcceptedBid with number n
+      increment n
+    create one Round successor with appended accepted IDs and next number
 ```
 
-The round supplies issuer and `av` authority to each acceptance choice. The
-prepared bid supplies bidder and account-party authority. Bidders see their own
-child branch, not the enclosing private list or round successor.
+The round supplies issuer and `av` authority to acceptance. The bid source
+supplies bidder authority. Completed allocations carry account consent. Bidders
+see their own acceptance record without receiving the private round state.
 
-Acceptance requires ledger time before the bidding deadline, a nonempty batch
-within the batch limit, and room for all its bids within the round limit. Every
-bid must bind the same round and terms, have positive whole-lot demand and a
-tick-aligned price at least reserve, and satisfy arithmetic bounds. Its funded
-allocation must match the expected account, admin, instrument, maximum amount,
-commitment, executor, preparation reference, and deadline. Current authenticated
-eligibility must be valid, and its identity is retained in `AcceptedBid`.
+Acceptance checks the section 1.1 bid bounds and both completed allocation
+bindings under section 3.4. Current eligibility must be valid, and its identity
+is retained in `AcceptedBid`.
 
-A batch of `k` bids receives numbers `n` through `n + k - 1`. The successor's
-next number is `n + k`, equal to its accepted-list length. Existing entries and
-their order are preserved. One invalid or unconfirmable bid rejects the entire
-batch, leaving all prepared bids, locks, and the prior round unchanged.
+A batch of `k` bids receives consecutive numbers `n` through `n + k - 1`.
+Earlier entries and order remain unchanged. One invalid or unconfirmable input
+rejects the entire batch, preserving its sources, allocations, and prior round.
+Competing batches, close, and withdrawal can race against that state. The
+backend serializes batches and reconciles the current round ID before retrying.
+Batching reduces round replacements without establishing a throughput
+guarantee.
 
-Each round has one shared contract. Competing acceptance transactions can
-consume it only once. The operator reconciles outcomes and retries against its
-current successor while admission remains open. Batching reduces round updates
-from one per bid to one per batch. The ledger enforces the stored order, not
-fairness of the operator's ordering decision.
-
-`WithdrawPreparedBid` consumes an unaccepted bid and creates `RecoveryTicket`.
-It competes with acceptance and does not itself unlock funds. An accepted bid
-cannot be withdrawn or amended unilaterally while its round remains clearable.
+`WithdrawPreparedBid` consumes an unaccepted immediate bid and creates a ticket
+for its allocation pair. `AbandonBidRequest` consumes only the request, leaving
+registry cleanup as defined in section 3.5. Both compete with acceptance.
+Accepted bids remain in the round until complete clear or termination.
 
 ### 3.3 Close Bidding and Compute the Result
 
@@ -520,67 +559,77 @@ evidence, and computes a proposed price, fills, and payments under section 1.1.
 It obtains application approval when configured. The clear independently
 recomputes the result from authenticated inputs and rejects any mismatch.
 
-### 3.4 Create Exact Allocations and Settle
+### 3.4 Finalize Allocations and Settle
 
-The operator submits one transaction through the clearing grant. It consumes
-the closed round, all accepted bids, and sale authority and records the result
-only if every required asset operation succeeds.
+`Round_Clear` is one transaction, submitted by `ao` through the clearing grant
+before settlement ends. It consumes the closed round, accepted bids, sale
+authority, and any application approval while settling both assets.
 
 ```text
-ao exercises clearing Grant.ClearRound(round, evidence, proposed result)
+ao exercises clearing Grant.ClearRound(closed round, result, current evidence)
   exercise Round.Round_Clear with av authority, consuming Round
-    validate the exact accepted list, current evidence, and deadlines
-    recompute price, fills, and payments and compare with the proposal
+    validate the exact accepted list, allocations, credentials, and proposed result
 
     for every AcceptedBid, exercise FinalizeBid with av authority
-      check local quantity, price, and payment bounds
-      winner: cancel payment lock and create exact payment/delivery sides
-      zero fill: create RecoveryTicket for the retained lock
+      validate local quantity and payment bounds
+      winner: return FinalizedAllocation values for payment and token receipt
+      zero fill: retain both allocations and create a recovery ticket
       consume AcceptedBid and create its private Outcome
 
     exercise SaleAuthority.FinalizeSale with av authority
-      cancel supply lock and create exact issuer payment/delivery sides
+      validate the aggregate payment and delivery legs
+      return FinalizedAllocation values for issuer proceeds and inventory
       consume SaleAuthority
 
-    when configured, exercise BatchApproval.VerifyBatch
-      check attester, full settlement reference, exact legs, and expiry
-      consume approval
+    verify and consume any configured BatchApproval
+    outside bid and sale branches, call compatible SettlementFactory_SettleBatch
+      choices with existing IDs, exact sides, and nextIterationFunding = None
+      require completed settlement results and no retained funding successor
 
-    outside bid and sale branches, call each SettlementFactory_SettleBatch
-      transfer assets using the exact allocations
-    create ClearedRound
+    create ClearedRound with aggregate result and outcome references
 ```
 
-All calls above belong to the same transaction. A failure in a later factory
-rolls back earlier asset operations, approval consumption, outcomes, and round
-consumption. Bidders do not sign again, but the required confirming participants
-must remain available.
+Finalization constructs allocation references and exact sides. The settlement
+factories perform the transfers and return unused funding. No replacement
+allocation or fresh account approval is needed during clear. A failure in any
+branch or later factory rolls back all movements and application consumption.
+Bidders do not sign again, but required participants still confirm their views.
 
-#### Validate Allocation Successors
+#### Validate Allocations and Prevent Reuse
 
-Opening, admission, clear, and recovery check the current allocation against
-the recorded root. The backend discovers successors from authenticated registry
-events. On-ledger checks verify an active allocation from an approved registry
-implementation and validate its lineage. An initial allocation's ID must equal
-the root. A successor's `originalAllocationCid` must equal it, and the registry
-must preserve a single active continuation and prevent forged lineage.
+The full `SettlementInfo`, including `cid = Some roundId`, identifies the round
+and must match the settlement batch. Bids in that round share this reference,
+including identical bids from the same account.
 
-The allocation must retain the authorized account, instrument, amount, sides,
-commitment, executor set, settlement reference, and deadline, with
-`nextIterationFunding = None`. Registry-specific evidence supplies any
-required status absent from the standard view. Resolve stale IDs through the
-registry's authenticated events before evaluating funding. A consumed lock
-without a valid funded successor prevents the complete clear, even for a bid
-that would otherwise receive zero fill. Registry restrictions never authorize
-the operator to remove an accepted bid.
+Account parties complete any pending instructions through the registry's own
+workflows. Opening and admission validate completed allocations from approved
+registries and bind them to the issuer's sale or an accepted bid. Batch
+acceptance rejects any payment or receipt root already bound to an accepted bid
+or repeated within the batch. These bindings prevent counting one reservation
+toward multiple bids and restrict each recovery ticket to its own allocations.
+
+Registries must preserve one active continuation. After a contract ID changes,
+on-ledger checks must authenticate the active allocation against its recorded
+root. `originalAllocationCid` can supply that identity where the approved
+registry preserves it through permitted updates.
+If it identifies only a predecessor, further updates require authenticated
+lineage evidence or must be rejected. Backend events locate current IDs but
+do not prove that binding on ledger.
+
+Opening, admission, clear, and recovery check the expected account, admin, full
+settlement reference, commitment, deadline, empty initial sides, `Some` funding
+map, and `numIterations = 0`. Receiving allocations retain `Some {}`.
+Registry-specific evidence supplies required status and confirms backing funds
+without unrestricted account reads. A consumed allocation without a valid
+successor blocks clear, including for a zero-fill bid. Registry restrictions
+never permit removing an accepted bid.
 
 #### Validate the Result and Authority
 
-Clear inputs must match the closed round's accepted IDs in their stored order.
-The choice rejects omissions, duplicates, substitutions, foreign-round bids,
-and changed numbers. It recomputes eligibility, ordering, fills, price, and
-rounded payments, checking total supply, individual demand and payment bounds,
-lot and tick alignment, and deadlines. The proposed result must match exactly.
+Clear inputs match the closed round's IDs and numbers in stored order. The
+choice rejects omitted, duplicate, substituted, or foreign-round bids and
+recomputes eligibility and the section 1.1 result. It checks supply, demand,
+payment bounds, rounding, and deadlines against the proposed result.
 
 The authority chain is:
 
@@ -588,17 +637,17 @@ The authority chain is:
 |---|---|---|
 | `Grant.ClearRound` | `av` | `ao` |
 | `Round.Round_Clear` | Issuer and `av` | `av` |
-| `AcceptedBid.FinalizeBid` | Issuer, `av`, bidder, and required bid account parties | `av` |
-| `SaleAuthority.FinalizeSale` | `av`, issuer, and required issuer account parties | `av` |
+| `AcceptedBid.FinalizeBid` | Issuer, `av`, and bidder | `av` |
+| `SaleAuthority.FinalizeSale` | `av` and issuer | `av` |
 | `BatchApproval.VerifyBatch` | Attester | Settlement executors, fixed to `[av]` |
 | Registry choices | Registry-defined signatories | Registry-validated actors with the required authority |
 
 Under the [Daml authorization rule](https://docs.canton.network/appdev/modules/m3-authorization#daml%E2%80%99s-authorization-model),
 the enclosing choice must have every nested choice controller's authority. The
 nested choice body uses its own controllers and contract signatories as
-authorizers. Thus bid and sale contracts supply account authority inside their
-own branches. Merely naming a party in a registry's `actors` argument does not
-supply its consent.
+authorizers. Account authority is carried by completed registry allocations,
+whose settlement choices validate their actors. Naming a party in `actors`
+still requires its authority.
 
 Bid and sale choices enforce local bounds. The enclosing round enforces global
 pricing and completeness. `ao` cannot directly exercise those `av`-controlled
@@ -606,7 +655,7 @@ choices, and its grant permits only the complete workflow. Unrestricted direct
 submission as `av` can bypass that workflow. Restricting administrative authority
 and approved code is therefore essential to the atomic-clear guarantee.
 
-#### Create Exact Allocations and Settle Batches
+#### Supply Exact Sides and Settle Batches
 
 A **transfer leg** specifies an instrument, sender, receiver, amount, and leg ID.
 Every winner has two legs:
@@ -616,92 +665,70 @@ Every winner has two legs:
 | Payment | Bidder payment account | Issuer proceeds account | Rounded `fill x clearing price` |
 | Delivery | Issuer inventory account | Bidder delivery account | Fill quantity |
 
-Each leg needs sender and receiver authorization, giving four sides per winner.
-The winning bid's branch cancels its original payment lock as executor `av`.
-It uses the returned `authorizerHoldingCids` to fund an allocation for the exact
-payment sender side and creates the delivery receiver side without funding.
-These operations use the bid contract's account authority.
+Each leg needs sending and receiving authorization. A winner's payment and
+receipt allocations authorize its two sides. The issuer's inventory allocation
+covers all delivery sender sides, and its proceeds allocation covers all
+payment receiver sides, subject to registry limits.
 
-The sale branch cancels the supply lock, uses its returned holdings for delivery
-sender sides, and creates payment receiver sides under issuer account consent.
-One allocation may cover multiple sides for the same account, admin, and
-settlement. The issuer can therefore group all payment receipts and all token
-deliveries. Grouping must respect registry limits and bid privacy.
+A `FinalizedAllocation` value contains the current allocation ID, exact
+`extraTransferLegSides`, and final `nextIterationFunding = None`. It creates no
+contract. `None` here ends the allocation after settlement and returns excess
+payment or unsold inventory to the original account. Creation with `Some {}`
+and finalization with `None` have different purposes.
 
-Cancellation and allocation creation do not themselves transfer the auction
-assets between accounts. The settlement factory calls execute those movements.
-Unused payment and unsold supply remain in their original accounts. The clear
-checks returned accounts, instruments, amounts, and completed allocation
-references. It uses returned holding IDs, not pre-cancellation IDs or cached
-balances, and requires synchronous completion without later account acceptance.
+Leg IDs derive from acceptance number and movement, such as `payment-7`.
+Compatible legs share an admin and settlement factory. One registry can settle
+both assets in a batch. With separate registries, all factory calls still
+execute inside the same clear transaction and use the identical full
+`SettlementInfo` established during preparation.
 
-Each leg receives a deterministic ID from its acceptance number and movement,
-such as `bid-7-payment`. Legs are grouped by compatible admin and settlement
-factory. Both assets may share a batch, otherwise all factory calls still
-execute inside the same clear transaction.
+Bid choices receive their own terms, fill, price, and allocations. Shared
+factories enforce exact side coverage, unique leg IDs, accounts, instruments,
+amounts, and full settlement references. Clear rejects incomplete results and
+funding successors. Required registry approval is an additional condition.
 
-Every allocation in a batch and its settlement call uses the identical full
-`SettlementInfo`: `executors`, `id`, `cid`, and `meta`. Executors are `[av]`, `cid`
-is the stable round identity, and `id` distinguishes the batch. Metadata is
-fixed and contains no private bid prices or quantities. A preparation's
-reservation reference never substitutes for the final settlement reference.
-Use the contract-ID field for round identity rather than converting an ID into
-a textual label.
-
-Each bid choice receives only its own terms, fill, price, legs, and settlement
-reference. It checks its stored round identity without fetching the consumed
-round. The enclosing clear collects allocation references and calls factories
-outside the bid and sale branches. Factories validate complete, exact
-sender/receiver coverage, unique leg IDs, admin, amounts, accounts, and matching
-settlement information. Direct subordinate calls must not bypass these checks
-or the registry's own approval policy.
-
-If an application attester is configured, `BatchApproval` must bind the full
-settlement reference and exact payment and delivery legs, with an unexpired
-validity period. For several settlement references, approval must cover the
-complete set. This prevents using one round's approval for another with the
-same textual batch ID and movements. The clear verifies and consumes approval
-in the same transaction. Any registry-required approval is an additional,
-independent condition.
+`BatchApproval`, when configured, binds the full reference and exact payment
+and delivery legs for an unexpired validity period. The clear verifies and
+consumes it in the same transaction. This prevents one round's approval from
+being applied to another with the same textual ID and movements.
 
 #### Record Outcomes
 
-Every accepted bid receives a private `Outcome`, including zero fills. It must
-be traceable to the accepted bid and round and record its number, fill, price,
-rounded payment, authenticated exclusion evidence when applicable, and retained
-lock or recovery ticket. `ClearedRound` records aggregate price, sold quantity,
-payments, and unsold supply with references to the outcomes. Payment totals sum
-the individually rounded amounts.
+Every accepted bid receives a private `Outcome` with its round, number, fill,
+price, rounded payment, exclusion evidence, and any recovery ticket.
+`ClearedRound` records aggregate price, sold quantity, payments, unsold supply,
+and outcome references. Payment totals sum the individually rounded amounts.
 
-Zero-fill finalization retains the payment lock for separate cancellation under
-a recovery ticket. The bidder's confirming hosts may still be needed for that
-branch, so exclusion does not solve participant unavailability.
+Zero-fill outcomes retain both allocations for separate recovery. They do not
+assert a refund, and their branches still need the required confirmations.
 
-With no winners, clear consumes the same application records, records zero sales
-at reserve, and cancels the supply lock. It creates no final movement allocations
-and calls no factory with an empty leg list. Configured application approval
-still covers the settlement reference and empty movement set.
+With no winners, clear consumes the same application records, records zero
+sales at reserve, and cancels both issuer allocations. It calls no settlement
+factory with an empty leg list. Configured application approval still covers
+the settlement reference and empty movement set.
 
 ### 3.5 Release Locked Assets
 
-A `RecoveryTicket` records the original lock and its expected allocation terms
-for an authorized recovery event. It is signed by `av` and visible to the
+`RecoveryTicket` binds both original allocation roots and their expected terms
+to an authorized recovery event. It is signed by `av` and visible to the
 operator and affected account parties. Release is a separate transaction:
 
 ```text
-ao exercises recovery Grant.Release(ticket, current allocation)
+ao exercises recovery Grant.Release(ticket, current sending and receiving allocations)
   exercise RecoveryTicket.Recover with av authority
-    validate the allocation and its root binding
-    cancel it through the registry and return the released holdings
-    consume RecoveryTicket
+    validate both allocations and their root bindings
+    cancel both through their registries in one transaction
+    return released holdings and consume RecoveryTicket
 ```
 
 | Recovery path | Evidence and effect |
 |---|---|
-| Unfunded preparation abandoned | Consume `RoundPreparation` or `BidPreparation`. No allocation exists to release. |
-| Funded proposal abandoned | `AbandonProposal` consumes the proposal and unbound sale authority and creates a supply recovery ticket. |
-| Prepared bid withdrawn or left unaccepted | `WithdrawPreparedBid` consumes it and creates a payment recovery ticket. Withdrawal remains possible after bidding closes. |
-| Zero-fill result | The outcome references the recovery ticket for the retained payment lock. |
+| Unfunded round preparation abandoned | Consume `RoundPreparation`. No allocation exists to release. |
+| Funded proposal abandoned | `AbandonProposal` consumes the proposal and unbound sale authority and creates a ticket for both issuer allocations. |
+| Immediate bid withdrawn or left unaccepted | `WithdrawPreparedBid` consumes it and creates a ticket for payment and receipt allocations. Withdrawal remains possible after bidding closes. |
+| Round funding request abandoned | `AbandonRoundFunding` consumes the request without a ticket. Account parties withdraw its instructions or completed allocations under registry policy and deadlines. |
+| Bid registry workflow left unaccepted | `AbandonBidRequest` consumes the request without creating a ticket. Account parties withdraw pending instructions or completed allocations under registry policy and deadlines. |
+| Zero-fill result | The outcome references a ticket for the retained payment and receipt allocations. |
 | Round cancelled or expired | `EndedRound` retains membership and sale authority. Recovery choices close each accepted bid and the sale independently, creating outcomes and tickets. |
 | Registry deadline passed | Required account parties may withdraw under registry rules, independently of operator bookkeeping. Reconcile any retained ticket as described below. |
 
@@ -716,39 +743,47 @@ record to verify membership and close each commitment separately. One
 unavailable bidder need not block recovery for other bidders. The accepted list
 stays outside the individual bid branches.
 
-Delegation permits lock cancellation only inside a complete clear or an
-authorized recovery path. After a zero-fill result or abandonment, `av` may
-cancel a retained lock before its deadline if the registry permits. A committed
-lock's deadline restricts account withdrawal, not every executor cancellation.
+Delegation permits allocation cancellation only for a no-sale clear or an
+authorized recovery path. After a zero-fill result or abandonment of a funded
+`Proposal` or immediate `PreparedBid`, `av` may cancel retained allocations
+before their deadline if registry policy permits. A committed deadline
+restricts account withdrawal, not every executor cancellation. Abandoning
+`BidRequest` or `RoundFundingRequest` consumes only the auction request.
+Account parties withdraw its registry instructions or allocations under registry
+policy. Account withdrawal of completed allocations remains subject to their
+committed deadline.
 
-If the allocation was already consumed with no funded successor, close the bid
-or sale through its applicable cleanup choice without fetching or cancelling
-the allocation. Reconcile its ticket, or any existing ticket, against
-authenticated registry events and holdings. Governance verifies the terminal
-asset outcome and retains the supporting event references before exercising
+If an allocation was already consumed with no valid successor, close the bid or
+sale through its applicable cleanup choice without fetching or cancelling the
+allocation. Reconcile its ticket, or any existing ticket, against authenticated
+registry events and holdings. Governance verifies the terminal asset outcome
+and retains the supporting event references before exercising
 `RecoveryTicket.Archive` through a direct `av` submission. Operator grants
 expose no such archival path. This administrative cleanup transfers no assets
 and does not itself prove a refund.
 
-Track whether funds returned to their account, moved to another authorized
-destination, or have an unresolved outcome. Keep the ticket active until
-supporting evidence resolves it. Competing cancellation and withdrawal can
-consume a lock only once. Required participants, registry controls,
-synchronizer availability, and traffic still constrain asset recovery.
+Recovery tracking distinguishes returned funds, other authorized destinations,
+and unresolved outcomes. Missing evidence leaves the ticket unresolved and
+active. Competing cancellation and withdrawal can consume a lock only once.
+Required participants, registry controls, synchronizer availability, and traffic
+still constrain asset recovery.
 
 ### 3.6 Manage Execution and Timing
 
-Choices check ledger time: acceptance requires a time before the bidding
-deadline, close a time at or after it, and clear a time before settlement ends.
-Each lock's registry deadline, storage expiry, and holding-lock expiry must
-support the entire workflow. Disclose the later withdrawal time to users when
-longer lock periods are required.
+Choices check ledger time: funding, opening, bid submission, and acceptance
+precede the bidding deadline. Close occurs at or after it, and clear precedes
+settlement expiry. Each lock's registry deadline, storage expiry, and
+holding-lock expiry must
+support the entire workflow. Longer lock periods disclose the later withdrawal
+time to users.
 
-The preparation and clearing margins include signing, submission, confirmation,
-and retries. Clearing also needs time for close, computation, and approval.
-The backend uses the earliest limit imposed by the round, registries, approvals,
-and transaction submission bounds. Recovery expectations are disclosed
-separately and depend on the relevant infrastructure and asset policies.
+The preparation margin includes registry account approval, signing, submission,
+confirmation, and retries. The clearing margin includes submission and
+confirmation. Clearing also needs time for close, computation, and approval.
+The backend uses the earliest limit imposed by the round, registries,
+approvals, and transaction submission bounds. Recovery expectations are
+disclosed separately and depend on the relevant infrastructure and asset
+policies.
 
 A client timeout leaves the result uncertain. Persist command and change
 identities, acting parties, Ledger API user, submitting participant, and
@@ -778,23 +813,26 @@ effective. Reconcile an uncertain submission before treating it as rejected.
 
 | Failure or change | Consequence and response |
 |---|---|
-| Preparation stops before funding | Resume approval collection or abandon. No auction allocation exists. |
-| Funding fails | Approved preparation remains active. Correct the inputs and retry or abandon. |
-| Opening fails | Proposal, sale authority, and supply lock remain. Retry or abandon and recover. |
+| Issuer preparation stops before funding | The issuer can request funding under a live preparation grant or abandon. No auction allocation exists. |
+| Round funding fails | Preparation remains active. Correct inputs and retry before the bidding deadline or abandon. |
+| Bid submission fails | Neither the bid record nor its new registry allocations or instructions commit. Correct inputs and retry before the bidding deadline. |
+| Account approval remains pending | Complete both registry workflows in time for opening or bid admission, or abandon and withdraw under registry policy. |
+| Opening fails | The source and prior registry effects remain. Retry with both completed allocations, or abandon through the applicable section 3.5 path. |
 | Acceptance batch fails validation or loses a state race | No bid or number in the batch is accepted. Reconcile and retry eligible prepared bids before the deadline. |
-| Bid remains unaccepted when admission closes | It has no fill entitlement. Withdraw its prepared bid and recover the retained payment lock. |
+| Bid remains unaccepted when admission closes | It has no fill entitlement. Withdraw an immediate prepared bid through its ticket, or abandon a registry request and clean up its instructions and allocations. |
 | Clear has wrong evidence or result, or an asset operation fails | Entire clear rolls back. Correct inputs and retry the complete accepted set before the earliest deadline. |
 | Required approval is missing, expired, or mismatched | Obtain approval for the exact current settlement or end without a sale. |
 | Authenticated credential expiry or revocation | Retain the accepted bid with zero fill. Missing current evidence instead blocks validation. |
 | Registry changes an allocation ID | Resolve and validate its successor. An archived ID alone does not establish lost funding. |
-| Required lock has no valid funded successor | The round cannot clear. Terminate, reconcile that asset outcome, and recover remaining locks. |
+| Required allocation has no valid successor | The round cannot clear. Terminate, reconcile that asset outcome, and recover remaining commitments. |
 | Required confirming hosts or quorum unavailable | Retry the complete clear, including zero-fill branches. Do not omit bids or reprice for a timeout. |
 | Settlement deadline passes | Clear is no longer permitted. Record expiry and recover each commitment independently. |
 | Operator unavailable or grants revoked | Governance restores grants or transfers operation of `ao` under section 2.4. Account withdrawal remains subject to registry deadlines and policy. |
 | Synchronizer, registry, or traffic unavailable | Restore the required infrastructure and reconcile state before resuming. |
 
-Independent cleanup limits shared failure. Withdrawal still requires the
-relevant parties and registry to be available.
+Termination and recovery have their own dependencies. Independent cleanup limits
+shared failure, but does not guarantee withdrawal while a required party or
+registry is unavailable. Application closure alone is never evidence of refund.
 
 ## 5. Security and Auditability
 
@@ -805,13 +843,13 @@ and the authority boundaries in section 2.1:
 
 | Property | Mechanism |
 |---|---|
-| Fixed terms and ordered admission | Opening consumes the proposal and fixes terms. Each acceptance batch appends bids in order. |
-| Complete accepted set | Clear checks its inputs against the closed list and records one outcome per accepted bid. |
-| Bounded payments and reserved supply | Choices check account consent, funding, and individual and aggregate movements. Registry powers remain effective. |
-| Uniform-price result | Clear independently recomputes the result under section 1.1. |
-| Atomic settlement and replay prevention | The grant calls the complete clear, which consumes the round and bids and validates allocation coverage. Any failure rolls back the transaction. |
-| Scoped authority and disclosure | Bid and sale branches carry account authority. Factory calls remain outside them, with projections checked before deployment. |
-| Controlled recovery | For ended rounds, cleanup checks membership. Recovery validates ticket bindings and follows registry authorization rules. |
+| Fixed terms and ordered admission | Issuer-signed proposal or funding request, consuming opening source, batch acceptance, and round transitions. |
+| Complete accepted set | Append-only membership, closed list, exact clear inputs, and one outcome per accepted bid. |
+| Bounded payments and reserved supply | Completed account-authorized allocations and local and aggregate movement checks. Registry powers remain effective. |
+| Uniform-price result | Independent on-ledger computation under section 1.1. |
+| Atomic settlement and replay prevention | Restricted complete-clear delegation, consumed round and bids, complete allocation coverage, and transaction rollback. |
+| Scoped authority and disclosure | Bid-specific finalization, separate factory calls, scoped registry context, and verified participant projections. |
+| Controlled recovery | Bound tickets, terminal membership checks, and registry authorization. |
 
 ### 5.2 Trust Boundaries
 
@@ -819,7 +857,7 @@ and the authority boundaries in section 2.1:
 |---|---|
 | Operator | Can censor or reorder requests before acceptance, cancel an uncleared round, delay submission, or fail to recover funds promptly. |
 | Validation and governance organizations | A controlling quorum can change trusted code or topology or authorize direct `av` actions outside operator delegation. Every host can disclose the data it receives. |
-| Issuer | Sees private demand and must protect it. Inventory and account consent must remain valid. |
+| Issuer | Sees private demand and bid-submission funding inputs and must protect them. Inventory and account consent must remain valid. |
 | Account parties and hosting providers | Supply consent, protect data, and maintain availability. A shared host's operator can access hosted-party data, while customer API access remains permissioned. |
 | Instrument admins and registries | Enforce authentic lineage, funding, side coverage, and asset policies. Privileged asset operations or malicious code can affect holdings independently of auction state. |
 | Eligibility provider | Incorrect status can change eligible demand, price, and fills. Missing evidence can block clear. |
@@ -827,9 +865,9 @@ and the authority boundaries in section 2.1:
 | Canton infrastructure | Atomicity does not guarantee admission, timely confirmation, or sufficient traffic. |
 | Auditor | Must retain complete disclosed history and review it correctly. Observation alone supplies neither a veto nor a progress guarantee. |
 
-An optional independent auditor observes `av` through an observation-only host.
-Users must be told that it receives `av`'s private data. It receives no `av`
-confirmation vote or submission authority. Its audit checks:
+An optional independent auditor observes `av` through an observation-only host,
+with disclosure to users. It receives no `av` confirmation vote or submission
+authority. Its audit checks:
 
 - committed acceptance batches and numbers against the closed list
 - credentials, permitted exclusions, price, fills, and rounded payments
@@ -839,45 +877,55 @@ confirmation vote or submission authority. Its audit checks:
 - admission and timing against the published policy and retained submission evidence
 
 Ledger observation alone cannot prove fair treatment of every off-ledger
-request. The operator retains receipts, command IDs, completions, and timing for
-that review. A claimed timeout does not establish its cause. Auditing events
-before the auditor joined requires a verified historical export. An auditor
-that also serves as attester can withhold its separate application approval.
+request. The operator retains receipts, command IDs, completions, and timing
+for that review. A claimed timeout does not establish its cause. Auditing
+events before the auditor joined requires a verified historical export. Account
+balances outside observed transactions require separately authorized account or
+registry evidence. An auditor acting as attester can withhold its application
+approval.
 
 A bidder's limited projection supports its own acceptance and outcome checks,
 but not independent recomputation of the complete auction. Confirmation
 thresholds provide no threshold confidentiality, and removing a host cannot
 retract data already disclosed. Direct `av` authority and malicious compatible
-upgrades remain governance risks, as addressed in section 6.3.
+upgrades remain governance risks, as addressed in section 6.2.
 
 ## 6. Deployment and Operations
 
-Before onboarding, publish the participating organizations and the registries,
-factories, and account providers the auction uses. Include the credential and
-approval policies, package inventory, and hosting topology. Each validation
-organization independently approves its vetted code. All workflow inputs must
-be usable on the selected synchronizer.
+Before onboarding, publish the relevant organizations, registries, factories,
+account providers, credential and approval policies, package inventory, and
+topology. Each validation organization independently approves its vetted code.
+All workflow inputs must be usable on the selected synchronizer. Validate
+hosting, permissions, and outage recovery on an authenticated network with the
+intended participant topology.
 
-The auction UI presents maximum payment, accounts and required signers,
-deadlines, eligibility, registry restrictions, recovery conditions, and the
-organizations receiving bid data. Successful ledger acceptance is the admission
-decision. A funded preparation or operator receipt is not a fill entitlement.
+The auction UI presents maximum payment, accounts and required registry
+approvals, deadlines, eligibility, registry restrictions, recovery conditions,
+and the organizations receiving bid data. Successful ledger acceptance is the
+admission decision. Submitted terms, registry approval, and operator receipts
+give no fill entitlement before acceptance.
 
-The backend tracks preparation, current round and allocation IDs, acceptance
-batches, submission outcomes, deadlines, credentials, approvals, participant
-health, and outstanding recovery. It separates auction assets from traffic
-funding and application rewards.
+The backend tracks round preparations, funding and bid requests, registry
+instructions, current round and allocation IDs, acceptance batches, submission
+outcomes, deadlines, credentials, approvals, participant health, and outstanding
+recovery. It separates auction assets from traffic funding and application
+rewards.
 
 ### 6.1 Traffic and Application Rewards
 
 Each participant operator funds its charged traffic, including retries and
-recovery. [Traffic balances are per participant](https://docs.sync.global/deployment/traffic.html),
-shared by its parties. Service agreements assign top-up responsibility,
-validation costs, and reimbursements. The auction deducts no fee from locked
-funds, payments, deliveries, or refunds.
+recovery. [Traffic balances are per participant](https://docs.sync.global/deployment/traffic.html), shared by its
+parties. Service agreements assign top-up responsibility, validation costs, and
+reimbursements. The specified auction flows deduct no application fee from
+reserved funds or settlement amounts. Registry fees must be disclosed and
+budgeted without reducing auction funding.
+
+The operator sees private bids before clearing, giving it an information
+advantage over bidders. Its compensation should provide revenue for operating
+the venue without encouraging it to exploit that advantage through trading.
 
 Budget using measured preparation, batch admission, maximum-size clear,
-retries, and recovery.
+retries, and recovery. Batching alone is not proof of lower total traffic.
 Under [CIP-0104](https://github.com/canton-foundation/cips/blob/6f37c896a5a76ec3bc1aa67bc045623ae5df41e5/cip-0104/cip-0104.md),
 conformant confirmation responses are free in net cost, but traffic is still
 needed pending reimbursement and duplicates can cost more.
@@ -889,31 +937,7 @@ may qualify independently for their views. Reward issuance and collection follow
 active network rules. Governance defines sharing, and operations must be funded
 without assuming rewards cover costs.
 
-### 6.2 Production Readiness
-
-Deployment requires evidence for the selected registries, clients, and
-participant topology:
-
-| Area | Required checks |
-|---|---|
-| Consent and funding | Missing account authority, incorrect lock fields, insufficient holdings, repeated completion, reused roots, funding rollback, grant revocation before funding, and abandonment before and after funding. |
-| Batch admission | Duplicate or foreign bids, invalid batch member, batch and round limits, contiguous numbering, unchanged earlier entries, and races against another batch, withdrawal, close, or grant revocation. |
-| Result | Omitted, extra, reordered, or substituted bids, all supply/demand cases, marginal ties, lot remainders, empty rounds, exclusions, arithmetic bounds, and sums of rounded payments. |
-| Authority | Direct `ao` or bidder attempts to finalize, cancel, or settle outside grants. Missing consent, arbitrary forwarding, premature recovery, replay, and administrative `av` bypass boundaries. |
-| Settlement and approval | Wrong settlement fields or attester, another round's approval, iterated funding, missing or extra sides, wrong amounts or accounts, incomplete allocation results, and rollback when a later factory fails. Test application and registry approvals separately. |
-| Allocation lifecycle and recovery | Authenticated successors, stale or forged roots, changed terms, registry cancellation with no successor, independent cleanup, deadline withdrawal, and verified ticket archival. Missing evidence leaves recovery unresolved. |
-| Eligibility | Wrong owner/provider, substituted identity, stale or duplicate status, explicit revocation, expiry, fetch authority, and unavailable evidence. |
-| Privacy | Actual projections for every role, shared-host customer access, bid and factory branches, choice arguments/results, allocation IDs and disclosure APIs, public movements, and operator replacement. |
-| Hosting and availability | Confirmation, topology, and administrative-signature thresholds independently. Operator handover preserving `ao` and removing former submission access. Unavailable winners and zero-fill bidders, attesters after approval, credential providers, validation quorum, and observation-only audit. |
-| Timing and capacity | Deadline boundaries, preparation and clearing margins, uncertain completion, deduplication, restart recovery, batch waiting time, maximum clear size, allocation limits, traffic, and latency. |
-| Upgrades | Approved dependencies, active-round semantics, retired opening paths, recovery support, and rejection of malicious compatible changes. |
-
-Daml Script checks contract logic and authorization. Production hosting,
-external signing, package vetting, privacy, and outages require an authenticated
-multi-participant environment. Capacity checks must use concurrent clients.
-Privacy checks must inspect transaction projections as well as visible contracts.
-
-### 6.3 Smart Contract Upgrade Process
+### 6.2 Smart Contract Upgrade Process
 
 Releases preserve active-round economics, accepted membership, account consent,
 and recovery. Smart Contract Upgrade compatibility permits choice-body changes
@@ -934,8 +958,9 @@ grant exposing the retired opening workflow and issues the approved grant.
 An in-flight opening either commits before revocation or conflicts with it.
 Package preferences alone do not prevent an old-format opening.
 
-Unopened proposals under retired terms are abandoned or prepared again with
-fresh consent. Existing rounds retain their approved admission, close, clear,
+Unopened preparations, funding requests, and proposals under retired terms
+are abandoned or prepared again with fresh consent and appropriate asset
+cleanup. Existing rounds retain their approved admission, close, clear,
 termination, and recovery paths. Keep the code for unresolved commitments
 vetted. Replacement grants must not forward arbitrary exercises or recreate
 retired opening authority.
@@ -943,12 +968,15 @@ retired opening authority.
 Validate package compatibility, including both upgrade directions where
 supported, and test old-round operations and grant cutover on the actual
 dependencies and topology. A structurally compatible but unsafe change must be
-rejected by release review and vetting. Governance also controls direct
-submissions as `av` through the configured signing quorum.
+rejected by release review and vetting. Direct quorum-authorized submissions as
+`av` remain an explicit governance responsibility.
 
 ## 7. Production Decisions
 
-Before opening, record the deployment's configuration and operating policies:
+Uniform pricing, issuer-initiated funding, bidder-initiated submission,
+iterated allocations, batch admission, complete accepted-set validation,
+separate `ao` and `av`, and atomic clearing with sole `av` execution define this
+design. Before opening, record:
 
 | Decision | Configuration |
 |---|---|
@@ -959,20 +987,18 @@ Before opening, record the deployment's configuration and operating policies:
 | Audit | Observation access, user disclosure, historical retention, submission evidence, review responsibility, and data handling. |
 | Operations and releases | Traffic funding, recovery service, approved package inventory, vetting, opening cutover, and support for existing commitments. |
 
-Record-time-based membership would rely on the operator and auditor to identify
-all qualifying bids, rather than checking a stored accepted list. A
-wallet-submitted preparation could combine funding and bid creation when the
-bidder supplies all required account consent. Any additional account consent
-would need to be supplied in that transaction. Section 3 instead specifies
-operator-submitted funding after separate approvals.
+Record-time-based membership requires a different inclusion and audit model.
+This design uses explicit acceptance after registry account approvals complete.
 
 ## 8. References
 
 Standards and platform semantics:
 
 - [CIP-0112 Token Standard V2](https://github.com/canton-foundation/cips/blob/6f37c896a5a76ec3bc1aa67bc045623ae5df41e5/cip-0112/cip-0112.md)
-  and the [Allocation V2 interface](https://github.com/canton-network/splice/blob/22e775d614ad67af0290380ae4ab07dd2dceb62d/token-standard/splice-api-token-allocation-v2/daml/Splice/Api/Token/AllocationV2.daml):
-  account authority, allocation sides, executors, lineage, and settlement.
+  and the [Allocation V2 interface](https://github.com/canton-network/splice/blob/69b43eb761e38695052c983715aa855c8cb207fc/token-standard/splice-api-token-allocation-v2/daml/Splice/Api/Token/AllocationV2.daml):
+  account authority, iterated funding, exact sides, executors, lineage, and settlement.
+- The [Allocation Instruction V2 interface](https://github.com/canton-network/splice/blob/69b43eb761e38695052c983715aa855c8cb207fc/token-standard/splice-api-token-allocation-instruction-v2/daml/Splice/Api/Token/AllocationInstructionV2.daml):
+  issuer and bidder initiation, completed allocations, and registry approval workflows.
 - [CIP-0103 dApp API](https://github.com/canton-foundation/cips/blob/6f37c896a5a76ec3bc1aa67bc045623ae5df41e5/cip-0103/cip-0103.md):
   user authorization, wallet connectivity, and transaction submission.
 - Canton [authorization](https://docs.canton.network/appdev/modules/m3-authorization)
@@ -981,18 +1007,17 @@ Standards and platform semantics:
 
 Component references:
 
-- The pinned [token registry experiment](https://github.com/OpenZeppelin/canton-contracts/tree/7696749737885e25cd88422847105f890f03b00d/experiments/token/tokenCIP112-v1)
-  supports synchronous cancellation, allocation, and settlement and rejects
-  iterated funding. Its optional D1 approval binds the textual settlement ID,
-  executors, and legs, but not `cid` or `meta`. The auction's `BatchApproval`
-  must bind the full reference and exact movements as specified in section 3.4.
-  Registry approval remains a separate condition.
+- Splice's pinned [Token V2 registry example](https://github.com/canton-network/splice/blob/69b43eb761e38695052c983715aa855c8cb207fc/token-standard/examples/splice-test-token-v2/daml/Splice/Testing/Tokens/TestTokenV2.daml)
+  illustrates iterated funding, unfunded receipt, registry-managed account approval,
+  and per-account context filtering during batch settlement. Selected production
+  registries require their own integration and policy verification.
 - The [credential-check module](../../experiments/identity/hook-shape-b/daml/OpenZeppelin/Experimental/Identity/ShapeB.daml)
   demonstrates typed eligibility checks. The deployment must supply its chosen
   current-status and revocation mechanism.
-- The [SCU experiment](../../experiments/identity/upgrade/README.md) tests
-  compatible changes to an identity hook. Auction semantics and deployment
-  cutover require the application checks in section 6.
+- The [SCU experiment](../../experiments/identity/upgrade/README.md) provides
+  bounded compatibility evidence. Auction semantics and deployment cutover
+  require the application checks in section 6.
 
 The application repository owns the complete contracts, backend, UI, registry
-integration, and operational evidence.
+integration, and operational evidence. The component references establish only
+their documented mechanisms.
