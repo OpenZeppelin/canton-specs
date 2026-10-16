@@ -59,7 +59,7 @@ conditions are contract parameters ([consumption and customization](#consumption
 |---|---|
 | Interest Models | Dynamic or algorithmic rates, utilization curves, fixed maturities. |
 | Leverage Facilities | Undercollateralized loans, flash loans, recursive leverage, rehypothecation. |
-| Liquidation Mechanics | Auctions, third-party keepers ([extension points](#extension-points)), and whole-position close-out ([section 7](#7-open-design-questions-for-the-implementation-phase)). |
+| Liquidation Mechanics | Auctions, third-party keepers ([extension points](#extension-points)), and whole-position close-out. |
 | Price Oracle | The oracle contract, its update mechanism, and producing a price for the pair at all are consumed as-is from a provider meeting [section 4.4](#44-dependency-price-oracle). |
 | Token Standard | Defining or extending TSv2; CIP-0056 and V1 paths. |
 | Cross-Synchronizer Operation | The architecture assumes one synchronizer. |
@@ -266,14 +266,14 @@ attestation checks on creation, deposit, borrow, and withdrawal.
 flowchart TD
     Borrower([Borrower])
     Compliance(["Compliance gate"])
-    Choice["PositionFactory_CreatePosition<br/>/ Position_DepositCollateral"]
+    Choice["Create position /<br/>deposit collateral"]
     Position[["Position"]]
     Collateral[("Collateral holding")]
 
     Borrower ==>|"holdings, amount"| Choice
     Compliance -->|"gates"| Choice
     Choice ==>|"transfer to dvv;<br/>top-up merges in"| Collateral
-    Choice -.->|"create / recreate:<br/>collateralAmount += amount"| Position
+    Choice -.->|"create / recreate:<br/>collateral += amount"| Position
 ```
 
 **B. Borrow.** `Position_Borrow` reads a fresh price, requires `availableAmount` to cover the request and the collateral to cover the new debt at `minCollateralRatio`, then transfers the amount from the liquidity holding to the borrower through `Treasury_Draw` and records the higher debt.
@@ -302,7 +302,7 @@ flowchart TD
 flowchart LR
     Borrower([Borrower])
     Position[["Position<br/>recreate:<br/>debt -= amount"]]
-    Treasury[["Treasury<br/>availableAmount += principal,<br/>fees += interest"]]
+    Treasury[["Treasury<br/>available += principal,<br/>fees += interest"]]
     Liquidity[("Liquidity holding")]
 
     Borrower ==>|"Position_Repay (amount)"| Position
@@ -447,7 +447,7 @@ Target visibility per contract:
 
 Consequences:
 
-- **A borrower sees its own positions and nothing of another's.** On its own flows it witnesses the `dvv` holding backing its position and, on borrow, repay, and liquidation, the market's `Treasury` record and the holdings those flows touch ([section 7](#7-open-design-questions-for-the-implementation-phase)).
+- **A borrower sees its own positions and nothing of another's.** On its own flows it witnesses the `dvv` holding backing its position and, on borrow, repay, and liquidation, the market's `Treasury` record and the holdings those flows touch.
 - **The funder sees its market's configuration and treasury, never a position.** Its outstanding exposure follows from the `Treasury` figures.
 - **`vo` sees everything** through the `dvv` replica on its node; the optional auditor sees what `dvv` sees.
 - **Disclosure.** A submission carries the contracts it exercises or fetches without seeing them: the market's factory and treasury, the `dvv` holdings it consumes, the price contract, and the registries' transfer factories with their choice contexts, served by `vo`'s backend.
@@ -738,7 +738,7 @@ verification with [daml-verify](https://github.com/OpenZeppelin/daml-verify).
 | Wrongful liquidation | `vo` liquidates a healthy position, or at a bad price. | Liquidation is gated on-ledger by `collateralRatio < liquidationRatio` at a fresh price, and the choice computes the debt cleared and the collateral seized itself ([the CDP math](#the-cdp-math)); the borrower witnesses every liquidation of its position. |
 | Liquidation racing the borrower's top-up | A liquidation lands before the borrower can top up. | The buffer between `minCollateralRatio` and `liquidationRatio` is the borrower's warning zone; there is no public mempool to front-run in, and a top-up and a liquidation on the same position serialize on the ledger, the loser retrying against the new state. |
 | Operator pause | `vo` pauses a market, freezing its borrows and liquidations, or lets collateral reprice and then unpauses to liquidate. | No funds are stranded, and deposit, repay, and close never pause, so cures stay open throughout; the pause blocks the operator's own liquidations too, exists for a suspect price, and everything resumes when it lifts or `dvv` switches the market's oracle. |
-| Borrower blocks liquidation | The borrower tries to stall the liquidation of its own position. | The borrower only observes its `Position`, so its node confirms nothing; the sole lever is its hosting node unvetting the venue package, excluded by the hosting assumption ([custody](#custody)). A node that unvets anyway freezes that one position while interest accrues. |
+| Borrower blocks liquidation | The borrower tries to stall the liquidation of its own position. | The borrower only observes its `Position`, so its node confirms nothing; the sole lever is its hosting node unvetting the venue package, so the venue accepts only borrowers hosted on reputable wallet providers or validator operators ([custody](#custody)). A node that unvets anyway freezes that one position while interest accrues. |
 | Funder or operator node unvets | A participant hosting an observer of venue contracts unvets the venue DAR. | The funder observes the `Treasury`, so its unvetting stalls its market's borrows, repayments, and liquidations while deposits, withdrawals, and closes continue; `vo`'s node hosts a `dvv` replica, so its unvetting stalls everything. Both are organizations whose own business the stall halts. |
 | Under-funded transfer | An under-funded deposit, repayment, or funding exercise attempts a broken operation. | Daml atomicity: the whole transaction reverts, holdings stay where they were, no debt is cleared. |
 | Bad debt on a deeply under-water position | Collateral is worth less than debt, creating a shortfall. | The final liquidation pass seizes all remaining collateral, records the shortfall in `badDebtWrittenOff`, and closes the position; the funder's capital absorbs the loss. |
