@@ -489,7 +489,8 @@ refunding it.
 
 - **Never minted.** The nonce must first be recorded as closed on Canton. `br`
   closes the attested message through the messaging gateway, which records the
-  nonce as closed. `br` closes a message at once after a compliance denial,
+  nonce as closed. A nonce that the registry already holds keeps its record.
+  `br` closes a message at once after a compliance denial,
   and otherwise only after its lock attestation expires. For a lock that has
   no attested message, the attesters sign one for the close, and `br` closes
   it at once. The gateway refuses a nonce
