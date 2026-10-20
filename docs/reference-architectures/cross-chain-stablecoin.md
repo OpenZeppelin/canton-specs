@@ -696,9 +696,9 @@ sequenceDiagram
         Relayer->>Redeem: Process the request
         Redeem->>Redeem: Verify and consume the compliance attestation (D1, D3)
         Redeem->>Registry: Accept the request, then burn the amount<br/>under the burn right
-        Redeem->>Redeem: Create the redemption attestation,<br/>the standing claim
+        Redeem->>Redeem: Create the redemption claim
     end
-    Attesters->>Redeem: Read the claim, disclosed to them by br, and match it<br/>to the compliance attestation they issued
+    Attesters->>Redeem: Read the claim, disclosed by the bridge admin backend,<br/>and match it to the compliance attestation they issued
     Attesters-->>Operator: Hand over the claim, signed off-ledger<br/>with their external-chain keys
     Note over Operator,Chain: Any submitter can present the signed claim.<br/>The redemption operator owns the retry.
     Operator->>Chain: Submit the signed claim
@@ -732,21 +732,26 @@ sequenceDiagram
    one transaction it checks that the pause state is clear, verifies and
    consumes the compliance attestation,
    accepts the request as the receiver, burns the amount under the burn right
-   that the registry grants `ba`, and creates the **redemption attestation**,
-   the claim that carries:
+   that the registry grants `ba`, and creates the **redemption claim**, which
+   carries:
 
    - the instrument the burn removed supply from;
    - the amount the burn destroyed, which is the amount the escrow releases;
    - the Canton holder whose request the burn consumed;
    - the external-chain destination the holder named;
-   - the claim's nonce, which is the contract id of the redemption request the
+   - the request id, which is the contract id of the redemption request the
      burn consumed, as the compliance attestation binds it.
 
    The instrument and the amount bind the reserve arithmetic. The other three
    identify the redemption, as the lock attestation identifies a deposit
-   ([section 3.1](#31-inbound-credit)). The escrow records the nonce when it
-   releases the claim, so an auditor can match each release to one Canton
-   burn and one holder.
+   ([section 3.1](#31-inbound-credit)). The escrow records the request id when
+   it releases the claim, so an auditor can match each release to one Canton
+   burn and one holder. The escrow's replay key is the request id for a
+   redemption claim and the lock's nonce for a refund claim.
+
+   A redemption burns any amount up to the holder's holding, and the escrow
+   releases that amount from the pooled backing. A refund releases the whole
+   lock to the address that funded it.
 
    On a denial, `br` rejects the request through the same gateway, with the
    denial reference in the rejection's metadata, and the holding returns to
@@ -767,16 +772,16 @@ sequenceDiagram
    rest is the trust in `ba` ([section 4.2](#42-trust-boundaries)).
 
    **Refund of a returned credit.** The refund claim of
-   [section 3.1](#31-inbound-credit) runs through the same gateway without a
-   request and without a compliance attestation: the attesters sign it against
-   the nonce registry.
+   [section 3.1](#31-inbound-credit) is the second kind of claim. It runs
+   through the same gateway without a request and without a compliance
+   attestation, and the attesters sign it against the nonce registry.
 
 4. **Attest.** An N-of-M quorum of listed attesters signs the claim, through
    the same attester registry path as the lock attestation. The escrow
    verifies that quorum with its own verifier
    ([section 2.1](#21-business-roles)). No attester is a stakeholder of the
-   claim. The relayer backend hands each new claim to the attester services as
-   a disclosed contract, and each attester reads it as it reads the registries
+   claim. The bridge admin backend hands each new claim to the attester
+   services as a disclosed contract, and each attester reads it as it reads the registries
    ([section 3.6](#36-control-enforcement)). An attester therefore signs only
    an active claim, and the burn never waits on an attester's participant.
 5. **Release on the external chain.** Any submitter presents the signed
@@ -792,8 +797,7 @@ submitter can claim the release, against escrow state that the escrow committed
 before the burn.
 
 Under that assumption, a stalled release is safe. The burn stays final, the
-reserve accounting stays sound, and the redemption becomes a standing claim that
-nobody can replay. The escrow records each claim it releases, so replay
+reserve accounting stays sound, and nobody can replay the claim. The escrow records each claim it releases, so replay
 protection for the outbound direction sits there, as the nonce registry
 sits on Canton for the inbound one. The redemption operator owns the retry, and
 the claim is permissionless, so the holder or any relayer can resubmit it until
@@ -809,52 +813,48 @@ attesters sign the confirmation because only they observe the external chain,
 and `br` submits the archive because it handles transport and pays traffic
 ([section 2.1](#21-business-roles)).
 
-**Chains that cannot hold the payout back.** Some chains cannot make the payout
-conditional on the attestation. On a UTXO chain without contracts, the release
-is a plain threshold-signed transaction, so the payout exists only if the signer
-quorum produces it. A quorum that stalls or refuses then looks the same as a
-loss, and under burn-first the redeemer holds neither asset. A permissioned
-release on a chain with contracts fails the same way, because the holder cannot
-submit the claim itself.
-
-The sound ordering there is burn-last. Lock the wrapped holding, authorize
-on-ledger against the pinned input and output sets of the payout, sign,
-broadcast, confirm the payout, and burn last. The reserve invariant then has to
-allow for the in-flight window, because the backing is spent while the wrapped
-holding still exists. Without that allowance, 1:1 monitoring reads an honest
-redemption as under-collateralized.
-
-Burn-last is a different trust model, not a variant of burn-first. It needs an
-attested claim that the payout confirmed, and it needs the unlock path and the
-burn path to exclude each other. This design does not cover it. A bridge to a
-chain that cannot hold the payout back must not rely on the burn-first safety
-argument above.
+**Chains that cannot hold the payout back.** The burn-first order assumes that
+any submitter can claim the release. A chain where only the signer quorum can
+produce the payout, such as a UTXO chain without contracts, needs burn-last,
+which this design does not cover.
 
 ### 3.4 Registry Identity and Uniqueness
 
-The gateway reads three bridge contracts at execution time: the pause state,
-the attester registry, and the nonce registry. `br` submits the gateway
-transaction and is a stakeholder of none of them, so `br`'s participant does
-not hold them. The bridge admin backend hands them to `br` as disclosed
-contracts, and `br` passes their contract ids into the gateway choice. The
-nonce registry changes id on every mint and refund, and the gateway choice
-returns the new id, which `br` witnesses as the actor of the choice. The
-attester registry and the pause state change id on a rotation or a pause, and
-the bridge admin backend publishes the new contract to `br` after each.
+`ba` signs every bridge contract, so the gateway choices run with `ba`'s
+authority and no contract needs an observer for authorization. `br` and the
+attesters are stakeholders of none of the contracts they read, so their
+participants receive each one as a disclosed contract. The table lists each
+transaction, the party that submits it, and the contracts it needs disclosed.
 
-The caller supplies these contract ids, so it can substitute another contract
-for each of them. A second nonce registry that omits the nonce of a lock lets
+| Transaction | Submitter | Disclosed contracts |
+|---|---|---|
+| Gateway transaction, withdraw, close, and re-offer | `br` | The messaging gateway, the pause state, the attester registry, the nonce registry of the epoch, and the supply right. The instruction and its locked holding for a withdraw, and the returned holding for a re-offer |
+| Burn, reject, refund, hold, and claim archive | `br` | The redemption gateway, the pause state, and the attester registry. The redemption request and its locked holding for a burn or a reject. The nonce registry, the supply right, and the holding for a refund or a hold. The claim for an archive |
+| Attester statements, and the reads before a signature | One attester | The attester registry, the nonce registry, or the claim ([section 3.6](#36-control-enforcement)) |
+| Pause and unpause | `pa` | None. `pa` observes the pause state and its role grant |
+| Setup: the gateways, the pause state, the role grants, and the first nonce registry. Each attester registry rotation, and each handover | `ba`, through its N-of-M route ([section 2.3](#23-decentralization-and-trust-topology)) | None |
+
+The bridge admin backend serves every disclosed contract in the table. The
+token registry's own off-ledger API serves `TokenRules`, the registry's
+transfer factory. A disclosed contract needs its created-event blob, and a
+contract id alone does not let a participant use it. Each write creates a new
+version of the contract it writes, so the backend publishes the new version
+after every mint, withdraw, close, refund, hold, re-offer, rotation, and pause.
+
+The gateway reads the pause state, the attester registry, and the nonce
+registry by the contract ids that the caller supplies, so the caller can
+substitute another contract for each of them. A second nonce registry that omits the nonce of a lock lets
 the gateway mint against that lock a second time, because the gateway reads
 the copy and finds no record of the first mint. A second attester registry
 with an extra member passes a compliance or mint check that the real attester
 registry refuses.
 
 **Decision.** Each of the three templates carries the party that maintains it
-and the fields that scope it, and the gateway validates every one of them
-against a value the caller does not control: the maintainer against the
-gateway's own signatory `ba`, the instrument against the attested message, and
-the nonce registry's epoch against the lock's nonce divided by `E`. A contract
-that fails one check fails the transaction.
+and the fields that scope it, and each field is checked against a value the
+caller does not control. The gateway checks the maintainer against its own
+signatory `ba` and the instrument against the attested message. The nonce
+registry checks that the nonce divided by its own `E` gives its epoch. A
+contract that fails one check fails the transaction.
 
 The maintainer signs the contract, so only `ba` can create a version that
 passes the maintainer check, and `br` can present only a contract that `ba`
@@ -869,14 +869,16 @@ reads it by key or by id. A key built from the maintainer, the instrument, and
 the epoch would use the same values the checks above validate, so it adds
 nothing the ledger enforces. The bridge packages target Daml-LF 2.1, the
 version the Token Standard V2 interfaces and the example registry are built
-for, and use no contract keys.
+for, and use no contract keys. No keys is a choice for this reference
+architecture, consistent with the OpenZeppelin Canton libraries, which also
+target Daml-LF 2.1 and use no keys.
 
 **Scope fields.** Each template holds its maintainer and the scope of the
 contract.
 
 | Contract | Scope fields beyond the maintainer | Maintainer |
 |---|---|---|
-| Nonce registry | The instrument, and the epoch | `ba` |
+| Nonce registry | The instrument, the epoch, and the epoch size `E` | `ba` |
 | Attester registry | None | `ba` |
 | Pause state | The instrument | `ba` |
 
@@ -884,16 +886,11 @@ An upgrade adds only `Optional` fields, and every check above reads a required
 field, so each template carries every scope field the bridge can ever need from
 its first deployment ([section 3.7](#37-smart-contract-upgrade-process)).
 
-**Visibility.** `ba` signs every contract the gateway reads, and the gateway
-choices run with `ba`'s authority, so none of the three needs an observer for
-authorization. Disclosure is what lets `br`'s participant resolve them, and
-the attesters' participants too ([section 3.6](#36-control-enforcement)).
-
 **Residual.** Nothing stops `ba` from holding two active versions of a
-registry or the pause state and handing `br` either at its discretion. No
-other party observes them, so the duplicate is visible only to `ba`, and `ba`
-already holds the mint right, so the exposure adds nothing to the trust in
-`ba` ([section 4.2](#42-trust-boundaries)).
+registry or the pause state and handing `br` either at its discretion. Only
+`ba`, and `pa` for the pause state, see the duplicate. `ba` already holds the
+mint right, so the exposure adds nothing to the trust in `ba`
+([section 4.2](#42-trust-boundaries)).
 
 ### 3.5 Time and Deadlines
 
@@ -927,7 +924,7 @@ window.
 | Flow | Slowest actor | Window | Rationale |
 |---|---|---|---|
 | Inbound credit | The recipient, when it accepts live | Instruction deadline, hours to days | Not price-sensitive: a lapse costs latency and delays the originator's refund ([section 3.2](#32-reserve-and-lock-attestation)). The deadline spans the recipient's expected response, and under a transfer preapproval no deadline runs |
-| Outbound redemption | Attester | Request deadline, then the release window, hours | The holding stays locked in the request until the attesters decide, and a denial or a lapse returns it. After the burn, the external-chain claim is standing and replay-protected, so a slow release costs latency and not funds |
+| Outbound redemption | Attester | Request deadline, then the release window, hours | The holding stays locked in the request until the attesters decide, and a denial or a lapse returns it. After the burn, the claim stays valid and replay-protected, so a slow release costs latency and not funds |
 | Lock and compliance attestations | Attester, then `br` | Each attestation's own expiry, capped by the bridge's maximum attestation validity | Both are verified at the gateway, so the window spans issuance through the gateway transaction only |
 
 ### 3.6 Control Enforcement
@@ -1282,7 +1279,7 @@ lock keeps its refund path throughout ([section 3.1](#31-inbound-credit)).
 | The attester never signs the message | Nothing on Canton | The escrow refunds the originator. No attestation exists, so no mint can follow the refund ([section 3.1](#31-inbound-credit)) | Nothing on Canton |
 | The attestation expires with no mint | Nothing on Canton | The attester quorum signs the refund statement, and the escrow refunds the originator ([section 3.1](#31-inbound-credit)) | Nothing on Canton |
 | The attesters deny the compliance attestation | Nothing minted | `br` closes the message, which records the nonce as closed, and the attester quorum signs the refund statement, or withholds it when the denial requires a freeze ([section 3.6](#36-control-enforcement)) | Nothing on Canton |
-| `br` crashes before the gateway transaction | Nothing consumed | Any relayer host resubmits, because the message is standing | Nothing |
+| `br` crashes before the gateway transaction | Nothing consumed | Any relayer host resubmits, because the message stays active | Nothing |
 | `br` crashes after the gateway transaction | The message is consumed, the amount is minted, and the instruction is pending | Nothing, when the recipient accepts live. At the deadline `br` withdraws and refunds the holding ([section 3.2](#32-reserve-and-lock-attestation)) | Instruction deadline |
 | A second message reaches the gateway for a lock that already minted | Nothing | The gateway refuses the recorded nonce, and `br` closes the message. The attesters' own read of the registry rejects most duplicates earlier ([section 3.2](#32-reserve-and-lock-attestation)) | Nothing |
 | The attestation expires before the gateway transaction | Nothing minted | Re-attest within the window, or refund against the refund statement | Attestation turnaround |
