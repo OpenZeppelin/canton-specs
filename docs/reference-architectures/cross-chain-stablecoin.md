@@ -161,7 +161,7 @@ the parties above, or it lives on the external chain.
 
 | Role | Responsibility and visibility |
 |---|---|
-| Lock escrow | External-chain contract that holds the backing for the bridged funds. It releases against a verified redemption or refund claim, presented by any submitter ([section 3.3](#33-outbound-redemption)). |
+| Lock escrow | External-chain contract that holds the backing for the bridged funds. It releases against a verified claim or no-mint statement, presented by any submitter ([section 3.3](#33-outbound-redemption)). |
 | Relayer backend | Off-Canton process. It watches the external chain and submits every inbound command as `br`, with the gateways attached as disclosed contracts. |
 | Bridge admin backend | Off-Canton process on a participant that hosts `ba`. It is the one source of disclosed bridge contracts: it publishes the current version of each one, and each new claim, to the relayer backend and the attester services ([section 3.4](#34-registry-identity-and-uniqueness)). It submits no command. |
 | Attester services | M independent operators on M participants. Each submits as its own attester party, and each runs the compliance and KYC checks before it signs a compliance attestation ([section 3.6](#36-control-enforcement)). |
@@ -463,9 +463,7 @@ only if `ba` is the mint account's provider, against the CIP-0112 guidance
 
 **Delivery and retry.** Nothing guarantees that the Canton credit of an
 attested lock executes. Delivery depends on `br` and the attester set, and this
-design adds no automatic cross-chain recovery protocol: re-driving a credit
-from the external chain would need multi-round message passing, with its own
-delay, cost, and failure modes. On Canton, retries are safe: command
+design adds no automatic cross-chain recovery protocol. On Canton, retries are safe: command
 deduplication over 24 hours lets the relayer resubmit its commands to the
 same participant after a crash
 ([section 4.4](#44-failure-modes-and-recovery) covers a second host). The
@@ -1254,7 +1252,7 @@ This section separates what the ledger enforces from what stays trusted.
 | Unattributable inbound origin | A deposit arrives over a privacy pool or a shielded-provenance path, so no sender can be attributed to it. | Nothing mints without an attestation, so an unresolved origin means the attesters withhold the signature, and the deposit stays locked on the external chain. A refund follows only after `br` closes the nonce ([section 3.1](#31-inbound-credit)). Resolving the origin is a precondition for issuing the attestation. The bridge stores no flag, score, or threshold for it ([section 1.2](#12-scope)). |
 | Compromised bridge admin key | A compromised `ba` key attempts arbitrary expropriation. | A credited holding sits in its recipient's account and stays beyond `ba`. `ba` can reach only the bridge account: a pending credit through its own withdraw, and a returned credit directly. The N-of-M posture of `ba` protects that account and the authority to change supply ([section 2.3](#23-decentralization-and-trust-topology)). |
 | Late compliance denial | The attesters deny a credit after the gateway offered it, and the recipient accepts before anyone acts. | The accepted downside of D1 at the gateway ([section 3.6](#36-control-enforcement)). `br` withdraws the instruction as soon as the denial arrives, and the exposure is one instruction deadline. A registry may close it with its own check at the accept. |
-| Failed SCU rollout | An upgrade changes how live gateway, registry, or transfer instruction state is interpreted, leaving a pending instruction or bridge message stranded. | The release preserves the SCU-compatible surface, specifies `None` and message-revision semantics, validates the full DAR lineage, and tests v1 pending instructions and claims through the selected v2 workflow. Source and target DARs are vetted wherever affected transactions are visible; breaking authority, key, reserve, or message changes use an explicit migration or drain plan. |
+| Failed SCU rollout | An upgrade changes how live gateway, registry, or transfer instruction state is interpreted, leaving a pending instruction or bridge message stranded. | The release keeps the SCU-compatible surface, defines what each new `None` and message revision means, and tests v1 pending instructions and claims under v2. A breaking change uses a migration or drain plan ([section 3.7](#37-smart-contract-upgrade-process)). |
 | Malicious package upgrade | A new version in the gateway lineage adds or changes a choice that exercises `ba`'s mint right without an attestation, and the hosting participants vet it. SCU compatibility checks the shape of a package and not what a choice body does. | Vetting is the control. Every participant that hosts `ba` vets only DARs that an independent audit has passed, under a published vetting policy, and under a multi-hosted posture a package that fewer than N hosts have vetted cannot be used in that party's transactions. Under the other two routes of [section 2.3](#23-decentralization-and-trust-topology), the control is the key holders' approval of the upgrade. The registry's own lineage is the registry's to vet. |
 | Package unvetting | A participant that hosts a stakeholder party unvets the bridge's package, which blocks every action on the contracts that party is a stakeholder of. | Unvetting freezes contracts rather than freeing them: the holder cannot move the asset either, and a pending credit stays acceptable once re-vetted. No attester is a stakeholder of the registries or a claim, so an attester's unvetting fails only its own reads and the statements it observes, which the rest of the quorum recreates without it ([section 3.6](#36-control-enforcement)). `br` is a stakeholder of neither gateway, so its unvetting fails only its own submissions. Holder-side unvetting is an inherent Canton vetting property with no protocol-level bypass. |
 
@@ -1362,8 +1360,8 @@ gateway transactions are in flight fails them or is failed by them. Rotations
 are rare and scheduled, so the bridge treats them as an operational window, not
 as a throughput limit. A redemption accepts its own request, burns it, and
 creates a claim, and it writes no shared bridge contract, so redemptions run
-in parallel with each other and with inbound credits. A refund, a gateway
-withdraw, and a re-offer each write the nonce registry, and they contend with
+in parallel with each other and with inbound credits. A refund, a close, a
+gateway withdraw, and a re-offer each write the nonce registry, and they contend with
 the gateway like a mint. Withdraws and re-offers follow a lapse or a denial,
 so they are rare beside mints.
 
