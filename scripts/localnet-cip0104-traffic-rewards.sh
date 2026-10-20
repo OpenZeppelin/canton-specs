@@ -18,8 +18,9 @@
 # one minute long. The LocalNet default of 10 minutes gives a 20 minute round, and
 # the reward needs a closed round.
 #
-# The run waits for the network: the round must close, Scan must compute its
-# per-round totals, and the SV must confirm them before it mints the coupon.
+# The run waits for the network: the open rounds must carry the new reward
+# configuration, the round must close, Scan must compute its per-round totals,
+# and the SV must confirm them before it mints the coupon.
 # Together with the image pull of the containers, that makes this an evidence
 # gate for a schedule and not a pull-request gate.
 #

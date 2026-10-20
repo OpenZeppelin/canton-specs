@@ -1,0 +1,187 @@
+-- | The redemption gateway: the outbound counterpart of the messaging
+-- gateway. It accepts a cleared redemption request as the bridge account,
+-- burns under the burn right, and leaves the standing claim. It also burns a
+-- returned credit for a refund or a hold.
+module OpenZeppelin.Experimental.Bridge.RedemptionGateway where
+
+import DA.Foldable (forA_)
+import DA.Map qualified as Map
+import DA.Optional (isNone)
+import DA.TextMap qualified as TextMap
+import DA.Time (RelTime)
+
+import OpenZeppelin.ScopedAuthorizationGrantV1 (Authorization(..))
+import Splice.Api.Token.HoldingV2 qualified as HoldingV2
+import Splice.Api.Token.TransferInstructionV2 qualified as TransferInstructionV2
+import Splice.TokenStandard.Utils (basicAccount, require, requireMatchExpected)
+
+import OpenZeppelin.Experimental.Bridge.Attestations
+import OpenZeppelin.Experimental.Bridge.Claims
+import OpenZeppelin.Experimental.Bridge.Policy
+import OpenZeppelin.Experimental.Bridge.Registries
+import OpenZeppelin.Experimental.Bridge.RegistryAdapter
+
+data RefundResult = RefundResult with
+    claimCid : ContractId BridgeClaim
+    nonceRegistryCid : ContractId NonceRegistry
+  deriving (Eq, Show)
+
+template RedemptionGateway with
+    ba : Party
+    instrumentId : Text
+    bridgeAccount : HoldingV2.Account
+    supplyRightCid : ContractId BridgeSupplyRight
+    epochSize : Int
+    maxAttestationValidity : RelTime
+  where
+    signatory ba
+    ensure epochSize > 0 && bridgeAccount == basicAccount ba
+
+    -- | The burn transaction: the check, the burn, and the claim commit together.
+    nonconsuming choice RedemptionGateway_Process : ContractId BridgeClaim
+      with
+        authorization : Authorization
+        requestCid : ContractId TransferInstructionV2.TransferInstruction
+        complianceCid : ContractId ComplianceAttestation
+        pauseStateCid : ContractId BridgePauseState
+        attesterRegistryCid : ContractId AttesterRegistry
+      controller authorization.actor
+      do
+        requireRole ba (relayScope instrumentId) authorization
+        requireNotPaused ba instrumentId pauseStateCid
+        attesterRegistry <- fetchAttesterRegistry ba attesterRegistryCid
+        right <- fetchSupplyRight ba instrumentId bridgeAccount supplyRightCid
+        request <- fetch requestCid
+        let transfer = (view request).transfer
+        requireMatchExpected ("request.receiver", transfer.receiver) bridgeAccount
+        requireMatchExpected ("request.instrumentId", transfer.instrumentId)
+          (HoldingV2.InstrumentId with admin = right.wtokAdmin; id = instrumentId)
+        holder <- case transfer.sender.owner of
+          Some owner -> pure owner
+          None -> fail "redemption request sender must be a regular account"
+        destination <- case TextMap.lookup redeemDestinationMetaKey transfer.meta.values of
+          Some destination -> pure destination
+          None -> fail "redemption request names no external-chain destination"
+        -- D1 and D3 outbound: the attestation binds the request.
+        compliance <- verifyCompliance ba attesterRegistry maxAttestationValidity complianceCid
+        case compliance.subject of
+          OutboundRedemption boundRequestCid boundHolder boundInstrument boundAmount boundDestination -> do
+            requireMatchExpected ("complianceAttestation.subject.requestCid", boundRequestCid) requestCid
+            requireMatchExpected ("complianceAttestation.subject.holder", boundHolder) holder
+            requireMatchExpected ("complianceAttestation.subject.instrumentId", boundInstrument) instrumentId
+            requireMatchExpected ("complianceAttestation.subject.amount", boundAmount) transfer.amount
+            requireMatchExpected ("complianceAttestation.subject.destination", boundDestination) destination
+          _ -> fail "compliance attestation is not bound to a redemption request"
+        -- Accept as the receiver, then burn what arrived in the bridge account.
+        result <- exercise requestCid TransferInstructionV2.TransferInstruction_Accept with
+          actors = [ba]
+          extraArgs = noExtraArgs
+        received <- case result.output of
+          TransferInstructionV2.TransferInstructionResult_Completed cids -> pure cids
+          _ -> fail "expected the redemption request to complete"
+        forA_ received $ \cid ->
+          exercise supplyRightCid BridgeSupplyRight_Burn with
+            holdingCid = cid
+            reason = "bridge redemption " <> show requestCid
+        create BridgeClaim with
+          ba; instrumentId; amount = transfer.amount
+          payout = RedemptionPayout with holder; destination; requestCid
+
+    -- | Reject a denied request as the receiver. The holding returns to the
+    -- holder by the standard's own semantics. Runs during a pause.
+    nonconsuming choice RedemptionGateway_Reject : TransferInstructionV2.TransferInstructionResult
+      with
+        authorization : Authorization
+        requestCid : ContractId TransferInstructionV2.TransferInstruction
+        reason : Text
+      controller authorization.actor
+      do
+        requireRole ba (relayScope instrumentId) authorization
+        request <- fetch requestCid
+        let transfer = (view request).transfer
+        requireMatchExpected ("request.receiver", transfer.receiver) bridgeAccount
+        exercise requestCid TransferInstructionV2.TransferInstruction_Reject with
+          actors = [ba]
+          extraArgs = reasonExtraArgs reason
+
+    -- | Refund a returned credit: burn it, mark the nonce refunded, and create
+    -- the refund claim that names the lock's nonce.
+    nonconsuming choice RedemptionGateway_Refund : RefundResult
+      with
+        authorization : Authorization
+        holdingCid : ContractId HoldingV2.Holding
+        nonce : Int
+        pauseStateCid : ContractId BridgePauseState
+        nonceRegistryCid : ContractId NonceRegistry
+      controller authorization.actor
+      do
+        requireRole ba (relayScope instrumentId) authorization
+        requireNotPaused ba instrumentId pauseStateCid
+        amount <- burnReturnedCredit this nonce holdingCid nonceRegistryCid
+        newNonceRegistryCid <- exercise nonceRegistryCid NonceRegistry_Record with nonce; status = Refunded
+        claimCid <- create BridgeClaim with
+          ba; instrumentId; amount
+          payout = RefundPayout with nonce
+        pure RefundResult with claimCid; nonceRegistryCid = newNonceRegistryCid
+
+    -- | Hold a returned credit whose denial requires a freeze: burn it and
+    -- mark the nonce held, with no claim. The backing stays in the escrow.
+    nonconsuming choice RedemptionGateway_Hold : ContractId NonceRegistry
+      with
+        authorization : Authorization
+        holdingCid : ContractId HoldingV2.Holding
+        nonce : Int
+        pauseStateCid : ContractId BridgePauseState
+        nonceRegistryCid : ContractId NonceRegistry
+      controller authorization.actor
+      do
+        requireRole ba (relayScope instrumentId) authorization
+        requireNotPaused ba instrumentId pauseStateCid
+        _ <- burnReturnedCredit this nonce holdingCid nonceRegistryCid
+        exercise nonceRegistryCid NonceRegistry_Record with nonce; status = Held
+
+    -- | Archive a claim the escrow released, under a co-signed attester
+    -- confirmation. Bookkeeping, not a control.
+    nonconsuming choice RedemptionGateway_ArchiveClaim : ()
+      with
+        authorization : Authorization
+        claimCid : ContractId BridgeClaim
+        confirmationCid : ContractId ReleaseConfirmation
+        attesterRegistryCid : ContractId AttesterRegistry
+      controller authorization.actor
+      do
+        requireRole ba (relayScope instrumentId) authorization
+        attesterRegistry <- fetchAttesterRegistry ba attesterRegistryCid
+        confirmation <- fetch confirmationCid
+        requireMatchExpected ("confirmation.claimCid", confirmation.claimCid) claimCid
+        requireMatchExpected ("confirmation.verifier", confirmation.verifier) ba
+        requireQuorum attesterRegistry "release confirmation" confirmation.signers
+        claim <- fetch claimCid
+        requireMatchExpected ("claim.ba", claim.ba) ba
+        exercise confirmationCid ReleaseConfirmation_Consume
+        archive claimCid
+
+-- | Check that the nonce registry records the lock as minted, or as returned
+-- with this holding, and that the holding is an unlocked bridge-account
+-- holding of the instrument, then burn it under the burn right. A credit
+-- that came back by a reject or a registry expiry is still recorded as
+-- minted, and `br` binds it to its lock. Returns the burned amount.
+burnReturnedCredit
+  : RedemptionGateway -> Int -> ContractId HoldingV2.Holding -> ContractId NonceRegistry
+  -> Update Decimal
+burnReturnedCredit gateway nonce holdingCid nonceRegistryCid = do
+  nonceRegistry <- fetchNonceRegistry gateway.ba gateway.instrumentId gateway.epochSize nonce nonceRegistryCid
+  case Map.lookup nonce nonceRegistry.nonces of
+    Some Minted -> pure ()
+    Some (Returned returnedCid _) ->
+      requireMatchExpected ("nonceRegistry.returned.holdingCid", returnedCid) holdingCid
+    other -> fail ("nonce is neither minted nor returned: " <> show other)
+  holding <- fetch holdingCid
+  let h = view holding
+  requireMatchExpected ("holding.account", h.account) gateway.bridgeAccount
+  requireMatchExpected ("holding.instrumentId.id", h.instrumentId.id) gateway.instrumentId
+  require "holding is unlocked" (isNone h.lock)
+  exercise gateway.supplyRightCid BridgeSupplyRight_Burn with
+    holdingCid
+    reason = "bridge burn of returned lock " <> show nonce
+  pure h.amount

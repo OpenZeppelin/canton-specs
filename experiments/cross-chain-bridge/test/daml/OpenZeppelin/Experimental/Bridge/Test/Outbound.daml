@@ -1,0 +1,141 @@
+-- | Outbound flows: the redemption request, the compliance attestation bound
+-- to it, the burn with the redemption claim, the attester read by
+-- disclosure, the archive after a co-signed release confirmation, and the
+-- denial that returns the holding to the holder.
+module OpenZeppelin.Experimental.Bridge.Test.Outbound where
+
+import DA.Assert ((===))
+import DA.Time (addRelTime)
+import Daml.Script
+
+import Splice.Api.Token.MetadataV1
+import Splice.Api.Token.TransferInstructionV2 qualified as TransferInstructionV2
+import Splice.TokenStandard.Utils (basicAccount)
+
+import OpenZeppelin.Experimental.Bridge.Attestations
+import OpenZeppelin.Experimental.Bridge.Claims
+import OpenZeppelin.Experimental.Bridge.Policy
+import OpenZeppelin.Experimental.Bridge.RedemptionGateway
+import OpenZeppelin.Experimental.Bridge.Test.Fixtures
+
+-- | Request, attest, burn, read, confirm, archive.
+testOutboundRedemption : Script ()
+testOutboundRedemption = do
+  b0 <- setup
+  (b1, holdingCid) <- creditHolder b0 0 100.0
+  requestCid <- requestRedemption b1 holdingCid 100.0 "0xdest"
+  holderMid <- unlockedAmounts b1.holder
+  holderMid === []
+  complianceCid <- attestCompliance b1 (quorum b1) (outboundSubject b1 requestCid 100.0 "0xdest")
+  claimCid <- redeem b1 requestCid complianceCid
+  Some claim <- queryContractId b1.ba claimCid
+  claim.amount === 100.0
+  claim.payout === RedemptionPayout with holder = b1.holder; destination = "0xdest"; requestCid
+  supply <- totalSupply b1
+  supply === 0.0
+  holderAfter <- unlockedAmounts b1.holder
+  holderAfter === []
+  bridgeAfter <- bridgeHoldings b1
+  bridgeAfter === []
+  -- An attester reads the claim by disclosure and matches it to the
+  -- compliance attestation it issued.
+  claimDisclosure <- discloseFrom b1.ba claimCid
+  registryDisclosure <- discloseFrom b1.ba b1.attesterRegistryCid
+  readBack <- submit (actAs b1.attester1 <> discloseMany [claimDisclosure, registryDisclosure]) do
+    exerciseCmd claimCid BridgeClaim_Read with
+      reader = b1.attester1
+      attesterRegistryCid = b1.attesterRegistryCid
+  readBack === claim
+  -- A confirmation below the quorum does not archive the claim.
+  weak <- confirmRelease b1 [b1.attester1] claimCid
+  submitRelayerMustFail b1 [claimDisclosure] do
+    exerciseCmd b1.redemptionCid RedemptionGateway_ArchiveClaim with
+      authorization = relayerAuth b1
+      claimCid
+      confirmationCid = weak
+      attesterRegistryCid = b1.attesterRegistryCid
+  confirmationCid <- confirmRelease b1 (quorum b1) claimCid
+  submitRelayer b1 [claimDisclosure] do
+    exerciseCmd b1.redemptionCid RedemptionGateway_ArchiveClaim with
+      authorization = relayerAuth b1
+      claimCid; confirmationCid
+      attesterRegistryCid = b1.attesterRegistryCid
+  archived <- queryContractId b1.ba claimCid
+  archived === None
+
+-- | Outbound denial: `br` rejects the request through the redemption gateway
+-- and the holding returns to the holder. Nothing burns without a cleared request.
+testOutboundDenial : Script ()
+testOutboundDenial = do
+  b0 <- setup
+  (b1, holdingCid) <- creditHolder b0 0 100.0
+  requestCid <- requestRedemption b1 holdingCid 100.0 "0xdest"
+  complianceCid <- attestCompliance b1 (quorum b1) (outboundSubject b1 requestCid 100.0 "0xdest")
+  extra <- instructionDisclosures b1 requestCid
+  _ <- submitRelayer b1 extra (rejectCmd b1 requestCid "denied: destination screening")
+  holderAfter <- unlockedAmounts b1.holder
+  holderAfter === [100.0]
+  supply <- totalSupply b1
+  supply === 100.0
+  submitRelayerMustFail b1 [] (redeemCmd b1 requestCid complianceCid)
+  -- The holder withdraws a request nobody decides, which also returns the holding.
+  holdings <- unlockedHoldingsOf b1.holder
+  [holding2] <- pure holdings
+  requestCid2 <- requestRedemption b1 holding2 100.0 "0xdest"
+  _ <- submit b1.holder do
+    exerciseCmd requestCid2 TransferInstructionV2.TransferInstruction_Withdraw with
+      actors = [b1.holder]
+      extraArgs = noExtraArgs
+  holderEnd <- unlockedAmounts b1.holder
+  holderEnd === [100.0]
+
+-- | The redemption gateway binds the compliance attestation to the request:
+-- the request id, the holder, the instrument, the amount, and the destination.
+testOutboundBindings : Script ()
+testOutboundBindings = do
+  b0 <- setup
+  (b1, holdingCid) <- creditHolder b0 0 100.0
+  requestCid <- requestRedemption b1 holdingCid 100.0 "0xdest"
+  extra <- instructionDisclosures b1 requestCid
+  wrongDestination <- attestCompliance b1 (quorum b1) (outboundSubject b1 requestCid 100.0 "0xother")
+  submitRelayerMustFail b1 extra (redeemCmd b1 requestCid wrongDestination)
+  wrongAmount <- attestCompliance b1 (quorum b1) (outboundSubject b1 requestCid 50.0 "0xdest")
+  submitRelayerMustFail b1 extra (redeemCmd b1 requestCid wrongAmount)
+  wrongHolder <- attestCompliance b1 (quorum b1)
+    ((outboundSubject b1 requestCid 100.0 "0xdest") with holder = b1.recipient)
+  submitRelayerMustFail b1 extra (redeemCmd b1 requestCid wrongHolder)
+  inboundShaped <- attestCompliance b1 (quorum b1)
+    (InboundCredit with nonce = 0; recipient = b1.holder; instrumentId = instrument; amount = 100.0)
+  submitRelayerMustFail b1 extra (redeemCmd b1 requestCid inboundShaped)
+  -- Bound to another request.
+  (b2, holding2) <- creditHolder b1 1 10.0
+  request2 <- requestRedemption b2 holding2 10.0 "0xdest"
+  otherRequest <- attestCompliance b2 (quorum b2) (outboundSubject b2 request2 100.0 "0xdest")
+  submitRelayerMustFail b2 extra (redeemCmd b2 requestCid otherRequest)
+  -- A request without a destination cannot be processed.
+  (b3, holding3) <- creditHolder b2 2 10.0
+  now <- getTime
+  rulesDisclosure <- discloseFrom b3.wtokAdmin b3.rulesCid
+  noDestination <- submit (actAs b3.holder <> disclose rulesDisclosure) do
+    exerciseCmd (toInterfaceContractId @TransferInstructionV2.TransferFactory b3.rulesCid)
+      TransferInstructionV2.TransferFactory_Transfer with
+        transfer = TransferInstructionV2.Transfer with
+          sender = basicAccount b3.holder
+          receiver = bridgeAccountOf b3
+          amount = 10.0
+          instrumentId = wtokInstrument b3
+          requestedAt = now
+          executeBefore = now `addRelTime` testInstructionLifetime
+          inputHoldingCids = [holding3]
+          meta = emptyMetadata
+        actors = [b3.holder]
+        extraArgs = noExtraArgs
+  TransferInstructionV2.TransferInstructionResult_Pending bare <- pure noDestination.output
+  bareCompliance <- attestCompliance b3 (quorum b3) (outboundSubject b3 bare 10.0 "0xdest")
+  bareExtra <- instructionDisclosures b3 bare
+  submitRelayerMustFail b3 bareExtra (redeemCmd b3 bare bareCompliance)
+  -- The correct attestation still processes the first request.
+  good <- attestCompliance b3 (quorum b3) (outboundSubject b3 requestCid 100.0 "0xdest")
+  _ <- redeem b3 requestCid good
+  supply <- totalSupply b3
+  supply === 20.0

@@ -37,7 +37,7 @@
 //   OZ_LOCALNET_AUTH_AUDIENCE  audience that the Splice apps accept
 //   OZ_WALLET_ADMIN_USER     wallet admin user of the app-provider validator
 //   OZ_SV_USER               wallet admin user of the SV
-//   OZ_REWARD_TIMEOUT_S      seconds to wait for the round and the coupon
+//   OZ_REWARD_TIMEOUT_S      seconds to wait for the rounds and the coupon
 //   OZ_TRAFFIC_TIMEOUT_S     seconds to wait for validator traffic and a round
 //   OZ_EVIDENCE_FILE         file for the JSON evidence of the run
 
@@ -65,6 +65,9 @@ const REWARD_TIMEOUT_MS = Number(process.env.OZ_REWARD_TIMEOUT_S ?? 900) * 1000
 // A fresh app-provider validator holds no synchronizer traffic. It buys traffic
 // from the SV on its own interval, so the first call that costs traffic waits.
 const TRAFFIC_TIMEOUT_MS = Number(process.env.OZ_TRAFFIC_TIMEOUT_S ?? 300) * 1000
+// Scan ingests a transaction from the SV participant after the submitting
+// participant has committed it. This bounds the wait for that ingestion.
+const SCAN_TIMEOUT_MS = 120 * 1000
 const POLL_INTERVAL_MS = 5000
 
 // The token of the participant admin user. The gate mints it, because the same
@@ -83,9 +86,12 @@ const T = {
   // Splice packages, which LocalNet vets on the app-provider participant. The
   // `#package-name` form resolves to the highest vetted version, so the pin is
   // `OZ_SPLICE_VERSION` of `scripts/ledger.sh`. This client reads the payloads of
-  // Splice 0.7.1, and a release that changes either one fails an assertion below
-  // rather than reporting a version mismatch here.
+  // Splice 0.8.3, and a release that changes either one fails an assertion below
+  // rather than reporting a version mismatch here. Each link shows the
+  // definition at Splice 0.8.3.
+  // https://github.com/canton-network/splice/blob/8460154135f39019b8bb370c9c1321ff13c9bb10/daml/splice-amulet/daml/Splice/Amulet.daml#L447
   rewardCouponV2: '#splice-amulet:Splice.Amulet:RewardCouponV2',
+  // https://github.com/canton-network/splice/blob/8460154135f39019b8bb370c9c1321ff13c9bb10/daml/splice-api-reward-assignment-v1/daml/Splice/Api/RewardAssignmentV1.daml#L40
   rewardCoupon: '#splice-api-reward-assignment-v1:Splice.Api.RewardAssignmentV1:RewardCoupon',
 }
 
@@ -447,6 +453,7 @@ async function selfFeature() {
     },
     TRAFFIC_TIMEOUT_MS,
   )
+  let contractId = null
   if (!status.has_featured_app_right) {
     // A fresh validator holds no synchronizer traffic and buys it from the SV on
     // its own interval, and it answers 429 until then.
@@ -462,12 +469,25 @@ async function selfFeature() {
       },
       TRAFFIC_TIMEOUT_MS,
     )
-    log(`self-granted the featured app right (${granted.contract_id.slice(0, 16)}...)`)
+    contractId = granted.contract_id
+    log(`self-granted the featured app right (${contractId.slice(0, 16)}...)`)
   } else {
     log('the app-provider already holds a featured app right')
   }
-  const featured = await scanApi('GET', '/v0/featured-apps')
-  const mine = (featured.featured_apps ?? []).filter((a) => a.payload?.provider === status.party_id)
+  // The wallet answers once the validator has committed the right, and Scan
+  // ingests it from the SV participant later, so the check on Scan polls. A
+  // right granted here matches on its contract id; a right from an earlier run
+  // matches on the provider.
+  const matches = (a) => (contractId ? a.contract_id === contractId : a.payload?.provider === status.party_id)
+  const mine = await waitFor(
+    'Scan to list the featured app right of the app-provider',
+    async () => {
+      const featured = await scanApi('GET', '/v0/featured-apps')
+      const hits = (featured.featured_apps ?? []).filter(matches)
+      return hits.length > 0 ? hits : null
+    },
+    SCAN_TIMEOUT_MS,
+  )
   assertEq('Scan reports one featured app right for the app-provider', mine.length, 1)
   return status.party_id
 }
@@ -495,7 +515,7 @@ async function enableTrafficBasedRewards() {
   const base = dso.amulet_rules.contract.payload.configSchedule.initialValue
   if (base.rewardConfig?.mintingVersion === 'RewardVersion_TrafficBasedAppRewards') {
     log('the network already runs traffic-based app rewards')
-    return
+    return waitForOpenRoundsUnderTrafficRewards()
   }
   
   assertEq('the SV voting threshold is 1', Number(dso.voting_threshold), 1)
@@ -517,6 +537,28 @@ async function enableTrafficBasedRewards() {
     return cfg?.mintingVersion === 'RewardVersion_TrafficBasedAppRewards' ? cfg : null
   })
   log('the network runs traffic-based app rewards')
+  return waitForOpenRoundsUnderTrafficRewards()
+}
+
+// Each open mining round stores the reward configuration of the moment it
+// opened, and the SV processes a round by that stored configuration: a round
+// that opened before the vote goes through the dry-run triggers, which compute
+// the allowances but mint no coupon. Splice keeps three rounds open at once, so
+// the settlements wait until every open round carries the traffic-based
+// configuration. The wait returns the numbers of those rounds.
+async function waitForOpenRoundsUnderTrafficRewards() {
+  const rounds = await waitFor('every open mining round to carry the traffic-based reward configuration', async () => {
+    const res = await scanApi('POST', '/v0/open-and-issuing-mining-rounds', {
+      cached_open_mining_round_contract_ids: [],
+      cached_issuing_round_contract_ids: [],
+    })
+    const open = Object.values(res.open_mining_rounds ?? {}).map((r) => (r.contract ?? r).payload)
+    const stale = open.filter((p) => p.rewardConfig?.mintingVersion !== 'RewardVersion_TrafficBasedAppRewards')
+    if (open.length === 0 || stale.length > 0) return null
+    return open.map((p) => Number(p.round.number)).sort((a, b) => a - b)
+  })
+  log(`open rounds ${rounds.join(', ')} carry the traffic-based reward configuration`)
+  return rounds
 }
 
 const latestRound = async () => {
@@ -630,8 +672,9 @@ async function main() {
   const provider = await selfFeature()
   log(`app-provider party: ${provider}`)
 
-  // Step 2: the network switches to traffic-based app rewards.
-  await enableTrafficBasedRewards()
+  // Step 2: the network switches to traffic-based app rewards, and every open
+  // round carries that configuration.
+  const openRounds = await enableTrafficBasedRewards()
 
   // Step 3: the settlement parties. The app-provider executes every settlement,
   // so the admin user that this client submits as needs `CanActAs` for the
@@ -728,6 +771,7 @@ async function main() {
         {
           runId: RUN_ID,
           provider,
+          openRoundsUnderRewardConfig: openRounds,
           settlements: activity.settlements,
           settledVolumeUsd: activity.settledVolume,
           settleRound,

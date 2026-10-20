@@ -1,0 +1,585 @@
+-- | Shared fixtures: the parties, the registry, the bridge contracts, and the
+-- helpers that drive each flow. Every submission whose submitter is not a
+-- stakeholder passes the contracts it reads as explicit disclosures.
+module OpenZeppelin.Experimental.Bridge.Test.Fixtures where
+
+import DA.Action (foldlA)
+import DA.Date (Month(Jan), date)
+import DA.List (sort)
+import DA.Map qualified as Map
+import DA.Optional (catOptionals, isNone)
+import DA.TextMap qualified as TextMap
+import DA.Time (RelTime, addRelTime, days, hours, time)
+import Daml.Script
+
+import OpenZeppelin.ScopedAuthorizationGrantV1
+import OpenZeppelin.TokenCIP112WorkflowsV1.Holding (RegistryConfig(..))
+import OpenZeppelin.TokenCIP112V1.Holding (TokenHolding(..))
+import OpenZeppelin.TokenCIP112V1.Registry (TokenRules(..))
+import OpenZeppelin.TokenCIP112V1.Transfer (TokenTransferInstruction(..))
+import Splice.Api.Token.HoldingV2 qualified as HoldingV2
+import Splice.Api.Token.MetadataV1
+import Splice.Api.Token.TransferInstructionV2 qualified as TransferInstructionV2
+import Splice.TokenStandard.Utils (basicAccount)
+
+import OpenZeppelin.Experimental.Bridge.Attestations
+import OpenZeppelin.Experimental.Bridge.Claims
+import OpenZeppelin.Experimental.Bridge.MessagingGateway
+import OpenZeppelin.Experimental.Bridge.Policy
+import OpenZeppelin.Experimental.Bridge.Preapproval
+import OpenZeppelin.Experimental.Bridge.RedemptionGateway
+import OpenZeppelin.Experimental.Bridge.Registries
+import OpenZeppelin.Experimental.Bridge.RegistryAdapter
+
+-- Constants
+------------
+
+t0 : Time
+t0 = time (date 2026 Jan 1) 0 0 0
+
+instrument : Text
+instrument = "wTOK"
+
+testEpochSize : Int
+testEpochSize = 4
+
+testInstructionLifetime : RelTime
+testInstructionLifetime = hours 1
+
+attestationValidity : RelTime
+attestationValidity = hours 2
+
+-- | The scenario. The nonce registry id and the pause state id change on
+-- every write; the helpers return an updated record.
+data Bridge = Bridge with
+    ba : Party
+    br : Party
+    pa : Party
+    wtokAdmin : Party
+    recipient : Party
+    holder : Party
+    attester1 : Party
+    attester2 : Party
+    attester3 : Party
+    rulesCid : ContractId TokenRules
+    supplyRightCid : ContractId BridgeSupplyRight
+    attesterRegistryCid : ContractId AttesterRegistry
+    nonceRegistryCid : ContractId NonceRegistry
+    pauseStateCid : ContractId BridgePauseState
+    relayerGrantCid : ContractId AuthorizationGrant
+    pauseGrantCid : ContractId AuthorizationGrant
+    messagingCid : ContractId MessagingGateway
+    redemptionCid : ContractId RedemptionGateway
+
+bridgeAccountOf : Bridge -> HoldingV2.Account
+bridgeAccountOf b = basicAccount b.ba
+
+wtokInstrument : Bridge -> HoldingV2.InstrumentId
+wtokInstrument b = HoldingV2.InstrumentId with admin = b.wtokAdmin; id = instrument
+
+relayerAuth : Bridge -> Authorization
+relayerAuth b = Authorization with actor = b.br; grantCid = b.relayerGrantCid
+
+pauseAuth : Bridge -> Authorization
+pauseAuth b = Authorization with actor = b.pa; grantCid = b.pauseGrantCid
+
+quorum : Bridge -> [Party]
+quorum b = [b.attester1, b.attester2]
+
+-- Setup
+--------
+
+grantRole : Party -> Party -> AuthorizationScope -> Script (ContractId AuthorizationGrant)
+grantRole authority grantee scope =
+  submit authority do
+    createCmd AuthorizationGrant with
+      authority; grantee; scope
+      validFrom = None
+      validUntil = None
+
+-- | The parties of the scenario. A live-ledger run allocates them outside
+-- the script and passes them in; `setup` allocates them itself.
+data BridgeParties = BridgeParties with
+    ba : Party
+    br : Party
+    pa : Party
+    wtokAdmin : Party
+    recipient : Party
+    holder : Party
+    attester1 : Party
+    attester2 : Party
+    attester3 : Party
+
+allocateBridgeParties : Script BridgeParties
+allocateBridgeParties = do
+  ba <- allocateParty "ba"
+  br <- allocateParty "br"
+  pa <- allocateParty "pa"
+  wtokAdmin <- allocateParty "wtokAdmin"
+  recipient <- allocateParty "recipient"
+  holder <- allocateParty "holder"
+  attester1 <- allocateParty "attester1"
+  attester2 <- allocateParty "attester2"
+  attester3 <- allocateParty "attester3"
+  pure BridgeParties{..}
+
+setup : Script Bridge
+setup = do
+  setTime t0
+  allocateBridgeParties >>= setupWith
+
+-- | The registry and the bridge contracts for the given parties. It sets no
+-- ledger time, so it runs on a wall-clock ledger too.
+setupWith : BridgeParties -> Script Bridge
+setupWith BridgeParties{..} = do
+  rulesCid <- submit wtokAdmin do
+    createCmd TokenRules with
+      config = RegistryConfig with admin = wtokAdmin; maxTTL = days 90; lockGrace = hours 1
+  supplyRightCid <- submit wtokAdmin do
+    createCmd BridgeSupplyRight with
+      wtokAdmin; ba; rulesCid
+      bridgeAccount = basicAccount ba
+      instrumentId = instrument
+  attesterRegistryCid <- submit ba do
+    createCmd AttesterRegistry with
+      maintainer = ba
+      attesters = [attester1, attester2, attester3]
+      threshold = 2
+  nonceRegistryCid <- submit ba do
+    createCmd NonceRegistry with
+      maintainer = ba
+      instrumentId = instrument
+      epoch = 0
+      nonces = Map.empty
+      successorCreated = False
+  pauseStateCid <- submit ba do
+    createCmd BridgePauseState with maintainer = ba; instrumentId = instrument; paused = False
+  relayerGrantCid <- grantRole ba br (relayScope instrument)
+  pauseGrantCid <- grantRole ba pa (pauseScope instrument)
+  messagingCid <- submit ba do
+    createCmd MessagingGateway with
+      ba
+      instrumentId = instrument
+      bridgeAccount = basicAccount ba
+      supplyRightCid
+      epochSize = testEpochSize
+      instructionLifetime = testInstructionLifetime
+      maxAttestationValidity = days 1
+  redemptionCid <- submit ba do
+    createCmd RedemptionGateway with
+      ba
+      instrumentId = instrument
+      bridgeAccount = basicAccount ba
+      supplyRightCid
+      epochSize = testEpochSize
+      maxAttestationValidity = days 1
+  pure Bridge{..}
+
+-- Disclosure
+-------------
+
+discloseFrom : forall t. Template t => Party -> ContractId t -> Script Disclosure
+discloseFrom stakeholder cid = do
+  disclosure <- queryDisclosure @t stakeholder cid
+  case disclosure of
+    Some d -> pure d
+    None -> fail ("no disclosure of " <> show cid <> " for " <> show stakeholder)
+
+-- | The contracts every relayer submission reads: the gateways, the pause
+-- state, both registries, the registry rules, and the supply right. `br` is
+-- a stakeholder of none of them. A contract that is no longer active is
+-- skipped, so a test can show the submission failing on it.
+relayerDisclosures : Bridge -> Script [Disclosure]
+relayerDisclosures b = do
+  disclosures <- sequence
+    [ queryDisclosure b.ba b.messagingCid
+    , queryDisclosure b.ba b.redemptionCid
+    , queryDisclosure b.ba b.pauseStateCid
+    , queryDisclosure b.ba b.attesterRegistryCid
+    , queryDisclosure b.ba b.nonceRegistryCid
+    , queryDisclosure b.wtokAdmin b.rulesCid
+    , queryDisclosure b.wtokAdmin b.supplyRightCid
+    ]
+  pure (catOptionals disclosures)
+
+-- | The instruction and its locked holding, disclosed by `ba`, which is a
+-- stakeholder of both.
+instructionDisclosures
+  : Bridge -> ContractId TransferInstructionV2.TransferInstruction -> Script [Disclosure]
+instructionDisclosures b instructionCid = do
+  let templateCid = fromInterfaceContractId @TokenTransferInstruction instructionCid
+  Some instruction <- queryContractId b.ba templateCid
+  instructionDisclosure <- discloseFrom b.ba templateCid
+  lockedDisclosures <- forA instruction.state.lockedHoldingCids $ \cid ->
+    discloseFrom b.ba (fromInterfaceContractId @TokenHolding cid)
+  pure (instructionDisclosure :: lockedDisclosures)
+
+submitRelayer : Bridge -> [Disclosure] -> Commands a -> Script a
+submitRelayer b extra cmds = do
+  ds <- relayerDisclosures b
+  submit (actAs b.br <> discloseMany (ds <> extra)) cmds
+
+submitRelayerMustFail : Bridge -> [Disclosure] -> Commands a -> Script ()
+submitRelayerMustFail b extra cmds = do
+  ds <- relayerDisclosures b
+  submitMustFail (actAs b.br <> discloseMany (ds <> extra)) cmds
+
+-- Attester statements
+----------------------
+
+-- | A lock attestation for the test recipient that expires two hours from now.
+lockFor : Bridge -> Int -> Decimal -> Script LockAttestation
+lockFor b nonce amount = do
+  now <- getTime
+  pure LockAttestation with
+    nonce
+    recipient = b.recipient
+    instrumentId = instrument
+    amount
+    expiresAt = now `addRelTime` attestationValidity
+
+inboundSubject : LockAttestation -> ComplianceSubject
+inboundSubject lock = InboundCredit with
+  nonce = lock.nonce
+  recipient = lock.recipient
+  instrumentId = lock.instrumentId
+  amount = lock.amount
+
+-- | The first signer creates the message through the attester registry,
+-- which it reads by disclosure. Every further signer observes the message,
+-- so it signs with no disclosure. `observers` defaults to every listed attester.
+attestMessageWith
+  : Bridge -> Optional [Party] -> [Party] -> LockAttestation -> Script (ContractId AttestedMessage)
+attestMessageWith b observers signers lock = case signers of
+  [] -> fail "a message needs at least one signer"
+  first :: rest -> do
+    registryDisclosure <- discloseFrom b.ba b.attesterRegistryCid
+    cid <- submit (actAs first <> disclose registryDisclosure) do
+      exerciseCmd b.attesterRegistryCid AttesterRegistry_AttestLock with
+        creator = first; observers; relayer = b.br; lock
+    signMessage cid rest
+
+attestMessage : Bridge -> [Party] -> LockAttestation -> Script (ContractId AttestedMessage)
+attestMessage b = attestMessageWith b None
+
+signMessage : ContractId AttestedMessage -> [Party] -> Script (ContractId AttestedMessage)
+signMessage = foldlA (\current signer ->
+  submit signer do exerciseCmd current AttestedMessage_Sign with signer)
+
+-- | A message created outside the attester registry, observed by its own
+-- signers. Only parties that are not listed, or a test that needs a field the
+-- registry would set, create one this way; the gateway's checks reject it or
+-- count only its listed signers.
+forgeMessage : Bridge -> [Party] -> LockAttestation -> Script (ContractId AttestedMessage)
+forgeMessage b signers lock = case signers of
+  [] -> fail "a message needs at least one signer"
+  first :: rest -> do
+    cid <- submit first do
+      createCmd AttestedMessage with
+        signers = [first]; attesters = signers
+        relayer = b.br; verifier = b.ba; lock
+    signMessage cid rest
+
+attestComplianceWith
+  : Bridge -> Optional [Party] -> [Party] -> ComplianceSubject -> Bool -> Time
+  -> Script (ContractId ComplianceAttestation)
+attestComplianceWith b observers signers subject kycPassed expiresAt = case signers of
+  [] -> fail "an attestation needs at least one signer"
+  first :: rest -> do
+    registryDisclosure <- discloseFrom b.ba b.attesterRegistryCid
+    cid <- submit (actAs first <> disclose registryDisclosure) do
+      exerciseCmd b.attesterRegistryCid AttesterRegistry_AttestCompliance with
+        creator = first; observers; relayer = b.br
+        subject; kycPassed; expiresAt
+    signCompliance cid rest
+
+attestComplianceAt : Bridge -> [Party] -> ComplianceSubject -> Bool -> Time -> Script (ContractId ComplianceAttestation)
+attestComplianceAt b = attestComplianceWith b None
+
+signCompliance : ContractId ComplianceAttestation -> [Party] -> Script (ContractId ComplianceAttestation)
+signCompliance = foldlA (\current signer ->
+  submit signer do exerciseCmd current ComplianceAttestation_Sign with signer)
+
+-- | A compliance attestation that asserts KYC and expires two hours from now.
+attestCompliance : Bridge -> [Party] -> ComplianceSubject -> Script (ContractId ComplianceAttestation)
+attestCompliance b signers subject = do
+  now <- getTime
+  attestComplianceAt b signers subject True (now `addRelTime` attestationValidity)
+
+-- | A compliance attestation created outside the attester registry, with
+-- the given verifier and `issuedAt`, observed by its own signers.
+forgeCompliance
+  : Bridge -> [Party] -> Party -> ComplianceSubject -> Time -> Script (ContractId ComplianceAttestation)
+forgeCompliance b signers verifier subject issuedAt = case signers of
+  [] -> fail "an attestation needs at least one signer"
+  first :: rest -> do
+    now <- getTime
+    cid <- submit first do
+      createCmd ComplianceAttestation with
+        signers = [first]; attesters = signers
+        relayer = b.br; verifier; subject
+        kycPassed = True; issuedAt
+        expiresAt = now `addRelTime` attestationValidity
+    signCompliance cid rest
+
+-- | The first signer reads the claim and the attester registry by disclosure
+-- and creates the confirmation through the claim; the rest observe it.
+confirmRelease : Bridge -> [Party] -> ContractId BridgeClaim -> Script (ContractId ReleaseConfirmation)
+confirmRelease b signers claimCid = case signers of
+  [] -> fail "a confirmation needs at least one signer"
+  first :: rest -> do
+    claimDisclosure <- discloseFrom b.ba claimCid
+    registryDisclosure <- discloseFrom b.ba b.attesterRegistryCid
+    cid <- submit (actAs first <> discloseMany [claimDisclosure, registryDisclosure]) do
+      exerciseCmd claimCid BridgeClaim_Confirm with
+        creator = first; observers = None; relayer = b.br
+        attesterRegistryCid = b.attesterRegistryCid
+    foldlA (\current signer ->
+        submit signer do exerciseCmd current ReleaseConfirmation_Sign with signer)
+      cid rest
+
+-- Inbound flow
+---------------
+
+processCmd
+  : Bridge -> ContractId AttestedMessage -> ContractId ComplianceAttestation
+  -> Optional (ContractId TransferPreapproval) -> Commands ProcessResult
+processCmd b messageCid complianceCid preapprovalCid =
+  exerciseCmd b.messagingCid MessagingGateway_Process with
+    authorization = relayerAuth b
+    messageCid; complianceCid; preapprovalCid
+    pauseStateCid = b.pauseStateCid
+    attesterRegistryCid = b.attesterRegistryCid
+    nonceRegistryCid = b.nonceRegistryCid
+
+-- | The gateway transaction. Returns the scenario with the new nonce registry.
+process
+  : Bridge -> ContractId AttestedMessage -> ContractId ComplianceAttestation
+  -> Optional (ContractId TransferPreapproval) -> Script (Bridge, ProcessResult)
+process b messageCid complianceCid preapprovalCid = do
+  extra <- case preapprovalCid of
+    None -> pure []
+    Some cid -> fmap (:: []) (discloseFrom b.recipient cid)
+  result <- submitRelayer b extra (processCmd b messageCid complianceCid preapprovalCid)
+  pure ((b with nonceRegistryCid = result.nonceRegistryCid), result)
+
+-- | Attest and process one lock for the test recipient with a live accept pending.
+offerLock : Bridge -> Int -> Decimal -> Script (Bridge, LockAttestation, ProcessResult)
+offerLock b nonce amount = do
+  lock <- lockFor b nonce amount
+  messageCid <- attestMessage b (quorum b) lock
+  complianceCid <- attestCompliance b (quorum b) (inboundSubject lock)
+  (b', result) <- process b messageCid complianceCid None
+  pure (b', lock, result)
+
+acceptAs : Party -> ContractId TransferInstructionV2.TransferInstruction -> Script [ContractId HoldingV2.Holding]
+acceptAs party instructionCid = do
+  result <- submit party do
+    exerciseCmd instructionCid TransferInstructionV2.TransferInstruction_Accept with
+      actors = [party]
+      extraArgs = noExtraArgs
+  case result.output of
+    TransferInstructionV2.TransferInstructionResult_Completed cids -> pure cids
+    other -> fail ("expected a completed transfer, got " <> show other)
+
+withdrawCmd : Bridge -> ContractId TransferInstructionV2.TransferInstruction -> Text -> Commands WithdrawResult
+withdrawCmd b instructionCid reason =
+  exerciseCmd b.messagingCid MessagingGateway_Withdraw with
+    authorization = relayerAuth b
+    instructionCid; reason
+    nonceRegistryCid = b.nonceRegistryCid
+
+-- | Withdraw through the gateway. Returns the scenario with the new nonce
+-- registry and the holding that came back to the bridge account.
+withdraw : Bridge -> ContractId TransferInstructionV2.TransferInstruction -> Text -> Script (Bridge, ContractId HoldingV2.Holding)
+withdraw b instructionCid reason = do
+  extra <- instructionDisclosures b instructionCid
+  result <- submitRelayer b extra (withdrawCmd b instructionCid reason)
+  pure ((b with nonceRegistryCid = result.nonceRegistryCid), result.holdingCid)
+
+closeCmd : Bridge -> ContractId AttestedMessage -> Text -> Commands (ContractId NonceRegistry)
+closeCmd b messageCid reason =
+  exerciseCmd b.messagingCid MessagingGateway_Close with
+    authorization = relayerAuth b
+    messageCid; reason
+    attesterRegistryCid = b.attesterRegistryCid
+    nonceRegistryCid = b.nonceRegistryCid
+
+close : Bridge -> ContractId AttestedMessage -> Text -> Script Bridge
+close b messageCid reason = do
+  newCid <- submitRelayer b [] (closeCmd b messageCid reason)
+  pure (b with nonceRegistryCid = newCid)
+
+reofferCmd
+  : Bridge -> ContractId HoldingV2.Holding -> ContractId ComplianceAttestation
+  -> Optional (ContractId TransferPreapproval) -> Commands ProcessResult
+reofferCmd b holdingCid complianceCid preapprovalCid =
+  exerciseCmd b.messagingCid MessagingGateway_Reoffer with
+    authorization = relayerAuth b
+    holdingCid; complianceCid; preapprovalCid
+    pauseStateCid = b.pauseStateCid
+    attesterRegistryCid = b.attesterRegistryCid
+    nonceRegistryCid = b.nonceRegistryCid
+
+-- | Re-offer a returned credit. Returns the scenario with the new nonce registry.
+reoffer
+  : Bridge -> ContractId HoldingV2.Holding -> ContractId ComplianceAttestation
+  -> Script (Bridge, OfferResult)
+reoffer b holdingCid complianceCid = do
+  d <- discloseFrom b.ba (fromInterfaceContractId @TokenHolding holdingCid)
+  result <- submitRelayer b [d] (reofferCmd b holdingCid complianceCid None)
+  pure ((b with nonceRegistryCid = result.nonceRegistryCid), result.offer)
+
+-- Outbound flow
+----------------
+
+-- | Credit the holder with `amount` through the inbound flow and a live accept.
+creditHolder : Bridge -> Int -> Decimal -> Script (Bridge, ContractId HoldingV2.Holding)
+creditHolder b nonce amount = do
+  now <- getTime
+  let lock = LockAttestation with
+        nonce; amount
+        recipient = b.holder
+        instrumentId = instrument
+        expiresAt = now `addRelTime` attestationValidity
+  messageCid <- attestMessage b (quorum b) lock
+  complianceCid <- attestCompliance b (quorum b) (inboundSubject lock)
+  (b', result) <- process b messageCid complianceCid None
+  [holdingCid] <- acceptAs b.holder result.offer.instructionCid
+  pure (b', holdingCid)
+
+-- | The holder's standard transfer of a holding to the bridge account, naming
+-- the external-chain destination in the transfer's metadata.
+requestRedemption
+  : Bridge -> ContractId HoldingV2.Holding -> Decimal -> Text
+  -> Script (ContractId TransferInstructionV2.TransferInstruction)
+requestRedemption b holdingCid amount destination = do
+  now <- getTime
+  rulesDisclosure <- discloseFrom b.wtokAdmin b.rulesCid
+  result <- submit (actAs b.holder <> disclose rulesDisclosure) do
+    exerciseCmd (toInterfaceContractId @TransferInstructionV2.TransferFactory b.rulesCid)
+      TransferInstructionV2.TransferFactory_Transfer with
+        transfer = TransferInstructionV2.Transfer with
+          sender = basicAccount b.holder
+          receiver = bridgeAccountOf b
+          amount
+          instrumentId = wtokInstrument b
+          requestedAt = now
+          executeBefore = now `addRelTime` testInstructionLifetime
+          inputHoldingCids = [holdingCid]
+          meta = Metadata with values = TextMap.fromList [(redeemDestinationMetaKey, destination)]
+        actors = [b.holder]
+        extraArgs = noExtraArgs
+  case result.output of
+    TransferInstructionV2.TransferInstructionResult_Pending cid -> pure cid
+    other -> fail ("expected a pending redemption request, got " <> show other)
+
+outboundSubject
+  : Bridge -> ContractId TransferInstructionV2.TransferInstruction -> Decimal -> Text
+  -> ComplianceSubject
+outboundSubject b requestCid amount destination = OutboundRedemption with
+  requestCid; amount; destination
+  holder = b.holder
+  instrumentId = instrument
+
+redeemCmd
+  : Bridge -> ContractId TransferInstructionV2.TransferInstruction -> ContractId ComplianceAttestation
+  -> Commands (ContractId BridgeClaim)
+redeemCmd b requestCid complianceCid =
+  exerciseCmd b.redemptionCid RedemptionGateway_Process with
+    authorization = relayerAuth b
+    requestCid; complianceCid
+    pauseStateCid = b.pauseStateCid
+    attesterRegistryCid = b.attesterRegistryCid
+
+redeem
+  : Bridge -> ContractId TransferInstructionV2.TransferInstruction -> ContractId ComplianceAttestation
+  -> Script (ContractId BridgeClaim)
+redeem b requestCid complianceCid = do
+  extra <- instructionDisclosures b requestCid
+  submitRelayer b extra (redeemCmd b requestCid complianceCid)
+
+rejectCmd
+  : Bridge -> ContractId TransferInstructionV2.TransferInstruction -> Text
+  -> Commands TransferInstructionV2.TransferInstructionResult
+rejectCmd b requestCid reason =
+  exerciseCmd b.redemptionCid RedemptionGateway_Reject with
+    authorization = relayerAuth b
+    requestCid; reason
+
+refundCmd : Bridge -> ContractId HoldingV2.Holding -> Int -> Commands RefundResult
+refundCmd b holdingCid nonce =
+  exerciseCmd b.redemptionCid RedemptionGateway_Refund with
+    authorization = relayerAuth b
+    holdingCid; nonce
+    pauseStateCid = b.pauseStateCid
+    nonceRegistryCid = b.nonceRegistryCid
+
+refund : Bridge -> ContractId HoldingV2.Holding -> Int -> Script (Bridge, ContractId BridgeClaim)
+refund b holdingCid nonce = do
+  holdingDisclosure <- discloseFrom b.ba (fromInterfaceContractId @TokenHolding holdingCid)
+  result <- submitRelayer b [holdingDisclosure] (refundCmd b holdingCid nonce)
+  pure ((b with nonceRegistryCid = result.nonceRegistryCid), result.claimCid)
+
+holdCmd : Bridge -> ContractId HoldingV2.Holding -> Int -> Commands (ContractId NonceRegistry)
+holdCmd b holdingCid nonce =
+  exerciseCmd b.redemptionCid RedemptionGateway_Hold with
+    authorization = relayerAuth b
+    holdingCid; nonce
+    pauseStateCid = b.pauseStateCid
+    nonceRegistryCid = b.nonceRegistryCid
+
+-- Pause
+--------
+
+pause : Bridge -> Script Bridge
+pause b = do
+  d <- discloseFrom b.ba b.pauseStateCid
+  newCid <- submit (actAs b.pa <> disclose d) do
+    exerciseCmd b.pauseStateCid BridgePauseState_Pause with authorization = pauseAuth b
+  pure (b with pauseStateCid = newCid)
+
+unpause : Bridge -> Script Bridge
+unpause b = do
+  d <- discloseFrom b.ba b.pauseStateCid
+  newCid <- submit (actAs b.pa <> disclose d) do
+    exerciseCmd b.pauseStateCid BridgePauseState_Unpause with authorization = pauseAuth b
+  pure (b with pauseStateCid = newCid)
+
+-- Inspection
+-------------
+
+-- | The amounts of the unlocked holdings an owner holds in its basic account.
+unlockedAmounts : Party -> Script [Decimal]
+unlockedAmounts owner = do
+  holdings <- query @TokenHolding owner
+  pure (sort [h.holding.amount | (_, h) <- holdings, h.holding.account == basicAccount owner, isNone h.holding.lock])
+
+-- | The unlocked holdings in the bridge account, as interface ids.
+bridgeHoldings : Bridge -> Script [ContractId HoldingV2.Holding]
+bridgeHoldings b = unlockedHoldingsOf b.ba
+
+-- | The unlocked holdings in an owner's basic account, as interface ids.
+unlockedHoldingsOf : Party -> Script [ContractId HoldingV2.Holding]
+unlockedHoldingsOf owner = do
+  holdings <- query @TokenHolding owner
+  pure [toInterfaceContractId cid | (cid, h) <- holdings, h.holding.account == basicAccount owner, isNone h.holding.lock]
+
+-- | Every holding of the instrument on the ledger, locked or not, as seen by the wTOK admin.
+totalSupply : Bridge -> Script Decimal
+totalSupply b = do
+  holdings <- query @TokenHolding b.wtokAdmin
+  pure (sum [h.holding.amount | (_, h) <- holdings, h.holding.instrumentId == wtokInstrument b])
+
+-- | The active nonce registry of an epoch, as `ba` sees it.
+registryOfEpoch : Bridge -> Int -> Script (ContractId NonceRegistry)
+registryOfEpoch b epoch = do
+  registries <- query @NonceRegistry b.ba
+  case [cid | (cid, r) <- registries, r.epoch == epoch] of
+    [cid] -> pure cid
+    other -> fail ("expected one registry for epoch " <> show epoch <> ", got " <> show (length other))
+
+nonceStatus : Bridge -> Int -> Script (Optional NonceStatus)
+nonceStatus b nonce = do
+  Some registry <- queryContractId b.ba b.nonceRegistryCid
+  pure (Map.lookup nonce registry.nonces)

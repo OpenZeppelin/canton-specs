@@ -1,0 +1,315 @@
+-- | Governance flows: the pause and what it stops, the pause and relayer
+-- role handovers, the attester registry rotation, the attester reads by
+-- disclosure, the supply right's scope and revocation, and the archive of
+-- each bridge template by its signatories.
+module OpenZeppelin.Experimental.Bridge.Test.Governance where
+
+import DA.Assert ((===))
+import DA.Foldable (forA_)
+import DA.Time (addRelTime, hours)
+import Daml.Script
+
+import OpenZeppelin.ScopedAuthorizationGrantV1
+import OpenZeppelin.TokenCIP112V1.Holding (TokenHolding)
+import OpenZeppelin.TokenCIP112V1.Registry (TokenRules_Mint(..))
+import Splice.TokenStandard.Utils (basicAccount)
+
+import OpenZeppelin.Experimental.Bridge.Attestations
+import OpenZeppelin.Experimental.Bridge.Policy
+import OpenZeppelin.Experimental.Bridge.Registries
+import OpenZeppelin.Experimental.Bridge.RegistryAdapter
+import OpenZeppelin.Experimental.Bridge.Test.Fixtures
+
+-- | The pause role grant sets the pause state. Offers, burns, refunds, and
+-- holds then fail, while withdraw, reject, and the registry's own accept
+-- still run. The unpause restores the supply paths.
+testPauseStopsSupplyPaths : Script ()
+testPauseStopsSupplyPaths = do
+  b0 <- setup
+  (b1', _, r0) <- offerLock b0 0 100.0
+  (b1, returned) <- withdraw b1' r0.offer.instructionCid "lapsed"
+  (b2, _, r1) <- offerLock b1 1 40.0
+  (b3, _, r2) <- offerLock b2 2 30.0
+  (b4, holderHolding) <- creditHolder b3 3 60.0
+  requestCid <- requestRedemption b4 holderHolding 60.0 "0xdest"
+  b5 <- pause b4
+  Some state <- queryContractId b5.ba b5.pauseStateCid
+  state.paused === True
+  -- Offers fail.
+  lock4 <- lockFor b5 4 10.0
+  m4 <- attestMessage b5 (quorum b5) lock4
+  c4 <- attestCompliance b5 (quorum b5) (inboundSubject lock4)
+  submitRelayerMustFail b5 [] (processCmd b5 m4 c4 None)
+  -- Burns fail.
+  cr <- attestCompliance b5 (quorum b5) (outboundSubject b5 requestCid 60.0 "0xdest")
+  requestDisclosures <- instructionDisclosures b5 requestCid
+  submitRelayerMustFail b5 requestDisclosures (redeemCmd b5 requestCid cr)
+  -- Refunds and holds fail.
+  d <- discloseFrom b5.ba (fromInterfaceContractId @TokenHolding returned)
+  submitRelayerMustFail b5 [d] (refundCmd b5 returned 0)
+  submitRelayerMustFail b5 [d] (holdCmd b5 returned 0)
+  -- Withdraw, reject, and the registry's accept still run.
+  (b5', _) <- withdraw b5 r1.offer.instructionCid "incident"
+  _ <- submitRelayer b5 requestDisclosures (rejectCmd b5 requestCid "incident")
+  _ <- acceptAs b5.recipient r2.offer.instructionCid
+  holderAfter <- unlockedAmounts b5.holder
+  holderAfter === [60.0]
+  recipientAfter <- unlockedAmounts b5.recipient
+  recipientAfter === [30.0]
+  -- After the unpause the offer lands, in the epoch 1 registry that the
+  -- first write to epoch 0 created, and the refund runs against epoch 0.
+  b6 <- unpause b5'
+  epoch1 <- registryOfEpoch b6 1
+  (_, _) <- process (b6 with nonceRegistryCid = epoch1) m4 c4 None
+  (b7, _) <- refund b6 returned 0
+  status <- nonceStatus b7 0
+  status === Some Refunded
+
+-- | Only the holder of a pause grant from `ba` flips the state, a flip needs
+-- the opposite state, and `ba` hands the pause over by revoking the old grant
+-- and issuing a new one.
+testPauseAuthorityAndHandover : Script ()
+testPauseAuthorityAndHandover = do
+  b0 <- setup
+  d0 <- discloseFrom b0.ba b0.pauseStateCid
+  -- The relayer grant carries no pause permission.
+  submitMustFail (actAs b0.br <> disclose d0) do
+    exerciseCmd b0.pauseStateCid BridgePauseState_Pause with authorization = relayerAuth b0
+  -- A pause grant from another party does not pass.
+  attacker <- allocateParty "attacker"
+  fakeGrant <- grantRole attacker b0.pa (pauseScope instrument)
+  submitMustFail (actAs b0.pa <> disclose d0) do
+    exerciseCmd b0.pauseStateCid BridgePauseState_Pause with
+      authorization = Authorization with actor = b0.pa; grantCid = fakeGrant
+  -- An unpause of a clear state fails.
+  submitMustFail (actAs b0.pa <> disclose d0) do
+    exerciseCmd b0.pauseStateCid BridgePauseState_Unpause with authorization = pauseAuth b0
+  b1 <- pause b0
+  d1 <- discloseFrom b1.ba b1.pauseStateCid
+  -- A second pause fails.
+  submitMustFail (actAs b1.pa <> disclose d1) do
+    exerciseCmd b1.pauseStateCid BridgePauseState_Pause with authorization = pauseAuth b1
+  -- Handover: the old holder loses the pause as soon as `ba` revokes its grant.
+  submit b1.ba do exerciseCmd b1.pauseGrantCid AuthorizationGrant_Revoke
+  submitMustFail (actAs b1.pa <> disclose d1) do
+    exerciseCmd b1.pauseStateCid BridgePauseState_Unpause with authorization = pauseAuth b1
+  pa2 <- allocateParty "pa2"
+  grant2 <- grantRole b1.ba pa2 (pauseScope instrument)
+  let b2 = b1 with pa = pa2, pauseGrantCid = grant2
+  b3 <- unpause b2
+  Some state <- queryContractId b3.ba b3.pauseStateCid
+  state.paused === False
+
+-- | The relayer role moves by revoking and reissuing the grant. Statements
+-- are issued to one relayer, which controls their consumption, so the
+-- attesters issue new statements to the new relayer.
+testRelayerRoleHandover : Script ()
+testRelayerRoleHandover = do
+  b0 <- setup
+  lock <- lockFor b0 0 100.0
+  m <- attestMessage b0 (quorum b0) lock
+  c <- attestCompliance b0 (quorum b0) (inboundSubject lock)
+  submit b0.ba do exerciseCmd b0.relayerGrantCid AuthorizationGrant_Revoke
+  submitRelayerMustFail b0 [] (processCmd b0 m c None)
+  br2 <- allocateParty "br2"
+  grant2 <- grantRole b0.ba br2 (relayScope instrument)
+  let b1 = b0 with br = br2, relayerGrantCid = grant2
+  -- The old relayer's statements are not the new relayer's to consume.
+  submitRelayerMustFail b1 [] (processCmd b1 m c None)
+  m2 <- attestMessage b1 (quorum b1) lock
+  c2 <- attestCompliance b1 (quorum b1) (inboundSubject lock)
+  (b2, result) <- process b1 m2 c2 None
+  _ <- acceptAs b2.recipient result.offer.instructionCid
+  credited <- unlockedAmounts b2.recipient
+  credited === [100.0]
+
+-- | A rotation archives the current attester registry and creates the next
+-- one. Quorums follow the new list, and so do the membership reads.
+testAttesterRegistryRotation : Script ()
+testAttesterRegistryRotation = do
+  b0 <- setup
+  attester4 <- allocateParty "attester4"
+  lock <- lockFor b0 0 100.0
+  -- A statement in flight across the rotation keeps the observers it was
+  -- created with, and keeps the signature of an attester the rotation removes.
+  inFlight <- attestMessage b0 [b0.attester2, b0.attester1] lock
+  newRegistry <- submit b0.ba do
+    exerciseCmd b0.attesterRegistryCid AttesterRegistry_Rotate with
+      newAttesters = [b0.attester2, b0.attester3, attester4]
+      newThreshold = 2
+  let b1 = b0 with attesterRegistryCid = newRegistry
+  -- The removed attester can no longer create statements, and a statement
+  -- it signed outside the registry does not count toward the quorum.
+  rd <- discloseFrom b1.ba newRegistry
+  submitMustFail (actAs b1.attester1 <> disclose rd) do
+    exerciseCmd newRegistry AttesterRegistry_AttestLock with
+      creator = b1.attester1; observers = None; relayer = b1.br; lock
+  mOld <- forgeMessage b1 [b1.attester1, b1.attester2] lock
+  cOld <- forgeCompliance b1 [b1.attester1, b1.attester2] b1.ba (inboundSubject lock) t0
+  submitRelayerMustFail b1 [] (processCmd b1 mOld cOld None)
+  -- The added attester does not observe the statement in flight and cannot
+  -- sign it; an attester it was created with completes the quorum. The
+  -- removed attester's signature stays on the message, does not count, and
+  -- does not invalidate it.
+  submitMustFail attester4 do
+    exerciseCmd inFlight AttestedMessage_Sign with signer = attester4
+  completed <- signMessage inFlight [b1.attester3]
+  Some message <- queryContractId b1.br completed
+  (b1.attester1 `elem` message.signers) === True
+  -- New statements are observed by the new list.
+  cNew <- attestCompliance b1 [attester4, b1.attester3] (inboundSubject lock)
+  Some compliance <- queryContractId b1.ba cNew
+  compliance.attesters === [b1.attester2, b1.attester3, attester4]
+  -- The archived version cannot be handed to the gateway.
+  submitRelayerMustFail b1 [] (processCmd (b1 with attesterRegistryCid = b0.attesterRegistryCid) completed cNew None)
+  (_, _) <- process b1 completed cNew None
+  -- Membership reads follow the rotation.
+  d <- discloseFrom b1.ba newRegistry
+  _ <- submit (actAs b1.attester2 <> disclose d) do
+    exerciseCmd newRegistry AttesterRegistry_Read with reader = b1.attester2
+  submitMustFail (actAs b1.attester1 <> disclose d) do
+    exerciseCmd newRegistry AttesterRegistry_Read with reader = b1.attester1
+  -- A registry with a threshold above its size, or below one, cannot exist.
+  submitMustFail b1.ba do
+    exerciseCmd newRegistry AttesterRegistry_Rotate with
+      newAttesters = [b1.attester2]
+      newThreshold = 2
+
+-- | A listed attester reads a nonce's status and its own listing through
+-- disclosure. An unlisted party cannot, and a read against an attester
+-- registry `ba` does not maintain fails.
+testAttesterReads : Script ()
+testAttesterReads = do
+  b0 <- setup
+  (b1, _, _) <- offerLock b0 0 100.0
+  nd <- discloseFrom b1.ba b1.nonceRegistryCid
+  ad <- discloseFrom b1.ba b1.attesterRegistryCid
+  minted <- submit (actAs b1.attester3 <> discloseMany [nd, ad]) do
+    exerciseCmd b1.nonceRegistryCid NonceRegistry_Read with
+      reader = b1.attester3
+      attesterRegistryCid = b1.attesterRegistryCid
+      nonce = 0
+  minted === Some Minted
+  absent <- submit (actAs b1.attester3 <> discloseMany [nd, ad]) do
+    exerciseCmd b1.nonceRegistryCid NonceRegistry_Read with
+      reader = b1.attester3
+      attesterRegistryCid = b1.attesterRegistryCid
+      nonce = 1
+  absent === None
+  submitMustFail (actAs b1.holder <> discloseMany [nd, ad]) do
+    exerciseCmd b1.nonceRegistryCid NonceRegistry_Read with
+      reader = b1.holder
+      attesterRegistryCid = b1.attesterRegistryCid
+      nonce = 0
+  attacker <- allocateParty "attacker"
+  fakeRegistry <- submit attacker do
+    createCmd AttesterRegistry with maintainer = attacker; attesters = [b1.holder]; threshold = 1
+  fd <- discloseFrom attacker fakeRegistry
+  submitMustFail (actAs b1.holder <> discloseMany [nd, fd]) do
+    exerciseCmd b1.nonceRegistryCid NonceRegistry_Read with
+      reader = b1.holder
+      attesterRegistryCid = fakeRegistry
+      nonce = 0
+
+-- | The supply right scopes the registry's mint and burn to the bridge
+-- account under `ba`. Neither `ba` nor `br` reaches the registry's choices
+-- without it, and archiving it revokes both rights and fails closed.
+testSupplyRight : Script ()
+testSupplyRight = do
+  b0 <- setup
+  rulesDisclosure <- discloseFrom b0.wtokAdmin b0.rulesCid
+  rightDisclosure <- discloseFrom b0.wtokAdmin b0.supplyRightCid
+  submitMustFail (actAs b0.ba <> disclose rulesDisclosure) do
+    exerciseCmd b0.rulesCid TokenRules_Mint with
+      account = basicAccount b0.ba
+      instrumentId = instrument
+      amount = 1.0
+      reason = "direct mint"
+  submitMustFail (actAs b0.br <> discloseMany [rulesDisclosure, rightDisclosure]) do
+    exerciseCmd b0.supplyRightCid BridgeSupplyRight_Mint with amount = 1.0; reason = "relayer mint"
+  submitMustFail b0.wtokAdmin do
+    createCmd BridgeSupplyRight with
+      wtokAdmin = b0.wtokAdmin
+      ba = b0.ba
+      rulesCid = b0.rulesCid
+      bridgeAccount = basicAccount b0.holder
+      instrumentId = instrument
+  (b1', _, r) <- offerLock b0 0 100.0
+  (b1, returned) <- withdraw b1' r.offer.instructionCid "lapsed"
+  submit b1.wtokAdmin do archiveCmd b1.supplyRightCid
+  lock1 <- lockFor b1 1 10.0
+  m1 <- attestMessage b1 (quorum b1) lock1
+  c1 <- attestCompliance b1 (quorum b1) (inboundSubject lock1)
+  submitRelayerMustFail b1 [] (processCmd b1 m1 c1 None)
+  d <- discloseFrom b1.ba (fromInterfaceContractId @TokenHolding returned)
+  submitRelayerMustFail b1 [d] (refundCmd b1 returned 0)
+  supply <- totalSupply b1
+  supply === 100.0
+
+-- | A statement created through the attester registry is observed by every
+-- listed attester, or by a subset of at least N listed attesters that
+-- includes its creator. An attester outside the subset cannot sign it, so
+-- the quorum can route around an attester that blocks what it observes.
+testStatementObservers : Script ()
+testStatementObservers = do
+  b0 <- setup
+  outsider <- allocateParty "outsider"
+  lock <- lockFor b0 0 100.0
+  full <- attestMessage b0 [b0.attester1] lock
+  Some fullView <- queryContractId b0.attester3 full
+  fullView.attesters === [b0.attester1, b0.attester2, b0.attester3]
+  subset <- attestMessageWith b0 (Some [b0.attester1, b0.attester2]) [b0.attester1] lock
+  submitMustFail b0.attester3 do
+    exerciseCmd subset AttestedMessage_Sign with signer = b0.attester3
+  signed <- signMessage subset [b0.attester2]
+  -- Invalid subsets: below N, without the creator, with an unlisted party, with a duplicate.
+  rd <- discloseFrom b0.ba b0.attesterRegistryCid
+  let attempt observers = submitMustFail (actAs b0.attester1 <> disclose rd) do
+        exerciseCmd b0.attesterRegistryCid AttesterRegistry_AttestLock with
+          creator = b0.attester1; observers = Some observers; relayer = b0.br; lock
+  attempt [b0.attester1]
+  attempt [b0.attester2, b0.attester3]
+  attempt [b0.attester1, outsider]
+  attempt [b0.attester1, b0.attester1]
+  -- The compliance attestation follows the same rule, and the ledger stamps its issue time.
+  now <- getTime
+  compliance <- attestComplianceWith b0 (Some [b0.attester1, b0.attester3]) [b0.attester1, b0.attester3]
+    (inboundSubject lock) True (now `addRelTime` hours 1)
+  Some complianceView <- queryContractId b0.ba compliance
+  complianceView.attesters === [b0.attester1, b0.attester3]
+  complianceView.issuedAt === now
+  -- Both reached the quorum without attester2 or attester3 respectively, and the gateway mints.
+  (b1, _) <- process b0 signed compliance None
+  status <- nonceStatus b1 0
+  status === Some Minted
+
+-- | The signatories of each bridge template archive it with the built-in
+-- `Archive`. For an attester statement those are its signers, so the
+-- quorum that signed a statement can withdraw it outside a gateway. `ba`
+-- archives the gateways and the registries it maintains.
+testSignatoriesArchive : Script ()
+testSignatoriesArchive = do
+  b0 <- setup
+  (b, holdingCid) <- creditHolder b0 0 100.0
+  requestCid <- requestRedemption b holdingCid 100.0 "0xdest"
+  redemptionCompliance <- attestCompliance b (quorum b) (outboundSubject b requestCid 100.0 "0xdest")
+  claimCid <- redeem b requestCid redemptionCompliance
+  confirmationCid <- confirmRelease b (quorum b) claimCid
+  lock <- lockFor b 1 50.0
+  messageCid <- attestMessage b (quorum b) lock
+  complianceCid <- attestCompliance b (quorum b) (inboundSubject lock)
+  submit (actAs (quorum b)) do archiveCmd messageCid
+  submit (actAs (quorum b)) do archiveCmd complianceCid
+  submit (actAs (quorum b)) do archiveCmd confirmationCid
+  submit b.ba do archiveCmd b.messagingCid
+  submit b.ba do archiveCmd b.redemptionCid
+  submit b.ba do archiveCmd b.pauseStateCid
+  submit b.ba do archiveCmd b.attesterRegistryCid
+  registries <- query @NonceRegistry b.ba
+  forA_ registries $ \(cid, _) -> submit b.ba do archiveCmd cid
+  remaining <- query @NonceRegistry b.ba
+  remaining === []
+  message <- queryContractId b.ba messageCid
+  message === None
+  gateway <- queryContractId b.ba b.messagingCid
+  gateway === None

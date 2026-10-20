@@ -27,3 +27,115 @@ artifacts:
     source-commit: 7696749737885e25cd88422847105f890f03b00d
     source: https://github.com/OpenZeppelin/canton-contracts/tree/7696749737885e25cd88422847105f890f03b00d/experiments/security/pausable-v1
     license: MIT
+  # The cross-chain bridge experiment consumes the entries below. The
+  # OpenZeppelin DARs are built from `OpenZeppelin/canton-contracts` at
+  # 8a81bc86d7e5b2ec38db4c0c5897ccdb20ac25b8 (branch
+  # `igingu-cip112-simplification-and-rad`, PR #45) targeting Daml-LF 2.1.
+  # That pausable-v1 build has a different package id from the one above, so
+  # its file name carries the short commit. The Splice DARs are byte-identical
+  # copies of the Splice 0.8.3 release artifacts. Never rebuild them from
+  # source: a local build yields different package ids for the same package
+  # names and versions.
+  - package: openzeppelin-tokenCIP112-workflows-v1
+    version: 0.1.0
+    file: dars/vendor/openzeppelin-tokenCIP112-workflows-v1-0.1.0.dar
+    main-package-id: 2f85f0392c01bc6b661f6437ab777186b6a6244fe060bfc18318119c4a5058c9
+    sha256: 3dd076a5ce62ca2a1a6efc6ad11e7942d2c391fda70de5109da43ccc89e426bb
+    source-commit: 8a81bc86d7e5b2ec38db4c0c5897ccdb20ac25b8
+    source: https://github.com/OpenZeppelin/canton-contracts/tree/8a81bc86d7e5b2ec38db4c0c5897ccdb20ac25b8/packages/token/tokenCIP112-workflows-v1
+    license: MIT
+  - package: openzeppelin-tokenCIP112-v1
+    version: 0.1.0
+    file: dars/vendor/openzeppelin-tokenCIP112-v1-0.1.0.dar
+    main-package-id: e550d594809783ee649774af2cf23c9e1b62ecba2968c749664fe18819cd27df
+    sha256: 758c1552c706d3a80e7602be51635a050a207941422f3019cfca0623fd099277
+    source-commit: 8a81bc86d7e5b2ec38db4c0c5897ccdb20ac25b8
+    source: https://github.com/OpenZeppelin/canton-contracts/tree/8a81bc86d7e5b2ec38db4c0c5897ccdb20ac25b8/packages/token/tokenCIP112-v1
+    license: MIT
+  - package: openzeppelin-scoped-authorization-grant-v1
+    version: 0.1.0
+    file: dars/vendor/openzeppelin-scoped-authorization-grant-v1-0.1.0.dar
+    main-package-id: af94533f903956b7f53baa95068657c88354d1702660ec016941461143905519
+    sha256: 750af559c659ba982e6ac2fc97efb3df4945fa7594da1cf5ebca0e49ed44243b
+    source-commit: 8a81bc86d7e5b2ec38db4c0c5897ccdb20ac25b8
+    source: https://github.com/OpenZeppelin/canton-contracts/tree/8a81bc86d7e5b2ec38db4c0c5897ccdb20ac25b8/packages/access/scoped-authorization-grant-v1
+    license: MIT
+  - package: openzeppelin-api-pausable-v1
+    version: 0.1.0
+    file: dars/vendor/openzeppelin-api-pausable-v1-0.1.0.dar
+    main-package-id: 83864acf065cf6771af62ccd480d6adc00f7ee509138ce91e08647d0258b5e81
+    sha256: a195c96206e4b12552e002733bd12d52865eea233ef20b808c8bf1409a13a88b
+    source-commit: 8a81bc86d7e5b2ec38db4c0c5897ccdb20ac25b8
+    source: https://github.com/OpenZeppelin/canton-contracts/tree/8a81bc86d7e5b2ec38db4c0c5897ccdb20ac25b8/packages/security/api-pausable-v1
+    license: MIT
+  - package: openzeppelin-pausable-v1
+    version: 0.1.0
+    file: dars/vendor/openzeppelin-pausable-v1-0.1.0-8a81bc8.dar
+    main-package-id: 4efa161c910a77aff1f17a4404b6f5822c68347205b902f7b4cfd694ba5eba3d
+    sha256: eccd08174c9be060b9da5f24c564d361729e8103364c18bed1437be160f9e381
+    source-commit: 8a81bc86d7e5b2ec38db4c0c5897ccdb20ac25b8
+    source: https://github.com/OpenZeppelin/canton-contracts/tree/8a81bc86d7e5b2ec38db4c0c5897ccdb20ac25b8/packages/security/pausable-v1
+    license: MIT
+  - package: splice-api-token-metadata-v1
+    version: 1.0.0
+    file: dars/vendor/splice-api-token-metadata-v1-1.0.0.dar
+    main-package-id: 4ded6b668cb3b64f7a88a30874cd41c75829f5e064b3fbbadf41ec7e8363354f
+    sha256: 455eb160cb5abd4ae9918a6fbb9dad471f721adda39f0e5c76feef08d05637fc
+    source-commit: 8a81bc86d7e5b2ec38db4c0c5897ccdb20ac25b8
+    source: https://github.com/OpenZeppelin/canton-contracts/blob/8a81bc86d7e5b2ec38db4c0c5897ccdb20ac25b8/dars/vendor/splice-api-token-metadata-v1-1.0.0.dar
+    upstream: https://github.com/canton-network/splice/blob/0.8.3/daml/dars/splice-api-token-metadata-v1-1.0.0.dar
+    license: Apache-2.0
+  - package: splice-api-token-holding-v2
+    version: 1.0.0
+    file: dars/vendor/splice-api-token-holding-v2-1.0.0.dar
+    main-package-id: 4b7ecfc366d79ccc5ed07c80f26fe489cf2dfd43ce2856c06a78e6a048db7032
+    sha256: f044b34d7a28c2b6c8a540af720297d55450a889b451dc4eed64a9914f1d6b00
+    source-commit: 8a81bc86d7e5b2ec38db4c0c5897ccdb20ac25b8
+    source: https://github.com/OpenZeppelin/canton-contracts/blob/8a81bc86d7e5b2ec38db4c0c5897ccdb20ac25b8/dars/vendor/splice-api-token-holding-v2-1.0.0.dar
+    upstream: https://github.com/canton-network/splice/blob/0.8.3/daml/dars/splice-api-token-holding-v2-1.0.0.dar
+    license: Apache-2.0
+  - package: splice-api-token-transfer-events-v2
+    version: 1.0.0
+    file: dars/vendor/splice-api-token-transfer-events-v2-1.0.0.dar
+    main-package-id: 5c1097a9bad0af4bcfe6d3fb0fe55112d3d11f18eae57ddfb14c20836fee226c
+    sha256: 9a1ebe5aece0a7f1a49069fd7aba0ced92c4ae94e5e3d49cdb097733a87dddbc
+    source-commit: 8a81bc86d7e5b2ec38db4c0c5897ccdb20ac25b8
+    source: https://github.com/OpenZeppelin/canton-contracts/blob/8a81bc86d7e5b2ec38db4c0c5897ccdb20ac25b8/dars/vendor/splice-api-token-transfer-events-v2-1.0.0.dar
+    upstream: https://github.com/canton-network/splice/blob/0.8.3/daml/dars/splice-api-token-transfer-events-v2-1.0.0.dar
+    license: Apache-2.0
+  - package: splice-api-token-allocation-v2
+    version: 1.0.0
+    file: dars/vendor/splice-api-token-allocation-v2-1.0.0.dar
+    main-package-id: 051a3b0563a6fa4df4cb34448081e48b061e555aa1a265abf6ae8f3f4cafe439
+    sha256: e349d3a1952cdd52ed55333bef35e9ba40e6e0379521d65556c6aa2f50d9a1fd
+    source-commit: 8a81bc86d7e5b2ec38db4c0c5897ccdb20ac25b8
+    source: https://github.com/OpenZeppelin/canton-contracts/blob/8a81bc86d7e5b2ec38db4c0c5897ccdb20ac25b8/dars/vendor/splice-api-token-allocation-v2-1.0.0.dar
+    upstream: https://github.com/canton-network/splice/blob/0.8.3/daml/dars/splice-api-token-allocation-v2-1.0.0.dar
+    license: Apache-2.0
+  - package: splice-api-token-transfer-instruction-v2
+    version: 1.0.0
+    file: dars/vendor/splice-api-token-transfer-instruction-v2-1.0.0.dar
+    main-package-id: 29317e3b7b165d2bbf16721bcca0ec4869e53eddb2738bddf790d61af28e0099
+    sha256: 720e766456b33abdd26bfc21e54d19413559f0a7ee52000e12d3b6c308199faa
+    source-commit: 8a81bc86d7e5b2ec38db4c0c5897ccdb20ac25b8
+    source: https://github.com/OpenZeppelin/canton-contracts/blob/8a81bc86d7e5b2ec38db4c0c5897ccdb20ac25b8/dars/vendor/splice-api-token-transfer-instruction-v2-1.0.0.dar
+    upstream: https://github.com/canton-network/splice/blob/0.8.3/daml/dars/splice-api-token-transfer-instruction-v2-1.0.0.dar
+    license: Apache-2.0
+  - package: splice-api-token-allocation-instruction-v2
+    version: 1.0.0
+    file: dars/vendor/splice-api-token-allocation-instruction-v2-1.0.0.dar
+    main-package-id: 9818a0b5b827109de03a04c8f6151cde9d1e7fe5123dbb2dfeb0e52d7271287c
+    sha256: 31de6be30385936105b24c8ea544bb25f6eede0d0c008154a11462bb6d14a17b
+    source-commit: 8a81bc86d7e5b2ec38db4c0c5897ccdb20ac25b8
+    source: https://github.com/OpenZeppelin/canton-contracts/blob/8a81bc86d7e5b2ec38db4c0c5897ccdb20ac25b8/dars/vendor/splice-api-token-allocation-instruction-v2-1.0.0.dar
+    upstream: https://github.com/canton-network/splice/blob/0.8.3/daml/dars/splice-api-token-allocation-instruction-v2-1.0.0.dar
+    license: Apache-2.0
+  - package: splice-token-standard-utils
+    version: 2.0.0
+    file: dars/vendor/splice-token-standard-utils-2.0.0.dar
+    main-package-id: 9a8f41a2b1456d357dee5677565c21b9a5aa45b80f0ed6be469694445dd4f6e1
+    sha256: 3346dedf1c4617e92858fe93d6f9c81ebb1a92a6d809378f487e516aa8f877fc
+    source-commit: 8a81bc86d7e5b2ec38db4c0c5897ccdb20ac25b8
+    source: https://github.com/OpenZeppelin/canton-contracts/blob/8a81bc86d7e5b2ec38db4c0c5897ccdb20ac25b8/dars/vendor/splice-token-standard-utils-2.0.0.dar
+    upstream: https://github.com/canton-network/splice/blob/0.8.3/daml/dars/splice-token-standard-utils-2.0.0.dar
+    license: Apache-2.0
