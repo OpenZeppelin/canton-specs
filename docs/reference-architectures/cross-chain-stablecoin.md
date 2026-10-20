@@ -1,8 +1,7 @@
 # Cross-Chain Stablecoin Payment Orchestration on Canton
 
-This reference architecture defines the Canton side of a stablecoin bridge,
-which this document also calls the "rail". An attested lock on an external
-chain mints a wrapped instrument on Canton, and a burn on Canton releases the
+This reference architecture defines the Canton side of a stablecoin bridge. An
+attested lock on an external chain mints a wrapped instrument on Canton, and a burn on Canton releases the
 backing on that chain. Each inbound credit passes compliance checks before it
 is offered, and it lands as a private transfer that the recipient accepts.
 
@@ -18,13 +17,13 @@ requires of a registry.
 The credited amount, the payer and payee identities, and the compliance markers
 project only to the authorized parties.
 
-[Section 2.1](#21-business-roles) defines the rail's parties. This document
+[Section 2.1](#21-business-roles) defines the bridge's parties. This document
 writes the **bridge relayer** as `br`, the **bridge admin** as `ba`, and the
 **pause authority** as `pa`.
 
 **Inbound** moves value from the external chain to Canton, by **lock-and-mint**.
 **Outbound** moves it back, by **burn-and-release**, with each cross-chain
-hop attested by an off-chain attester set ([section 3.2](#32-reserve-and-lock-attestation)).
+hop attested by an off-ledger attester set ([section 3.2](#32-reserve-and-lock-attestation)).
 
 > NOTE: This document calls the other chain the **external chain** in both directions.
 
@@ -69,7 +68,7 @@ We use D1 through D4 as local shorthand for four institutional controls.
 | The Canton side of the bridge: attested mint, private transfer, and attested burn | The deployment and operation of the relayer backend and the attester services, the external-chain lock escrow, external oracles, external-chain validator sets, and light-client proofs |
 | The mint and burn rights the bridge asks of a token registry ([section 3.9](#39-registry-integration)) | The token registry itself, its admin's key custody, and any mint path of the registry outside the bridge's grant |
 | The gateway checks that deny a credit or a redemption without a valid compliance attestation | Compliance and KYC checks that the attester services run before they sign |
-| Token Standard V2 (CIP-0112) two-step transfers: the transfer instruction, its accept, and the transfer preapproval that automates the accept | Token Standard V1 (CIP-0056), and the CIP-0112 allocation and settlement-batch path, which the rail does not use ([section 3.1](#31-inbound-credit)) |
+| Token Standard V2 (CIP-0112) two-step transfers: the transfer instruction, its accept, and the transfer preapproval that automates the accept | Token Standard V1 (CIP-0056), and the CIP-0112 allocation and settlement-batch path, which the bridge does not use ([section 3.1](#31-inbound-credit)) |
 | One Canton synchronizer, with a cross-chain boundary outside it | Cross-synchronizer settlement, and parties hosted on another synchronizer |
 | One external chain behind the wrapped instrument | Backing one instrument from several external chains, and the per-chain reserve accounting and routing it needs |
 | The controls the bridge enforces itself: D1 and D4 ([section 3.6](#36-control-enforcement)) | Seizure (D2), the KYC check itself (D3), registry-side compliance and identity checks, and any control over a wTOK holding after it is credited |
@@ -118,7 +117,7 @@ Two things cross the boundary between the chains: a signature from the
 attester set, and the nonce of a lock ([section 3.1](#31-inbound-credit)).
 Everything else in this design is specific to Canton.
 
-At the center of the rail is the Token Standard V2 transfer instruction, which
+At the center of the bridge is the Token Standard V2 transfer instruction, which
 moves wTOK privately between accounts. The token registry creates and
 completes every wTOK transfer, and the accept that credits the recipient is
 the registry's own choice. Supply enters at the attested mint and leaves at
@@ -272,12 +271,12 @@ so the third column shows who submits for it in the flows of
 
 | Role | Target posture | Who submits in its name | Why |
 |---|---|---|---|
-| Attesters | M parties, one per independent attester organization, each on its own participant. The attester registry lists them, and every check requires N of M, never all of M | Each attester service submits as its own party | One unavailable or unvetted attester must not halt the rail, and one malicious attester must not mint |
+| Attesters | M parties, one per independent attester organization, each on its own participant. The attester registry lists them, and every check requires N of M, never all of M | Each attester service submits as its own party | One unavailable or unvetted attester must not halt the bridge, and one malicious attester must not mint |
 | `ba` | N-of-M across independent organizations, by one of the three routes above. The route, N, and M are open ([section 6](#6-open-design-questions)) | Nothing on the payment path: its authority enters each gateway transaction as the gateway's signatory ([section 3.1](#31-inbound-credit)). Registry rotations and the creation of the gateways are its own transactions, externally signed or run through the approval workflow | It holds the mint right and owns the bridge account, so this role can break the reserve on its own |
 | wTOK admin | Set by the token registry, not by the bridge | The registry's own operations | It can create holdings of its own instrument directly, so the reserve claim trusts it ([section 4.2](#42-trust-boundaries)) |
 | `br` | One party, multi-hosted on several participants that relayer host organizations operate, confirmation threshold 1 | The relayer backend on any host submits directly | It holds no minting trust and is the most submission-heavy role in the design. Integrity comes from the attester split, and relay should ultimately be permissionless, so no single organization controls liveness |
 | `pa` | One party, multi-hosted, confirmation threshold 1, held by organizations other than the relayer hosts | Any host submits a pause or an unpause directly | A pause must take effect at once, so no quorum stands in front of it. It sits outside `br`, so a party that the relayer does not control can stop a compromised relayer. The price is a griefing window, which ends when `ba` revokes the grant ([section 4.2](#42-trust-boundaries)). A duplicate pause or unpause fails on the archived state and changes nothing, so the hosts need no coordination |
-| Recipients | No rail-side decentralization | The recipient's wallet, live or through the transfer preapproval `br` exercises | Nothing credits a recipient without its own signature, live or carried by a transfer preapproval, so it trusts only its own keys and participant |
+| Recipients | No bridge-side decentralization | The recipient's wallet, live or through the transfer preapproval `br` exercises | Nothing credits a recipient without its own signature, live or carried by a transfer preapproval, so it trusts only its own keys and participant |
 
 `br` is the only party on both sides of the cross-chain boundary, and it pays
 for nearly every transaction ([section 5.1](#51-traffic-costs)).
@@ -339,7 +338,7 @@ sequenceDiagram
    the typed **lock attestation**: the
    locked amount, the Canton recipient, the target instrument, the lock's
    nonce, and an expiry. The nonce is the escrow's sequence number, which
-   increases by one per lock. The rail serves one chain
+   increases by one per lock. The bridge serves one chain
    ([section 1.2](#12-scope)) and the nonce registry is scoped to one
    instrument ([section 3.4](#34-registry-identity-and-uniqueness)), so the
    nonce alone identifies a lock. An N-of-M quorum signs that one message, as
@@ -356,7 +355,7 @@ sequenceDiagram
    re-offer checks ([section 3.2](#32-reserve-and-lock-attestation)). That is
    D1 and D3 ([section 3.6](#36-control-enforcement)).
 3. **Gateway transaction.** The **messaging gateway**, the contract whose
-   choices `br` exercises to bring a message onto the rail, runs every bridge
+   choices `br` exercises to bring a message onto Canton, runs every bridge
    check in one choice, and each check fails closed:
 
    - the pause state is clear, and the submitter holds the relayer role;
@@ -429,7 +428,7 @@ checks, however the attesters split their signatures across transactions.
 
 **Rejected alternative: lock-and-unlock.** It pays the recipient from liquidity
 held on the destination side, which adds a liquidity-provider role and an
-inventory-imbalance surface that a reference rail does not need.
+inventory-imbalance surface that a reference bridge does not need.
 
 **Rejected alternative: allocation and settlement batch.** A settlement batch
 makes several legs all-or-nothing, which an exchange needs. An inbound credit
@@ -450,7 +449,7 @@ credit, and it narrows the registry's grant to one account the bridge owns
 ([section 3.9](#39-registry-integration)). A returned credit lands back in
 the bridge account, so the bridge sees how each offer ended without extra
 visibility from the registry. The offer is a standard transfer instruction, so
-the recipient's wallet accepts it without rail-specific code, a custody
+the recipient's wallet accepts it without bridge-specific code, a custody
 provider can run its own approval before the accept, and a registry can
 implement seizure on the pending state
 ([section 3.6](#36-control-enforcement)).
@@ -622,7 +621,7 @@ requires a freeze. Returned value therefore leaves the bridge account
 promptly, and no credit cycles through repeated offers.
 
 **Re-offer.** The one exception to the prompt refund is an instruction that
-expired while the rail could not deliver it: its deadline lapsed during a
+expired while the bridge could not deliver it: its deadline lapsed during a
 synchronizer outage or while the pause state was set. `br` offers that holding
 once more to the same recipient, and refunds it if that offer also returns.
 The gateway choice checks that the nonce is recorded as returned with that
@@ -633,7 +632,7 @@ minted again. The ledger does not record that a deadline lapsed during an
 outage or a pause, so whether a returned credit qualifies is the attesters'
 decision when they issue that attestation. The exception exists so that one
 infrastructure incident does not refund every payment in flight. It applies
-only to a lapse the rail caused, and never to a guess about what the recipient
+only to a lapse the bridge caused, and never to a guess about what the recipient
 wanted.
 
 Attesters read the nonce registry before they sign a lock attestation, and
@@ -871,7 +870,7 @@ contract.
 | Pause state | The instrument | `ba` |
 
 An upgrade adds only `Optional` fields, and every check above reads a required
-field, so each template carries every scope field the rail can ever need from
+field, so each template carries every scope field the bridge can ever need from
 its first deployment ([section 3.7](#37-smart-contract-upgrade-process)).
 
 **Visibility.** `ba` signs every contract the gateway reads, and the gateway
@@ -1068,7 +1067,7 @@ A revocation after the gateway transaction does not stop the accept, with the
 same exposure as a late D1 denial. A registry may add its own identity check
 at the accept.
 
-D3 applies when value enters or leaves the rail, not to transfers in between.
+D3 applies when value enters or leaves the bridge, not to transfers in between.
 A credited wTOK holding moves over the standard's own transfer path, and that
 move checks no KYC.
 
@@ -1098,7 +1097,7 @@ holdings move to the new party's account
 
 ### 3.7 Smart Contract Upgrade Process
 
-The rail will use Smart Contract Upgrade (SCU) for additive changes to its own
+The bridge will use Smart Contract Upgrade (SCU) for additive changes to its own
 gateway and registry packages. The token registry's packages follow the
 registry's own upgrade lineage. An additive release will keep the package name,
 raise the version, set `upgrades:` to the prior deployed DAR, and only append
@@ -1133,7 +1132,7 @@ Before release, the operators will run `dpm build` with the `upgrades:`
 lineage and `dpm upgrade-check --both`, vet the DARs at every affected
 participant, and switch wallets, relayers, attesters, and gateways together to
 the target package preference. If a mint/burn authority, key shape, party set,
-reserve invariant, or message interpretation must cease to be usable, the rail
+reserve invariant, or message interpretation must cease to be usable, the bridge
 will deploy a separately named package and template and migrate or drain
 affected state during a maintenance window.
 
@@ -1150,7 +1149,7 @@ affected state during a maintenance window.
   registry needs its own adapter ([section 3.9](#39-registry-integration)).
 
 Substitution happens at compile time. An adopter replaces the module in its own
-copy of the rail package and redeploys under its own package name. The bridge's
+copy of the bridge package and redeploys under its own package name. The bridge's
 mint, refund, and burn paths carry no interface-dispatched hooks. The only
 interface calls are the Token Standard's transfer factory and transfer
 instruction, and runtime configuration lives in data records on the gateways
@@ -1253,7 +1252,7 @@ This section separates what the ledger enforces from what stays trusted.
 | Late compliance denial | The attesters deny a credit after the gateway offered it, and the recipient accepts before anyone acts. | The accepted downside of D1 at the gateway ([section 3.6](#36-control-enforcement)). `br` withdraws the instruction as soon as the denial arrives, and the exposure is one instruction deadline. A registry may close it with its own check at the accept. |
 | Failed SCU rollout | An upgrade changes how live gateway, registry, or transfer instruction state is interpreted, leaving a pending instruction or bridge message stranded. | The release preserves the SCU-compatible surface, specifies `None` and message-revision semantics, validates the full DAR lineage, and tests v1 pending instructions and redemption attestations through the selected v2 workflow. Source and target DARs are vetted wherever affected transactions are visible; breaking authority, key, reserve, or message changes use an explicit migration or drain plan. |
 | Malicious package upgrade | A new version in the gateway lineage adds or changes a choice that exercises `ba`'s mint right without an attestation, and the hosting participants vet it. SCU compatibility checks the shape of a package and not what a choice body does. | Vetting is the control. Every participant that hosts `ba` vets only DARs that an independent audit has passed, under a published vetting policy, and under a multi-hosted posture a package that fewer than N hosts have vetted cannot be used in that party's transactions. Under the other two routes of [section 2.3](#23-decentralization-and-trust-topology), the gate is the key holders' approval of the upgrade. The registry's own lineage is the registry's to vet. |
-| Package unvetting | A participant that hosts a stakeholder party unvets the rail's package, which blocks every action on the contracts that party is a stakeholder of. | Unvetting freezes contracts rather than freeing them: the holder cannot move the asset either, and a pending credit stays acceptable once re-vetted. No attester is a stakeholder of the registries or a claim, so an attester's unvetting fails only its own reads and the statements it observes, which the rest of the quorum recreates without it ([section 3.6](#36-control-enforcement)). `br` is a stakeholder of neither gateway, so its unvetting fails only its own submissions. Holder-side unvetting is an inherent Canton vetting property with no protocol-level bypass. |
+| Package unvetting | A participant that hosts a stakeholder party unvets the bridge's package, which blocks every action on the contracts that party is a stakeholder of. | Unvetting freezes contracts rather than freeing them: the holder cannot move the asset either, and a pending credit stays acceptable once re-vetted. No attester is a stakeholder of the registries or a claim, so an attester's unvetting fails only its own reads and the statements it observes, which the rest of the quorum recreates without it ([section 3.6](#36-control-enforcement)). `br` is a stakeholder of neither gateway, so its unvetting fails only its own submissions. Holder-side unvetting is an inherent Canton vetting property with no protocol-level bypass. |
 
 ### 4.4 Failure Modes and Recovery
 
@@ -1313,21 +1312,21 @@ A host that loses a race treats the rejection as a no-op.
 
 ### 4.5 Throughput and Contention
 
-The nonce registry serializes every inbound mint of the rail, because each mint
+The nonce registry serializes every inbound mint of the bridge, because each mint
 archives and recreates the registry of its epoch. Consecutive locks carry
 consecutive nonces and land in the same epoch
 ([section 3.2](#32-reserve-and-lock-attestation)), so one contract at a time
 takes every mint of the instrument, and that contract sets the throughput
-ceiling of the rail.
+ceiling of the bridge.
 
 **Registry growth.** A mint recreates the registry with its whole nonce map in
 the create, so the bytes of each gateway transaction grow with the number of
 nonces that registry holds. A single registry per instrument would hold every
-nonce the rail has ever recorded: each mint would cost more traffic
+nonce the bridge has ever recorded: each mint would cost more traffic
 ([section 5.1](#51-traffic-costs)) and take longer to confirm than the one
 before it, and the registry would eventually exceed the synchronizer's maximum
 request size, at which point no mint could commit. The epoch caps the map at
-`E` nonces, so a mint's write is bounded by `E` and not by the rail's history.
+`E` nonces, so a mint's write is bounded by `E` and not by the bridge's history.
 What grows with history is the active contract set of `ba`'s participant, by
 one registry of at most `E` nonces per epoch, which no transaction reads in
 bulk. `E` sets the trade-off: a smaller `E` writes fewer bytes per mint, and a
@@ -1353,7 +1352,7 @@ other and with new offers. Rotations contend with the gateway: a gateway
 transaction fetches the attester registry and the nonce registry, and a
 rotation archives the version it fetched, so a rotation that lands while
 gateway transactions are in flight fails them or is failed by them. Rotations
-are rare and scheduled, so the rail treats them as an operational window, not
+are rare and scheduled, so the bridge treats them as an operational window, not
 as a throughput limit. A redemption accepts its own request, burns it, and
 creates a claim, and it writes no shared bridge contract, so redemptions run
 in parallel with each other and with inbound credits. A refund, a gateway
@@ -1369,14 +1368,14 @@ carries under the key named in [section 3.1](#31-inbound-credit), so one
 external lock or burn maps to one Canton credit. The instruction's contract id
 is not the match key, because a lock that is offered again after an expiry
 gets a new instruction. The interface is upstream and not vendored here. This
-match is a reference pattern for integrators, and the rail does not enforce
+match is a reference pattern for integrators, and the bridge does not enforce
 it.
 
 ---
 
 ## 5. Network Economics: Traffic Costs and App Rewards
 
-Who pays for the rail and who earns from it both follow from which parties
+Who pays for the bridge and who earns from it both follow from which parties
 submit and sign each transaction.
 
 ### 5.1 Traffic Costs
@@ -1407,16 +1406,16 @@ The projection choices of this design therefore set its costs.
   round-trip.
 - The nonce registry write in each gateway transaction grows with the epoch's
   nonce count, up to `E`, and the epoch keeps the per-mint cost flat over the
-  rail's lifetime ([section 4.5](#45-throughput-and-contention)).
+  bridge's lifetime ([section 4.5](#45-throughput-and-contention)).
 - Validator auto-top-up is off by default, and the validator's reserved-traffic
-  floor protects its own automation rather than this app. Running the rail
+  floor protects its own automation rather than this app. Running the bridge
   requires configured top-up plus balance monitoring on `br`'s validator.
 
 ### 5.2 App Rewards
 
-This rail earns through traffic-based app rewards
+This bridge earns through traffic-based app rewards
 ([CIP-0104](https://github.com/canton-foundation/cips/blob/main/cip-0104/cip-0104.md)).
-The super validators must vote them on first, so the rail earns nothing before
+The super validators must vote them on first, so the bridge earns nothing before
 that vote.
 
 `ba` and `br` each hold a `FeaturedAppRight`. Rewards accrue to the parties
@@ -1450,7 +1449,7 @@ own voted right, so this reward approach does not carry over to that design.
 This document fixes no fee model, so under it the reward is the only income.
 Network issuance parameters that the super validators set decide how much of
 the traffic cost it returns, and a round below the reward minimum returns
-nothing. The rail therefore needs a fee or an operator subsidy
+nothing. The bridge therefore needs a fee or an operator subsidy
 ([section 6](#6-open-design-questions)).
 
 ---
@@ -1476,7 +1475,7 @@ activation vote.
 | **KYC proven on-ledger.** The default lets the attester quorum decide KYC off-ledger. The alternative has the gateway also check an issuer-signed credential, which adds a check that the attesters cannot override. It costs a trusted-issuer list, a credential format every KYC issuer adopts, and `ba` observing every credential. Open: whether a deployment needs KYC proven on-ledger. | KYC asserted in the compliance attestation ([section 3.6](#36-control-enforcement)) | A gateway identity check, for a deployment that needs one | Medium |
 | **Deadline values.** The instruction lifetime the gateway requests within the registry's ceiling, the attestation validity, the margin between external-chain finality and Canton ledger time, the attester turnaround, and how long an attester waits past an expired attestation before it signs a refund statement. | The gateway stamps its ceilings at creation ([section 3.5](#35-time-and-deadlines)) | Every deployment, because those ceilings are stamped once | Medium |
 | **Expiry of stale instructions.** Whether `br` withdraws each lapsed instruction one by one or batches the withdrawals in one gateway choice ([section 4.4](#44-failure-modes-and-recovery)). | One withdraw per lapsed instruction | The relayer backend's cleanup automation | Low |
-| **Fee model.** Whether the rail charges a fee, and whether it is a fee leg at the gateway, an off-ledger invoice, or an operator subsidy. A fee changes the amount the recipient receives, so the attested message, the instruction, and the preapproval have to carry it. | No fee. The reward is the only income | Whether the `br` operation is fundable, and the shape of the preapproval if a fee leg is chosen | Medium, an economic decision that reaches into the preapproval and the attested message |
+| **Fee model.** Whether the bridge charges a fee, and whether it is a fee leg at the gateway, an off-ledger invoice, or an operator subsidy. A fee changes the amount the recipient receives, so the attested message, the instruction, and the preapproval have to carry it. | No fee. The reward is the only income | Whether the `br` operation is fundable, and the shape of the preapproval if a fee leg is chosen | Medium, an economic decision that reaches into the preapproval and the attested message |
 
 **Composability with the other reference architectures** needs no new mechanism.
 A recipient that holds an instrument credited here can supply a
