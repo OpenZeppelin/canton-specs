@@ -3,7 +3,7 @@
 This report is the target architecture for a vault-based, overcollateralized
 lending venue on Canton: the on-ledger contract shapes, the borrower wallet
 requirements, the operator's off-ledger services, and the deployment
-topology. It composes the reusable OpenZeppelin pause and access control components with on-chain
+topology. It composes the reusable OpenZeppelin pause component with on-chain
 identity and compliance checks into one application that settles through the
 Canton Network Token Standard V2 (TSv2).
 
@@ -48,7 +48,7 @@ conditions are contract parameters ([consumption and customization](#consumption
 | Core Flows | Create a market; Create a position; Deposit and withdraw collateral; Borrow; Repay debt; Liquidate an underwater position; Close a position; Fund and defund the treasury; Withdraw seized collateral or operator/funder fees. |
 | Asset Representation | CIP-0112 TSv2 holdings owned by the decentralized venue validation party (`dvv`): one collateral holding per position, one liquidity holding and one seized-collateral holding per market; nothing is minted or burned ([custody](#custody)). |
 | Pricing | Every price-dependent choice fetches the selected provider's price contract and enforces the instrument and staleness guards ([section 4.4](#44-dependency-price-oracle)). |
-| Fees | Interest accrues to the funder, meant as a reward but also to absorb bad debt; a configurable share of interest goes to the venue operator ([the treasury](#the-treasury)). The `liquidationBonus` is the premium the operator takes in collateral on a restoring liquidation. |
+| Fees | Interest accrues to the funder, meant as a reward but also to absorb bad debt; a configurable share of interest goes to the venue operator ([the treasury](#the-treasury)). The `liquidationBonus` is the premium the funder takes in collateral on a restoring liquidation, seized together with the collateral that covers the cleared debt and withdrawn by the funder. |
 | Compliance & Control | On-chain **KYC claims** from trusted issuers and optional per-operation **compliance attestations**; both lists are configured by the `dvv`. |
 | Trust Topology | Every venue contract is signed, and every venue holding owned, by the `dvv`. The `dvv` is hosted across independent participant nodes at a confirmation threshold above 1; solvency and seizure bounds are enforced by Daml code ([party topology](#party-and-role-model-topology)). |
 | Component Integration | OpenZeppelin packages and the CIP-0112 Splice interfaces ([section 2](#core-components-and-library-mapping)). |
@@ -256,7 +256,7 @@ debtCleared = if collateralRatio > 1 + liquidationBonus
 ### The Position Flows
 
 Each flow is one ledger transaction: the position choices compute the
-amounts and instructs the transfers ([custody](#custody)), the registries'
+amounts and instruct the transfers ([custody](#custody)), the registries'
 own implementations move the holdings and emit the events. `Compliance gate` stands for the on-chain identity and
 attestation checks on creation, deposit, borrow, and withdrawal.
 
@@ -457,8 +457,8 @@ Consequences:
 Before the consortium opens a market on an instrument pair, it verifies at
 both registries:
 
-- **One-step transfers.** transfers complete in one step when `actors` cover the sender and the receiver, with no provider or pending step, `dvv` self-transfers included, and returns one receiver holding plus at most one change holding. The standard only recommends this, so the venue verifies it.
-- **Exact amounts.** A transfer deducts nothing from its inputs, the holding view's `amount` is what a transfer honors, and the registry never merges, splits, or expires a holding on its own, except dust whose accrued holding fees exceed its amount; the market's minimum amounts keep every holding clear of that bound.
+- **One-step transfers.** Transfers complete in one step when `actors` cover the sender and the receiver, with no provider or pending step, `dvv` self-transfers included, and returns one receiver holding plus at most one change holding. The standard only recommends this, so the venue verifies it.
+- **Exact amounts.** A transfer deducts nothing from its inputs, and the holding view's `amount` is what a transfer honors. The registry never merges or splits a holding on its own, under any condition: positions and markets reference their holdings by contract id, and a registry-side merge would archive a referenced holding and strand the contract.
 - **Context service.** The registry's API serves its transfer factory and choice context to any venue submitter.
 - **Disclosed powers.** Audited TSv2 code, bounded admin powers, disclosed freeze and seizure capabilities, SCU-conformant upgrades. A freeze of `dvv`'s account halts every market in that instrument and cannot be attributed to one borrower ([section 5.3](#53-threat-model)).
 
@@ -474,7 +474,7 @@ market's liquidity and seized-collateral holdings and tracks:
 - `principalCleared`: principal liquidations removed from positions, covered by collateral or written off.
 - `badDebtWrittenOff`: debt no collateral covered, absorbed by the funder, whose interest is the compensation for that risk.
 
-The `dvv`` creates the treasury with the market; the funder fills it with
+`dvv` creates the treasury with the market; the funder fills it with
 `Treasury_Fund` and reclaims un-borrowed liquidity and revenue with
 `Treasury_Defund`. Every repayment is principal plus accrued interest: the
 principal is immediately borrowable again and the interest goes to the fee
@@ -580,8 +580,9 @@ transaction shapes fixed and auditable.
 ## 4. Sample Component Structure
 
 These sketches show the **shape** of each component: fields, signatories,
-keys, and choice declarations, with bodies summarized in comments. They are
-not yet implemented in any end-to-end Daml Script; `accrueDebt`,
+and keys. The choices, their controllers, and their bodies follow
+[the position flows](#the-position-flows) and are left to the
+implementation. They are not yet implemented in any end-to-end Daml Script; `accrueDebt`,
 `collateralRatio`, `restoreAmount`, and `debtCleared` are the formulas of
 [the CDP math](#the-cdp-math).
 
@@ -766,7 +767,7 @@ position, a fresh price, an unpaused market, and the borrower's compliance.
 | Registry admin unavailable or unvetted | no holding in that instrument moves: with the collateral registry down, deposits, withdrawals, closes, liquidations, and collateral withdrawals wait; with the debt-token registry down, borrows, repayments, funding, and defunding wait, while interest accrues | the registry returns | nothing locked; positions wait |
 | Funder's participant unavailable | funding, defunding, and collateral withdrawal wait; every other flow is unaffected, since the funder only observes | the funder's node returns | nothing locked |
 | Borrower's participant unavailable, or its party no longer hosted | the borrower's own flows wait; liquidation is unaffected while the party stays hosted, since the borrower only observes; a party removed from the network strands its position | the borrower's node returns or the party is re-hosted | the borrower's collateral, until its node returns |
-| `vo` unavailable or out of traffic | pauses, liquidations, fee withdrawal, and the disclosure API wait, so the funder's exposure grows unliquidated meanwhile, a breach of the operator's service-level obligation; deposit, withdrawal, and close are unaffected, while creation, borrow, and repay wait for a disclosure source | backend recovery and traffic top-up ([section 6](#6-network-economics-traffic-costs-and-app-rewards)) | nothing locked |
+| `vo` unavailable or out of traffic | out of traffic, its own submissions wait: pauses, liquidations, and fee withdrawal, a breach of the operator's service-level obligation; unavailable, the disclosure API stops as well, so every borrower flow waits for a disclosure source | backend recovery and traffic top-up ([section 6](#6-network-economics-traffic-costs-and-app-rewards)) | nothing locked |
 | `dvv` nodes below the confirmation threshold | every venue flow stalls | the consortium restores or re-homes `dvv` at the party layer; nothing expires or returns on its own, which is the custody trade-off | every venue holding, until `dvv` is restored |
 | Pause in a falling market | borrows, withdrawals, and liquidations blocked while collateral keeps repricing; positions can sink underwater unliquidated, though borrowers can still cure | unpause, or `dvv` switches the oracle | nothing locked |
 | Synchronizer outage | ledger halted: no one can transfer, deposit, or withdraw, while market prices keep moving off-ledger | service resumes; positions may resume underwater, liquidatable at the first fresh price | outage duration |
