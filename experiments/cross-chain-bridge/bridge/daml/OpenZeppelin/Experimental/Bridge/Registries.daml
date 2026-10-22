@@ -13,7 +13,7 @@ import OpenZeppelin.Api.PausableV1 (Pausable, PausableView(..))
 import OpenZeppelin.PausableV1 qualified as Pausable
 import OpenZeppelin.ScopedAuthorizationGrantV1 (Authorization(..))
 import Splice.Api.Token.HoldingV2 qualified as HoldingV2
-import Splice.TokenStandard.Utils (requireMatchExpected)
+import Splice.TokenStandard.Utils (require, requireMatchExpected)
 
 import OpenZeppelin.Experimental.Bridge.Attestations (AttesterRegistry, fetchAttesterRegistry, requireListedAttester)
 import OpenZeppelin.Experimental.Bridge.Policy
@@ -21,12 +21,23 @@ import OpenZeppelin.Experimental.Bridge.Policy
 -- Nonce registry
 -----------------
 
+-- | What a mint recorded about its lock: the amount and the recipient a
+-- re-offer and a refund check, and whether the credit was already offered
+-- once more.
+data LockRecord = LockRecord with
+    amount : Decimal
+    recipient : Party
+    reoffered : Bool
+  deriving (Eq, Show)
+
 -- | The states of a recorded lock nonce. `Returned` records the holding a
 -- gateway withdraw brought back to the bridge account and the ledger time of
 -- that withdraw; a re-offer needs a compliance attestation issued after it.
 data NonceStatus
-  = Minted
+  = Minted with
+      lock : LockRecord
   | Returned with
+      lock : LockRecord
       holdingCid : ContractId HoldingV2.Holding
       withdrawnAt : Time
   | Closed
@@ -35,33 +46,37 @@ data NonceStatus
   deriving (Eq, Show)
 
 -- | The nonces of one instrument and one epoch, a range of `E` consecutive
--- nonces. The gateway checks the epoch against the lock's nonce divided by
--- `E`, which the gateway carries.
+-- nonces. The registry carries `E` and records only its own epoch's nonces;
+-- each successor copies `E`.
 template NonceRegistry with
     maintainer : Party
     instrumentId : Text
+    epochSize : Int
+      -- ^ `E`: the registry of epoch `k` holds the nonces `k*E` to `k*E + E - 1`.
     epoch : Int
     nonces : Map Int NonceStatus
     successorCreated : Bool
   where
     signatory maintainer
-    ensure epoch >= 0
+    ensure epochSize > 0 && epoch >= 0
 
-    -- | Record a nonce. The first write of an epoch's registry also creates
-    -- the next epoch's registry, so each epoch gets exactly one registry.
+    -- | Record a nonce of this epoch. The first write of an epoch's registry
+    -- also creates the next epoch's registry, so each epoch gets exactly one
+    -- registry.
     choice NonceRegistry_Record : ContractId NonceRegistry
       with
         nonce : Int
         status : NonceStatus
       controller maintainer
       do
+        require "nonce belongs to the registry's epoch" (nonce >= 0 && nonce / epochSize == epoch)
         unless successorCreated $ do
           _ <- create this with epoch = epoch + 1, nonces = Map.empty, successorCreated = False
           pure ()
         create this with nonces = Map.insert nonce status nonces, successorCreated = True
 
     -- | A listed attester reads a nonce's status before it signs a lock
-    -- attestation or a refund statement.
+    -- attestation or a no-mint statement.
     nonconsuming choice NonceRegistry_Read : Optional NonceStatus
       with
         reader : Party
@@ -73,28 +88,32 @@ template NonceRegistry with
         requireListedAttester attesterRegistry reader
         pure (Map.lookup nonce nonces)
 
--- | Fetch the nonce registry and check its maintainer, instrument, and epoch
--- against the gateway's own values and the lock's nonce.
+-- | Fetch the nonce registry and check its maintainer and instrument against
+-- the gateway's own values, and its epoch against the lock's nonce divided
+-- by the registry's own `E`.
 fetchNonceRegistry
-  : Party -> Text -> Int -> Int -> ContractId NonceRegistry -> Update NonceRegistry
-fetchNonceRegistry ba instrumentId epochSize nonce cid = do
+  : Party -> Text -> Int -> ContractId NonceRegistry -> Update NonceRegistry
+fetchNonceRegistry ba instrumentId nonce cid = do
   registry <- fetch cid
   requireMatchExpected ("nonceRegistry.maintainer", registry.maintainer) ba
   requireMatchExpected ("nonceRegistry.instrumentId", registry.instrumentId) instrumentId
-  requireMatchExpected ("nonceRegistry.epoch", registry.epoch) (nonce / epochSize)
+  requireMatchExpected ("nonceRegistry.epoch", registry.epoch) (nonce / registry.epochSize)
   pure registry
 
 -- Pause state
 --------------
 
 -- | The emergency stop of one instrument's bridge. `ba` signs it; the holder
--- of the pause role grant flips it.
+-- of the pause role grant flips it. The pause holder observes it, so a pause
+-- needs no disclosure.
 template BridgePauseState with
     maintainer : Party
+    pauseHolder : Party
     instrumentId : Text
     paused : Bool
   where
     signatory maintainer
+    observer pauseHolder
 
     interface instance Pausable for BridgePauseState where
       view = PausableView with paused
@@ -114,6 +133,13 @@ template BridgePauseState with
         requireRole maintainer (pauseScope instrumentId) authorization
         Pausable.whenPaused this
         create this with paused = False
+
+    -- | Hand the pause to a new holder: `ba` recreates the state, paused or
+    -- not, with the new holder as its observer. The grant moves separately.
+    choice BridgePauseState_Handover : ContractId BridgePauseState
+      with newHolder : Party
+      controller maintainer
+      do create this with pauseHolder = newHolder
 
 -- | Fetch the pause state and check its maintainer and instrument.
 fetchPauseState : Party -> Text -> ContractId BridgePauseState -> Update BridgePauseState

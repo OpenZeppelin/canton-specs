@@ -31,11 +31,10 @@ template RedemptionGateway with
     instrumentId : Text
     bridgeAccount : HoldingV2.Account
     supplyRightCid : ContractId BridgeSupplyRight
-    epochSize : Int
     maxAttestationValidity : RelTime
   where
     signatory ba
-    ensure epochSize > 0 && bridgeAccount == basicAccount ba
+    ensure bridgeAccount == basicAccount ba
 
     -- | The burn transaction: the check, the burn, and the claim commit together.
     nonconsuming choice RedemptionGateway_Process : ContractId BridgeClaim
@@ -163,23 +162,26 @@ template RedemptionGateway with
 
 -- | Check that the nonce registry records the lock as minted, or as returned
 -- with this holding, and that the holding is an unlocked bridge-account
--- holding of the instrument, then burn it under the burn right. A credit
--- that came back by a reject or a registry expiry is still recorded as
--- minted, and `br` binds it to its lock. Returns the burned amount.
+-- holding of the instrument that carries the lock's recorded amount, then
+-- burn it under the burn right. A credit that came back by a reject or a
+-- registry expiry is still recorded as minted, and `br` binds it to its
+-- lock among the locks of the same amount. Returns the burned amount.
 burnReturnedCredit
   : RedemptionGateway -> Int -> ContractId HoldingV2.Holding -> ContractId NonceRegistry
   -> Update Decimal
 burnReturnedCredit gateway nonce holdingCid nonceRegistryCid = do
-  nonceRegistry <- fetchNonceRegistry gateway.ba gateway.instrumentId gateway.epochSize nonce nonceRegistryCid
-  case Map.lookup nonce nonceRegistry.nonces of
-    Some Minted -> pure ()
-    Some (Returned returnedCid _) ->
+  nonceRegistry <- fetchNonceRegistry gateway.ba gateway.instrumentId nonce nonceRegistryCid
+  record <- case Map.lookup nonce nonceRegistry.nonces of
+    Some (Minted record) -> pure record
+    Some (Returned record returnedCid _) -> do
       requireMatchExpected ("nonceRegistry.returned.holdingCid", returnedCid) holdingCid
+      pure record
     other -> fail ("nonce is neither minted nor returned: " <> show other)
   holding <- fetch holdingCid
   let h = view holding
   requireMatchExpected ("holding.account", h.account) gateway.bridgeAccount
   requireMatchExpected ("holding.instrumentId.id", h.instrumentId.id) gateway.instrumentId
+  requireMatchExpected ("holding.amount", h.amount) record.amount
   require "holding is unlocked" (isNone h.lock)
   exercise gateway.supplyRightCid BridgeSupplyRight_Burn with
     holdingCid

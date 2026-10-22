@@ -49,15 +49,13 @@ template MessagingGateway with
     instrumentId : Text
     bridgeAccount : HoldingV2.Account
     supplyRightCid : ContractId BridgeSupplyRight
-    epochSize : Int
-      -- ^ `E`: the nonce registry of epoch `k` holds the nonces `k*E` to `k*E + E - 1`.
     instructionLifetime : RelTime
       -- ^ The `executeBefore` the gateway requests, counted from the gateway transaction.
     maxAttestationValidity : RelTime
       -- ^ The ceiling on how far ahead an attestation's expiry may lie.
   where
     signatory ba
-    ensure epochSize > 0 && bridgeAccount == basicAccount ba
+    ensure bridgeAccount == basicAccount ba
 
     -- | The gateway transaction: the checks, the mint, and the offer commit
     -- together, and the delegated accept when a preapproval is given.
@@ -88,12 +86,14 @@ template MessagingGateway with
         requireQuorum attesterRegistry "attested message" message.signers
         requireFresh "lockAttestation.expiresAt" maxAttestationValidity lock.expiresAt
         requireMatchExpected ("lockAttestation.instrumentId", lock.instrumentId) instrumentId
-        nonceRegistry <- fetchNonceRegistry ba instrumentId epochSize lock.nonce nonceRegistryCid
+        nonceRegistry <- fetchNonceRegistry ba instrumentId lock.nonce nonceRegistryCid
         require "nonce registry does not hold the lock's nonce"
           (isNone (Map.lookup lock.nonce nonceRegistry.nonces))
         exercise messageCid AttestedMessage_Consume
         newNonceRegistryCid <- exercise nonceRegistryCid NonceRegistry_Record with
-          nonce = lock.nonce; status = Minted
+          nonce = lock.nonce
+          status = Minted with
+            lock = LockRecord with amount = lock.amount; recipient = lock.recipient; reoffered = False
         -- The attested mint into the bridge account, and the offer.
         right <- fetchSupplyRight ba instrumentId bridgeAccount supplyRightCid
         mintedCid <- exercise supplyRightCid BridgeSupplyRight_Mint with
@@ -123,8 +123,10 @@ template MessagingGateway with
         nonce <- case TextMap.lookup lockNonceMetaKey transfer.meta.values >>= Text.parseInt of
           Some nonce -> pure nonce
           None -> fail "instruction carries no lock nonce"
-        nonceRegistry <- fetchNonceRegistry ba instrumentId epochSize nonce nonceRegistryCid
-        requireMatchExpected ("nonceRegistry.status", Map.lookup nonce nonceRegistry.nonces) (Some Minted)
+        nonceRegistry <- fetchNonceRegistry ba instrumentId nonce nonceRegistryCid
+        record <- case Map.lookup nonce nonceRegistry.nonces of
+          Some (Minted record) -> pure record
+          other -> fail ("nonce is not minted: " <> show other)
         result <- exercise instructionCid TransferInstructionV2.TransferInstruction_Withdraw with
           actors = [ba]
           extraArgs = reasonExtraArgs reason
@@ -133,7 +135,7 @@ template MessagingGateway with
           _ -> fail "expected the withdraw to return one holding"
         withdrawnAt <- getTime
         newNonceRegistryCid <- exercise nonceRegistryCid NonceRegistry_Record with
-          nonce; status = Returned with holdingCid; withdrawnAt
+          nonce; status = Returned with lock = record; holdingCid; withdrawnAt
         pure WithdrawResult with nonceRegistryCid = newNonceRegistryCid; holdingCid
 
     -- | Close a message whose compliance attestation was denied before any
@@ -156,18 +158,20 @@ template MessagingGateway with
         let lock = message.lock
         requireQuorum attesterRegistry "attested message" message.signers
         requireMatchExpected ("lockAttestation.instrumentId", lock.instrumentId) instrumentId
-        nonceRegistry <- fetchNonceRegistry ba instrumentId epochSize lock.nonce nonceRegistryCid
+        nonceRegistry <- fetchNonceRegistry ba instrumentId lock.nonce nonceRegistryCid
         exercise messageCid AttestedMessage_Consume
         case Map.lookup lock.nonce nonceRegistry.nonces of
           None -> exercise nonceRegistryCid NonceRegistry_Record with nonce = lock.nonce; status = Closed
           Some _ -> pure nonceRegistryCid
 
     -- | Offer a returned credit once more to the same recipient. The nonce
-    -- must record this holding as returned by a gateway withdraw, and the
-    -- compliance attestation must be issued after that withdraw, so a
-    -- leftover attestation from an earlier round cannot carry the re-offer.
-    -- Whether the lapse came from a pause or an outage is the attesters'
-    -- decision when they issue that attestation. The nonce returns to minted.
+    -- must record this holding as returned by a gateway withdraw, and must
+    -- not have been offered once more before. The compliance attestation must
+    -- name the recorded recipient and amount, and be issued after that
+    -- withdraw, so a leftover attestation from an earlier round cannot carry
+    -- the re-offer. Whether the lapse came from a pause or an outage is the
+    -- attesters' decision when they issue that attestation. The nonce returns
+    -- to minted, marked as offered once more.
     nonconsuming choice MessagingGateway_Reoffer : ProcessResult
       with
         authorization : Authorization
@@ -188,12 +192,15 @@ template MessagingGateway with
             requireMatchExpected ("complianceAttestation.subject.instrumentId", subjectInstrument) instrumentId
             pure (nonce, recipient, amount)
           _ -> fail "compliance attestation is not bound to an inbound credit"
-        nonceRegistry <- fetchNonceRegistry ba instrumentId epochSize nonce nonceRegistryCid
-        withdrawnAt <- case Map.lookup nonce nonceRegistry.nonces of
-          Some (Returned returnedCid withdrawnAt) -> do
+        nonceRegistry <- fetchNonceRegistry ba instrumentId nonce nonceRegistryCid
+        (record, withdrawnAt) <- case Map.lookup nonce nonceRegistry.nonces of
+          Some (Returned record returnedCid withdrawnAt) -> do
             requireMatchExpected ("nonceRegistry.returned.holdingCid", returnedCid) holdingCid
-            pure withdrawnAt
+            pure (record, withdrawnAt)
           other -> fail ("nonce is not returned by a gateway withdraw: " <> show other)
+        require "credit was not offered once more before" (not record.reoffered)
+        requireMatchExpected ("complianceAttestation.subject.recipient", recipient) record.recipient
+        requireMatchExpected ("complianceAttestation.subject.amount", amount) record.amount
         require "compliance attestation is issued after the withdraw"
           (compliance.issuedAt > withdrawnAt)
         holding <- fetch holdingCid
@@ -203,7 +210,7 @@ template MessagingGateway with
         requireMatchExpected ("holding.amount", h.amount) amount
         require "holding is unlocked" (isNone h.lock)
         newNonceRegistryCid <- exercise nonceRegistryCid NonceRegistry_Record with
-          nonce; status = Minted
+          nonce; status = Minted with lock = (record with reoffered = True)
         right <- fetchSupplyRight ba instrumentId bridgeAccount supplyRightCid
         offer <- offerCredit this right nonce recipient amount [holdingCid] preapprovalCid
         pure ProcessResult with nonceRegistryCid = newNonceRegistryCid; offer

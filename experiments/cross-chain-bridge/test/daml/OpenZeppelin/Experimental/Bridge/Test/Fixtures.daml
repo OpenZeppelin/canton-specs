@@ -149,11 +149,13 @@ setupWith BridgeParties{..} = do
     createCmd NonceRegistry with
       maintainer = ba
       instrumentId = instrument
+      epochSize = testEpochSize
       epoch = 0
       nonces = Map.empty
       successorCreated = False
   pauseStateCid <- submit ba do
-    createCmd BridgePauseState with maintainer = ba; instrumentId = instrument; paused = False
+    createCmd BridgePauseState with
+      maintainer = ba; pauseHolder = pa; instrumentId = instrument; paused = False
   relayerGrantCid <- grantRole ba br (relayScope instrument)
   pauseGrantCid <- grantRole ba pa (pauseScope instrument)
   messagingCid <- submit ba do
@@ -162,7 +164,6 @@ setupWith BridgeParties{..} = do
       instrumentId = instrument
       bridgeAccount = basicAccount ba
       supplyRightCid
-      epochSize = testEpochSize
       instructionLifetime = testInstructionLifetime
       maxAttestationValidity = days 1
   redemptionCid <- submit ba do
@@ -171,7 +172,6 @@ setupWith BridgeParties{..} = do
       instrumentId = instrument
       bridgeAccount = basicAccount ba
       supplyRightCid
-      epochSize = testEpochSize
       maxAttestationValidity = days 1
   pure Bridge{..}
 
@@ -237,6 +237,13 @@ lockFor b nonce amount = do
     instrumentId = instrument
     amount
     expiresAt = now `addRelTime` attestationValidity
+
+-- | What the gateway transaction records about a lock.
+recordOf : LockAttestation -> LockRecord
+recordOf lock = LockRecord with
+  amount = lock.amount
+  recipient = lock.recipient
+  reoffered = False
 
 inboundSubject : LockAttestation -> ComplianceSubject
 inboundSubject lock = InboundCredit with
@@ -532,17 +539,16 @@ holdCmd b holdingCid nonce =
 -- Pause
 --------
 
+-- | `pa` observes the pause state, so it flips it with no disclosure.
 pause : Bridge -> Script Bridge
 pause b = do
-  d <- discloseFrom b.ba b.pauseStateCid
-  newCid <- submit (actAs b.pa <> disclose d) do
+  newCid <- submit b.pa do
     exerciseCmd b.pauseStateCid BridgePauseState_Pause with authorization = pauseAuth b
   pure (b with pauseStateCid = newCid)
 
 unpause : Bridge -> Script Bridge
 unpause b = do
-  d <- discloseFrom b.ba b.pauseStateCid
-  newCid <- submit (actAs b.pa <> disclose d) do
+  newCid <- submit b.pa do
     exerciseCmd b.pauseStateCid BridgePauseState_Unpause with authorization = pauseAuth b
   pure (b with pauseStateCid = newCid)
 
