@@ -88,7 +88,7 @@ Decisions the prototype makes that the proposal does not state:
   holding.
 - The messaging gateway carries the instruction lifetime, and both gateways
   carry the maximum attestation validity, as fields. The nonce registry
-  carries `E`. The tests use `E = 4`, one hour, and one day.
+  carries `E`.
 
 ## What each test demonstrates
 
