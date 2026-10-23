@@ -268,12 +268,12 @@ testRegistryNotMaintainedByBa = do
   -- A clear pause state the attacker maintains, while the real one is set.
   b1 <- pause b0
   fakePause <- submit attacker do
-    createCmd BridgePauseState with maintainer = attacker; pauseHolder = attacker; instrumentId = instrument; paused = False
+    createCmd BridgePauseState with maintainer = attacker; instrumentId = instrument; paused = False
   fp <- discloseFrom attacker fakePause
   submitRelayerMustFail b1 [fp] (processCmd (b1 with pauseStateCid = fakePause) m c None)
   -- A clear pause state `ba` maintains for another instrument.
   otherPause <- submit b1.ba do
-    createCmd BridgePauseState with maintainer = b1.ba; pauseHolder = b1.pa; instrumentId = "OTHER"; paused = False
+    createCmd BridgePauseState with maintainer = b1.ba; instrumentId = "OTHER"; paused = False
   op <- discloseFrom b1.ba otherPause
   submitRelayerMustFail b1 [op] (processCmd (b1 with pauseStateCid = otherPause) m c None)
   b2 <- unpause b1

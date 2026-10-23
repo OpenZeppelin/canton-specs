@@ -154,8 +154,7 @@ setupWith BridgeParties{..} = do
       nonces = Map.empty
       successorCreated = False
   pauseStateCid <- submit ba do
-    createCmd BridgePauseState with
-      maintainer = ba; pauseHolder = pa; instrumentId = instrument; paused = False
+    createCmd BridgePauseState with maintainer = ba; instrumentId = instrument; paused = False
   relayerGrantCid <- grantRole ba br (relayScope instrument)
   pauseGrantCid <- grantRole ba pa (pauseScope instrument)
   messagingCid <- submit ba do
@@ -539,16 +538,17 @@ holdCmd b holdingCid nonce =
 -- Pause
 --------
 
--- | `pa` observes the pause state, so it flips it with no disclosure.
 pause : Bridge -> Script Bridge
 pause b = do
-  newCid <- submit b.pa do
+  d <- discloseFrom b.ba b.pauseStateCid
+  newCid <- submit (actAs b.pa <> disclose d) do
     exerciseCmd b.pauseStateCid BridgePauseState_Pause with authorization = pauseAuth b
   pure (b with pauseStateCid = newCid)
 
 unpause : Bridge -> Script Bridge
 unpause b = do
-  newCid <- submit b.pa do
+  d <- discloseFrom b.ba b.pauseStateCid
+  newCid <- submit (actAs b.pa <> disclose d) do
     exerciseCmd b.pauseStateCid BridgePauseState_Unpause with authorization = pauseAuth b
   pure (b with pauseStateCid = newCid)
 

@@ -104,16 +104,13 @@ fetchNonceRegistry ba instrumentId nonce cid = do
 --------------
 
 -- | The emergency stop of one instrument's bridge. `ba` signs it; the holder
--- of the pause role grant flips it. The pause holder observes it, so a pause
--- needs no disclosure.
+-- of the pause role grant flips it.
 template BridgePauseState with
     maintainer : Party
-    pauseHolder : Party
     instrumentId : Text
     paused : Bool
   where
     signatory maintainer
-    observer pauseHolder
 
     interface instance Pausable for BridgePauseState where
       view = PausableView with paused
@@ -133,13 +130,6 @@ template BridgePauseState with
         requireRole maintainer (pauseScope instrumentId) authorization
         Pausable.whenPaused this
         create this with paused = False
-
-    -- | Hand the pause to a new holder: `ba` recreates the state, paused or
-    -- not, with the new holder as its observer. The grant moves separately.
-    choice BridgePauseState_Handover : ContractId BridgePauseState
-      with newHolder : Party
-      controller maintainer
-      do create this with pauseHolder = newHolder
 
 -- | Fetch the pause state and check its maintainer and instrument.
 fetchPauseState : Party -> Text -> ContractId BridgePauseState -> Update BridgePauseState

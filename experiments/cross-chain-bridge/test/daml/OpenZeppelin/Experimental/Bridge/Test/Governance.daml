@@ -66,9 +66,8 @@ testPauseStopsSupplyPaths = do
   status === Some Refunded
 
 -- | Only the holder of a pause grant from `ba` flips the state, a flip needs
--- the opposite state, and `ba` hands the pause over by revoking the old
--- grant, issuing a new one, and recreating the pause state with the new
--- holder as its observer. Each holder flips the state with no disclosure.
+-- the opposite state, and `ba` hands the pause over by revoking the old grant
+-- and issuing a new one.
 testPauseAuthorityAndHandover : Script ()
 testPauseAuthorityAndHandover = do
   b0 <- setup
@@ -79,32 +78,24 @@ testPauseAuthorityAndHandover = do
   -- A pause grant from another party does not pass.
   attacker <- allocateParty "attacker"
   fakeGrant <- grantRole attacker b0.pa (pauseScope instrument)
-  submitMustFail b0.pa do
+  submitMustFail (actAs b0.pa <> disclose d0) do
     exerciseCmd b0.pauseStateCid BridgePauseState_Pause with
       authorization = Authorization with actor = b0.pa; grantCid = fakeGrant
   -- An unpause of a clear state fails.
-  submitMustFail b0.pa do
+  submitMustFail (actAs b0.pa <> disclose d0) do
     exerciseCmd b0.pauseStateCid BridgePauseState_Unpause with authorization = pauseAuth b0
   b1 <- pause b0
+  d1 <- discloseFrom b1.ba b1.pauseStateCid
   -- A second pause fails.
-  submitMustFail b1.pa do
+  submitMustFail (actAs b1.pa <> disclose d1) do
     exerciseCmd b1.pauseStateCid BridgePauseState_Pause with authorization = pauseAuth b1
   -- Handover: the old holder loses the pause as soon as `ba` revokes its grant.
   submit b1.ba do exerciseCmd b1.pauseGrantCid AuthorizationGrant_Revoke
-  submitMustFail b1.pa do
+  submitMustFail (actAs b1.pa <> disclose d1) do
     exerciseCmd b1.pauseStateCid BridgePauseState_Unpause with authorization = pauseAuth b1
   pa2 <- allocateParty "pa2"
   grant2 <- grantRole b1.ba pa2 (pauseScope instrument)
-  -- Only `ba` recreates the state for the new holder, and the state stays paused.
-  submitMustFail b1.pa do
-    exerciseCmd b1.pauseStateCid BridgePauseState_Handover with newHolder = pa2
-  handedOver <- submit b1.ba do
-    exerciseCmd b1.pauseStateCid BridgePauseState_Handover with newHolder = pa2
-  Some handedOverState <- queryContractId pa2 handedOver
-  handedOverState.paused === True
-  oldHolderView <- queryContractId b1.pa handedOver
-  oldHolderView === None
-  let b2 = b1 with pa = pa2, pauseGrantCid = grant2, pauseStateCid = handedOver
+  let b2 = b1 with pa = pa2, pauseGrantCid = grant2
   b3 <- unpause b2
   Some state <- queryContractId b3.ba b3.pauseStateCid
   state.paused === False

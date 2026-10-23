@@ -163,7 +163,7 @@ the parties above, or it lives on the external chain.
 |---|---|
 | Lock escrow | External-chain contract that holds the backing for the bridged funds. It releases against a verified redemption or refund claim, presented by any submitter ([section 3.3](#33-outbound-redemption)). |
 | Relayer backend | Off-Canton process. It watches the external chain and submits every inbound command as `br`, with the gateways attached as disclosed contracts. |
-| Bridge admin backend | Off-Canton process on a participant that hosts `ba`. It serves the active attester registry and nonce registry as disclosed contracts to the attester services. It serves the first version of each bridge contract, and each new version of the attester registry and the pause state, to the relayer backend ([section 3.4](#34-registry-identity-and-uniqueness)). It submits nothing. |
+| Bridge admin backend | Off-Canton process on a participant that hosts `ba`. It serves the active attester registry and nonce registry as disclosed contracts to the attester services. It serves the first version of each bridge contract, and each new version of the attester registry and the pause state, to the relayer backend ([section 3.4](#34-registry-identity-and-uniqueness)). It serves the active pause state to `pa` as a disclosed contract. It submits nothing. |
 | Attester services | M independent operators on M participants. Each submits as its own attester party, and each runs the compliance and KYC checks before it signs a compliance attestation ([section 3.6](#36-control-enforcement)). |
 | KYC providers | Off-ledger services that the attester services consult for D3. They observe no transfer. |
 | Recipient wallet | Off-Canton process. It accepts pending transfer instructions as the recipient, and it may create a transfer preapproval so that `br` can complete a credit without a live accept. |
@@ -196,7 +196,7 @@ transaction it witnesses divulges it.
 | wTOK holding, in the bridge account or the recipient's | The wTOK admin and the account's parties | The lock's observers, while locked |
 | Compliance attestation | The attesters that sign it | `br`, as the party it is issued to, `ba`, whose authority verifies it inside the gateway, and the attesters listed at its creation, or the subset its creator named ([section 3.6](#36-control-enforcement)) |
 | Attester registry | `ba` | None. A listed attester reads it through disclosure ([section 3.6](#36-control-enforcement)) |
-| Pause state | `ba` | The current `pa` |
+| Pause state | `ba` | None |
 | Pause role grant | `ba` | The current `pa` |
 | Relayer role grant | `ba` | The current `br` |
 | Attested message | The attesters that sign it | `br`, and the attesters listed at its creation, or the subset its creator named |
@@ -1101,7 +1101,7 @@ move checks no KYC.
 with the role responsible for it: relay with the relayer role grant, the pause
 with the pause role grant, and the attested mint, the refund, and both
 registries with `ba`. A permission whose holder must move or be revoked sits on
-a separate role grant, so a change of holder recreates no gateway. An
+a separate role grant, so a change of holder recreates no contract. An
 attestation in flight is the exception: it names the `br` it was issued to, so
 a new `br` needs it reissued. The registry's own privileged choices follow the
 registry's own authority model.
@@ -1111,12 +1111,9 @@ backing: the messaging gateway's mint and offer, and the redemption gateway's
 burn and refund. Paths that return value still run: a withdraw, a reject, and
 the registry's accept and expiry. `ba` signs a pause role grant that names the
 current pause holder, and the holder flips the pause state by presenting that
-grant. The pause state names the current `pa` as its observer, so `pa`'s
-participant holds it and a pause needs nothing from the bridge admin backend.
-The gateways check only the pause state, which `ba` signs, and never record
-who `pa` is. Handing the pause to another party revokes the grant, creates a
-new one, and recreates the pause state with the new observer, and no gateway
-changes.
+grant. The gateways check only the pause state, which `ba` signs, and never
+record who `pa` is, so handing the pause to another party is a revocation and
+a new grant, and no gateway or pause state changes.
 
 Moving `ba` to a new party is the one handover the bridge cannot complete
 alone. The registry re-grants the mint and burn rights to the new party, `br`
@@ -1307,7 +1304,7 @@ lock keeps its refund path throughout ([section 3.1](#31-inbound-credit)).
 | The recipient never accepts | The instruction is pending, and the minted holding is locked in it | At the deadline `br` withdraws and refunds the holding ([section 3.2](#32-reserve-and-lock-attestation)). A recipient that wants nothing rejects, which returns it at once | Instruction deadline |
 | The pause state is set | No new offer, burn, or refund; paths that return value still run ([section 3.6](#36-control-enforcement)) | Clear the pause state. If the incident needs pending offers stopped too, `br` withdraws them through the gateway ([section 3.6](#36-control-enforcement)) | Pause duration |
 | The recipient's participant is down | The recipient cannot accept, and a delegated accept under its preapproval fails to confirm | The instruction needs no confirmation from the recipient to be created or withdrawn, so a down recipient delays its own credit and nothing else. `br` retries the delegated accept until the deadline. A recipient that is down repeatedly is an operational problem, not a safety one | Instruction deadline |
-| The bridge admin backend is down | `br` receives no new version of the attester registry or the pause state, and the attesters receive no new version of the nonce registry. Gateway transactions continue until a rotation or a pause flip, and no-mint statements wait. A pause still commits, because `pa` observes the pause state | Restart the backend on any participant that hosts `ba` ([section 3.4](#34-registry-identity-and-uniqueness)) | Backend outage |
+| The bridge admin backend is down | `br` receives no new version of the attester registry or the pause state, the attesters receive no new version of the nonce registry, and `pa` receives no pause state. Gateway transactions continue until a rotation or a pause flip, and no-mint statements and pause flips wait. | Restart the backend on any participant that hosts `ba` ([section 3.4](#34-registry-identity-and-uniqueness)) | Backend outage |
 | The wTOK admin's participant is down | No mint, offer, accept, withdraw, reject, burn, or refund commits, because the wTOK admin signs every holding and transfer instruction ([section 2.2](#22-privacy-and-visibility)). A close and a pause still commit | The registry operator restores the participant | Participant outage |
 | `br`'s validator runs out of traffic | New offers stop, because the gateway transaction is relayer-paid. A recipient can still accept an instruction that exists | Top up the traffic, and monitor it ([section 5.1](#51-traffic-costs)) | Instruction deadline |
 | The attesters deny a redemption | The holding is locked in the request | `br` rejects the request through the redemption gateway, and the holding returns to the holder ([section 3.3](#33-outbound-redemption)) | Nothing burns |
