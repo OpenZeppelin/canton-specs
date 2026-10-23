@@ -1,8 +1,9 @@
 -- | The registry adapter: the module through which the gateways mint and
 -- burn on the example registry. The example registry has no delegable mint
 -- or burn right, so this capability carries the wTOK admin's signature into
--- `TokenRules_OfferMint` and into a transfer to the CIP-0112 burn account, on
--- the bridge account only. Archiving it revokes both rights. A registry that
+-- the registry's transfer factory: a mint is a transfer from the CIP-0112 mint
+-- account, and a burn is a transfer to the CIP-0112 burn account, both on the
+-- bridge account only. Archiving it revokes both rights. A registry that
 -- grants the rights in its own shape replaces this module.
 module OpenZeppelin.Experimental.Bridge.RegistryAdapter where
 
@@ -11,9 +12,9 @@ import DA.Time (RelTime, addRelTime, seconds)
 import Splice.Api.Token.HoldingV2 qualified as HoldingV2
 import Splice.Api.Token.MetadataV1
 import Splice.Api.Token.TransferInstructionV2 qualified as TransferInstructionV2
-import Splice.TokenStandard.Utils (basicAccount, burnAccount, reasonToMeta, requireMatchExpected)
+import Splice.TokenStandard.Utils (basicAccount, burnAccount, mintAccount, reasonToMeta, requireMatchExpected)
 
-import OpenZeppelin.Token.Cip112.V1.Registry (TokenRules, TokenRules_OfferMint(..))
+import OpenZeppelin.Token.Cip112.V1.Registry (TokenRules)
 
 import OpenZeppelin.Experimental.Bridge.Policy (noExtraArgs)
 
@@ -30,29 +31,19 @@ template BridgeSupplyRight with
     observer ba
     ensure bridgeAccount == basicAccount ba
 
-    -- | Mint into the bridge account: the wTOK admin's mint offer, which
-    -- `ba` accepts as the bridge account's owner in the same choice.
+    -- | Mint into the bridge account: a transfer from the mint account.
     nonconsuming choice BridgeSupplyRight_Mint : ContractId HoldingV2.Holding
       with
         amount : Decimal
         reason : Text
       controller ba
       do
-        now <- getTime
-        offerCid <- exercise rulesCid TokenRules_OfferMint with
-          receiver = bridgeAccount; instrumentId; amount; reason
-          requestedAt = now
-          executeBefore = now `addRelTime` completionWindow
-        result <- exercise offerCid TransferInstructionV2.TransferInstruction_Accept with
-          actors = [ba]
-          extraArgs = noExtraArgs
-        case result.output of
-          TransferInstructionV2.TransferInstructionResult_Completed [holdingCid] -> pure holdingCid
-          _ -> fail "expected the mint offer to complete with one holding"
+        holdingCids <- supplyTransfer this mintAccount bridgeAccount amount [] reason
+        case holdingCids of
+          [holdingCid] -> pure holdingCid
+          _ -> fail "expected the mint to create one holding"
 
-    -- | Burn a bridge-account holding: a transfer of all of it to the
-    -- CIP-0112 burn account, completed in one step by `ba` as the sender and
-    -- the wTOK admin as the burn account's party.
+    -- | Burn a bridge-account holding: a transfer of all of it to the burn account.
     nonconsuming choice BridgeSupplyRight_Burn : ()
       with
         holdingCid : ContractId HoldingV2.Holding
@@ -60,27 +51,35 @@ template BridgeSupplyRight with
       controller ba
       do
         holding <- fetch holdingCid
-        now <- getTime
-        result <- exercise (toInterfaceContractId @TransferInstructionV2.TransferFactory rulesCid)
-          TransferInstructionV2.TransferFactory_Transfer with
-            transfer = TransferInstructionV2.Transfer with
-              sender = bridgeAccount
-              receiver = burnAccount
-              amount = (view holding).amount
-              instrumentId = HoldingV2.InstrumentId with admin = wtokAdmin; id = instrumentId
-              requestedAt = now
-              executeBefore = now `addRelTime` completionWindow
-              inputHoldingCids = [holdingCid]
-              meta = reasonToMeta reason emptyMetadata
-            actors = [ba, wtokAdmin]
-            extraArgs = noExtraArgs
-        case result.output of
-          TransferInstructionV2.TransferInstructionResult_Completed _ -> pure ()
-          _ -> fail "expected the burn to complete"
+        _ <- supplyTransfer this bridgeAccount burnAccount (view holding).amount [holdingCid] reason
+        pure ()
 
--- | The execution window of the mint offer and the burn transfer. Both
--- complete in the choice that creates them, so any window within the
--- registry's `maxTTL` serves.
+-- | A transfer between the bridge account and a CIP-0112 supply account
+-- through the registry's transfer factory, completed in one step by `ba` as
+-- the bridge account's owner and the wTOK admin as the supply account's only
+-- party. Returns the receiver's holdings.
+supplyTransfer
+  : BridgeSupplyRight -> HoldingV2.Account -> HoldingV2.Account -> Decimal
+  -> [ContractId HoldingV2.Holding] -> Text
+  -> Update [ContractId HoldingV2.Holding]
+supplyTransfer right sender receiver amount inputHoldingCids reason = do
+  now <- getTime
+  result <- exercise (toInterfaceContractId @TransferInstructionV2.TransferFactory right.rulesCid)
+    TransferInstructionV2.TransferFactory_Transfer with
+      transfer = TransferInstructionV2.Transfer with
+        sender; receiver; amount; inputHoldingCids
+        instrumentId = HoldingV2.InstrumentId with admin = right.wtokAdmin; id = right.instrumentId
+        requestedAt = now
+        executeBefore = now `addRelTime` completionWindow
+        meta = reasonToMeta reason emptyMetadata
+      actors = [right.ba, right.wtokAdmin]
+      extraArgs = noExtraArgs
+  case result.output of
+    TransferInstructionV2.TransferInstructionResult_Completed cids -> pure cids
+    _ -> fail "expected the supply transfer to complete in one step"
+
+-- | The execution window of a supply transfer. It completes in the choice
+-- that creates it, so any window within the registry's `maxTTL` serves.
 completionWindow : RelTime
 completionWindow = seconds 1
 

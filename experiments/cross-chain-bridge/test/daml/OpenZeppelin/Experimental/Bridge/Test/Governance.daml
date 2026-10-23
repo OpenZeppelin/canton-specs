@@ -11,8 +11,10 @@ import Daml.Script
 
 import OpenZeppelin.ScopedAuthorizationGrantV1
 import OpenZeppelin.Token.Cip112.V1.Holding (TokenHolding)
-import OpenZeppelin.Token.Cip112.V1.Registry (TokenRules_OfferMint(..))
-import Splice.TokenStandard.Utils (basicAccount)
+import OpenZeppelin.Token.Cip112.V1.Registry ()
+import Splice.Api.Token.MetadataV1 (emptyMetadata)
+import Splice.Api.Token.TransferInstructionV2 qualified as TransferInstructionV2
+import Splice.TokenStandard.Utils (basicAccount, mintAccount)
 
 import OpenZeppelin.Experimental.Bridge.Attestations
 import OpenZeppelin.Experimental.Bridge.Policy
@@ -220,13 +222,19 @@ testSupplyRight = do
   rulesDisclosure <- discloseFrom b0.wtokAdmin b0.rulesCid
   rightDisclosure <- discloseFrom b0.wtokAdmin b0.supplyRightCid
   submitMustFail (actAs b0.ba <> disclose rulesDisclosure) do
-    exerciseCmd b0.rulesCid TokenRules_OfferMint with
-      receiver = basicAccount b0.ba
-      instrumentId = instrument
-      amount = 1.0
-      requestedAt = t0
-      executeBefore = t0 `addRelTime` hours 1
-      reason = "direct mint"
+    exerciseCmd (toInterfaceContractId @TransferInstructionV2.TransferFactory b0.rulesCid)
+      TransferInstructionV2.TransferFactory_Transfer with
+        transfer = TransferInstructionV2.Transfer with
+          sender = mintAccount
+          receiver = basicAccount b0.ba
+          amount = 1.0
+          instrumentId = wtokInstrument b0
+          requestedAt = t0
+          executeBefore = t0 `addRelTime` hours 1
+          inputHoldingCids = []
+          meta = emptyMetadata
+        actors = [b0.ba, b0.wtokAdmin]
+        extraArgs = noExtraArgs
   submitMustFail (actAs b0.br <> discloseMany [rulesDisclosure, rightDisclosure]) do
     exerciseCmd b0.supplyRightCid BridgeSupplyRight_Mint with amount = 1.0; reason = "relayer mint"
   submitMustFail b0.wtokAdmin do
