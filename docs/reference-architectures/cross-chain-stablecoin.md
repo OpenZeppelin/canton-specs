@@ -1467,7 +1467,7 @@ nothing, because it holds no right. The exact share depends on how Canton
 splits the gateway transaction into views. Measured on Canton LocalNet with
 `scripts/localnet-bridge-app-rewards.sh`, which features all three parties and
 runs one credit with a live accept and one under a preapproval, the round that
-holds the two credits paid `ba` 65.2%, the wTOK admin 20.5%, and `br` 14.2% of
+holds the two credits paid `ba` 65.1%, the wTOK admin 20.6%, and `br` 14.3% of
 its app-reward pool, and the SV minted a `RewardCouponV2` for each of the
 three. The setup transactions, measured in a separate round, paid `ba` and the
 wTOK admin and nothing to `br`, which submitted none of them.
