@@ -10,9 +10,11 @@ import DA.Time (addRelTime, hours)
 import Daml.Script
 
 import OpenZeppelin.ScopedAuthorizationGrantV1
-import OpenZeppelin.TokenCIP112V1.Holding (TokenHolding)
-import OpenZeppelin.TokenCIP112V1.Registry (TokenRules_Mint(..))
-import Splice.TokenStandard.Utils (basicAccount)
+import OpenZeppelin.Token.Cip112.V1.Holding (TokenHolding)
+import OpenZeppelin.Token.Cip112.V1.Registry ()
+import Splice.Api.Token.MetadataV1 (emptyMetadata)
+import Splice.Api.Token.TransferInstructionV2 qualified as TransferInstructionV2
+import Splice.TokenStandard.Utils (basicAccount, mintAccount)
 
 import OpenZeppelin.Experimental.Bridge.Attestations
 import OpenZeppelin.Experimental.Bridge.Policy
@@ -181,7 +183,7 @@ testAttesterRegistryRotation = do
 testAttesterReads : Script ()
 testAttesterReads = do
   b0 <- setup
-  (b1, _, _) <- offerLock b0 0 100.0
+  (b1, lock, _) <- offerLock b0 0 100.0
   nd <- discloseFrom b1.ba b1.nonceRegistryCid
   ad <- discloseFrom b1.ba b1.attesterRegistryCid
   minted <- submit (actAs b1.attester3 <> discloseMany [nd, ad]) do
@@ -189,7 +191,7 @@ testAttesterReads = do
       reader = b1.attester3
       attesterRegistryCid = b1.attesterRegistryCid
       nonce = 0
-  minted === Some Minted
+  minted === Some (Minted (recordOf lock))
   absent <- submit (actAs b1.attester3 <> discloseMany [nd, ad]) do
     exerciseCmd b1.nonceRegistryCid NonceRegistry_Read with
       reader = b1.attester3
@@ -220,11 +222,19 @@ testSupplyRight = do
   rulesDisclosure <- discloseFrom b0.wtokAdmin b0.rulesCid
   rightDisclosure <- discloseFrom b0.wtokAdmin b0.supplyRightCid
   submitMustFail (actAs b0.ba <> disclose rulesDisclosure) do
-    exerciseCmd b0.rulesCid TokenRules_Mint with
-      account = basicAccount b0.ba
-      instrumentId = instrument
-      amount = 1.0
-      reason = "direct mint"
+    exerciseCmd (toInterfaceContractId @TransferInstructionV2.TransferFactory b0.rulesCid)
+      TransferInstructionV2.TransferFactory_Transfer with
+        transfer = TransferInstructionV2.Transfer with
+          sender = mintAccount
+          receiver = basicAccount b0.ba
+          amount = 1.0
+          instrumentId = wtokInstrument b0
+          requestedAt = t0
+          executeBefore = t0 `addRelTime` hours 1
+          inputHoldingCids = []
+          meta = emptyMetadata
+        actors = [b0.ba, b0.wtokAdmin]
+        extraArgs = noExtraArgs
   submitMustFail (actAs b0.br <> discloseMany [rulesDisclosure, rightDisclosure]) do
     exerciseCmd b0.supplyRightCid BridgeSupplyRight_Mint with amount = 1.0; reason = "relayer mint"
   submitMustFail b0.wtokAdmin do
@@ -281,7 +291,7 @@ testStatementObservers = do
   -- Both reached the quorum without attester2 or attester3 respectively, and the gateway mints.
   (b1, _) <- process b0 signed compliance None
   status <- nonceStatus b1 0
-  status === Some Minted
+  status === Some (Minted (recordOf lock))
 
 -- | The signatories of each bridge template archive it with the built-in
 -- `Archive`. For an attester statement those are its signers, so the
