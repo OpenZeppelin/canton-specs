@@ -11,7 +11,7 @@ import DA.TextMap qualified as TextMap
 import DA.Time (addRelTime, days, minutes, seconds)
 import Daml.Script
 
-import OpenZeppelin.TokenCIP112V1.Holding (TokenHolding)
+import OpenZeppelin.Token.Cip112.V1.Holding (TokenHolding)
 import Splice.Api.Token.HoldingV2 qualified as HoldingV2
 import Splice.Api.Token.TransferInstructionV2 qualified as TransferInstructionV2
 import Splice.TokenStandard.Utils (basicAccount)

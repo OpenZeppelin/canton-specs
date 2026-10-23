@@ -11,7 +11,7 @@ import DA.TextMap qualified as TextMap
 import DA.Time (RelTime, addRelTime)
 
 import OpenZeppelin.ScopedAuthorizationGrantV1 (Authorization(..))
-import OpenZeppelin.TokenCIP112V1.Registry ()
+import OpenZeppelin.Token.Cip112.V1.Registry ()
 import Splice.Api.Token.HoldingV2 qualified as HoldingV2
 import Splice.Api.Token.MetadataV1
 import Splice.Api.Token.TransferInstructionV2 qualified as TransferInstructionV2

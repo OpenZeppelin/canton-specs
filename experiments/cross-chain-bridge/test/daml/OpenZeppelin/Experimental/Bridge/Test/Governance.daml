@@ -10,8 +10,8 @@ import DA.Time (addRelTime, hours)
 import Daml.Script
 
 import OpenZeppelin.ScopedAuthorizationGrantV1
-import OpenZeppelin.TokenCIP112V1.Holding (TokenHolding)
-import OpenZeppelin.TokenCIP112V1.Registry (TokenRules_Mint(..))
+import OpenZeppelin.Token.Cip112.V1.Holding (TokenHolding)
+import OpenZeppelin.Token.Cip112.V1.Registry (TokenRules_OfferMint(..))
 import Splice.TokenStandard.Utils (basicAccount)
 
 import OpenZeppelin.Experimental.Bridge.Attestations
@@ -220,10 +220,12 @@ testSupplyRight = do
   rulesDisclosure <- discloseFrom b0.wtokAdmin b0.rulesCid
   rightDisclosure <- discloseFrom b0.wtokAdmin b0.supplyRightCid
   submitMustFail (actAs b0.ba <> disclose rulesDisclosure) do
-    exerciseCmd b0.rulesCid TokenRules_Mint with
-      account = basicAccount b0.ba
+    exerciseCmd b0.rulesCid TokenRules_OfferMint with
+      receiver = basicAccount b0.ba
       instrumentId = instrument
       amount = 1.0
+      requestedAt = t0
+      executeBefore = t0 `addRelTime` hours 1
       reason = "direct mint"
   submitMustFail (actAs b0.br <> discloseMany [rulesDisclosure, rightDisclosure]) do
     exerciseCmd b0.supplyRightCid BridgeSupplyRight_Mint with amount = 1.0; reason = "relayer mint"

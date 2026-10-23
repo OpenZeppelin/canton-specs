@@ -13,10 +13,10 @@ import DA.Time (RelTime, addRelTime, days, hours, time)
 import Daml.Script
 
 import OpenZeppelin.ScopedAuthorizationGrantV1
-import OpenZeppelin.TokenCIP112WorkflowsV1.Holding (RegistryConfig(..))
-import OpenZeppelin.TokenCIP112V1.Holding (TokenHolding(..))
-import OpenZeppelin.TokenCIP112V1.Registry (TokenRules(..))
-import OpenZeppelin.TokenCIP112V1.Transfer (TokenTransferInstruction(..))
+import OpenZeppelin.Token.Cip112.TypesV1 (RegistryConfig(..))
+import OpenZeppelin.Token.Cip112.V1.Holding (TokenHolding(..))
+import OpenZeppelin.Token.Cip112.V1.Registry (TokenRules(..))
+import OpenZeppelin.Token.Cip112.V1.Transfer (TokenTransferInstruction(..))
 import Splice.Api.Token.HoldingV2 qualified as HoldingV2
 import Splice.Api.Token.MetadataV1
 import Splice.Api.Token.TransferInstructionV2 qualified as TransferInstructionV2

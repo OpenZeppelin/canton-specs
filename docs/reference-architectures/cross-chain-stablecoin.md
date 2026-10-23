@@ -38,7 +38,7 @@ as a whole. Each inbound credit is one transfer instruction that its recipient
 accepts.
 
 `OpenZeppelin/canton-contracts` holds a [draft registry
-implementation](https://github.com/OpenZeppelin/canton-contracts/tree/8a81bc86d7e5b2ec38db4c0c5897ccdb20ac25b8/packages/token/tokenCIP112-v1/daml/OpenZeppelin/TokenCIP112V1)
+implementation](https://github.com/OpenZeppelin/canton-contracts/tree/6a916c174db7d6163ebeea4df1049044cefc7b3c/packages/token/token-cip112-v1/daml/OpenZeppelin/Token/Cip112/V1)
 of the Token Standard V2 interfaces, including the transfer instruction. This
 document uses it as the example wTOK registry. Its transfers are private
 through per-party projection: a counterparty sees only the transfers it sends
@@ -97,7 +97,7 @@ complete or audited.
 
 | Component | Location | Remaining work |
 |---|---|---|
-| Example wTOK registry: the `TokenRules` template, the transfer factory and transfer instruction, holdings, and the event log contract | [`canton-contracts` `tokenCIP112-v1`](https://github.com/OpenZeppelin/canton-contracts/tree/8a81bc86d7e5b2ec38db4c0c5897ccdb20ac25b8/packages/token/tokenCIP112-v1) | A mint right and a burn right that the registry grants to `ba` and scopes to the bridge account ([section 3.9](#39-registry-integration)) |
+| Example wTOK registry: the `TokenRules` template, the transfer factory and transfer instruction, holdings, and the event log contract | [`canton-contracts` `token-cip112-v1`](https://github.com/OpenZeppelin/canton-contracts/tree/6a916c174db7d6163ebeea4df1049044cefc7b3c/packages/token/token-cip112-v1) | A mint right and a burn right that the registry grants to `ba` and scopes to the bridge account ([section 3.9](#39-registry-integration)) |
 | Compliance attestation path (D1) | [Section 3.6](#36-control-enforcement) | The whole implementation: the compliance attestation, the quorum check against the attester registry, and the gateway check that consumes it |
 | Role grants (D4) | [`canton-contracts` `scoped-authorization-grant-v1`](https://github.com/OpenZeppelin/canton-contracts/tree/aeca01d043311d8ccc8ab7cda4d7c16e682429fa/packages/access/scoped-authorization-grant-v1) | The wiring into each privileged bridge choice |
 | Pause state | [`canton-contracts` `pausable-v1`](https://github.com/OpenZeppelin/canton-contracts/tree/aeca01d043311d8ccc8ab7cda4d7c16e682429fa/packages/security/pausable-v1) | The pause state template and its set and clear choices ([section 3.6](#36-control-enforcement)) |
@@ -1227,7 +1227,7 @@ and the reserve claim then covers the bridged part only
 The example registry implements the transfer interfaces and has no mint or
 burn right that names another party, so a wTOK deployment of it needs one
 ([section 1.3](#13-component-status)). Its
-[admin mint](https://github.com/OpenZeppelin/canton-contracts/blob/8a81bc86d7e5b2ec38db4c0c5897ccdb20ac25b8/packages/token/tokenCIP112-v1/daml/OpenZeppelin/TokenCIP112V1/Registry.daml#L66-L74)
+[admin mint](https://github.com/OpenZeppelin/canton-contracts/blob/6a916c174db7d6163ebeea4df1049044cefc7b3c/packages/token/token-cip112-v1/daml/OpenZeppelin/Token/Cip112/V1/Registry.daml#L74-L86)
 is the admin's own and consumes no attestation, so a wTOK deployment must not
 use it, or the 1:1 backing fails.
 

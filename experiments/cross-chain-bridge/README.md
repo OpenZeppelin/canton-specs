@@ -17,20 +17,20 @@ including where it departs from the proposal.
 
 ## Dependencies
 
-The five OpenZeppelin DARs are built from `OpenZeppelin/canton-contracts`
-at commit `8a81bc86d7e5b2ec38db4c0c5897ccdb20ac25b8` on branch
-`igingu-cip112-simplification-and-rad`: `openzeppelin-tokenCIP112-v1`,
-`openzeppelin-tokenCIP112-workflows-v1`, `openzeppelin-scoped-authorization-grant-v1`,
+The six OpenZeppelin DARs are built from `OpenZeppelin/canton-contracts`
+at commit `6a916c174db7d6163ebeea4df1049044cefc7b3c` on `main`:
+`openzeppelin-token-cip112-types-v1`, `openzeppelin-token-cip112-utils`,
+`openzeppelin-token-cip112-v1`, `openzeppelin-scoped-authorization-grant-v1`,
 `openzeppelin-api-pausable-v1`, and `openzeppelin-pausable-v1`. The seven
 Splice Token Standard V2 DARs are byte-identical copies of the Splice 0.8.3
-release artifacts that the branch vendors. The CIP-112 packages are consumed
-as published and not modified.
+release artifacts that `canton-contracts` vendors. The CIP-112 packages are
+consumed as published and not modified.
 
-All twelve DARs sit in [`dars/vendor/`](../../dars/vendor/) at the repository
+All thirteen DARs sit in [`dars/vendor/`](../../dars/vendor/) at the repository
 root, and [`dars/manifest.yaml`](../../dars/manifest.yaml) records their
 provenance. The `pausable-v1` build from this commit has a different package id
 from the one the settlement exemplar consumes, so its file is
-`openzeppelin-pausable-v1-0.1.0-8a81bc8.dar`. The packages build with the
+`openzeppelin-pausable-v1-0.1.0-6a916c1.dar`. The packages build with the
 workspace SDK of [`multi-package.yaml`](../../multi-package.yaml).
 
 ## Build and test
@@ -68,7 +68,7 @@ about ten minutes with the container images already pulled.
 
 | Proposal | Prototype |
 |---|---|
-| Mint right and burn right (section 3.9) | `BridgeSupplyRight` in `RegistryAdapter.daml`: the wTOK admin signs it, it names `ba`, and its two choices exercise `TokenRules_Mint` and `TokenRules_Burn` on the bridge account only. Archiving it revokes both rights |
+| Mint right and burn right (section 3.9) | `BridgeSupplyRight` in `RegistryAdapter.daml`: the wTOK admin signs it and it names `ba`. Its mint choice exercises `TokenRules_OfferMint` to the bridge account, and `ba` accepts the offer in the same choice. Its burn choice transfers a bridge-account holding to the CIP-0112 burn account in one step, with `ba` and the wTOK admin as actors. Archiving it revokes both rights |
 | Attested message with the lock attestation (section 3.1) | `AttestedMessage` in `Attestations.daml`: one co-signed contract per message. The first attester creates it through `AttesterRegistry_AttestLock`, the attesters listed at that moment observe it, each further observer adds itself through `AttestedMessage_Sign`, and only a gateway choice consumes it |
 | Compliance attestation (sections 3.1 and 3.6) | `ComplianceAttestation`, created through `AttesterRegistry_AttestCompliance` and co-signed the same way, bound to an inbound credit or to a redemption request through `ComplianceSubject`, with the KYC assertion, the ledger-stamped `issuedAt`, and an expiry |
 | Attester registry (section 3.6) | `AttesterRegistry` in `Attestations.daml`, with its maintainer field, its read choice, and the two creating choices. A creator may name a subset of at least N listed attesters as observers |
@@ -141,8 +141,9 @@ Decisions the prototype makes that the proposal does not state:
 - Every party is a single-key party. The N-of-M posture of `ba` is out of scope.
 - Time moves through `setTime` and `passTime`. The ledger time tolerance of
   a real synchronizer is not modeled.
-- The example registry's admin can still mint directly. No bridge contract
-  checks that the supply right is the instrument's only mint path.
+- The example registry's admin can still offer a mint directly through
+  `TokenRules_OfferMint`. No bridge contract checks that the supply right is
+  the instrument's only mint path.
 
 ## Results
 
@@ -163,7 +164,7 @@ Decisions the prototype makes that the proposal does not state:
 - A leftover compliance attestation stays active until a gateway choice
   consumes it or its signers archive it.
 - With `ba`, `br`, and the wTOK admin each featured, the LocalNet round that
-  held the two credits paid `ba` 65.1%, the wTOK admin 20.6%, and `br` 14.3%
+  held the two credits paid `ba` 64.7%, the wTOK admin 20.7%, and `br` 14.6%
   of its app-reward pool, and the SV minted a `RewardCouponV2` for each. `br`
   signs no bridge contract, so its share comes from being the actor of the
   two gateway exercises. The setup round paid only `ba` and the wTOK admin.
