@@ -16,6 +16,7 @@
 module OpenZeppelin.Experimental.Interop.Cip0086Erc20 where
 
 import DA.Assert ((===))
+import DA.Foldable (forA_)
 import DA.Time (addRelTime)
 import Daml.Script
 
@@ -259,6 +260,62 @@ test_cip0086_transferFromExceedsAllowanceFails = script do
       requestedAt = now
       executeBefore = addRelTime now settlementWindow
   (erc20BalanceOf admin ownerAcct) >>= \b -> b === 100.0
+
+-- | CIP-0086 fail-closed: a zero or negative `transferFrom` is rejected before
+-- any funds move.
+test_cip0086_transferFromNonPositiveFails : Script ()
+test_cip0086_transferFromNonPositiveFails = script do
+  admin <- allocateInteropParty "erc20-nonpos-admin"
+  owner <- allocateInteropParty "erc20-nonpos-owner"
+  spender <- allocateInteropParty "erc20-nonpos-spender"
+  recipient <- allocateInteropParty "erc20-nonpos-recipient"
+  registry <- mkRegistry admin
+  let ownerAcct = basicAccount owner
+      recipientAcct = basicAccount recipient
+  ownerHolding <- mintUsd registry ownerAcct 100.0
+  allowanceCid <- submit owner do
+    createCmd Erc20Allowance with
+      admin; owner; ownerAccount = ownerAcct; spender
+      rulesCid = registry.rulesCid; instrumentId = usdSymbol; allowance = 20.0
+  now <- getTime
+  forA_ [0.0, -1.0] $ \amount ->
+    submitMustFailWith (actAs [spender, admin]) eErc20AmountNotPositive do
+      exerciseCmd allowanceCid Erc20Allowance_AuthorizeSpend with
+        recipient = recipientAcct
+        amount
+        ownerHoldingCids = [ownerHolding]
+        requestedAt = now
+        executeBefore = addRelTime now settlementWindow
+  (erc20BalanceOf admin ownerAcct) >>= (=== 100.0)
+
+-- | CIP-0086 fail-closed: an allowance that names the rules contract of
+-- another issuer cannot spend. The spender here is that issuer, so the fetch
+-- of its rules contract is authorised and the admin check rejects the spend.
+-- With any other spender the fetch itself fails authorisation.
+test_cip0086_transferFromOtherRegistryFails : Script ()
+test_cip0086_transferFromOtherRegistryFails = script do
+  admin <- allocateInteropParty "erc20-mismatch-admin"
+  spender <- allocateInteropParty "erc20-mismatch-spender"
+  owner <- allocateInteropParty "erc20-mismatch-owner"
+  recipient <- allocateInteropParty "erc20-mismatch-recipient"
+  registry <- mkRegistry admin
+  spenderRegistry <- mkRegistry spender
+  let ownerAcct = basicAccount owner
+      recipientAcct = basicAccount recipient
+  ownerHolding <- mintUsd registry ownerAcct 100.0
+  allowanceCid <- submit owner do
+    createCmd Erc20Allowance with
+      admin; owner; ownerAccount = ownerAcct; spender
+      rulesCid = spenderRegistry.rulesCid; instrumentId = usdSymbol; allowance = 20.0
+  now <- getTime
+  submitMustFailWith (actAs [spender, admin]) eErc20RegistryMismatch do
+    exerciseCmd allowanceCid Erc20Allowance_AuthorizeSpend with
+      recipient = recipientAcct
+      amount = 10.0
+      ownerHoldingCids = [ownerHolding]
+      requestedAt = now
+      executeBefore = addRelTime now settlementWindow
+  (erc20BalanceOf admin ownerAcct) >>= (=== 100.0)
 
 -- | The allowance owner controls its default archival path.
 test_cip0086_allowanceArchiveIsOwnerOnly : Script ()
