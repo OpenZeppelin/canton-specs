@@ -854,12 +854,15 @@ async function dappFlow() {
   log('getPrimaryAccount is the wallet party')
 
   // Baselines: a shared external ledger accumulates state across runs, so all
-  // post-settlement checks are deltas against what the wallet sees now. The
+  // post-settlement checks are deltas against what the wallet sees now. An
+  // interrupted earlier run can leave a holding locked until its lock expires,
+  // so the verify phase compares the locked holdings against this baseline. The
   // ledger offset bounds the update stream that the verify phase reads.
   const preHoldings = await acs(accessToken, partyId, T.holding) // Returns the holdings the wallet party sees, as `Holding` interface views.
   const baseline = {
     ledgerEndOffset: await ledgerEnd(accessToken),
     unlockedBalance: unlockedBalance(preHoldings),
+    lockedHoldingCids: preHoldings.filter((h) => !isUnlocked(h)).map((h) => h.contractId),
   }
   const preHoldingCids = new Set(preHoldings.map((h) => h.contractId))
   log(`baselines: ${JSON.stringify(baseline)}`)
@@ -1004,10 +1007,11 @@ async function verifyWalletView() {
   const allocations = await acs(accessToken, partyId, T.allocation)
   if (allocations.some((a) => a.contractId === walletAllocationCid)) fail('the settled allocation is still active in the wallet projection')
   const holdings = await acs(accessToken, partyId, T.holding)
-  if (holdings.some((h) => !isUnlocked(h))) fail('a wallet holding is still locked after settlement')
+  const lockedBefore = new Set(baseline.lockedHoldingCids)
+  if (holdings.some((h) => !isUnlocked(h) && !lockedBefore.has(h.contractId))) fail('a wallet holding locked by this run is still locked after settlement')
   const delta = unlockedBalance(holdings) - baseline.unlockedBalance
   if (Math.abs(delta - 15) > 1e-9) fail(`wallet balance delta is ${delta}, expected +15 (minted 40, sent 25)`)
-  log(`wallet balance delta is +15.0 as expected, with nothing locked`)
+  log(`wallet balance delta is +15.0 as expected, with nothing locked by this run`)
 
   // CIP-0103 session teardown: disconnect, then confirm the dApp is no longer
   // connected. Last step, after every gateway read above.
