@@ -15,10 +15,9 @@ bidding opens. After bidding closes, the clearing rule determines the quantities
 awarded and the common unit price. Payments follow the published rounding rule.
 
 Competing bidders never see each other's bids. The issuer, operator, and
-validation hosts see submitted bids. Account providers receive registry
-disclosures and related recovery tickets, while registries govern asset
-visibility. The application checks bidder eligibility when it accepts a bid
-and again before it awards tokens.
+validation hosts see submitted bids. Account providers see asset records under
+registry disclosure rules. The application checks bidder eligibility when it
+accepts a bid and again before it awards tokens.
 
 The registries use [Token Standard V2](https://github.com/canton-foundation/cips/blob/6f37c896a5a76ec3bc1aa67bc045623ae5df41e5/cip-0112/cip-0112.md)
 **allocations** to authorize movements and reserve holdings. The issuer
@@ -238,7 +237,7 @@ use a separate template per release, as described in
 | `Outcome` | Records one accepted bid's fill, payment, and any exclusion or recovery obligation. Visible to the bidder, issuer, `av`, and operator. |
 | `ClearedRound` | Terminal aggregate result for issuer, `av`, and operator. |
 | `EndedRound` | Terminal record of cancellation or expiry, retaining accepted membership and sale authority for independent cleanup. |
-| `RecoveryTicket` | `av`-signed binding of the sending and receiving allocations for recovery. Consumed after release or verified administrative reconciliation. |
+| `RecoveryTicket` | `av`-signed binding of the sending and receiving allocations for recovery. Observed by `ao` and the affected bidder or issuer. Consumed after release or verified administrative reconciliation. |
 
 Account consent lives in the completed registry allocations rather than in the
 auction records, so account providers never have to sign an issuer's or a
@@ -293,10 +292,10 @@ receives the disclosures of each of those roles.
 
 | Persona | Private auction records | Asset records |
 |---|---|---|
-| Bidder | Their request or prepared bid, accepted bid, number, and outcome | Their allocations and movements under registry disclosure rules |
+| Bidder | Their request or prepared bid, accepted bid, number, outcome, and recovery tickets | Their allocations and movements under registry disclosure rules |
 | Issuer, operator, and validation party | All submitted and accepted bids, accepted list, and complete clear | Funding inputs visible through bid submission and all clear movements, subject to their projections and API rights |
 | Instrument admin | No bid contracts or private outcomes | Allocations, holdings, and movements governed by that admin |
-| Account provider | Only related recovery tickets, including both allocation bindings and the recovery reason | Instructions, allocations, holdings, and movements for its accounts under registry disclosure rules |
+| Account provider | No private auction records | Instructions, allocations, holdings, and movements for its accounts under registry disclosure rules |
 | Eligibility provider | Its credentials and status, but no bids | No asset records |
 | Settlement attester | Approval terms, but no bid contracts or private outcomes | Exact approved movements, including accounts, instruments, and amounts |
 | Auditor observing `av` | Full validation-party projection, including accepted bids and outcomes | All settlement branches visible to `av` |
@@ -752,7 +751,7 @@ covers the settlement reference and empty movement set.
 
 `RecoveryTicket` binds both original allocation roots and their expected terms
 to an authorized recovery event and records its reason. It is signed by `av`
-and visible to the operator and affected account parties. Release is a separate
+and observed by `ao` and the affected bidder or issuer. Release is a separate
 transaction:
 
 ```text
