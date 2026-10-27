@@ -40,7 +40,8 @@ The **clear** is one atomic transaction. It validates the complete result and
 adds exact payment and delivery sides to the existing **iterated allocations**.
 During settlement, the registries transfer the assets and return unused funding
 to the original accounts. The round produces one result or ends without a sale.
-Bids awarded no tokens retain their allocations for separate recovery.
+Bids awarded no tokens settle both allocations without transfer sides and
+recover their full reserved payment in the same transaction.
 
 See the [auction lifecycle](#22-auction-lifecycle) for the workflow and
 [section 3](#3-target-design) for its transactions and authority.
@@ -93,7 +94,8 @@ lot allocation.
 All winners pay the same **clearing price**. If eligible demand does not exceed
 supply, it is the reserve price. Otherwise it is the lowest maximum unit price
 among bids receiving a fill. With no eligible demand, the result reports zero
-sales at reserve and releases the supply without an empty settlement call.
+sales at reserve and returns the reserved payments and inventory through
+settlement.
 
 For example, consider 100 tokens, a reserve of 8, and a lot size of 10. All bids
 remain eligible:
@@ -133,10 +135,10 @@ transactions require separate designs.
 
 The selected registries must support allocation requests initiated by issuers
 and bidders, committed iterated funding, unfunded receipt approvals, synchronous
-final batch settlement, and executor cancellation for recovery. Round funding
-and bid creation may return completed allocations or pending
-`AllocationInstruction` contracts. Opening and admission require both relevant
-allocations to be complete.
+final batch settlement, including empty sides and movement lists, and executor
+cancellation for recovery. Round funding and bid creation may return completed
+allocations or pending `AllocationInstruction` contracts. Opening and admission
+require both relevant allocations to be complete.
 
 The bid limit bounds both the accepted list and the size of the largest clearing
 transaction, zero-fill outcomes included. Measure capacity with concurrent
@@ -265,7 +267,6 @@ flowchart TB
     RoundReady -.->|"abandon before opening"| Recover
     PrepareBid -.->|"abandon request"| Recover
     Ready -.->|"withdraw before acceptance"| Recover
-    Done -->|"zero-fill locks"| Recover
     End --> Recover
 ```
 
@@ -276,9 +277,9 @@ close, and clear are separate atomic transactions. Bidding can close with any
 number of accepted bids, including none. Neither bid submission nor registry
 approval touches the round; only a committed acceptance makes a bid a member.
 
-The round and its allocations have separate lifecycles. Closing, cancelling, or
-expiring a round, or awarding a bid zero fill, leaves its payment lock in place
-until it is released as described in [section 3.5](#35-release-locked-assets).
+Closing bidding leaves the allocations active for clear. Cancelling or
+expiring a round requires separate asset recovery under
+[section 3.5](#35-release-locked-assets).
 
 ### 2.3 Privacy and Result Verification
 
@@ -601,8 +602,8 @@ ao exercises clearing Grant.ClearRound(closed round, result, current evidence)
     for every AcceptedBid, exercise FinalizeBid with av authority
       validate local quantity and payment bounds
       winner: return FinalizedAllocation values for payment and token receipt
-      zero fill: retain both allocations and create a recovery ticket
-      consume AcceptedBid and create its private Outcome
+      zero fill: return both FinalizedAllocation values with no transfer sides
+      consume AcceptedBid and create its private Outcome without a recovery ticket
 
     exercise SaleAuthority.FinalizeSale with av authority
       validate the aggregate payment and delivery legs
@@ -611,7 +612,8 @@ ao exercises clearing Grant.ClearRound(closed round, result, current evidence)
 
     verify and consume any configured BatchApproval
     outside bid and sale branches, call compatible SettlementFactory_SettleBatch
-      choices with existing IDs, exact sides, and nextIterationFunding = None
+      include both allocations of every accepted bid and the issuer
+      use existing IDs, exact sides, and nextIterationFunding = None
       require completed settlement results and no retained funding successor
 
     create ClearedRound with aggregate result and outcome references
@@ -620,7 +622,7 @@ ao exercises clearing Grant.ClearRound(closed round, result, current evidence)
 Finalization only builds allocation references and the exact sides; the
 settlement factories move the assets and return the unused funding. No
 replacement allocation and no fresh account approval is needed during the clear.
-If any branch or a later factory call fails, every movement and every consumed
+If any branch or a later factory call fails, every asset operation and consumed
 application contract rolls back. Bidders do not sign again, although the
 required participants still have to confirm their views.
 
@@ -709,6 +711,9 @@ and returns any excess payment or unsold inventory to the original account. Do
 not confuse it with the `Some {}` used at creation, which is what allows sides
 to be added later.
 
+For a zero fill, both allocations use empty `extraTransferLegSides`, returning
+the full reserved payment. Empty sides create no zero-amount transfer legs.
+
 Leg IDs are derived from the acceptance number and the movement, for example
 `payment-7`. Legs are compatible when they share an admin and a settlement
 factory, so one registry can settle both assets in a single batch. With separate
@@ -729,20 +734,16 @@ movements.
 
 #### Record Outcomes
 
-Every accepted bid receives a private `Outcome` with its round, number, fill,
-price, rounded payment, exclusion evidence, and any recovery ticket.
+On a successful clear, every accepted bid receives a private `Outcome` with its
+round, number, fill, price, rounded payment, and exclusion evidence. These
+outcomes have no recovery tickets.
 `ClearedRound` records aggregate price, sold quantity, payments, unsold supply,
 and outcome references. Payment totals sum the individually rounded amounts.
 
-A zero-fill outcome keeps both allocations for separate recovery. It does not
-assert that a refund happened, and its branch still needs the usual
-confirmations.
-
-With no winners, the clear consumes the same application records, records zero
-sales at the reserve price, and cancels both issuer allocations. It does not
-call a settlement factory with an empty leg list, although a configured
-application approval still has to cover the settlement reference and the empty
-movement set.
+With no winners, the clear records zero sales at reserve and settles all issuer
+and accepted bid allocations with empty movement lists. The registries return
+all reserved payments and inventory. Configured application approval still
+covers the settlement reference and empty movement set.
 
 ### 3.5 Release Locked Assets
 
@@ -765,7 +766,6 @@ ao exercises recovery Grant.Release(ticket, current sending and receiving alloca
 | Immediate bid withdrawn or left unaccepted | `WithdrawPreparedBid` consumes it and creates a ticket for payment and receipt allocations. Withdrawal is still possible after bidding closes. |
 | Round funding request abandoned | `AbandonRoundFunding` consumes the request without a ticket. Account parties withdraw its instructions or completed allocations under registry policy and deadlines. |
 | Bid registry workflow left unaccepted | `AbandonBidRequest` consumes the request without creating a ticket. Account parties withdraw pending instructions or completed allocations under registry policy and deadlines. |
-| Zero-fill result | The outcome references a ticket for the retained payment and receipt allocations. |
 | Round cancelled or expired | `EndedRound` retains membership and sale authority. Recovery choices close each accepted bid and the sale independently, creating outcomes and tickets. |
 | Registry deadline passed | Required account parties may withdraw under registry rules, independently of operator bookkeeping. Reconcile any retained ticket as described below. |
 
@@ -781,11 +781,10 @@ record to verify membership and close each commitment on its own, so one
 unavailable bidder does not block the others' recovery. The accepted list stays
 outside the individual bid branches.
 
-The operator's delegation allows an allocation to be cancelled only in a no-sale
-clear or on an authorized recovery path. After a zero-fill result, or after a
-funded `Proposal` or an immediate `PreparedBid` is abandoned, `av` may cancel
-the retained allocations before their deadline if the registry's policy allows
-it. A committed deadline restricts withdrawal by the account, not every
+The operator's delegation permits allocation cancellation only on authorized
+recovery paths. If a funded `Proposal` or immediate `PreparedBid` is abandoned,
+`av` may cancel the retained allocations before their deadline if registry
+policy allows it. A committed deadline restricts account withdrawal, not every
 cancellation by the executor. Abandoning a `BidRequest` or a
 `RoundFundingRequest` consumes only the auction request, and the account parties
 withdraw its registry instructions or allocations under the registry's policy.
@@ -915,7 +914,7 @@ and no submission authority. Its audit checks:
 - committed acceptance batches and numbers against the closed list
 - credentials, permitted exclusions, price, fills, and rounded payments
 - one private outcome per accepted bid and matching aggregate totals
-- actual payments and deliveries against the result
+- actual payments, deliveries, and returned unused funding against the result
 - recovery obligations against registry events and returned holdings
 - admission and timing against the published policy and retained submission evidence
 
