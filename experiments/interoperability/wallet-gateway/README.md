@@ -101,6 +101,13 @@ signing, the JSON Ledger API, and delta-based assertions suitable for a shared
 ledger. Keep credentials outside the repository and inject them through the
 environment.
 
+The participant must not have vetted another build of the exemplar package or
+of the registry packages under the same package name and version. A
+participant vets one build for each name and version, and it rejects the
+upload of another with `KNOWN_PACKAGE_VERSION`. The cross-chain bridge
+experiment consumes the same registry build, so its DARs can share the
+participant.
+
 ## Constraints
 
 - The gateway uses wallclock time and the JSON Ledger API.

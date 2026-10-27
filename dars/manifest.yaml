@@ -27,8 +27,9 @@ artifacts:
     source-commit: 7696749737885e25cd88422847105f890f03b00d
     source: https://github.com/OpenZeppelin/canton-contracts/tree/7696749737885e25cd88422847105f890f03b00d/experiments/security/pausable-v1
     license: MIT
-  # The cross-chain bridge experiment consumes the entries below. The
-  # OpenZeppelin DARs are built from `OpenZeppelin/canton-contracts` at
+  # The cross-chain bridge experiment consumes the entries below together
+  # with the CIP-112 registry entries at the end of this file. The
+  # OpenZeppelin DARs below are built from `OpenZeppelin/canton-contracts` at
   # 3d590cae12ec6dbaa295d835e7aef5e21b230c31 (branch `cip112-one-step-mint`,
   # PR #64) targeting Daml-LF 2.1. That pausable-v1 build has a different
   # package id from the one above, so its file name carries the short commit.
@@ -43,22 +44,6 @@ artifacts:
     source-commit: 3d590cae12ec6dbaa295d835e7aef5e21b230c31
     source: https://github.com/OpenZeppelin/canton-contracts/tree/3d590cae12ec6dbaa295d835e7aef5e21b230c31/packages/token/token-cip112-types-v1
     license: MIT
-  - package: openzeppelin-token-cip112-utils
-    version: 0.1.0
-    file: dars/vendor/openzeppelin-token-cip112-utils-0.1.0.dar
-    main-package-id: c49de3f8cca4b2212ec5b8f9a3bf387a731f120c00ebf70fe609c9f6158f4b0c
-    sha256: 407bf1e90c077eb80b10cf731d4255756e5738bcb3543113085610e9bd6a61d7
-    source-commit: 3d590cae12ec6dbaa295d835e7aef5e21b230c31
-    source: https://github.com/OpenZeppelin/canton-contracts/tree/3d590cae12ec6dbaa295d835e7aef5e21b230c31/packages/token/token-cip112-utils
-    license: MIT AND Apache-2.0
-  - package: openzeppelin-token-cip112-v1
-    version: 0.1.0
-    file: dars/vendor/openzeppelin-token-cip112-v1-0.1.0.dar
-    main-package-id: 6283d6cebfcd230a728bd4b1eefb5b60da8b965e66570eb80478db37aa20b62d
-    sha256: c4e9070473cc5c62ba1be58fc9dbbafb6fa83ea48956d62ce3c15982483426db
-    source-commit: 3d590cae12ec6dbaa295d835e7aef5e21b230c31
-    source: https://github.com/OpenZeppelin/canton-contracts/tree/3d590cae12ec6dbaa295d835e7aef5e21b230c31/packages/token/token-cip112-v1
-    license: MIT AND Apache-2.0
   - package: openzeppelin-scoped-authorization-grant-v1
     version: 0.1.0
     file: dars/vendor/openzeppelin-scoped-authorization-grant-v1-0.1.0.dar
@@ -146,6 +131,19 @@ artifacts:
     source: https://github.com/OpenZeppelin/canton-contracts/blob/3d590cae12ec6dbaa295d835e7aef5e21b230c31/dars/vendor/splice-token-standard-utils-2.0.0.dar
     upstream: https://github.com/canton-network/splice/blob/0.8.3/daml/dars/splice-token-standard-utils-2.0.0.dar
     license: Apache-2.0
+  # The CIP-112 registry that the interoperability exemplar and the
+  # cross-chain bridge experiment consume: the entries below together with
+  # the types and Splice DARs above. The two OpenZeppelin DARs are built from
+  # `OpenZeppelin/canton-contracts` at 6a916c174db7d6163ebeea4df1049044cefc7b3c
+  # on `main` targeting Daml-LF 2.1, and their file names carry the short
+  # commit because the other OpenZeppelin DARs of the bridge come from another
+  # commit. The types package of this commit is byte-identical to
+  # `openzeppelin-token-cip112-types-v1-0.1.0.dar` above, so both experiments
+  # consume that file. One build per package name and version keeps the two
+  # experiments uploadable to the same participant. The allocation-request
+  # DAR is a byte-identical copy of the Splice 0.8.3 release artifact; its
+  # package also ships inside the `splice-token-standard-utils` DAR above,
+  # under the same package id.
   - package: openzeppelin-token-cip112-utils
     version: 0.1.0
     file: dars/vendor/openzeppelin-token-cip112-utils-0.1.0-6a916c1.dar

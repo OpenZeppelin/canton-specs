@@ -1,10 +1,11 @@
 -- | The registry adapter: the module through which the gateways mint and
 -- burn on the example registry. The example registry has no delegable mint
 -- or burn right, so this capability carries the wTOK admin's signature into
--- the registry's transfer factory: a mint is a transfer from the CIP-0112 mint
--- account, and a burn is a transfer to the CIP-0112 burn account, both on the
--- bridge account only. Archiving it revokes both rights. A registry that
--- grants the rights in its own shape replaces this module.
+-- the registry: a mint is the registry's mint offer to the bridge account,
+-- which `ba` accepts in the same transaction, and a burn is a transfer from
+-- the bridge account to the CIP-0112 burn account. Archiving it revokes both
+-- rights. A registry that grants the rights in its own shape replaces this
+-- module.
 module OpenZeppelin.Experimental.Bridge.RegistryAdapter where
 
 import DA.Time (RelTime, addRelTime, seconds)
@@ -12,9 +13,9 @@ import DA.Time (RelTime, addRelTime, seconds)
 import Splice.Api.Token.HoldingV2 qualified as HoldingV2
 import Splice.Api.Token.MetadataV1
 import Splice.Api.Token.TransferInstructionV2 qualified as TransferInstructionV2
-import Splice.TokenStandard.Utils (basicAccount, burnAccount, mintAccount, reasonToMeta, requireMatchExpected)
+import Splice.TokenStandard.Utils (basicAccount, burnAccount, reasonToMeta, requireMatchExpected)
 
-import OpenZeppelin.Token.Cip112.V1.Registry (TokenRules)
+import OpenZeppelin.Token.Cip112.V1.Registry (TokenRules, TokenRules_OfferMint(..))
 
 import OpenZeppelin.Experimental.Bridge.Policy (noExtraArgs)
 
@@ -31,16 +32,25 @@ template BridgeSupplyRight with
     observer ba
     ensure bridgeAccount == basicAccount ba
 
-    -- | Mint into the bridge account: a transfer from the mint account.
+    -- | Mint into the bridge account: the wTOK admin's mint offer, which `ba`
+    -- accepts as the bridge account's owner.
     nonconsuming choice BridgeSupplyRight_Mint : ContractId HoldingV2.Holding
       with
         amount : Decimal
         reason : Text
       controller ba
       do
-        holdingCids <- supplyTransfer this mintAccount bridgeAccount amount [] reason
-        case holdingCids of
-          [holdingCid] -> pure holdingCid
+        now <- getTime
+        offerCid <- exercise rulesCid TokenRules_OfferMint with
+          receiver = bridgeAccount
+          instrumentId; amount; reason
+          requestedAt = now
+          executeBefore = now `addRelTime` completionWindow
+        result <- exercise offerCid TransferInstructionV2.TransferInstruction_Accept with
+          actors = [ba]
+          extraArgs = noExtraArgs
+        case result.output of
+          TransferInstructionV2.TransferInstructionResult_Completed [holdingCid] -> pure holdingCid
           _ -> fail "expected the mint to create one holding"
 
     -- | Burn a bridge-account holding: a transfer of all of it to the burn account.
@@ -78,8 +88,9 @@ supplyTransfer right sender receiver amount inputHoldingCids reason = do
     TransferInstructionV2.TransferInstructionResult_Completed cids -> pure cids
     _ -> fail "expected the supply transfer to complete in one step"
 
--- | The execution window of a supply transfer. It completes in the choice
--- that creates it, so any window within the registry's `maxTTL` serves.
+-- | The execution window of a mint offer or a supply transfer. Each completes
+-- in the choice that creates it, so any window within the registry's `maxTTL`
+-- serves.
 completionWindow : RelTime
 completionWindow = seconds 1
 
