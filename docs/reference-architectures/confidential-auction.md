@@ -127,10 +127,11 @@ sale.
 
 ### 1.2 Scope
 
-The design covers one primary distribution of existing fungible inventory,
-permissioned eligibility, and one atomic clear on a compatible synchronizer.
-Repeated auctions, secondary trading, mint-on-demand delivery, other pricing
-rules, additional executors, and settlement across separately committed
+The venue can run multiple independent auctions, including concurrent rounds,
+using the same operator and validation parties. Each auction distributes
+existing fungible inventory with permissioned eligibility and one atomic clear
+on a compatible synchronizer. Secondary trading, mint-on-demand delivery, other
+pricing rules, additional executors, and settlement across separately committed
 transactions require separate designs.
 
 The selected registries must support allocation requests initiated by issuers
@@ -208,10 +209,10 @@ has to be trusted, and every `av` host receives all of the party's disclosed
 data.
 
 The operator submits as `ao` through `av`-signed **grants**. Each grant instance
-authorizes one category of operation, such as preparation or clearing, and each
-grant choice runs one fixed workflow; none forwards arbitrary choices. The
-operator's read access to `av` lets the operator see the party's contracts, not
-submit as `av`.
+is reusable across rounds and authorizes one category of operation, such as
+preparation or clearing. Each choice runs one fixed workflow and cannot forward
+arbitrary choices. The operator's read access to `av` lets the operator see the
+party's contracts, not submit as `av`.
 
 #### Auction Contracts
 
