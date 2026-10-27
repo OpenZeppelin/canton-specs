@@ -125,9 +125,10 @@ logSnapshot label admin app aliceAcct bobAcct trees = do
 --   transaction alone gives the attribution.
 -- * Step 2 - a second settlement (bob -> alice 10 USD) increases the
 --   counters.
--- * Step 3 - a party that is not the executor tries to settle a pending
---   batch; the attempt fails; the counters do not move, because only
---   confirmed executor activity is attributable.
+-- * Step 3 - the registry admin, which sees the allocations but is not the
+--   executor, tries to settle a pending batch; the actor check rejects it;
+--   the counters do not move, because only confirmed executor activity is
+--   attributable.
 -- * Step 4 - the app-provider settles that batch; the counters increase.
 -- * Step 5 - another executor settles a transfer where the app-provider is
 --   only the receiver; the app-provider sees its credit, but the attribution
@@ -175,17 +176,18 @@ test_attribution_walkthrough = script do
 
   -- Step 3: the walkthrough allocates a third batch (alice -> bob 20 USD).
   -- The allocation locks 20 USD of alice's 70 USD holding and returns the
-  -- change. A party that is not the executor tries to settle the batch. The
-  -- attempt fails. The attribution counters do not change: an app-provider may
-  -- claim only the activity that it confirmed.
+  -- change. The registry admin, which sees both allocations but is not the
+  -- executor, tries to settle the batch. The registry's actor check rejects
+  -- it. The attribution counters do not change: an app-provider may claim
+  -- only the activity that it confirmed.
   deadline <- deadlineAfter settlementWindow
   let settlement = mkSettlementInfo "attribution-3" app
       leg = mkUsdLeg "attribution-3" aliceAcct bobAcct 20.0
   aliceInput <- holdingWithAmount admin aliceAcct 70.0
   aliceAlloc <- allocate registry settlement (mkSpec admin aliceAcct [senderSide leg] (Some deadline)) [aliceInput]
   bobAlloc <- allocate registry settlement (mkSpec admin bobAcct [receiverSide leg] (Some deadline)) []
-  submitMustFail (actAs notApp <> discloseMany [registry.disclosure]) $
-    settleBatchCmd registry notApp settlement [leg] [aliceAlloc, bobAlloc]
+  submitMustFailWith (actAs admin) eNotAnExecutor $
+    settleBatchCmd registry admin settlement [leg] [aliceAlloc, bobAlloc]
   activity3 <- logSnapshot "step 3: non-executor settle failed (20 USD of alice locked in the pending allocation)" admin app aliceAcct bobAcct [t1, t2]
   activity3 === activity2
 
@@ -211,11 +213,12 @@ test_attribution_walkthrough = script do
   activity5 === activity4
 
   -- Final balance check: settlement kept the supply constant at each step.
-  aliceBal <- erc20BalanceOf admin aliceAcct
-  bobBal <- erc20BalanceOf admin bobAcct
-  appBal <- erc20BalanceOf admin appAcct
-  supply <- erc20TotalSupply admin
-  aliceBal === 60.0
-  bobBal === 35.0
-  appBal === 5.0
-  supply === 100.0
+  (erc20BalanceOf admin aliceAcct) >>= (=== 60.0)
+  (erc20BalanceOf admin bobAcct) >>= (=== 35.0)
+  (erc20BalanceOf admin appAcct) >>= (=== 5.0)
+  (erc20TotalSupply admin) >>= (=== 100.0)
+
+-- | The rejection of the Splice token standard utilities when the actors of a
+-- batch are not the settlement's executors.
+eNotAnExecutor : Text
+eNotAnExecutor = "'actors' does not have the same elements as one of 'allowed actors'"

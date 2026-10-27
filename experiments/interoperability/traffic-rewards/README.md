@@ -31,9 +31,10 @@ then follows the reward that the network computes from them.
    about three rounds.
 3. The app-provider settles three USD transfers as the settlement executor. These
    settlements are the traffic, and the harness records the ledger record time of
-   each settle transaction. On the third batch a party that the settlement does
-   not name as an executor submits first, and the participant rejects it. Only
-   the named executor produces the traffic that the reward pays for.
+   each settle transaction. On the third batch the registry admin, which sees
+   the allocations but is not an executor, submits first, and the registry's
+   actor check rejects it. Only the named executor produces the traffic that the
+   reward pays for.
 4. The harness asserts the app-side attribution of those settlements from the
    app-provider's own transaction stream: the `SettlementFactory_SettleBatch`
    exercises that name it as the acting executor give the settlement count and

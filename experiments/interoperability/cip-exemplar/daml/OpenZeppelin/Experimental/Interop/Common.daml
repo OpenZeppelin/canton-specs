@@ -7,9 +7,10 @@
 module OpenZeppelin.Experimental.Interop.Common where
 
 import Daml.Script
-import DA.Action (when)
+import DA.Action (unless, when)
 import DA.Foldable (forA_)
 import DA.Optional (isNone, optionalToList)
+import DA.Text qualified as T
 import DA.Time (RelTime, addRelTime, days, hours, milliseconds, seconds, subTime)
 
 import Splice.Api.Token.MetadataV1
@@ -71,6 +72,18 @@ allocateInteropParty requestedName = do
       _ <- grantUserRights user.userId [CanActAs party]
       pure ()
   pure party
+
+-- | Submit `cmds`, which must fail with an error whose message contains
+-- `expected`. A failure for another reason, such as a contract the submitter
+-- cannot see, fails the scenario.
+submitMustFailWith : SubmitOptions -> Text -> Commands a -> Script ()
+submitMustFailWith options expected cmds = do
+  err <- submitWithError options cmds
+  let actual = case err of
+        FailureStatusError status -> status.message
+        other -> show other
+  unless (expected `T.isInfixOf` actual) $
+    abort ("interop: expected a failure naming \"" <> expected <> "\", got: " <> actual)
 
 -- | Move the ledger clock past `deadline`.
 --
