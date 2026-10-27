@@ -111,6 +111,10 @@ vendored_artifacts="$(
 [ "$manifest_artifacts" = "$vendored_artifacts" ] ||
 	fail "dars/manifest.yaml must list every vendored DAR exactly once"
 
+duplicate_versions="$(printf '%s\n' "$artifact_lines" | cut -f1,2 | sort | uniq -d)"
+[ -z "$duplicate_versions" ] ||
+	fail "dars/manifest.yaml must hold one build per package name and version: $(printf '%s' "$duplicate_versions" | tr '\t\n' ' ,')"
+
 while IFS=$'\t' read -r package version file package_id expected; do
 	case "$file" in
 	dars/vendor/*.dar) ;;
