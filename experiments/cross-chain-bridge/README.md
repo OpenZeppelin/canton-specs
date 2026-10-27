@@ -168,7 +168,7 @@ Decisions the prototype makes that the proposal does not state:
 - A leftover compliance attestation stays active until a gateway choice
   consumes it or its signers archive it.
 - With `ba`, `br`, and the wTOK admin each featured, the LocalNet round that
-  held the two credits paid `ba` 65.2%, the wTOK admin 20.5%, and `br` 14.3%
+  held the two credits paid `ba` 64.7%, the wTOK admin 20.7%, and `br` 14.6%
   of its app-reward pool, and the SV minted a `RewardCouponV2` for each. `br`
   signs no bridge contract, so its share comes from being the actor of the
   two gateway exercises. The setup round paid only `ba` and the wTOK admin.
