@@ -146,3 +146,28 @@ artifacts:
     source: https://github.com/OpenZeppelin/canton-contracts/blob/3d590cae12ec6dbaa295d835e7aef5e21b230c31/dars/vendor/splice-token-standard-utils-2.0.0.dar
     upstream: https://github.com/canton-network/splice/blob/0.8.3/daml/dars/splice-token-standard-utils-2.0.0.dar
     license: Apache-2.0
+  - package: openzeppelin-token-cip112-utils
+    version: 0.1.0
+    file: dars/vendor/openzeppelin-token-cip112-utils-0.1.0-6a916c1.dar
+    main-package-id: 51512a05c69ad41e3f96bd6f3fb9508e7c6de1dc983796ff0bb0a55ccfed81e8
+    sha256: 874d9540b899f379ed4c34ead34ac928a7a8a7dac81a33c552a05ec8998572c5
+    source-commit: 6a916c174db7d6163ebeea4df1049044cefc7b3c
+    source: https://github.com/OpenZeppelin/canton-contracts/tree/6a916c174db7d6163ebeea4df1049044cefc7b3c/packages/token/token-cip112-utils
+    license: MIT AND Apache-2.0
+  - package: openzeppelin-token-cip112-v1
+    version: 0.1.0
+    file: dars/vendor/openzeppelin-token-cip112-v1-0.1.0-6a916c1.dar
+    main-package-id: d7d47cefdbda71458d8fae56028f30212c0542f9b81a4b3efd595db4706c9c4e
+    sha256: 9558150d587aa0a2465828d4b59ce88a0c48734b1ed76004f03430df7603d629
+    source-commit: 6a916c174db7d6163ebeea4df1049044cefc7b3c
+    source: https://github.com/OpenZeppelin/canton-contracts/tree/6a916c174db7d6163ebeea4df1049044cefc7b3c/packages/token/token-cip112-v1
+    license: MIT AND Apache-2.0
+  - package: splice-api-token-allocation-request-v2
+    version: 1.0.0
+    file: dars/vendor/splice-api-token-allocation-request-v2-1.0.0.dar
+    main-package-id: adc16315a8943a8433886694720a2a000ae84c2315c4414bd6d0db4d1660de9c
+    sha256: aea00bf92c841807c7b02a82eaf2a1599ec8a0f11b2de05edd31fc140a2426b9
+    source-commit: 8460154135f39019b8bb370c9c1321ff13c9bb10
+    source: https://github.com/canton-network/splice/blob/0.8.3/daml/dars/splice-api-token-allocation-request-v2-1.0.0.dar
+    upstream: https://github.com/canton-network/splice/blob/0.8.3/daml/dars/splice-api-token-allocation-request-v2-1.0.0.dar
+    license: Apache-2.0

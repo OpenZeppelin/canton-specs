@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 // CIP-0103 third-party interop harness: drives the OpenZeppelin CIP-0112
-// settlement surface through the Canton Wallet Gateway's CIP-0103 APIs.
+// registry (`openzeppelin-token-cip112-v1` of `OpenZeppelin/canton-contracts`)
+// through the Canton Wallet Gateway's CIP-0103 APIs.
 //
 // The wallet user is an externally-signed party created and held by the
 // gateway (built-in `wallet-kernel` Ed25519 signing driver). Every wallet-side
@@ -9,14 +10,19 @@
 // `execute`), i.e. the same calls the gateway's own approve UI makes. No
 // direct Ledger API access is used for the wallet party anywhere in this file.
 //
+// Every wallet-side action is a Token Standard V2 choice: accept the registry's
+// mint offer, allocate through its factory with the rules contract disclosed,
+// and accept the dApp's request. Interactive submission prepares one command
+// per transaction, so the last two are separate prepareExecute calls.
+//
 // CIP-0103 dApp API coverage: connect, isConnected, status, getActiveNetwork,
 // listAccounts, getPrimaryAccount, signMessage, prepareExecute (incl. the
-// async-variant userUrl and a failed-command path), ledgerApi, txChanged,
-// disconnect.
+// async-variant userUrl, disclosed contracts, and a failed-command path),
+// ledgerApi, txChanged, disconnect.
 //
 // Subcommands (orchestrated by scripts/wallet-gateway-cip0103-interop.sh):
 //   create-wallet      create session + externally-signed wallet party
-//   dapp-flow          connect, accept offers/request, build the allocation
+//   dapp-flow          connect, accept the mint offer, allocate + accept the request
 //   verify-wallet-view assert the wallet's post-settlement projection
 //
 // Scope: experimental interoperability validation. The harness makes no
@@ -37,26 +43,30 @@ const WORK_DIR = process.env.OZ_INTEROP_WORK_DIR ?? '.cache/wallet-gateway-inter
 const DAPP_ORIGIN = process.env.OZ_DAPP_ORIGIN ?? 'http://oz-cip0103-interop.localhost'
 const LEDGER_USER = process.env.OZ_GATEWAY_LEDGER_USER ?? 'oz-cip0103-interop'
 const EXTERNAL = process.env.OZ_USE_EXTERNAL_LEDGER === '1'
-// The admin token of the participant, used only to provision the gateway's
-// ledger user. A participant without authentication needs no token.
+// The admin token of the participant: it provisions the gateway's ledger user,
+// and it reads the registry's rules contract as the admin party for the
+// disclosure that the wallet's allocation needs. A participant without
+// authentication needs no token.
 const ADMIN_TOKEN = process.env.OZ_LEDGER_TOKEN_FILE
   ? readFileSync(process.env.OZ_LEDGER_TOKEN_FILE, 'utf8').trim()
   : null
 
 const PKG_INTEROP = '#openzeppelin-experimental-cip-interop-exemplar'
-const PKG_SETTLEMENT = '#openzeppelin-experimental-cip112-settlement'
-const MOD_GATEWAY = 'OpenZeppelin.Experimental.Interop.WalletGateway'
-const MOD_ENGINE = 'OpenZeppelin.Experimental.Settlement.Cip112'
+const PKG_TOKEN = '#openzeppelin-token-cip112-v1'
+const MOD_WALLET = 'OpenZeppelin.Experimental.Interop.Cip0103Wallet'
+// The two templates that the dApp side creates or discloses, and the Token
+// Standard V2 interfaces, which are the wallet's whole surface: it never
+// names a template of the registry.
 const T = {
-  holdingOffer: `${PKG_INTEROP}:${MOD_GATEWAY}:GatewayHoldingOffer`,
-  allocationOffer: `${PKG_INTEROP}:${MOD_GATEWAY}:GatewayAllocationOffer`,
-  allocationRequest: `${PKG_SETTLEMENT}:${MOD_ENGINE}:AllocationRequest`,
-  factory: `${PKG_SETTLEMENT}:${MOD_ENGINE}:SettlementFactory`,
-  instruction: `${PKG_SETTLEMENT}:${MOD_ENGINE}:AllocationInstruction`,
-  toyHolding: `${PKG_SETTLEMENT}:${MOD_ENGINE}:ToyHolding`,
-  allocation: `${PKG_SETTLEMENT}:${MOD_ENGINE}:Allocation`,
-  receipt: `${PKG_SETTLEMENT}:${MOD_ENGINE}:SettlementReceipt`,
-  eventLog: `${PKG_SETTLEMENT}:${MOD_ENGINE}:SettlementEventLogEntry`,
+  rules: `${PKG_TOKEN}:OpenZeppelin.Token.Cip112.V1.Registry:TokenRules`,
+  appRequest: `${PKG_INTEROP}:${MOD_WALLET}:AppAllocationRequest`,
+  holding: '#splice-api-token-holding-v2:Splice.Api.Token.HoldingV2:Holding',
+  transferInstruction: '#splice-api-token-transfer-instruction-v2:Splice.Api.Token.TransferInstructionV2:TransferInstruction',
+  allocationFactory: '#splice-api-token-allocation-instruction-v2:Splice.Api.Token.AllocationInstructionV2:AllocationFactory',
+  allocation: '#splice-api-token-allocation-v2:Splice.Api.Token.AllocationV2:Allocation',
+  settlementFactory: '#splice-api-token-allocation-v2:Splice.Api.Token.AllocationV2:SettlementFactory',
+  allocationRequest: '#splice-api-token-allocation-request-v2:Splice.Api.Token.AllocationRequestV2:AllocationRequest',
+  eventLog: '#splice-api-token-transfer-events-v2:Splice.Api.Token.TransferEventsV2:EventLog',
 }
 
 let rpcId = 0
@@ -163,16 +173,54 @@ async function ledgerApi(token, requestMethod, resource, body) {
   return rpc(DAPP_API, 'ledgerApi', { requestMethod, resource, ...(body ? { body } : {}) }, token)
 }
 
-const acsRequest = (party, templateId, activeAtOffset) => ({
+// Active contracts of one Token Standard interface, with their views: what a
+// wallet reads, whatever template the registry uses underneath.
+const acsInterfaceRequest = (party, interfaceId, activeAtOffset) => ({
   filter: {
     filtersByParty: {
       [party]: {
-        cumulative: [{ identifierFilter: { TemplateFilter: { value: { templateId, includeCreatedEventBlob: false } } } }],
+        cumulative: [{ identifierFilter: { InterfaceFilter: { value: { interfaceId, includeInterfaceView: true, includeCreatedEventBlob: false } } } }],
       },
     },
   },
   verbose: false,
   activeAtOffset,
+})
+
+// Active contracts of one template, with the created-event blob that lets the
+// reader give the contract to another party as a disclosed contract.
+const acsTemplateRequest = (party, templateId, activeAtOffset) => ({
+  filter: {
+    filtersByParty: {
+      [party]: {
+        cumulative: [{ identifierFilter: { TemplateFilter: { value: { templateId, includeCreatedEventBlob: true } } } }],
+      },
+    },
+  },
+  verbose: false,
+  activeAtOffset,
+})
+
+// The transactions that `party` sees since `beginExclusive`, as ledger
+// effects, restricted to the exercises of one interface's choices. This is
+// how a wallet reads the standard `EventLog_HoldingsChange` events.
+const updatesRequest = (party, interfaceId, beginExclusive, endInclusive) => ({
+  beginExclusive,
+  endInclusive,
+  updateFormat: {
+    includeTransactions: {
+      eventFormat: {
+        filtersByParty: {
+          [party]: {
+            cumulative: [{ identifierFilter: { InterfaceFilter: { value: { interfaceId, includeInterfaceView: false, includeCreatedEventBlob: false } } } }],
+          },
+        },
+        verbose: false,
+      },
+      transactionShape: 'TRANSACTION_SHAPE_LEDGER_EFFECTS',
+    },
+  },
+  verbose: false,
 })
 
 // Parse a /v2/state/active-contracts response. Fails loudly on schema drift:
@@ -188,7 +236,16 @@ function parseActiveContracts(res) {
   for (const item of items) {
     const entry = item?.contractEntry?.JsActiveContract ?? item?.contractEntry?.activeContract
     const ev = entry?.createdEvent
-    if (ev) contracts.push({ contractId: ev.contractId, payload: ev.createArgument ?? ev.createArguments })
+    if (ev) {
+      contracts.push({
+        contractId: ev.contractId,
+        templateId: ev.templateId,
+        view: ev.interfaceViews?.[0]?.viewValue,
+        payload: ev.createArgument ?? ev.createArguments,
+        createdEventBlob: ev.createdEventBlob,
+        synchronizerId: entry.synchronizerId,
+      })
+    }
   }
   if (items.length > 0 && contracts.length === 0) {
     throw new Error(`active-contracts: ${items.length} entries but none parseable; first: ${JSON.stringify(items[0]).slice(0, 400)}`)
@@ -196,19 +253,56 @@ function parseActiveContracts(res) {
   return contracts
 }
 
-// Shared holding arithmetic (payloads from either ACS path).
-const isUnlocked = (h) => !h.payload?.lock
-const unlockedBalance = (hs) => hs.filter(isUnlocked).reduce((acc, h) => acc + Number(h.payload?.amount ?? 0), 0)
-const unlockedUsd = (hs) => hs.filter((h) => isUnlocked(h) && h.payload?.instrumentId?.id === 'USD')
-const balanceOf = (hs, party) =>
-  unlockedUsd(hs).filter((h) => h.payload?.account?.owner === party).reduce((a, h) => a + Number(h.payload.amount), 0)
+// Parse a /v2/updates/flats response into the `EventLog_HoldingsChange`
+// events it carries: one per exercise of that choice, with the argument that
+// names the account, the holdings, and the settled leg sides.
+function parseHoldingsChanges(res) {
+  const updates = Array.isArray(res) ? res : Array.isArray(res?.body) ? res.body : null
+  if (updates === null) {
+    throw new Error(`updates: unrecognized response shape: ${JSON.stringify(res).slice(0, 400)}`)
+  }
+  const events = []
+  for (const update of updates) {
+    const tx = update?.update?.Transaction?.value
+    for (const event of tx?.events ?? []) {
+      const ex = event?.ExercisedEvent
+      if (ex?.choice === 'EventLog_HoldingsChange' && String(ex.interfaceId ?? '').endsWith('TransferEventsV2:EventLog')) {
+        events.push({ updateId: tx.updateId, ...ex.choiceArgument })
+      }
+    }
+  }
+  return events
+}
 
-// Query the wallet party's active contracts for one template via the gateway. In other words: for this templateId, what contracts does the party see/own?
-async function acs(token, party, templateId) {
+// Shared holding arithmetic over `Holding` interface views (from either ACS path).
+const isUnlocked = (h) => !h.view?.lock
+const unlockedBalance = (hs) => hs.filter(isUnlocked).reduce((acc, h) => acc + Number(h.view?.amount ?? 0), 0)
+const unlockedUsd = (hs) => hs.filter((h) => isUnlocked(h) && h.view?.instrumentId?.id === 'USD')
+const balanceOf = (hs, party) =>
+  unlockedUsd(hs).filter((h) => h.view?.account?.owner === party).reduce((a, h) => a + Number(h.view.amount), 0)
+const supplyOf = (hs) => hs.filter((h) => h.view?.instrumentId?.id === 'USD').reduce((a, h) => a + Number(h.view.amount), 0)
+
+// Query the wallet party's active contracts of one interface via the gateway. In other words: for this interface, what contracts does the party see/own?
+async function acs(token, party, interfaceId) {
+  const offset = await ledgerEnd(token)
+  return parseActiveContracts(await ledgerApi(token, 'post', '/v2/state/active-contracts', acsInterfaceRequest(party, interfaceId, offset)))
+}
+
+async function ledgerEnd(token) {
   const end = await ledgerApi(token, 'get', '/v2/state/ledger-end')
   const offset = end?.offset ?? end?.body?.offset
   if (offset === undefined) throw new Error(`ledger-end gave no offset: ${JSON.stringify(end)}`)
-  return parseActiveContracts(await ledgerApi(token, 'post', '/v2/state/active-contracts', acsRequest(party, templateId, offset)))
+  return offset
+}
+
+// The `EventLog_HoldingsChange` events that the wallet party saw since
+// `beginExclusive`, read through the gateway.
+async function holdingsChanges(token, party, beginExclusive) {
+  const endInclusive = await ledgerEnd(token)
+  if (endInclusive <= beginExclusive) return []
+  return parseHoldingsChanges(
+    await ledgerApi(token, 'post', '/v2/updates/flats', updatesRequest(party, T.eventLog, beginExclusive, endInclusive))
+  )
 }
 
 // --- dApp command submission + user-side approval ----------------------------
@@ -232,15 +326,19 @@ async function approveTransaction(token, party, tx) {
 
 const prepareExecuteUserUrls = []
 
-async function exerciseViaGateway(token, party, label, templateId, contractId, choice, choiceArgument) {
+// Exercise one choice through CIP-0103 prepareExecute, with the disclosed
+// contracts that the choice reads, and approve the prepared transaction
+// through the user API.
+async function exerciseViaGateway(token, party, label, templateId, contractId, choice, choiceArgument, disclosedContracts = []) {
   const commandId = `oz-cip0103-interop-${label}`
-  log(`prepareExecute ${choice} (commandId=${commandId})`)
+  log(`prepareExecute ${choice} (commandId=${commandId}, ${disclosedContracts.length} disclosed contract(s))`)
   const prepared = await rpc( // Demonstrates the use of CIP103 prepareExecute, which prepares, signs and executes a command.
     DAPP_API,
     'prepareExecute',
     {
       commandId,
       commands: [{ ExerciseCommand: { templateId, contractId, choice, choiceArgument } }],
+      disclosedContracts,
     },
     token
   )
@@ -290,21 +388,21 @@ async function signMessageViaGateway(token, party, message) {
 // this code, with the Canton CONTRACT_NOT_FOUND detail in `data`.
 const CIP0103_INTERNAL_ERROR = -32603
 
-// CIP-0103 standardized errors: a doomed command (re-exercising a consumed
-// contract) must surface either as a ProviderRpcError with a code from the
+// CIP-0103 standardized errors: a doomed command (re-accepting the consumed
+// mint offer) must surface either as a ProviderRpcError with a code from the
 // CIP-0103 error table at prepare time, or as a failed transaction on the
 // lifecycle the wallet observes. Anything else (silent success, a non-table
 // code) fails the gate.
 async function expectFailedTx(token, party, consumedOfferCid) { // Exemplifies receiving a standardized error, in this case -32603	Internal error. 
   const commandId = 'oz-cip0103-interop-doomed'
-  log(`prepareExecute doomed re-accept of consumed offer (commandId=${commandId})`)
+  log(`prepareExecute doomed re-accept of consumed mint offer (commandId=${commandId})`)
   try {
     await rpc(
       DAPP_API,
       'prepareExecute',
       {
         commandId,
-        commands: [{ ExerciseCommand: { templateId: T.holdingOffer, contractId: consumedOfferCid, choice: 'GatewayHoldingOffer_Accept', choiceArgument: {} } }],
+        commands: [{ ExerciseCommand: { templateId: T.transferInstruction, contractId: consumedOfferCid, choice: 'TransferInstruction_Accept', choiceArgument: { actors: [party], extraArgs: EXTRA_ARGS } } }],
       },
       token
     )
@@ -386,23 +484,23 @@ function listenTxChanged(token) {
 // Ledger API is exposed - there is no gRPC endpoint for `dpm script` to use.
 // In external mode the operator-side phases (setup / settle / verify) are
 // therefore driven directly against the JSON Ledger API as the operator
-// party. These values MUST mirror the Daml module's deterministic constants
-// (`gatewayRef`, `gatewaySettlement`, `gatewayLeg`, amounts, feature flag):
-// the on-ledger accept choice rebuilds them independently and the settle
-// batch compares them for equality.
+// party. In every mode the operator also reads the registry's rules contract
+// with its created-event blob here, which the wallet's allocation carries as a
+// disclosed contract (a production registry serves it from its off-ledger
+// API). These values MUST mirror the Daml module's deterministic constants
+// (`gatewayRef`, `gatewaySettlement`, `gatewayLeg`, `gatewayWalletSpec`,
+// amounts): the wallet allocates against the request that the setup phase
+// emitted, and the settle batch compares the settlement and legs for equality.
 
 const REF = 'cip0103-wallet-gateway-interop'
-const META = { entries: [] }
-const FEATURE_FLAG = 'experimental.cip112-settlement.enabled'
+const META = { values: {} }
+// The `ExtraArgs` of the Splice token metadata API: an empty choice context and
+// empty metadata.
+const EXTRA_ARGS = { context: { values: {} }, meta: META }
 const MINT = '40.0'
 const TRANSFER = '25.0'
 const acct = (p) => ({ owner: p, provider: null, id: '' })
-const settlementInfo = (op) => ({
-  executors: [op],
-  settlementRef: { id: REF, cidText: null },
-  settlementDeadline: null,
-  meta: META,
-})
+const settlementInfo = (op) => ({ executors: [op], id: REF, cid: null, meta: META })
 const transferLeg = (wallet, op) => ({
   transferLegId: `${REF}-leg`,
   sender: acct(wallet),
@@ -419,11 +517,32 @@ const legSide = (side, leg) => ({
   instrumentId: leg.instrumentId,
   meta: leg.meta,
 })
+// An uncommitted allocation with no settlement deadline: the gateway flow runs
+// on wallclock time.
+const allocationSpec = (admin, authorizer, sides) => ({
+  admin,
+  authorizer,
+  transferLegSides: sides,
+  settlementDeadline: null,
+  nextIterationFunding: null,
+  committed: false,
+  meta: META,
+})
+const walletSpec = (op, wallet) => allocationSpec(op, acct(wallet), [legSide('SenderSide', transferLeg(wallet, op))])
+// The registry's storage bounds, as the Daml `registryConfig`: a day for a
+// workflow, an hour of lock grace. A `RelTime` is given in microseconds.
+const registryConfig = (admin) => ({
+  admin,
+  maxTTL: { microseconds: String(24 * 3600 * 1_000_000) },
+  lockGrace: { microseconds: String(3600 * 1_000_000) },
+})
+const isoNow = () => new Date().toISOString()
+const isoInAnHour = () => new Date(Date.now() + 3600 * 1000).toISOString()
 
 async function jsonApiDirect(token, method, path, body) {
   const res = await fetch(`${JSON_API}${path}`, {
     method,
-    headers: { 'content-type': 'application/json', authorization: `Bearer ${token}` },
+    headers: { 'content-type': 'application/json', ...(token ? { authorization: `Bearer ${token}` } : {}) },
     body: body ? JSON.stringify(body) : undefined,
   })
   const text = await res.text()
@@ -453,11 +572,25 @@ const createdOf = (result, entity) => {
   return hit.contractId
 }
 
-// Direct ACS read as the operator (the wallet's reads go through the gateway
-// ledgerApi instead - that is the surface under test; this one is plumbing).
-async function acsDirect(token, party, templateId) {
+async function ledgerEndDirect(token) {
   const end = await jsonApiDirect(token, 'GET', '/v2/state/ledger-end')
-  return parseActiveContracts(await jsonApiDirect(token, 'POST', '/v2/state/active-contracts', acsRequest(party, templateId, end.offset)))
+  return end.offset
+}
+
+// Direct ACS reads as the operator (the wallet's reads go through the gateway
+// ledgerApi instead - that is the surface under test; this one is plumbing).
+async function acsDirect(token, party, interfaceId) {
+  const offset = await ledgerEndDirect(token)
+  return parseActiveContracts(await jsonApiDirect(token, 'POST', '/v2/state/active-contracts', acsInterfaceRequest(party, interfaceId, offset)))
+}
+
+// The registry's rules contract as a disclosed contract, read as the admin.
+async function rulesDisclosure(token, admin, rulesCid) {
+  const offset = await ledgerEndDirect(token)
+  const rules = parseActiveContracts(await jsonApiDirect(token, 'POST', '/v2/state/active-contracts', acsTemplateRequest(admin, T.rules, offset)))
+  const hit = rules.find((c) => c.contractId === rulesCid)
+  if (!hit?.createdEventBlob) throw new Error(`rules contract ${rulesCid} not found with its created-event blob`)
+  return { templateId: hit.templateId, contractId: hit.contractId, createdEventBlob: hit.createdEventBlob, synchronizerId: hit.synchronizerId }
 }
 
 async function operatorContext() {
@@ -467,104 +600,110 @@ async function operatorContext() {
   return { wallet, operator, token }
 }
 
-async function setupExternal() { // Function used for setting up the necessary ledger state. 
+async function setupExternal() { // Function used for setting up the necessary ledger state.
   const { wallet, operator: op, token } = await operatorContext()
-  const now = new Date().toISOString()
+  const now = isoNow()
 
   // Baselines for delta-based verification on a reused ledger.
-  const holdings = await acsDirect(token, op, T.toyHolding) // Read the operators holdings, receipts, wallet balance, etc.
-  const receipts = await acsDirect(token, op, T.receipt)
+  const holdings = await acsDirect(token, op, T.holding) // Read the holdings the operator sees: its own, and the wallet's, which it co-signs as the admin.
   const baselineWalletBalance = balanceOf(holdings, wallet)
   const baselineReceiverBalance = balanceOf(holdings, op)
-  const baselineSupply = unlockedUsd(holdings).reduce((a, h) => a + Number(h.payload.amount), 0)
-  const baselineReceiptCount = receipts.length
-  log(`baselines: wallet=${baselineWalletBalance} receiver=${baselineReceiverBalance} supply=${baselineSupply} receipts=${baselineReceiptCount}`)
+  const baselineSupply = supplyOf(holdings)
+  const baselineOffset = await ledgerEndDirect(token)
+  log(`baselines: wallet=${baselineWalletBalance} receiver=${baselineReceiverBalance} supply=${baselineSupply} offset=${baselineOffset}`)
 
-  const factory = await submitAndWait(token, op, 'factory', [
-    { CreateCommand: { templateId: T.factory, createArguments: { admin: op, requiresComplianceAttestation: null, featureFlag: FEATURE_FLAG } } },
+  // The registry: one rules contract, signed by the operator as its admin.
+  const rules = await submitAndWait(token, op, 'rules', [
+    { CreateCommand: { templateId: T.rules, createArguments: { config: registryConfig(op) } } },
   ])
-  const factoryCid = createdOf(factory, 'SettlementFactory')
+  const rulesCid = createdOf(rules, 'TokenRules')
 
-  const leg = transferLeg(wallet, op)
-  const request = await submitAndWait(token, op, 'request', [ // Create an allocation request over leg. 
-    { ExerciseCommand: { templateId: T.factory, contractId: factoryCid, choice: 'SettlementFactory_CreateAllocationRequest', choiceArgument: {
-      authorizer: acct(wallet),
+  // The dApp's CIP-0103 request toward the wallet: its sender side of the leg.
+  const request = await submitAndWait(token, op, 'request', [
+    { CreateCommand: { templateId: T.appRequest, createArguments: {
       settlement: settlementInfo(op),
-      allocations: [{ admin: op, transferLegSides: [legSide('SenderSide', leg)], nextIterationFunding: null, committed: false, meta: META }],
+      allocations: [walletSpec(op, wallet)],
       requestedAt: now,
       settleAt: null,
-      actors: [op],
     } } },
   ])
-  const requestCid = createdOf(request, 'AllocationRequest')
+  const requestCid = createdOf(request, 'AppAllocationRequest')
 
-  const holdingOffer = await submitAndWait(token, op, 'holding-offer', [ // Create a GatewayHoldingOffer
-    { CreateCommand: { templateId: T.holdingOffer, createArguments: { admin: op, owner: wallet, amount: MINT } } },
+  // The wallet's funding: the registry's two-step mint, which the wallet accepts through the gateway.
+  const mintOffer = await submitAndWait(token, op, 'mint-offer', [
+    { ExerciseCommand: { templateId: T.rules, contractId: rulesCid, choice: 'TokenRules_OfferMint', choiceArgument: {
+      receiver: acct(wallet),
+      instrumentId: 'USD',
+      amount: MINT,
+      requestedAt: now,
+      executeBefore: isoInAnHour(),
+      reason: 'gateway interop mint',
+    } } },
   ])
-  const holdingOfferCid = createdOf(holdingOffer, 'GatewayHoldingOffer')
+  const mintOfferCid = createdOf(mintOffer, 'TokenTransferInstruction')
 
-  const allocationOffer = await submitAndWait(token, op, 'allocation-offer', [ // Create a GatewayAllocationOffer
-    { CreateCommand: { templateId: T.allocationOffer, createArguments: { admin: op, owner: wallet, app: op, receiver: op } } },
-  ])
-  const allocationOfferCid = createdOf(allocationOffer, 'GatewayAllocationOffer')
-
-  const instruction = await submitAndWait(token, op, 'receiver-instruction', [ // Create an allocation instruction
-    { ExerciseCommand: { templateId: T.factory, contractId: factoryCid, choice: 'SettlementFactory_CreateAllocationInstruction', choiceArgument: {
-      allocation: { settlement: settlementInfo(op), admin: op, authorizer: acct(op), transferLegSides: [legSide('ReceiverSide', leg)], nextIterationFunding: null, committed: false, meta: META },
+  // The receiver's side, allocated through the standard factory. The operator
+  // is the admin, so its own submission needs no disclosure.
+  const leg = transferLeg(wallet, op)
+  const allocated = await submitAndWait(token, op, 'receiver-allocation', [
+    { ExerciseCommand: { templateId: T.allocationFactory, contractId: rulesCid, choice: 'AllocationFactory_Allocate', choiceArgument: {
+      settlement: settlementInfo(op),
+      allocation: allocationSpec(op, acct(op), [legSide('ReceiverSide', leg)]),
       requestedAt: now,
       inputHoldingCids: [],
-      d1ComplianceHook: null,
+      extraArgs: EXTRA_ARGS,
       actors: [op],
     } } },
   ])
-  const instructionCid = createdOf(instruction, 'AllocationInstruction')
-  const accepted = await submitAndWait(token, op, 'receiver-accept', [ // And accept it automatically. The operator in this case plays the role of the counterparty, the receiver.
-    { ExerciseCommand: { templateId: T.instruction, contractId: instructionCid, choice: 'AllocationInstruction_Accept', choiceArgument: { actors: [op] } } },
-  ])
-  const receiverAllocationCid = createdOf(accepted, 'Allocation')
+  const receiverAllocationCid = createdOf(allocated, 'TokenAllocation')
 
-  writeJson('setup-output.json', { // This function ends, having created the receiver's allocation, the sender's AllocationRequest, as well as a GatewayHoldingOffer and GatewayAllocationOffer.
-    admin: op, app: op, receiver: op, factoryCid, requestCid, holdingOfferCid, allocationOfferCid, receiverAllocationCid,
-    baselineWalletBalance, baselineReceiverBalance, baselineSupply, baselineReceiptCount,
+  writeJson('setup-output.json', { // This function ends, having created the registry, the request toward the wallet, the mint offer, and the receiver's allocation.
+    admin: op, app: op, receiver: op, rulesCid, requestCid, mintOfferCid, receiverAllocationCid,
+    baselineWalletBalance, baselineReceiverBalance, baselineSupply, baselineOffset,
   })
   log('external setup complete')
 }
 
-async function settleExternal() { // Function used to call batch settle, by the operator. 
+async function settleExternal() { // Function used to call batch settle, by the operator.
   const { wallet, operator: op, token } = await operatorContext()
   const setup = readJson('setup-output.json')
   const { walletAllocationCid } = readJson('gateway-output.json')
   const result = await submitAndWait(token, op, 'settle', [
-    { ExerciseCommand: { templateId: T.factory, contractId: setup.factoryCid, choice: 'SettlementFactory_SettleBatch', choiceArgument: {
+    { ExerciseCommand: { templateId: T.settlementFactory, contractId: setup.rulesCid, choice: 'SettlementFactory_SettleBatch', choiceArgument: {
       settlement: settlementInfo(op),
       transferLegs: [transferLeg(wallet, op)],
-      allocationCids: [walletAllocationCid, setup.receiverAllocationCid],
+      allocations: [walletAllocationCid, setup.receiverAllocationCid].map((allocationCid) => ({
+        allocationCid, extraTransferLegSides: [], nextIterationFunding: null,
+      })),
       actors: [op],
-      d1ComplianceRef: null,
+      extraArgs: EXTRA_ARGS,
     } } },
   ])
-  const receipts = result.created.filter((c) => c.templateId?.includes(':SettlementReceipt'))
-  if (receipts.length !== 2) fail(`expected 2 receipts from SettleBatch, saw ${receipts.length}`)
-  log(`settled batch: 2 receipts (updateId ${result.updateId})`)
+  // The settlement pays the receiver's leg out as a new holding.
+  const holdings = result.created.filter((c) => c.templateId?.endsWith(':TokenHolding'))
+  if (holdings.length < 1) fail(`expected the receiver's holding from SettleBatch, saw ${result.created.length} created contract(s)`)
+  log(`settled batch (updateId ${result.updateId})`)
 }
 
-async function verifyExternal() { // Should be ran post-settlement. Queries the operators toyHoldings, receipts and eventLogs, and asserts the correct deltas have occurred. Wallet should be 15, receiver (operator) should be +25.
+async function verifyExternal() { // Should be ran post-settlement. Reads the holdings the operator sees and the settlement's events, and asserts the deltas: wallet +15, receiver (operator) +25, supply +40.
   const { wallet, operator: op, token } = await operatorContext()
   const setup = readJson('setup-output.json')
-  const holdings = await acsDirect(token, op, T.toyHolding)
-  const receipts = await acsDirect(token, op, T.receipt)
-  const entries = await acsDirect(token, op, T.eventLog)
+  const holdings = await acsDirect(token, op, T.holding)
 
   const receiverDelta = balanceOf(holdings, op) - setup.baselineReceiverBalance
   if (Math.abs(receiverDelta - 25) > 1e-9) fail(`receiver balance delta ${receiverDelta}, expected +25`)
   const walletDelta = balanceOf(holdings, wallet) - setup.baselineWalletBalance
   if (Math.abs(walletDelta - 15) > 1e-9) fail(`wallet balance delta ${walletDelta}, expected +15`)
-  const supplyDelta = unlockedUsd(holdings).reduce((a, h) => a + Number(h.payload.amount), 0) - setup.baselineSupply
+  const supplyDelta = supplyOf(holdings) - setup.baselineSupply
   if (Math.abs(supplyDelta - 40) > 1e-9) fail(`supply delta ${supplyDelta}, expected +40`)
-  const receiptDelta = receipts.length - setup.baselineReceiptCount
-  if (receiptDelta !== 2) fail(`receipt count delta ${receiptDelta}, expected +2`)
-  if (entries.length < 1) fail('expected settlement event log entries')
-  log(`operator verification passed: receiver +25, wallet +15, supply +40, receipts +2, ${entries.length} event log entrie(s)`)
+
+  const endInclusive = await ledgerEndDirect(token)
+  const events = parseHoldingsChanges(
+    await jsonApiDirect(token, 'POST', '/v2/updates/flats', updatesRequest(op, T.eventLog, setup.baselineOffset, endInclusive))
+  )
+  const settled = events.filter((e) => (e.transferLegSides ?? []).some((s) => s.transferLegId === `${REF}-leg`))
+  if (settled.length < 2) fail(`expected the settlement's holdings-change events for both accounts, saw ${settled.length}`)
+  log(`operator verification passed: receiver +25, wallet +15, supply +40, ${settled.length} settlement event(s) of ${events.length} holdings-change event(s)`)
 }
 
 // --- subcommands -------------------------------------------------------------
@@ -617,6 +756,13 @@ async function oidcToken() {
   const { access_token: accessToken } = await res.json()
   if (!accessToken) throw new Error('OIDC token response carried no access_token')
   return accessToken
+}
+
+// The token that reads the registry's rules contract as the admin party: the
+// operator's OIDC token in external mode, the participant's admin token on
+// LocalNet, and none on the sandbox, which authenticates nothing.
+async function dappLedgerToken() {
+  return EXTERNAL ? oidcToken() : ADMIN_TOKEN
 }
 
 // External mode: the runner cannot allocate parties, so instead of
@@ -708,11 +854,11 @@ async function dappFlow() {
   log('getPrimaryAccount is the wallet party')
 
   // Baselines: a shared external ledger accumulates state across runs, so all
-  // post-settlement checks are deltas against what the wallet sees now.
-  const preHoldings = await acs(accessToken, partyId, T.toyHolding) // Returns all ToyHolding contracts the party is a stakeholder of. 
-  const baseline = { // Does the same for receipts, events, and sums up all unlocked holdings. 
-    receipts: (await acs(accessToken, partyId, T.receipt)).length,
-    eventLogEntries: (await acs(accessToken, partyId, T.eventLog)).length,
+  // post-settlement checks are deltas against what the wallet sees now. The
+  // ledger offset bounds the update stream that the verify phase reads.
+  const preHoldings = await acs(accessToken, partyId, T.holding) // Returns the holdings the wallet party sees, as `Holding` interface views.
+  const baseline = {
+    ledgerEndOffset: await ledgerEnd(accessToken),
     unlockedBalance: unlockedBalance(preHoldings),
   }
   const preHoldingCids = new Set(preHoldings.map((h) => h.contractId))
@@ -720,28 +866,49 @@ async function dappFlow() {
 
   const sse = listenTxChanged(accessToken) // Opens a connection to the Server-Sent Event stream. This stream can be drained later, to look for the events we are interested in.
 
-  // 1. Wallet receives its funding holding (propose-accept mint).
-  await exerciseViaGateway(accessToken, partyId, 'holding-offer', T.holdingOffer, setup.holdingOfferCid, 'GatewayHoldingOffer_Accept', {})
-  const minted = await poll('freshly minted wallet ToyHolding in ACS', 30_000, 500, async () => { // To demonstrate the flow, the operator has previously created a 40 USD funding mint, waiting to be accepted. This call accepts it by calling GatewayHoldingOffer_Accept on the GatewayHoldingOffer.
-    const hs = await acs(accessToken, partyId, T.toyHolding) // After accepting, query the toyHoldings again and compare them to the previous cid set, to figure out the new ToyHolding id. 
-    const fresh = hs.filter((h) => !preHoldingCids.has(h.contractId) && isUnlocked(h) && Number(h.payload?.amount ?? 0) === 40)
+  // 1. Wallet receives its funding: it accepts the registry's mint offer, a
+  //    pending Token Standard V2 transfer instruction from the mint account.
+  await exerciseViaGateway(accessToken, partyId, 'mint-offer', T.transferInstruction, setup.mintOfferCid, 'TransferInstruction_Accept', { actors: [partyId], extraArgs: EXTRA_ARGS })
+  const minted = await poll('freshly minted wallet holding in ACS', 30_000, 500, async () => { // To demonstrate the flow, the issuer has previously offered a 40 USD mint, waiting to be accepted. The accept above created the holding; find it.
+    const hs = await acs(accessToken, partyId, T.holding)
+    const fresh = hs.filter((h) => !preHoldingCids.has(h.contractId) && isUnlocked(h) && Number(h.view?.amount ?? 0) === 40)
     return fresh.length > 0 ? fresh : undefined
   })
   const holdingCid = minted[0].contractId
   log(`wallet holding: ${holdingCid}`)
 
-  // 2. Wallet accepts the app's CIP-0103 allocation request.
-  await exerciseViaGateway(accessToken, partyId, 'allocation-request', T.allocationRequest, setup.requestCid, 'AllocationRequest_Accept', { actors: [partyId] }) // Accept the AllocationRequest previously created by the dApp operator.
-
-  // 3. Wallet funds and accepts the sender-side allocation.
+  // 2. Wallet reads the dApp's request through the standard view and funds the
+  //    requested allocation through the registry's factory, with the rules
+  //    contract (invisible to the wallet) passed as a disclosed contract.
+  const requests = await acs(accessToken, partyId, T.allocationRequest)
+  const request = requests.find((r) => r.contractId === setup.requestCid)
+  if (!request?.view) fail(`wallet does not see the dApp's allocation request ${setup.requestCid}`)
+  const requested = request.view.allocations?.[0]
+  if (!requested || requested.authorizer?.owner !== partyId) fail(`the request does not name the wallet as authorizer: ${JSON.stringify(request.view)}`)
+  log(`wallet sees the dApp's request: settlement ${request.view.settlement.id}, ${request.view.allocations.length} allocation(s)`)
+  const disclosure = await rulesDisclosure(await dappLedgerToken(), setup.admin, setup.rulesCid)
   const preAllocations = new Set((await acs(accessToken, partyId, T.allocation)).map((a) => a.contractId))
-  await exerciseViaGateway(accessToken, partyId, 'allocation-offer', T.allocationOffer, setup.allocationOfferCid, 'GatewayAllocationOffer_Accept', { holdingCids: [holdingCid] }) // Commit the 40 USD into an Allocation.
-  const allocations = await poll('wallet Allocation in ACS', 30_000, 500, async () => { // Poll the party's allocations until the new one pops up.
+  await exerciseViaGateway(accessToken, partyId, 'allocate', T.allocationFactory, setup.rulesCid, 'AllocationFactory_Allocate', {
+    settlement: request.view.settlement,
+    allocation: requested,
+    requestedAt: isoNow(),
+    inputHoldingCids: [holdingCid],
+    extraArgs: EXTRA_ARGS,
+    actors: [partyId],
+  }, [disclosure])
+  const allocations = await poll('wallet allocation in ACS', 30_000, 500, async () => { // Poll the party's allocations until the new one pops up.
     const as = (await acs(accessToken, partyId, T.allocation)).filter((a) => !preAllocations.has(a.contractId))
     return as.length > 0 ? as : undefined
   })
   const walletAllocationCid = allocations[0].contractId
   log(`wallet allocation: ${walletAllocationCid}`)
+
+  // 3. Wallet accepts the dApp's request, which consumes it. Interactive
+  //    submission prepares one command per transaction, so this is a
+  //    prepareExecute of its own (the Daml rehearsal submits both as one).
+  await exerciseViaGateway(accessToken, partyId, 'accept-request', T.allocationRequest, setup.requestCid, 'AllocationRequest_Accept', { actors: [partyId], extraArgs: EXTRA_ARGS })
+  const requestsAfter = await acs(accessToken, partyId, T.allocationRequest)
+  if (requestsAfter.some((r) => r.contractId === setup.requestCid)) fail('the accepted request is still active in the wallet projection')
 
   // 4. signMessage: proof of wallet-party key control. Strict locally; in
   // external mode the adopted party signs via the participant, which may not
@@ -764,13 +931,14 @@ async function dappFlow() {
   }
 
   // 5. Standardized error path: a doomed command must fail visibly.
-  const failedTx = await expectFailedTx(accessToken, partyId, setup.holdingOfferCid)
+  const failedTx = await expectFailedTx(accessToken, partyId, setup.mintOfferCid)
 
-  // Pre-settlement: this run's settlement must not have produced receipts yet.
-  const preReceipts = await acs(accessToken, partyId, T.receipt) // Assert that no settlements have happened yet, only an Allocation ahs been created.
-  if (preReceipts.length !== baseline.receipts) {
-    fail(`expected ${baseline.receipts} receipts before settlement, saw ${preReceipts.length}`)
-  }
+  // Pre-settlement: the wallet's allocation is live, and the change of the
+  // allocation is already spendable: 15 of the 40 USD it received.
+  const midHoldings = await acs(accessToken, partyId, T.holding)
+  const midDelta = unlockedBalance(midHoldings) - baseline.unlockedBalance
+  if (Math.abs(midDelta - 15) > 1e-9) fail(`wallet unlocked balance delta before settlement is ${midDelta}, expected +15 (minted 40, locked 25)`)
+  if (!midHoldings.some((h) => !isUnlocked(h) && Number(h.view?.amount ?? 0) === 25)) fail('expected the 25 USD locked behind the allocation')
 
   // SSE frames are delivered asynchronously: the user-API poll above only
   // guarantees each transaction executed, not that its `executed` frame has
@@ -788,7 +956,7 @@ async function dappFlow() {
   log(`txChanged events observed: ${txEvents.length}`)
   for (const e of txEvents) log(`  ${JSON.stringify(e)}`)
 
-  writeJson('gateway-output.json', { // Write the events to json and other evidence to json. 
+  writeJson('gateway-output.json', { // Write the events to json and other evidence to json.
     walletAllocationCid,
     baseline,
     txChangedEvents: txEvents,
@@ -796,12 +964,12 @@ async function dappFlow() {
     signMessage: signMessageEvidence,
     failedTx,
   })
-  writeJson('settle-input.json', { // Save allocationId and other necessary info, for the settlement step.
+  writeJson('settle-input.json', { // Save the allocation id and other necessary info, for the settlement step.
     admin: setup.admin,
     app: setup.app,
     wallet: partyId,
     receiver: setup.receiver,
-    factoryCid: setup.factoryCid,
+    rulesCid: setup.rulesCid,
     walletAllocationCid,
     receiverAllocationCid: setup.receiverAllocationCid,
   })
@@ -813,30 +981,33 @@ async function dappFlow() {
     baselineWalletBalance: setup.baselineWalletBalance,
     baselineReceiverBalance: setup.baselineReceiverBalance,
     baselineSupply: setup.baselineSupply,
-    baselineReceiptCount: setup.baselineReceiptCount,
   })
 }
 
 async function verifyWalletView() {
   const { partyId, accessToken } = readJson('wallet.json')
-  const { baseline } = readJson('gateway-output.json')
+  const { baseline, walletAllocationCid } = readJson('gateway-output.json')
 
-  const receipts = await acs(accessToken, partyId, T.receipt) // This function should run after settlement. It asserts that the party has at least one more receipt, at least one more event log, and that they have 15 more balance.
-  if (receipts.length < baseline.receipts + 1) {
-    fail(`wallet sees ${receipts.length} settlement receipts, expected >= ${baseline.receipts + 1}`)
+  // This function should run after settlement. The wallet reads the standard
+  // event stream of its account through the gateway: the settlement emitted an
+  // `EventLog_HoldingsChange` on the wallet's account that names the leg the
+  // wallet sent. The mint and the allocation emitted events of their own.
+  const events = await holdingsChanges(accessToken, partyId, baseline.ledgerEndOffset)
+  const mineEvents = events.filter((e) => e.account?.owner === partyId)
+  const settled = mineEvents.filter((e) => (e.transferLegSides ?? []).some((s) => s.transferLegId === `${REF}-leg` && s.side === 'SenderSide'))
+  if (settled.length !== 1) {
+    fail(`wallet sees ${settled.length} settlement event(s) on its account via gateway ledgerApi, expected 1 (${mineEvents.length} holdings-change event(s) in total)`)
   }
-  log(`wallet sees ${receipts.length - baseline.receipts} new settlement receipt(s) via gateway ledgerApi`)
+  log(`wallet sees the settlement's holdings-change event on its account via gateway ledgerApi (${mineEvents.length} event(s) since the baseline)`)
 
-  const entries = await acs(accessToken, partyId, T.eventLog)
-  if (entries.length < baseline.eventLogEntries + 1) {
-    fail(`wallet sees ${entries.length} event log entries, expected >= ${baseline.eventLogEntries + 1}`)
-  }
-  log(`wallet sees ${entries.length - baseline.eventLogEntries} new settlement event log entrie(s)`)
-
-  const holdings = await acs(accessToken, partyId, T.toyHolding)
+  // The allocation is consumed, and the wallet holds its change unlocked.
+  const allocations = await acs(accessToken, partyId, T.allocation)
+  if (allocations.some((a) => a.contractId === walletAllocationCid)) fail('the settled allocation is still active in the wallet projection')
+  const holdings = await acs(accessToken, partyId, T.holding)
+  if (holdings.some((h) => !isUnlocked(h))) fail('a wallet holding is still locked after settlement')
   const delta = unlockedBalance(holdings) - baseline.unlockedBalance
   if (Math.abs(delta - 15) > 1e-9) fail(`wallet balance delta is ${delta}, expected +15 (minted 40, sent 25)`)
-  log(`wallet balance delta is +15.0 as expected`)
+  log(`wallet balance delta is +15.0 as expected, with nothing locked`)
 
   // CIP-0103 session teardown: disconnect, then confirm the dApp is no longer
   // connected. Last step, after every gateway read above.

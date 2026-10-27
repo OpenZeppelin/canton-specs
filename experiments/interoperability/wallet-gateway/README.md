@@ -1,6 +1,6 @@
 # Canton Wallet Gateway interoperability
 
-This experiment runs the OpenZeppelin settlement surface against the Canton
+This experiment runs the OpenZeppelin CIP-0112 registry against the Canton
 Wallet Gateway, an independent CIP-0103 implementation distributed as
 [`@canton-network/wallet-gateway-remote`](https://www.npmjs.com/package/@canton-network/wallet-gateway-remote).
 
@@ -13,12 +13,17 @@ approval, event, and ledger-read surfaces.
 | Surface | Validation |
 |---|---|
 | Session | Connects a dApp and confirms the wallet party is the primary account |
-| Command submission | Prepares offer acceptance and allocation commands through the gateway |
+| Command submission | Prepares the mint acceptance, the allocation through the registry's factory with the rules contract as a disclosed contract, and the request acceptance through the gateway |
 | User approval | Signs and executes prepared transactions through the user API |
 | Events | Observes transaction state changes through the event stream |
-| Ledger reads | Reads settlement receipts, event entries, and holdings through the authenticated JSON Ledger API |
+| Ledger reads | Reads holdings through the `Holding` interface view and the settlement's holdings-change events through the update stream, over the authenticated JSON Ledger API |
 
-The settlement executor combines the wallet-funded allocation with a receiver
+Every wallet-side action is a Token Standard V2 choice: `TransferInstruction_Accept`
+on the registry's mint offer, `AllocationFactory_Allocate` on the disclosed
+rules contract, and `AllocationRequest_Accept` on the dApp's request. Canton's
+interactive submission prepares one command per transaction, so the wallet
+allocates and accepts the request in two `prepareExecute` calls. The
+settlement executor then combines the wallet-funded allocation with a receiver
 allocation through `SettlementFactory_SettleBatch`.
 
 ## Components
@@ -32,8 +37,9 @@ the participant (dpm sandbox, or the LocalNet app-provider)
 ```
 
 - [`WalletGateway.daml`](../cip-exemplar/daml/OpenZeppelin/Experimental/Interop/WalletGateway.daml)
-  defines offer templates and the setup, settlement, verification, and in-memory
-  rehearsal scripts.
+  holds the settlement parameters and the setup, settlement, verification, and
+  in-memory rehearsal scripts. It defines no template: the wallet acts through
+  the standard interfaces alone.
 - [`harness.mjs`](harness.mjs) drives the gateway APIs as the dApp.
 - [`package.json`](package.json) and [`package-lock.json`](package-lock.json)
   pin the gateway release and its complete dependency tree.
@@ -101,8 +107,10 @@ environment.
 - The externally signed wallet party exercises contracts visible in its own
   projection and for which it is the required authorizer.
 - Ledger-user and participant authorization remain operator responsibilities.
-- The token package used by the experiment is a local fixture and does not
-  establish Token Standard V2 conformance.
+- The registry under test is the pinned `openzeppelin-token-cip112-v1` build
+  that [`dars/manifest.yaml`](../../../dars/manifest.yaml) records. The gate
+  exercises its Token Standard V2 interfaces and makes no conformance claim of
+  its own.
 
 The scheduled and manual
 [`live-ledger-gates` workflow](../../../.github/workflows/live-ledger-gates.yml)
