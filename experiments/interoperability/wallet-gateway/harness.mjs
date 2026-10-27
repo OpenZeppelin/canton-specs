@@ -860,6 +860,10 @@ async function dappFlow() {
   const baseline = {
     ledgerEndOffset: await ledgerEnd(accessToken),
     unlockedBalance: unlockedBalance(preHoldings),
+    // External mode reuses the wallet party: a run that stopped between its
+    // allocation and its settlement leaves a holding locked until the
+    // registry's lock expires, and a later run must not count it as its own.
+    lockedHoldingCids: preHoldings.filter((h) => !isUnlocked(h)).map((h) => h.contractId),
   }
   const preHoldingCids = new Set(preHoldings.map((h) => h.contractId))
   log(`baselines: ${JSON.stringify(baseline)}`)
@@ -1004,10 +1008,12 @@ async function verifyWalletView() {
   const allocations = await acs(accessToken, partyId, T.allocation)
   if (allocations.some((a) => a.contractId === walletAllocationCid)) fail('the settled allocation is still active in the wallet projection')
   const holdings = await acs(accessToken, partyId, T.holding)
-  if (holdings.some((h) => !isUnlocked(h))) fail('a wallet holding is still locked after settlement')
+  const baselineLocked = new Set(baseline.lockedHoldingCids ?? [])
+  const newlyLocked = holdings.filter((h) => !isUnlocked(h) && !baselineLocked.has(h.contractId))
+  if (newlyLocked.length > 0) fail(`${newlyLocked.length} wallet holding(s) locked by this run are still locked after settlement`)
   const delta = unlockedBalance(holdings) - baseline.unlockedBalance
   if (Math.abs(delta - 15) > 1e-9) fail(`wallet balance delta is ${delta}, expected +15 (minted 40, sent 25)`)
-  log(`wallet balance delta is +15.0 as expected, with nothing locked`)
+  log(`wallet balance delta is +15.0 as expected, with nothing of this run locked`)
 
   // CIP-0103 session teardown: disconnect, then confirm the dApp is no longer
   // connected. Last step, after every gateway read above.
