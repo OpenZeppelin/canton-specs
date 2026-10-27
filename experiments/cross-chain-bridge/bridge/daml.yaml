@@ -8,8 +8,8 @@ dependencies:
 data-dependencies:
   # OpenZeppelin CIP-112 registry, role grant, and pause guard; see `dars/manifest.yaml` at the repository root.
   - ../../../dars/vendor/openzeppelin-token-cip112-types-v1-0.1.0.dar
-  - ../../../dars/vendor/openzeppelin-token-cip112-utils-0.1.0-6a916c1.dar
-  - ../../../dars/vendor/openzeppelin-token-cip112-v1-0.1.0-6a916c1.dar
+  - ../../../dars/vendor/openzeppelin-token-cip112-utils-0.1.0.dar
+  - ../../../dars/vendor/openzeppelin-token-cip112-v1-0.1.0.dar
   - ../../../dars/vendor/openzeppelin-scoped-authorization-grant-v1-0.1.0.dar
   - ../../../dars/vendor/openzeppelin-api-pausable-v1-0.1.0.dar
   - ../../../dars/vendor/openzeppelin-pausable-v1-0.1.0.dar

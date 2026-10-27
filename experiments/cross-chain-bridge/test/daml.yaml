@@ -9,8 +9,8 @@ dependencies:
 data-dependencies:
   - ../bridge/.daml/dist/openzeppelin-experimental-cross-chain-bridge-0.1.0.dar
   - ../../../dars/vendor/openzeppelin-token-cip112-types-v1-0.1.0.dar
-  - ../../../dars/vendor/openzeppelin-token-cip112-utils-0.1.0-6a916c1.dar
-  - ../../../dars/vendor/openzeppelin-token-cip112-v1-0.1.0-6a916c1.dar
+  - ../../../dars/vendor/openzeppelin-token-cip112-utils-0.1.0.dar
+  - ../../../dars/vendor/openzeppelin-token-cip112-v1-0.1.0.dar
   - ../../../dars/vendor/openzeppelin-scoped-authorization-grant-v1-0.1.0.dar
   - ../../../dars/vendor/openzeppelin-api-pausable-v1-0.1.0.dar
   - ../../../dars/vendor/openzeppelin-pausable-v1-0.1.0.dar

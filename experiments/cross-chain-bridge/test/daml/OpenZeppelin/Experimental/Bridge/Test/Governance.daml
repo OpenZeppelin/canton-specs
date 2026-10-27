@@ -226,7 +226,7 @@ testSupplyRight = do
       amount = 1.0
       requestedAt = t0
       executeBefore = t0 `addRelTime` hours 1
-      reason = "ba mint"
+      reason = "unauthorized mint"
   submitMustFail (actAs b0.br <> discloseMany [rulesDisclosure, rightDisclosure]) do
     exerciseCmd b0.supplyRightCid BridgeSupplyRight_Mint with amount = 1.0; reason = "relayer mint"
   submitMustFail b0.wtokAdmin do
