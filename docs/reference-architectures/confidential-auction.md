@@ -382,11 +382,12 @@ the former operator keeps.
 
 ## 3. Target Design
 
-Each numbered submission below is a separate transaction, and the indented calls
-run inside it. The auction service discloses the published terms and the active
-preparation grant, and the wallet and registry services add scoped account
-context and current holding disclosures. Disclosure only makes a contract
-visible. Exercising a choice still needs its controllers' authority.
+Each explicit submission below is one transaction, including its indented calls.
+Registry approval workflows may require additional transactions. The auction
+service discloses the published terms and the active preparation grant, and the
+wallet and registry services add scoped account context and current holding
+disclosures. Disclosure only makes a contract visible. Exercising a choice still
+needs its controllers' authority.
 
 Users interact through an auction UI and wallet provider using
 [CIP-0103](https://github.com/canton-foundation/cips/blob/6f37c896a5a76ec3bc1aa67bc045623ae5df41e5/cip-0103/cip-0103.md).
@@ -420,7 +421,7 @@ any additional account approvals under their own policies.
    both paths create records signed by issuer and av
 
 3. If either result is Pending, its account parties complete the registry's
-   AllocationInstruction workflow
+   AllocationInstruction workflow in one or more transactions
 
 4. ao exercises opening Grant.OpenRound(source, current issuer allocations)
    if the source is RoundFundingRequest:
