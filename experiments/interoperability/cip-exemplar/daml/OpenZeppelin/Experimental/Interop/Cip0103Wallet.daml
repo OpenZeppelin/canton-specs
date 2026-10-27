@@ -37,12 +37,15 @@ import Splice.TokenStandard.Utils (accountParties, archiveAndCheckActors, basicA
 import OpenZeppelin.Experimental.Interop.Common
 import OpenZeppelin.Token.Cip112.V1.Allocation (TokenAllocation)
 
--- | The dApp's side of a CIP-0103 allocation request: the app asks the
--- authorizers of a settlement to allocate their legs. The template implements
+-- | The dApp's side of a CIP-0103 allocation request: the app asks one
+-- authorizer of a settlement to allocate its legs. The template implements
 -- the Token Standard V2 `AllocationRequest` interface, so any wallet reads it
 -- through the standard view and answers it through the standard choices.
 --
--- Privacy: only the executors and the requested authorizers see the request.
+-- A request names one authorizer, because every answer consumes it: a request
+-- to several would end at the first answer, and each authorizer would see the
+-- allocations requested of the others.
+-- Privacy: only the executors and the requested authorizer see the request.
 -- Authorization assumptions: accepting a request does not allocate anything;
 -- the wallet allocates through the registry's factory, and the standard lets
 -- it do both in one submission.

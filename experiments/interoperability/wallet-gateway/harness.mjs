@@ -478,7 +478,13 @@ function listenTxChanged(token) {
   }
 }
 
-// --- external mode: operator-side phases over the JSON Ledger API -----------
+// --- settlement values and the operator's JSON Ledger API --------------------
+//
+// Every mode uses the values below. They MUST mirror the Daml module's
+// deterministic constants (`gatewayRef`, `gatewaySettlement`, `gatewayLeg`,
+// `gatewayWalletSpec`, amounts): the wallet allocates against the request that
+// the setup phase emitted, and the settle batch compares the settlement and
+// legs for equality.
 //
 // On managed devnet/testnet validators (e.g. ChainSafe dev1) only the JSON
 // Ledger API is exposed - there is no gRPC endpoint for `dpm script` to use.
@@ -487,10 +493,7 @@ function listenTxChanged(token) {
 // party. In every mode the operator also reads the registry's rules contract
 // with its created-event blob here, which the wallet's allocation carries as a
 // disclosed contract (a production registry serves it from its off-ledger
-// API). These values MUST mirror the Daml module's deterministic constants
-// (`gatewayRef`, `gatewaySettlement`, `gatewayLeg`, `gatewayWalletSpec`,
-// amounts): the wallet allocates against the request that the setup phase
-// emitted, and the settle batch compares the settlement and legs for equality.
+// API).
 
 const REF = 'cip0103-wallet-gateway-interop'
 const META = { values: {} }

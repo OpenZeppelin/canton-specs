@@ -17,24 +17,21 @@ including where it departs from the proposal.
 
 ## Dependencies
 
-The bridge consumes six OpenZeppelin DARs built from
-`OpenZeppelin/canton-contracts`. The CIP-112 registry,
-`openzeppelin-token-cip112-utils` and `openzeppelin-token-cip112-v1`, is built
-at commit `6a916c174db7d6163ebeea4df1049044cefc7b3c` on `main`, the same build
-that the interoperability exemplar consumes. `openzeppelin-token-cip112-types-v1`,
-`openzeppelin-scoped-authorization-grant-v1`, `openzeppelin-api-pausable-v1`,
-and `openzeppelin-pausable-v1` are built at commit
-`3d590cae12ec6dbaa295d835e7aef5e21b230c31` on the unmerged branch
-`cip112-one-step-mint`. The types package of the two
-commits is byte-identical, and the other three do not depend on the registry.
-The seven Splice Token Standard V2 DARs are byte-identical copies of the
-Splice 0.8.3 release artifacts that `canton-contracts` vendors. The CIP-112
-packages are consumed as published and not modified.
+The six OpenZeppelin DARs are built from `OpenZeppelin/canton-contracts`
+at commit `6a916c174db7d6163ebeea4df1049044cefc7b3c` on `main`:
+`openzeppelin-token-cip112-types-v1`, `openzeppelin-token-cip112-utils`,
+`openzeppelin-token-cip112-v1`, `openzeppelin-scoped-authorization-grant-v1`,
+`openzeppelin-api-pausable-v1`, and `openzeppelin-pausable-v1`. The
+interoperability exemplar consumes the same three CIP-112 builds, and the
+settlement exemplar the same two pausable builds. The seven Splice Token
+Standard V2 DARs are byte-identical copies of the Splice 0.8.3 release
+artifacts that `canton-contracts` vendors. The CIP-112 packages are consumed
+as published and not modified.
 
 All thirteen DARs sit in [`dars/vendor/`](../../dars/vendor/) at the repository
 root, and [`dars/manifest.yaml`](../../dars/manifest.yaml) records their
-provenance. The packages build with the
-workspace SDK of [`multi-package.yaml`](../../multi-package.yaml).
+provenance. The packages build with the workspace SDK of
+[`multi-package.yaml`](../../multi-package.yaml).
 
 ## Build and test
 
