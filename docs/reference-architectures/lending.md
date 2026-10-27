@@ -47,7 +47,7 @@ conditions are contract parameters ([consumption and customization](#consumption
 | Interest Model | Fixed `interestRate`, open term, **simple (non-compounding) interest** on the tracked principal ([the CDP math](#the-cdp-math)). |
 | Core Flows | Create a market; Create a position; Deposit and withdraw collateral; Borrow; Repay debt; Liquidate an underwater position; Close a position; Fund and defund the treasury; Withdraw seized collateral or operator/funder fees. |
 | Asset Representation | CIP-0112 TSv2 holdings owned by the decentralized venue validation party (`dvv`): one collateral holding per position, one liquidity holding and one seized-collateral holding per market; nothing is minted or burned ([custody](#custody)). |
-| Pricing | Every price-dependent choice fetches the selected provider's price contract and enforces the instrument and staleness guards ([section 4.4](#44-dependency-price-oracle)). |
+| Pricing | Every price-dependent choice reads the selected provider's price through the price interface and enforces the instrument and staleness guards ([section 4.4](#44-dependency-price-oracle)). |
 | Fees | Interest accrues to the funder, meant as a reward but also to absorb bad debt; a configurable share of interest goes to the venue operator ([the treasury](#the-treasury)). The `liquidationBonus` is the premium the funder takes in collateral on a restoring liquidation, seized together with the collateral that covers the cleared debt and withdrawn by the funder. |
 | Compliance & Control | On-chain **KYC claims** from trusted issuers and optional per-operation **compliance attestations**; both lists are configured by the `dvv`. |
 | Trust Topology | Every venue contract is signed, and every venue holding owned, by the `dvv`. The `dvv` is hosted across independent participant nodes at a confirmation threshold above 1; solvency and seizure bounds are enforced by Daml code ([party topology](#party-and-role-model-topology)). |
@@ -61,7 +61,6 @@ conditions are contract parameters ([consumption and customization](#consumption
 | Leverage Facilities | Undercollateralized loans, flash loans, recursive leverage, rehypothecation. |
 | Liquidation Mechanics | Auctions, third-party keepers ([extension points](#extension-points)), and whole-position close-out. |
 | Price Oracle | The oracle contract, its update mechanism, and producing a price for the pair at all are consumed as-is from a provider meeting [section 4.4](#44-dependency-price-oracle). |
-| Token Standard | Defining or extending TSv2; CIP-0056 and V1 paths. |
 | Cross-Synchronizer Operation | The architecture assumes one synchronizer. |
 
 ### Target Ecosystem Participants
@@ -76,7 +75,7 @@ In the [ERC-4626](https://docs.openzeppelin.com/contracts/5.x/erc4626) lineage o
 
 **Privacy by default.** A contract is visible only to its signatories and observers (per-party projection), so each **position is its own contract** rather than a share in a pool, visible only to the borrower and `dvv`. A party that is an informee of a choice also sees everything the choice does, so the venue keeps one holding per position: a borrower's flows never touch another borrower's position ([privacy model](#privacy-and-visibility-model)).
 
-**No in-place mutation.** State changes by archive-and-recreate, so contract ids change. The design resolves the `PositionFactory`, the `Treasury`, the `Position`, and the price oracle by **contract key**. Keys are not unique, so the venue will enforce uniqueness.
+**No in-place mutation.** State changes by archive-and-recreate, so contract ids change. The design resolves the `PositionFactory`, the `Treasury`, and the `Position` by **contract key**. Keys are not unique, so the venue will enforce uniqueness.
 
 **A bounded operator, not no operator.** Canton does not remove the operator from the trust equation; it bounds it. The operator is paid, through the venue fee, to enforce the funder's and the borrower's terms against each other, and the `dvv` hosting consortium exists so that its custody of collateral and liquidity is bounded by code and confirmed by organizations it does not control. The trust question therefore moves from contracts to parties. 
 
@@ -160,8 +159,10 @@ provider, funders, and borrowers are pre-existing network structure.
   the venue fee, serves the disclosed market terms and capacity to
   prospective borrowers, and monitors positions and the oracles.
   Liquidating in time is a service-level obligation of the operator.
+  Letting the funder liquidate as well is an alternative considered and
+  not adopted.
 - **Funder**: admitted by the consortium when its market is opened; fills
-  and defunds the treasury on its own terms, earns the interest net of the
+  and defunds its treasury on its own terms, earns the interest net of the
   venue fee, absorbs bad debt, and withdraws seized collateral; typically
   the debt token's issuer or a large holder, possibly the operator itself.
   It brings liquidity and terms: the consortium opens
@@ -169,7 +170,8 @@ provider, funders, and borrowers are pre-existing network structure.
 - **Borrower**: locks collateral and draws debt.
 - **Oracle Provider**: the external organization publishing the price
   contract the positions read, selected by `dvv` against
-  [section 4.4](#44-dependency-price-oracle).
+  [section 4.4](#44-dependency-price-oracle) on the funder's proposal when
+  its market is opened.
 - **Instrument Registrars**: the TSv2 registries of the debt token and the
   collateral, generally different organizations.
 
@@ -324,7 +326,7 @@ flowchart TD
     Position -.->|"archive"| Position
 ```
 
-**E. Liquidation.** Below `liquidationRatio`, `vo` clears debt against collateral: the choice computes `debtCleared` and `collateralSeized` from the fresh price ([the CDP math](#the-cdp-math)), moves the seized collateral from the position's holding into the market's seized-collateral holding, and reduces the debt. No debt tokens change hands; the funder takes the collateral with `Treasury_WithdrawCollateral`. The residual `Position` is recreated, or, on full absorption, the shortfall is written off and the position closed.
+**E. Liquidation.** Below `liquidationRatio`, `vo` clears debt against collateral: the choice computes `debtCleared` and `collateralSeized` from the fresh price ([the CDP math](#the-cdp-math)), moves the seized collateral from the position's holding into the market's seized-collateral holding, and reduces the debt. No debt tokens change hands. The funder later takes the seized collateral with `Treasury_WithdrawCollateral`. The residual `Position` is recreated, or, on full absorption, the shortfall is written off and the position closed.
 
 ```mermaid
 flowchart TD
@@ -361,7 +363,7 @@ sequenceDiagram
     V->>P: Position_Liquidate
     activate P
     P->>F: fetch by key: not paused, operator is vo, oracle selection
-    P->>O: fetch by key, assert instruments and freshness
+    P->>O: fetch through the price interface, assert provider, instruments, and freshness
     P->>P: accrueDebt
     alt collateralRatio >= liquidationRatio
         P-->>V: abort
@@ -430,8 +432,8 @@ liquidity could instead stay in their owners' accounts as committed iterated
 allocations ([CIP-0112](https://github.com/canton-foundation/cips/blob/6f37c896a5a76ec3bc1aa67bc045623ae5df41e5/cip-0112/cip-0112.md#436-committed-allocations-and-iterated-settlement))
 naming `dvv` as executor, so that the venue never holds client assets and a
 registry freeze reaches one customer. The design does not adopt it: every
-settlement then needs the owner's node, so liquidation depends on the
-borrower; allocations expire and must be refreshed for open-term positions;
+settlement then needs a confirmation by the owner's node, so liquidation
+depends on the borrower; allocations expire and must be refreshed for open-term positions;
 and both registries must support iterated settlement with reserved funding.
 
 ### Privacy and Visibility Model
@@ -440,17 +442,18 @@ Target visibility per contract:
 
 | Contract | Signatories | Observers |
 |---|---|---|
-| `PositionFactory`, `Treasury` | `dvv` | the market's funder; disclosed to prospective borrowers by `vo` |
+| `PositionFactory`, `Treasury` | `dvv` | the market's funder; disclosed to prospective borrowers by the operator backend, which reads them through the `dvv` replica on its node |
 | `Position` | `dvv` | its borrower |
 | Collateral, liquidity, and seized-collateral holdings | the registry admin, `dvv` | none |
-| Price contract | the provider | disclosed to venue parties by `vo` and read through the provider's public fetch choice ([section 4.4](#44-dependency-price-oracle)) |
+| Price contract | the provider | disclosed to venue parties by the operator backend and read through the price interface ([section 4.4](#44-dependency-price-oracle)) |
 
 Consequences:
 
 - **A borrower sees its own positions and nothing of another's.** On its own flows it witnesses the `dvv` holding backing its position and, on borrow, repay, and liquidation, the market's `Treasury` record and the holdings those flows touch.
 - **The funder sees its market's configuration and treasury, never a position.** Its outstanding exposure follows from the `Treasury` figures.
+- **A registry admin sees only the holdings in its instrument.** It signs the `dvv` holdings and witnesses their transfers; no `PositionFactory`, `Treasury`, or `Position` reaches it.
 - **`vo` sees everything** through the `dvv` replica on its node; the optional auditor sees what `dvv` sees.
-- **Disclosure.** A submission carries the contracts it exercises or fetches without seeing them: the market's factory and treasury, the `dvv` holdings it consumes, the price contract, and the registries' transfer factories with their choice contexts, served by `vo`'s backend.
+- **Disclosure.** A submission carries the contracts it exercises or fetches without seeing them: the market's factory and treasury, the `dvv` holdings it consumes, the price contract, and the registries' transfer factories with their choice contexts, served by the operator backend from the `dvv` replica on its node.
 
 ### Instrument Listing Policy
 
@@ -487,7 +490,7 @@ A single trusted price feed would be the largest live attack surface, so the
 design hardens the price path on the consumer side and places the rest on
 the dependency ([section 4.4](#44-dependency-price-oracle)):
 
-- **Named quote instrument.** The price contract carries `debtInstrumentId` and `collateralInstrumentId`, so `price` is unambiguously "units of the debt token per unit of collateral"; consumers assert both ids match the position's.
+- **Named quote instrument.** The price view carries `debtInstrumentId` and `collateralInstrumentId`, so `price` is unambiguously "units of the debt token per unit of collateral"; consumers assert both ids match the position's.
 - **Max-staleness guard.** Every price-dependent choice rejects when `now - updatedAt > maxStaleness`.
 - **Operator monitoring.** The backend watches each feed for staleness and out-of-band moves, and `vo` pauses the affected markets on a suspect feed.
 
@@ -495,7 +498,7 @@ the dependency ([section 4.4](#44-dependency-price-oracle)):
 
 Every privileged action traces to the named authority in the
 [trust topology](#decentralization-and-trust-topology) table, and no single
-admin holds them all. Every holder is fixed for the life of its contract and
+organization holds them all. Every holder is fixed for the life of its contract and
 bound by direct controllership: the funder on its market, the borrower on
 its position, `dvv` through the choices on the contracts it signs, and `vo`
 on pause, liquidation, and fee withdrawal, checked by each choice against
@@ -507,9 +510,9 @@ ownership-handover contract and no role registry.
 ### Smart Contract Upgrade Process
 
 The application uses Smart Contract Upgrade (SCU) for additive changes to
-its own packages: a release keeps the package name, raises the version, sets
-`upgrades:` to the prior deployed DAR, and only appends `Optional` fields to
-templates, records, and choice arguments; the
+its own packages: a release keeps the package name, raises the version, and
+only appends `Optional` fields to templates, records, and choice arguments;
+the hosting nodes enforce compatibility when they vet the package, and the
 [Canton SCU guide](https://docs.canton.network/appdev/deep-dives/smart-contract-upgrade)
 defines the remaining rules. SCU preserves a representable data shape, not
 loan economics.
@@ -569,11 +572,11 @@ behavior is configuration on each market's `PositionFactory`, changed
 through governed `dvv` transactions rather than code changes.
 
 A position resolves the operational configuration live, by key, so a
-configuration change migrates no position. Beyond the TSv2 asset interfaces
-and the OpenZeppelin `Pausable` view, the design defines no Daml interfaces
-or hook contracts of its own: every market, position, and oracle reference
-is a statically linked template resolved by key, which keeps the reachable
-transaction shapes fixed and auditable.
+configuration change migrates no position. Beyond the TSv2 asset interfaces,
+the OpenZeppelin `Pausable` view, and the price interface, the design
+defines no Daml interfaces or hook contracts of its own: every market and
+position reference is a statically linked template resolved by key, which
+keeps the reachable transaction shapes fixed and auditable.
 
 ---
 
@@ -589,39 +592,47 @@ implementation. They are not yet implemented in any end-to-end Daml Script; `acc
 ### 4.1 Component: PositionFactory and Position Creation
 
 A market is one `PositionFactory` and one `Treasury`, both keyed by `dvv`,
-the funder, and the instrument pair, created together by a `dvv` transaction. The `PositionFactory` is the market's
+the funder, and the instrument pair, created together by a `dvv` transaction.
+The `PositionFactory` is the market's
 standing offer to borrowers; a borrower creates a position unilaterally, and
 creation transfers the presented holdings to `dvv`, so a position is never
 created empty and no holding is accepted from outside.
 
 ```daml
-data PositionParams = PositionParams with   -- fixed for the life of a position
+-- | Fixed for the life of a position.
+data PositionParams = PositionParams with
   interestRate : Decimal
   minCollateralRatio : Decimal
   liquidationRatio : Decimal
   liquidationBonus : Decimal
 
+data MarketKey = MarketKey with
+  dvv : Party
+  funder : Party
+  collateralInstrumentId : InstrumentId
+  debtInstrumentId : InstrumentId
+
 template PositionFactory
   with
-    dvv : Party
-    vo : Party                      -- the venue's operator, the same in every market
-    funder : Party
+    dvv : Party                     -- ^ signs every venue contract
+    vo : Party                      -- ^ the venue's operator, the same in every market
+    funder : Party                  -- ^ brings the terms and the liquidity
     collateralInstrumentId : InstrumentId
     debtInstrumentId : InstrumentId
-    params : PositionParams
-    oracleProvider : Party
-    maxStaleness : RelTime
-    venueFeeShare : Decimal
-    minCollateralAmount : Decimal
-    minLiquidityAmount : Decimal
-    trustedIssuers : [Party]
-    trustedAttesters : [Party]      -- empty disables attestations
-    paused : Bool
+    params : PositionParams         -- ^ copied into every new position
+    oracleProvider : Party          -- ^ signatory asserted on every price read
+    maxStaleness : RelTime          -- ^ bound on the price age, in ledger time
+    venueFeeShare : Decimal         -- ^ share of interest paid to vo
+    minCollateralAmount : Decimal   -- ^ floor on a position's collateral
+    minLiquidityAmount : Decimal    -- ^ floor on the treasury's liquidity
+    trustedIssuers : [Party]        -- ^ accepted KYC claim issuers
+    trustedAttesters : [Party]      -- ^ accepted attesters; empty disables attestations
+    paused : Bool                   -- ^ set by vo; gates creation and price-dependent flows
   where
     signatory dvv
     observer funder
-    key (dvv, funder, collateralInstrumentId, debtInstrumentId) : (Party, Party, InstrumentId, InstrumentId)
-    maintainer key._1
+    key MarketKey with .. : MarketKey
+    maintainer key.dvv
 ```
 
 ### 4.2 Component: Position and Liquidation
@@ -629,6 +640,11 @@ template PositionFactory
 The `Position` holds one borrower's CDP state; its consuming choices archive it and recreate the successor with updated figures. `dvv` is its only signatory and the borrower an observer. The borrower's own choices run under their controller authority, and their protection is the choice logic plus the `dvv` threshold.
 
 ```daml
+data PositionKey = PositionKey with
+  dvv : Party
+  borrower : Party
+  positionId : Text
+
 template Position
   with
     dvv : Party
@@ -637,7 +653,7 @@ template Position
     positionId : Text
     collateralInstrumentId : InstrumentId
     debtInstrumentId : InstrumentId
-    collateralHoldingCid : ContractId Holding   -- owned by dvv, one per position
+    collateralHoldingCid : ContractId Holding   -- ^ owned by dvv, one per position
     collateralAmount : Decimal
     debtAmount : Decimal
     principalAmount : Decimal
@@ -646,8 +662,8 @@ template Position
   where
     signatory dvv
     observer borrower
-    key (dvv, borrower, positionId) : (Party, Party, Text)
-    maintainer key._1
+    key PositionKey with .. : PositionKey
+    maintainer key.dvv
 ```
 
 ### 4.3 Component: Treasury
@@ -657,14 +673,20 @@ accounting ([the treasury](#the-treasury)); each choice updates the figures
 and the holding references in the transaction that moves the holdings.
 
 ```daml
+data TreasuryKey = TreasuryKey with
+  dvv : Party
+  funder : Party
+  collateralInstrumentId : InstrumentId
+  debtInstrumentId : InstrumentId
+
 template Treasury
   with
     dvv : Party
     funder : Party
     collateralInstrumentId : InstrumentId
     debtInstrumentId : InstrumentId
-    liquidityHoldingCid : Optional (ContractId Holding)          -- owned by dvv
-    seizedCollateralHoldingCid : Optional (ContractId Holding)   -- owned by dvv
+    liquidityHoldingCid : Optional (ContractId Holding)          -- ^ owned by dvv
+    seizedCollateralHoldingCid : Optional (ContractId Holding)   -- ^ owned by dvv
     availableAmount : Decimal
     feesAccrued : Decimal
     venueFeesAccrued : Decimal
@@ -674,18 +696,18 @@ template Treasury
   where
     signatory dvv
     observer funder
-    key (dvv, funder, collateralInstrumentId, debtInstrumentId) : (Party, Party, InstrumentId, InstrumentId)
-    maintainer key._1
+    key TreasuryKey with .. : TreasuryKey
+    maintainer key.dvv
 ```
 ### 4.4 Dependency: Price Oracle
 
-The price oracle is not a venue component but a **pinned dependency**, like the token registries: an external provider publishes a price contract carrying `price` and `updatedAt`, keyed by `(provider, collateralInstrumentId, debtInstrumentId)`; the lending package depends on the provider's package as a pinned DAR, and the market's `PositionFactory` names the provider, so every price-dependent choice fetches the current price by key across the provider's archive-and-recreate cycle. `dvv` selects the provider as a configuration decision, and the position choices enforce only the consumer-side guards ([oracle handling](#oracle-handling)). A fallback provider must publish the same pinned template; one on another package is a new lending release. Before selection, a provider must satisfy:
+The price oracle is not a venue component but a dependency read through a Daml **price interface**: a provider implements the interface on its own price template, and the lending package depends on the interface package only. The view carries `price`, `updatedAt`, and the instrument pair. The market's `PositionFactory` names the provider, and every price-dependent choice takes the current price contract's id, fetches it through the interface, and asserts the provider, the instrument ids, and freshness. Interfaces carry no keys, so the current id is served with the other disclosed contracts. `dvv` selects the provider as a configuration decision, and the position choices enforce only the consumer-side guards ([oracle handling](#oracle-handling)). A fallback provider is any implementation of the interface, switched by configuration. Before selection, a provider must satisfy:
 
 - **No single writer.** No single party may publish a price alone, so a lone compromised party cannot manufacture liquidations.
 - **No single staller.** Update liveness must not hinge on any one party's per-update cooperation; an all-of-M quorum stalls on one offline member.
 - **Bounded moves.** A per-update deviation bound aborts out-of-band publishes, so the last in-band price stands.
 - **Auditable updates.** Every published price traces to the parties that authorized it.
-- **Public fetch.** The contract exposes a nonconsuming fetch choice any party may exercise, as TSv2 factories do, since a fetch is authorized only by a stakeholder and the venue is none.
+- **Public fetch.** The interface exposes a nonconsuming fetch choice any party may exercise, as TSv2 factories do.
 - **Read liveness.** The participants hosting the contract's signatory confirm every fetch, so a single-node publisher stalls every price-dependent flow and an all-of-M signatory set stalls on one member; the publishing party is hosted on several nodes at threshold 1.
 
 Providers may run an N-of-M committee through the [Multiple Party Agreement](https://docs.canton.network/appdev/modules/m3-design-patterns#multiple-party-agreement) pattern, multi-hosted parties, medianized per-member submissions, or pull-style signed price attestations verified inside the publish choice; which provider to consume, and the quorum to demand, is left to the adopter.
@@ -761,7 +783,7 @@ position, a fresh price, an unpaused market, and the borrower's compliance.
 | Failure | Effect while pending | Recovery path | Funds locked at most |
 |---|---|---|---|
 | Attester never attests, or attestation expires | creation, deposits, borrows, and withdrawals blocked (fail closed) | re-request an attestation and retry | nothing locked |
-| Oracle goes stale | borrows, withdrawals, and liquidations blocked by the staleness guard; deposits, repayments, and closes unaffected | the provider publishes, or `dvv` switches the market to a fallback provider on the same pinned template | nothing locked; risk-increasing flows and liquidation paused |
+| Oracle goes stale | borrows, withdrawals, and liquidations blocked by the staleness guard; deposits, repayments, and closes unaffected | the provider publishes, or `dvv` switches the market to a fallback provider implementing the interface | nothing locked; risk-increasing flows and liquidation paused |
 | Oracle provider's or KYC issuer's participant unavailable | fetches of their contracts cannot be confirmed: borrows, withdrawals, and liquidations wait on the provider; creation, deposits, borrows, and withdrawals wait on the issuer | the node returns, or `dvv` switches the market's provider | nothing locked |
 | Treasury exhausted or defunded | new borrows blocked; repay, close, withdraw, and liquidation unaffected | the funder tops up via `Treasury_Fund` | nothing locked |
 | Registry admin unavailable or unvetted | no holding in that instrument moves: with the collateral registry down, deposits, withdrawals, closes, liquidations, and collateral withdrawals wait; with the debt-token registry down, borrows, repayments, funding, and defunding wait, while interest accrues | the registry returns | nothing locked; positions wait |
@@ -834,11 +856,11 @@ Since CIP-0078 only featured apps earn rewards; the natural holder of the
 `FeaturedAppRight` (granted by the super validators, on application to the
 Global Synchronizer Foundation) is `dvv`, the signatory of every venue
 contract. Rewards are traffic-based
-([CIP-0104](https://github.com/canton-foundation/cips/blob/6f37c896a5a76ec3bc1aa67bc045623ae5df41e5/cip-0104/cip-0104.md),
-rolling out on MainNet since April 2026): the traffic cost of every
-successful confirmation request is credited to its **app confirmers**,
-parties holding an active `FeaturedAppRight` that sign created contracts or
-sign or act on exercised ones; observers earn nothing, and each envelope's
+([CIP-0104](https://github.com/canton-foundation/cips/blob/dcb8d834e4a7c833ea8887f6caabbdfa7e0e6c6c/cip-0104/cip-0104.md),
+scheduled for MainNet in February 2027):
+the traffic cost of every successful confirmation request is credited to its
+**app confirmers**, parties holding an active `FeaturedAppRight` that sign
+created, exercised, or fetched contracts or act on exercised ones; observers earn nothing, and each envelope's
 cost splits equally among its app confirmers. Super-validator automation
 measures activity from sequencer and mediator data, issues one
 `AppRewardCoupon` per party per round (allowances below
