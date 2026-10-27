@@ -55,7 +55,7 @@ template AppAllocationRequest
   where
     signatory settlement.executors
     observer concatMap (\a -> accountParties a.admin a.authorizer) allocations
-    ensure not (null settlement.executors) && not (null allocations)
+    ensure not (null settlement.executors) && length (dedup (map (.authorizer) allocations)) == 1
 
     interface instance AllocationRequestV2.AllocationRequest for AppAllocationRequest where
       view = AllocationRequestV2.AllocationRequestView with
@@ -240,7 +240,16 @@ test_cip0103_privacyScopedToParticipants = script do
   (usdHoldingsSeenBy outsider) >>= \hs -> length hs === 0
   (erc20BalanceOf outsider bobAcct) >>= \b -> b === 0.0
   _ <- submit app $ withdrawRequestCmd requestCid [app]
-  pure ()
+  -- A request names one authorizer, so neither wallet sees the allocation
+  -- requested of the other.
+  submitMustFail app do
+    createCmd AppAllocationRequest with
+      settlement
+      allocations =
+        [ mkSpec admin bobAcct [senderSide leg] (Some deadline)
+        , mkSpec admin aliceAcct [receiverSide leg] (Some deadline) ]
+      requestedAt = deadline
+      settleAt = Some deadline
 
 -- | CIP-0103 predictable error handling: fail-closed settlement paths surface as
 -- command failures a wallet/dApp can map to errors - here, settling after the
