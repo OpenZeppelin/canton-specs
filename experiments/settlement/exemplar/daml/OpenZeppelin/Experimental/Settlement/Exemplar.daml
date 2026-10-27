@@ -14,7 +14,8 @@ import DA.Time (time)
 import Daml.Script
 
 import OpenZeppelin.AccessControlV1 (RoleGrant(..), requireRole)
-import OpenZeppelin.PausableV1
+import OpenZeppelin.Api.PausableV1 (Pausable, PausableView(..))
+import OpenZeppelin.PausableV1 (whenNotPaused, whenPaused)
 
 import OpenZeppelin.Experimental.Settlement.Cip112
 import OpenZeppelin.Experimental.TokenStandardFixture.V2.Metadata
@@ -26,6 +27,31 @@ import OpenZeppelin.Experimental.TokenStandardFixture.V2.Allocation
 
 settlementExecutorRole : Text
 settlementExecutorRole = "SETTLEMENT_EXECUTOR_ROLE"
+
+-- | The app's emergency stop, read through the `Pausable` interface.
+--
+-- Signatories: `pauser`. Observers: none; the pauser discloses the active state
+-- to the operations that gate on it. Controllers: `pauser` flips the flag.
+-- Archival behavior: `SettlementPauseState_Set` is consuming and creates the
+-- successor. Failure modes: a flip to the current value fails, so the ledger
+-- history records only real transitions.
+template SettlementPauseState
+  with
+    pauser : Party
+    paused : Bool
+  where
+    signatory pauser
+
+    interface instance Pausable for SettlementPauseState where
+      view = PausableView with paused
+
+    choice SettlementPauseState_Set : ContractId SettlementPauseState
+      with
+        newPaused : Bool
+      controller pauser
+      do
+        if newPaused then whenNotPaused this else whenPaused this
+        create this with paused = newPaused
 
 -- | The consumer application. Owned by the registry `admin`; it composes the
 -- pause guard and the executor role check around the settlement library's
@@ -48,7 +74,7 @@ template RegulatedSettlementApp
       with
         executor : Party
         executorGrant : ContractId RoleGrant
-        pauseStateCid : ContractId PauseState
+        pauseStateCid : ContractId SettlementPauseState
         factoryCid : ContractId SettlementFactory
         settlement : SettlementInfo
         transferLegs : [TransferLeg]
@@ -159,7 +185,7 @@ regulatedSettlementExemplar = script do
   attester <- allocateParty "exemplar-node-attester"
 
   -- The application combines a running pause state with an executor role grant.
-  pauseState <- submit admin do createCmd PauseState with pauser = admin; paused = False
+  pauseState <- submit admin do createCmd SettlementPauseState with pauser = admin; paused = False
   executorGrant <- submit admin do
     createCmd RoleGrant with admin; account = app; role = settlementExecutorRole
   appCid <- submit admin do createCmd RegulatedSettlementApp with admin
@@ -186,12 +212,12 @@ regulatedSettlementExemplar = script do
       featureFlag = experimentalFeatureFlag
 
   -- Pause blocks settlement: flip on, attempt, expect failure, flip back.
-  pausedState <- submit admin do exerciseCmd pauseState PauseState_Set with newPaused = True
+  pausedState <- submit admin do exerciseCmd pauseState SettlementPauseState_Set with newPaused = True
   submitMustFail (actAs [app] <> readAs [admin]) do
     exerciseCmd appCid RegulatedSettlementApp_SettleWithControls with
       executor = app; executorGrant; pauseStateCid = pausedState; factoryCid = factory
       settlement; transferLegs = [leg]; allocationCids; attestationCid = attestation; registryCid = registry
-  runningState <- submit admin do exerciseCmd pausedState PauseState_Set with newPaused = False
+  runningState <- submit admin do exerciseCmd pausedState SettlementPauseState_Set with newPaused = False
 
   -- Happy path: executor settles through the app's composed controls.
   receiptCids <- submit (actAs [app] <> readAs [admin]) do
@@ -252,7 +278,8 @@ regulatedSeizureExemplar = script do
         _ -> abort "exemplar: expected AllocationD2Swept"
     [] -> abort "exemplar: expected an allocation to seize"
 
--- | Exercises the consumer application's admin-controlled archival path.
+-- | Exercises the admin-controlled archival paths of the consumer application
+-- and its pause state, and the pause state's refusal of a no-op flip.
 regulatedSettlementAppArchiveExemplar : Script ()
 regulatedSettlementAppArchiveExemplar = script do
   admin <- allocateParty "exemplar-archive-admin"
@@ -260,3 +287,9 @@ regulatedSettlementAppArchiveExemplar = script do
     createCmd RegulatedSettlementApp with admin
   submit admin do
     exerciseCmd appCid Archive
+  pauseState <- submit admin do
+    createCmd SettlementPauseState with pauser = admin; paused = False
+  submitMustFail admin do
+    exerciseCmd pauseState SettlementPauseState_Set with newPaused = False
+  submit admin do
+    exerciseCmd pauseState Archive

@@ -8,6 +8,7 @@ dependencies:
   - daml-script
 data-dependencies:
   - ../../../dars/vendor/openzeppelin-access-control-v1-0.1.0.dar
+  - ../../../dars/vendor/openzeppelin-api-pausable-v1-0.1.0.dar
   - ../../../dars/vendor/openzeppelin-pausable-v1-0.1.0-3d590ca.dar
   - ../fixtures/token-standard-v2/.daml/dist/openzeppelin-experimental-token-standard-v2-fixture-0.1.0.dar
   - ../cip-0112/.daml/dist/openzeppelin-experimental-cip112-settlement-0.1.0.dar
