@@ -11,8 +11,8 @@ data-dependencies:
   # at 6a916c174db7d6163ebeea4df1049044cefc7b3c; see `dars/manifest.yaml` at the
   # repository root.
   - ../../../dars/vendor/openzeppelin-token-cip112-types-v1-0.1.0.dar
-  - ../../../dars/vendor/openzeppelin-token-cip112-utils-0.1.0-6a916c1.dar
-  - ../../../dars/vendor/openzeppelin-token-cip112-v1-0.1.0-6a916c1.dar
+  - ../../../dars/vendor/openzeppelin-token-cip112-utils-0.1.0.dar
+  - ../../../dars/vendor/openzeppelin-token-cip112-v1-0.1.0.dar
   # Splice Token Standard V2 (CIP-0112) release artifacts; never rebuilt.
   - ../../../dars/vendor/splice-api-token-metadata-v1-1.0.0.dar
   - ../../../dars/vendor/splice-api-token-holding-v2-1.0.0.dar

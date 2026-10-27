@@ -18,8 +18,8 @@ including where it departs from the proposal.
 ## Dependencies
 
 The six OpenZeppelin DARs are built from `OpenZeppelin/canton-contracts`
-at commit `3d590cae12ec6dbaa295d835e7aef5e21b230c31` on branch
-`cip112-one-step-mint`: `openzeppelin-token-cip112-types-v1`,
+at commit `6a916c174db7d6163ebeea4df1049044cefc7b3c` on `main`:
+`openzeppelin-token-cip112-types-v1`,
 `openzeppelin-token-cip112-utils`, `openzeppelin-token-cip112-v1`,
 `openzeppelin-scoped-authorization-grant-v1`, `openzeppelin-api-pausable-v1`,
 and `openzeppelin-pausable-v1`. The seven
@@ -31,7 +31,7 @@ All thirteen DARs sit in [`dars/vendor/`](../../dars/vendor/) at the repository
 root, and [`dars/manifest.yaml`](../../dars/manifest.yaml) records their
 provenance. The `pausable-v1` build from this commit has a different package id
 from the one the settlement exemplar consumes, so its file is
-`openzeppelin-pausable-v1-0.1.0-3d590ca.dar`. The packages build with the
+`openzeppelin-pausable-v1-0.1.0-6a916c1.dar`. The packages build with the
 workspace SDK of [`multi-package.yaml`](../../multi-package.yaml).
 
 ## Build and test
@@ -69,7 +69,7 @@ about ten minutes with the container images already pulled.
 
 | Proposal | Prototype |
 |---|---|
-| Mint right and burn right (section 3.9) | `BridgeSupplyRight` in `RegistryAdapter.daml`: the wTOK admin signs it and it names `ba`. Each of its two choices completes a transfer through the registry's transfer factory in one step, with `ba` and the wTOK admin as actors: the mint from the CIP-0112 mint account to the bridge account, and the burn from the bridge account to the CIP-0112 burn account. Archiving it revokes both rights |
+| Mint right and burn right (section 3.9) | `BridgeSupplyRight` in `RegistryAdapter.daml`: the wTOK admin signs it and it names `ba`. Its mint choice exercises the registry's admin mint offer into the bridge account and accepts it as `ba` in the same choice. Its burn choice completes a transfer through the registry's transfer factory in one step, with `ba` and the wTOK admin as actors, from the bridge account to the CIP-0112 burn account. Archiving it revokes both rights |
 | Attested message with the lock attestation (section 3.1) | `AttestedMessage` in `Attestations.daml`: one co-signed contract per message. The first attester creates it through `AttesterRegistry_AttestLock`, the attesters listed at that moment observe it, each further observer adds itself through `AttestedMessage_Sign`, and only a gateway choice consumes it |
 | Compliance attestation (sections 3.1 and 3.6) | `ComplianceAttestation`, created through `AttesterRegistry_AttestCompliance` and co-signed the same way, bound to an inbound credit or to a redemption request through `ComplianceSubject`, with the KYC assertion, the ledger-stamped `issuedAt`, and an expiry |
 | Attester registry (section 3.6) | `AttesterRegistry` in `Attestations.daml`, with its maintainer field, its read choice, and the two creating choices. A creator may name a subset of at least N listed attesters as observers |
