@@ -33,19 +33,25 @@ import OpenZeppelin.Token.Cip112.V1.Registry (TokenRules(..))
 -- Signatories: `owner` only - `approve` is owner-authorised, faithful to ERC-20
 -- (the issuer does not consent to an allowance). Observers: `admin`, `spender`.
 -- Controllers: `spender` AND `admin` co-authorise `transferFrom`
--- (`Erc20Allowance_AuthorizeSpend`): the owner's authority to instruct the
--- transfer comes from the owner-signed allowance, and `admin` lets the choice
--- fetch the admin-signed rules contract that the owner named, so a spend only
--- ever runs that registry's transfer factory. Choices:
--- `Erc20Allowance_AuthorizeSpend`. Privacy: only owner, admin, and spender see
--- the allowance. Authorization assumptions: a delegated spend can mobilise the
--- owner's funds but can only credit a recipient whose account parties accept
--- the pending instruction - Canton has no unilateral credit, so an unscoped
--- ERC-20 `transferFrom` to an arbitrary recipient is not globally correct.
--- Archival behavior: `Erc20Allowance_AuthorizeSpend` is consuming and creates a
--- decremented successor. Failure modes: non-positive or over-allowance spend,
--- a rules contract of another issuer, and the registry's own transfer checks
--- fail closed.
+-- (`Erc20Allowance_AuthorizeSpend`). The owner's authority to instruct the
+-- transfer comes from the owner-signed allowance. The registry's transfer
+-- factory runs with the admin's authority as the signatory of the rules
+-- contract, so the transfer needs no further authority. `admin` co-controls
+-- the spend because the choice fetches the rules contract to check its admin,
+-- and only the admin, the rules contract's one stakeholder, authorises that
+-- fetch. The registry's own transfer checks also reject an instrument of
+-- another admin. The owner names the rules contract its approval applies to,
+-- so a spend only ever runs that registry's transfer factory. Choices:
+-- `Erc20Allowance_AuthorizeSpend`.
+-- Privacy: only owner, admin, and spender see the allowance. Authorization
+-- assumptions: a delegated spend can mobilise the owner's funds but can only
+-- credit a recipient whose account parties accept the pending instruction -
+-- Canton has no unilateral credit, so an unscoped ERC-20 `transferFrom` to an
+-- arbitrary recipient is not globally correct. Archival behavior:
+-- `Erc20Allowance_AuthorizeSpend` is consuming and creates a decremented
+-- successor. Failure modes: non-positive or over-allowance spend, a rules
+-- contract of another issuer, and the registry's own transfer checks fail
+-- closed.
 template Erc20Allowance
   with
     admin : Party
@@ -65,8 +71,8 @@ template Erc20Allowance
     -- funds to the recipient. The factory locks the amount, returns the change
     -- to the owner, and creates the pending instruction that the recipient's
     -- account parties accept. The owner's authority comes from the owner-signed
-    -- allowance, so no further owner action is needed at call time; the
-    -- issuer's authority over the holdings comes from the rules contract.
+    -- allowance, so no further owner action is needed at call time. `admin`
+    -- co-controls the choice to authorise the fetch of the rules contract.
     choice Erc20Allowance_AuthorizeSpend
       : (TransferInstructionV2.TransferInstructionResult, ContractId Erc20Allowance)
       with
@@ -202,9 +208,8 @@ test_cip0086_approveTransferFromMovesValue = script do
       rulesCid = registry.rulesCid; instrumentId = usdSymbol; allowance = 40.0
 
   -- transferFrom: spender + admin co-authorise a 30 spend of the owner's funds.
-  -- The owner's move authority comes from the owner-signed allowance; admin
-  -- co-signs so the choice can fetch the rules contract. The registry locks 30
-  -- behind the pending instruction and returns the 70 change at once.
+  -- The owner's authority comes from the owner-signed allowance. The registry
+  -- locks 30 behind the pending instruction and returns the 70 change at once.
   now <- getTime
   (result, allowanceCid2) <- submit [spender, admin] do
     exerciseCmd allowanceCid Erc20Allowance_AuthorizeSpend with

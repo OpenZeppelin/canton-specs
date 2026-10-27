@@ -10,7 +10,7 @@ complements the in-memory ledger used by `dpm test`.
 |---|---|
 | CIP-0086 | Maps transfer and delegated transfer behavior onto the registry's transfer factory and instructions, enforces allowance bounds, conserves supply, and keeps balance queries projection-scoped |
 | CIP-0103 | Drives the dApp's allocation request, the wallet's allocation through the registry's factory, settlement, the standard holdings-change events, privacy, fail-closed behavior, and the wallet's recovery |
-| Settlement attribution | Shows which settlements an app-provider may claim for CIP-0104 rewards: the batches it confirmed as executor, read from its own transaction stream, and not the settlements that it merely observes |
+| Settlement attribution | Shows which settlements an app-provider may claim for CIP-0104 rewards: the batches it confirmed as executor, read from the transaction trees that its settle submissions return, and not the settlements that it merely observes. The [traffic-rewards gate](traffic-rewards/README.md) reads the same batches from the app-provider's transaction stream |
 
 The executable scripts live in
 [`cip-exemplar/`](cip-exemplar/daml/OpenZeppelin/Experimental/Interop/).

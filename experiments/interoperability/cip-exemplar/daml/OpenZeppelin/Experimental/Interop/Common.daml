@@ -3,7 +3,11 @@
 -- The scenarios run on the CIP-0112 registry of `OpenZeppelin/canton-contracts`
 -- (`openzeppelin-token-cip112-v1`) and drive it through the Token Standard V2
 -- interfaces, the way a wallet or a settlement app drives any registry that
--- implements them.
+-- implements them. The helpers name the registry's own templates in three
+-- places: creating the rules contract, which is the issuer's job, the
+-- admin-only mint offer that issues supply, and the holding query of
+-- `usdHoldingsSeenBy`, which reads the holding template and takes its standard
+-- view.
 module OpenZeppelin.Experimental.Interop.Common where
 
 import Daml.Script
