@@ -14,10 +14,10 @@ Bidders specify quantities and maximum unit prices under terms published before
 bidding opens. After bidding closes, the clearing rule determines the quantities
 awarded and the common unit price. Payments follow the published rounding rule.
 
-Competing bidders never see each other's bids. The issuer, operator, and
-validation hosts see submitted bids. Account providers see asset records under
-registry disclosure rules. The application checks bidder eligibility when it
-accepts a bid and again before it awards tokens.
+The bidder role gives access only to that bidder's own bids. The issuer,
+operator, and validation hosts see submitted bids. Account providers see asset
+records under registry disclosure rules. The application checks bidder
+eligibility when it accepts a bid and again before it awards tokens.
 
 The registries use [Token Standard V2](https://github.com/canton-foundation/cips/blob/6f37c896a5a76ec3bc1aa67bc045623ae5df41e5/cip-0112/cip-0112.md)
 **allocations** to authorize movements and reserve holdings. The issuer
@@ -776,8 +776,8 @@ ao exercises recovery Grant.Release(ticket, current sending and receiving alloca
 | Round cancelled or expired | `EndedRound` retains membership and sale authority. Recovery choices close each accepted bid and the sale independently, creating outcomes and tickets. |
 | Registry deadline passed | Required account parties may withdraw under registry rules, independently of operator bookkeeping. Reconcile any retained ticket as described below. |
 
-Before the round's deadline, the operator may cancel an uncleared round, giving
-a reason; at or after the deadline, it may record the round as expired.
+Before the settlement deadline, the operator may cancel an uncleared round,
+giving a reason. At or after that deadline, it may record the round as expired.
 `Grant.EndRound` calls `Round_End`, which consumes the open or closed round and
 creates an `EndedRound`. Termination competes with acceptance and close while
 the round is open and with the clear while it is closed, and it does not require
@@ -818,9 +818,10 @@ controls, synchronizer availability, and traffic.
 
 Choices check ledger time: funding, opening, bid submission, and acceptance have
 to happen before the bidding deadline, close at or after it, and the clear
-before settlement expires. Each lock's registry deadline, storage expiry, and
-holding-lock expiry have to cover the whole workflow, and a longer lock period
-means telling users about the later withdrawal time.
+before settlement expires. Each allocation uses the round's settlement deadline.
+Registry storage and holding-lock expiries are separate limits that have to
+support settlement and recovery. Disclose any registry restriction that delays
+withdrawal beyond the settlement deadline.
 
 The preparation margin has to cover registry account approval, signing,
 submission, confirmation, and retries. The clearing margin has to cover
@@ -912,11 +913,16 @@ and the authority boundaries in section 2.1:
 | Eligibility provider | Incorrect status can change eligible demand, price, and fills. Missing evidence can block clear. |
 | Settlement attester | Can withhold approval or approve an inappropriate settlement. An affiliated attester provides no independent review. |
 | Canton infrastructure | Atomicity does not guarantee admission, timely confirmation, or sufficient traffic. |
-| Auditor | Has to retain the complete disclosed history and review it correctly. Observing gives it no veto and no way to force progress. |
+| Auditor | Has to retain the complete disclosed history and review it correctly. Observation gives no transaction confirmation vote or ability to force progress. |
 
 An optional independent auditor observes `av` from a host with observation
 permission only, and users are told about it. It has no `av` confirmation vote
-and no submission authority. Its audit checks:
+and no submission authority. Its host still has to
+[vet the packages](https://docs.canton.network/appdev/deep-dives/smart-contract-upgrade#upgrading-and-package-vetting)
+used in its views. While that host remains in `av`'s topology, withholding vetting
+can block use of a release. Governance can change that hosting under section 2.1.
+
+Its audit checks:
 
 - committed acceptance batches and numbers against the closed list
 - credentials, permitted exclusions, price, fills, and rounded payments
@@ -985,7 +991,8 @@ The table follows the amendment's proposed reward model. It assumes `av` holds
 an active `FeaturedAppRight` at mining-round start and `ao` is registered as its
 **app operations party** through SV governance. Successful `ao` submissions
 then credit all app activity to `av`. If `av` qualifies as a **featured
-asset-moving app**, involved featured assets can also earn asset rewards.
+asset-moving app**, involved featured assets can also earn asset rewards for
+views they confirm, including allocation fetches during opening and admission.
 
 For other submissions, app activity goes to a featured app that confirms and
 submits, directly or through its registered operations party. Otherwise, it is
@@ -996,7 +1003,7 @@ participant submitting for the named party pays the submission traffic.
 
 | Workflow | Submitting party | Potential reward recipients |
 |---|---|---|
-| Start preparation, open, accept bids, close or end a round, or create recovery tickets | Operator (`ao`) | `av` |
+| Start preparation, open, accept bids, close or end a round, or create recovery tickets | Operator (`ao`) | `av`, plus eligible featured assets under the asset-moving app rules |
 | Request issuer funding | Issuer | `av`, issuer, and registry confirmers |
 | Submit a bid | Bidder | `av`, issuer, bidder, and registry confirmers |
 | Complete account approval or withdraw through the registry | Account party taking the action | Registry confirmers |
