@@ -757,7 +757,7 @@ sequenceDiagram
     rect rgba(255, 255, 255, .1)
         Note over Attesters,Relayer: Redemption clearance transaction, submitted by the attesters.
         Relayer->>Attesters: Hand over the request
-        Attesters->>Relayer: Check KYC and screen the destination off-ledger,<br/>then sign the redemption clearance
+        Attesters->>Relayer: Check KYC, validate and screen the destination<br/>off-ledger, then sign the redemption clearance
     end
     rect rgba(255, 255, 255, .1)
         Note over Relayer,Registry: Burn transaction, submitted by br.<br/>The check, the burn, and the claim commit together.
@@ -790,11 +790,12 @@ sequenceDiagram
    amount and the destination in clear before the holder signs.
 2. **Redemption clearance.** `br` reads each request, which `ba` observes as
    the receiver's account owner, and hands it to the attester services. Each
-   attester service checks the holder's KYC and screens the destination
-   off-ledger, and a quorum signs a single-use **redemption clearance** bound
-   to the request: the holder, the amount, the instrument, the destination, and
-   the request's contract id. That is D1 and D3 outbound
-   ([section 3.6](#36-control-enforcement)).
+   attester service checks the holder's KYC, validates and screens the
+   destination off-ledger, and a quorum signs a single-use **redemption
+   clearance** bound to the request: the holder, the amount, the instrument,
+   the destination, and the request's contract id. That is D1 and D3 outbound
+   ([section 3.6](#36-control-enforcement)), and step 3 lists what makes a
+   destination invalid.
 3. **Burn.** `br` exercises the **redemption gateway**, the outbound
    counterpart of the messaging gateway, which carries `ba`'s authority. In
    one transaction it checks that the pause state is clear, verifies and
@@ -821,6 +822,28 @@ sequenceDiagram
    the holder. A request that nobody decides is withdrawn by the holder, who
    signs it as the sender, which also returns the holding. Nothing burns
    without a cleared request.
+
+   **An invalid destination.** The burn is irreversible, so the destination
+   has to be payable before it. The gateway cannot parse an external-chain
+   address, so each attester service checks it before it signs the
+   redemption clearance, and the gateway enforces the result through D1,
+   because the clearance binds the destination the request names. A
+   destination fails the check if it is:
+
+   - malformed for the external chain: the wrong encoding, length, or
+     checksum, or an address format of another chain;
+   - an address the escrow refuses: the null address, the escrow itself, or
+     the backing token's contract;
+   - an address the backing token refuses to pay, such as one on the token
+     issuer's blocklist.
+
+   A destination that fails gets a denial, and the holding returns to the
+   holder. The escrow repeats the checks it can make on its own chain, so a
+   release to a refused address reverts and the claim stands. A destination
+   that becomes unpayable after the burn, for example one the token issuer
+   blocklists later, leaves a standing claim that no submitter can release.
+   This design has no path that redirects such a claim
+   ([section 6](#6-open-design-questions)).
 
    **A claim without a burn.** The escrow relies on a burn behind every claim,
    and the ledger does not enforce it. `ba` alone signs the claim, because the
@@ -1379,6 +1402,7 @@ lock keeps its refund path throughout ([section 3.1](#31-inbound-credit)).
 | `br`'s validator runs out of traffic | New offers stop, because the gateway transaction is relayer-paid. A recipient can still accept an instruction that exists | Top up the traffic, and monitor it ([section 5.1](#51-traffic-costs)) | Instruction deadline |
 | The attesters deny a redemption | The holding is locked in the request | `br` rejects the request through the redemption gateway, and the holding returns to the holder ([section 3.3](#33-outbound-redemption)) | Nothing burns |
 | Nobody decides a redemption request | The holding is locked in the request | The holder withdraws the request, or it expires through the registry's own path, and the holding returns to the holder | Request deadline |
+| The destination becomes unpayable after the burn | The amount is burned, and the claim stands with its backing locked in the escrow | None in this design. A destination that is invalid at the request is denied before the burn ([section 3.3](#33-outbound-redemption)), and a redirect of a standing claim is open ([section 6](#6-open-design-questions)) | Unbounded |
 | Synchronizer outage | The ledger is halted, so no one can accept and no one can withdraw | Service resumes. An instruction whose deadline lapsed during the outage is withdrawn and offered once more before it is refunded ([section 3.2](#32-reserve-and-lock-attestation)) | Outage duration plus two instruction deadlines |
 
 Where a registry implements seizure, a seized pending credit follows that
@@ -1580,6 +1604,7 @@ activation vote.
 | **Registry scope fields and rotation.** The exact scope fields of each contract ([section 3.4](#34-registry-identity-and-uniqueness)), the rotation procedure that keeps one active version of each, how the bridge admin backend publishes a new version to `br`, and the epoch size `E` ([section 4.5](#45-throughput-and-contention)). | The maintainer and scope checks of [section 3.4](#34-registry-identity-and-uniqueness) | The scope fields themselves, because no upgrade adds them | **High**, replay protection and the D1 attester registry rest on them |
 | **Mint at the accept instead of at the gateway.** The alternative offers a transfer from the `cip-112/mint` account, and the registry's accept mints into the recipient's account. It needs a mint right exercised at the accept, and a way for `ba` to see each offer that closed without an accept, because a mint offer has no sender account. Making `ba` the mint account's provider gives that visibility, and it deviates from the CIP-0112 guidance that the mint account has no provider. Open: whether a registry that can give that visibility should run this shape. | Mint into the bridge account at the gateway ([section 3.1](#31-inbound-credit)) | The refund path and what the bridge asks of a registry | Medium, it moves the mint and the refund rule but no control |
 | **Ownership of the compliance policy.** D1 and D3 rest on each attester's off-ledger policy: which KYC providers count, which screening lists apply, and which denials require a freeze. Nothing makes the quorum apply one policy, and nothing lets an auditor check that it was applied. Open: who sets the policy, how attesters adopt a change, and what record each attester keeps per attestation and per denial. | Each attester applies its own policy and keeps its own compliance log ([section 3.6](#36-control-enforcement)) | A production attester set, and any audit of D1 and D3 | **High**, the compliance and KYC controls are only as consistent as the policy behind them |
+| **Redirect of an unpayable claim.** A destination can pass the redemption clearance and become unpayable before the release, for example when the backing token's issuer blocklists it. The burn is final, so the claim stands with no submitter able to release it. Open: whether the holder can name a new destination, who signs that change, and how the escrow and the attesters keep the old destination from being paid too. | No redirect. The attesters deny a destination that is invalid at the request ([section 3.3](#33-outbound-redemption)) | A deployment whose backing token can refuse an address | Medium, it bounds a loss to the redeeming holder and moves no control |
 | **KYC proven on-ledger.** The default lets the attester quorum decide KYC off-ledger. The alternative has the gateway also check an issuer-signed credential, which adds a check that the attesters cannot override. It costs a trusted-issuer list, a credential format every KYC issuer adopts, and `ba` observing every credential. Open: whether a deployment needs KYC proven on-ledger. | KYC asserted in the attesters' clearance ([section 3.6](#36-control-enforcement)) | A gateway identity check, for a deployment that needs one | Medium |
 | **Deadline values.** The instruction lifetime the gateway requests within the registry's ceiling, the lifetime of a deferred offer, the attestation validity, the margin between external-chain finality and Canton ledger time, and the attester turnaround. | The gateway stamps its ceilings at creation ([section 3.5](#35-time-and-deadlines)) | Every deployment, because those ceilings are stamped once | Medium |
 | **Expiry of stale instructions.** Whether `br` withdraws each lapsed instruction one by one or batches the withdrawals in one gateway choice ([section 4.4](#44-failure-modes-and-recovery)). | One withdraw per lapsed instruction | The relayer backend's cleanup automation | Low |
