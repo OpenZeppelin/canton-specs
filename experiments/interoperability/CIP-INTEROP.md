@@ -8,9 +8,9 @@ complements the in-memory ledger used by `dpm test`.
 
 | Scenario | Behavior |
 |---|---|
-| CIP-0086 | Maps transfer and delegated transfer behavior to settlement, enforces allowance bounds, conserves supply, and keeps balance queries projection-scoped |
-| CIP-0103 | Drives request, instruction, allocation, settlement, events, privacy, and fail-closed wallet behavior |
-| Settlement attribution | Shows which settlements an app-provider may claim for CIP-0104 rewards: the executor-confirmed ones, read from the settlement views alone, and not the receipts that it merely observes |
+| CIP-0086 | Maps transfer and delegated transfer behavior onto the registry's transfer factory and instructions, enforces allowance bounds, conserves supply, and keeps balance queries projection-scoped |
+| CIP-0103 | Drives the dApp's allocation request, the wallet's allocation through the registry's factory, settlement, the standard holdings-change events, privacy, fail-closed behavior, and the wallet's recovery |
+| Settlement attribution | Shows which settlements an app-provider may claim for CIP-0104 rewards: the batches it confirmed as executor, read from the transaction trees that its settle submissions return, and not the settlements that it merely observes. The [traffic-rewards gate](traffic-rewards/README.md) reads the same batches from the app-provider's transaction stream |
 
 The executable scripts live in
 [`cip-exemplar/`](cip-exemplar/daml/OpenZeppelin/Experimental/Interop/).
@@ -73,6 +73,8 @@ variables below.
 
 This experiment provides interoperability evidence for the modeled surfaces. It
 does not establish CIP-0086 conformance or provide a CIP-0103 wallet product. The
-asset remains the settlement experiment's Token Standard V2 fixture. The CIP-0104
-reward path runs in the [traffic-rewards gate](traffic-rewards/README.md), against
-the reward infrastructure of LocalNet.
+asset is the pinned `openzeppelin-token-cip112-v1` registry that the
+[README](README.md) names, driven through its Token Standard V2
+interfaces. The CIP-0104 reward path runs in the
+[traffic-rewards gate](traffic-rewards/README.md), against the reward
+infrastructure of LocalNet.

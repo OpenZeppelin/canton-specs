@@ -8,7 +8,6 @@ lifecycle.
 
 | Area | Contents |
 |---|---|
-| [Settlement](settlement/) | CIP-0112-aligned settlement package, test fixture, consumer exemplar, tests, architecture, and threat model |
 | [Compliance](compliance/) | Two compliance-check shapes and their comparison tests |
 | [Identity](identity/) | Identity-hook alternatives, credential gateway, and SCU evidence |
 | [Interoperability](interoperability/) | CIP integration scripts, LocalNet validation, Wallet Gateway harness, and run evidence |

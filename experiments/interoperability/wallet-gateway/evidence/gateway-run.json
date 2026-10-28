@@ -1,64 +1,69 @@
 {
-  "run": "2026-08-13",
+  "run": "2026-10-27",
   "gate": "scripts/wallet-gateway-cip0103-interop.sh",
   "result": "PASS (all six phases)",
   "environment": {
     "dpm": "1.0.21",
     "sdkAndCanton": "3.4.11",
-    "java": "OpenJDK 25.0.3",
-    "node": "v22.22.2",
+    "java": "OpenJDK 21.0.11",
+    "node": "v24.9.0",
     "walletGateway": "@canton-network/wallet-gateway-remote@1.8.1",
-    "localNet": "Splice 0.7.1 (sv and app-provider profiles)",
-    "os": "Linux 6.8.0"
+    "localNet": "Splice 0.8.3 (sv and app-provider profiles)",
+    "registry": "openzeppelin-token-cip112-v1 built from OpenZeppelin/canton-contracts at 6a916c174db7d6163ebeea4df1049044cefc7b3c",
+    "os": "Darwin 25.6.0"
   },
-  "walletAllocationCid": "002a0044677dfc0d0a678b4b8e2b2c04e15506a5944bf9a3c5bd520cf15c2aa446ca1212206013b562639341790f2eacc60afe7913eda81cfbe0c17d390872ac3951147f23",
+  "walletAllocationCid": "00c75c8166e94e19c687ebb0e9e2602393221309905dbbbe8788cce0ea551ded37ca12122004b503a9174dd7f8dba39d07da17063752eec17fee2f944975eee8e35490822b",
+  "baseline": {
+    "ledgerEndOffset": 49,
+    "unlockedBalance": 0
+  },
   "txChangedEvents": [
     {
       "status": "pending",
-      "commandId": "oz-cip0103-interop-holding-offer"
+      "commandId": "oz-cip0103-interop-mint-offer"
     },
     {
       "status": "signed",
-      "commandId": "oz-cip0103-interop-holding-offer"
+      "commandId": "oz-cip0103-interop-mint-offer"
     },
     {
       "status": "executed",
-      "commandId": "oz-cip0103-interop-holding-offer",
+      "commandId": "oz-cip0103-interop-mint-offer",
       "payload": {
-        "updateId": "12208c690b1f3d9973b8a0ca20274b3385d4c0f4b8da3f905fa5c5bf85fc27567c5e",
-        "completionOffset": 58
+        "updateId": "1220102008d00841eb6868a3ecdcaab6390f6cbbd370aab8a06131ebcb4c193577c9",
+        "completionOffset": 50
       }
     },
     {
       "status": "pending",
-      "commandId": "oz-cip0103-interop-allocation-request"
+      "commandId": "oz-cip0103-interop-allocate"
     },
     {
       "status": "signed",
-      "commandId": "oz-cip0103-interop-allocation-request"
+      "commandId": "oz-cip0103-interop-allocate"
     },
     {
       "status": "executed",
-      "commandId": "oz-cip0103-interop-allocation-request",
+      "commandId": "oz-cip0103-interop-allocate",
       "payload": {
-        "updateId": "1220e8f7b1ffcb762fdc873a9449a7f97108df292e7596c809b9032886819d837fb7",
-        "completionOffset": 63
+        "updateId": "12200d5e38df41660410883e017aebe14e5a64604965e8177bda894fc555e93de780",
+        "completionOffset": 55
       }
     },
     {
       "status": "pending",
-      "commandId": "oz-cip0103-interop-allocation-offer"
+      "commandId": "oz-cip0103-interop-accept-request"
     },
     {
       "status": "signed",
-      "commandId": "oz-cip0103-interop-allocation-offer"
+      "commandId": "oz-cip0103-interop-accept-request"
     },
     {
       "status": "executed",
-      "commandId": "oz-cip0103-interop-allocation-offer",
+      "commandId": "oz-cip0103-interop-accept-request",
       "payload": {
-        "updateId": "1220a090684289a85ae99829de3ab37e051dd3fff53afb15a998f54d4ba3f09b5127",
-        "completionOffset": 66
+        "updateId": "1220327ea8a33d32ff4769254593556ac4a64852abb4af0166147dc08dd25530b2c0",
+        "completionOffset": 60
       }
     },
     {
@@ -71,5 +76,13 @@
       "status": "pending",
       "commandId": "oz-cip0103-interop-doomed"
     }
-  ]
+  ],
+  "signMessage": {
+    "messageId": "2e073b05-e164-4dfd-9f5b-b3b9f7699bfc",
+    "verified": true
+  },
+  "failedTx": {
+    "path": "rpc-error",
+    "cip0103Code": -32603
+  }
 }

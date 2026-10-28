@@ -2,11 +2,13 @@
 // CIP-0104 traffic-based app rewards on Canton LocalNet.
 //
 // The client features the app-provider party, switches the network to
-// traffic-based app rewards, settles CIP-0112 batches as the featured
-// app-provider, asserts that a party which the settlement does not name as an
-// executor cannot settle one of them, and then follows the reward that the
-// network computes from the traffic of those settlements. The settlement packages get no CIP-0104 code:
-// the sequencer measures the traffic, Scan attributes it to the
+// traffic-based app rewards, settles Token Standard V2 batches on the
+// OpenZeppelin CIP-0112 registry (`openzeppelin-token-cip112-v1` of
+// `OpenZeppelin/canton-contracts`) as the featured app-provider, asserts that
+// a party which the settlement does not name as an executor cannot settle one
+// of them, and then follows the reward that the network computes from the
+// traffic of those settlements. The registry gets no CIP-0104 code: the
+// sequencer measures the traffic, Scan attributes it to the
 // `FeaturedAppRight` holders of each transaction, and the SV mints a
 // `RewardCouponV2` for the app-provider when the round closes.
 //
@@ -76,13 +78,16 @@ const LEDGER_TOKEN =
   process.env.OZ_LEDGER_TOKEN ??
   (process.env.OZ_LEDGER_TOKEN_FILE ? readFileSync(process.env.OZ_LEDGER_TOKEN_FILE, 'utf8').trim() : null)
 
-const PKG_SETTLEMENT = '#openzeppelin-experimental-cip112-settlement'
-const MOD_ENGINE = 'OpenZeppelin.Experimental.Settlement.Cip112'
+const PKG_TOKEN = '#openzeppelin-token-cip112-v1'
 const T = {
-  factory: `${PKG_SETTLEMENT}:${MOD_ENGINE}:SettlementFactory`,
-  instruction: `${PKG_SETTLEMENT}:${MOD_ENGINE}:AllocationInstruction`,
-  toyHolding: `${PKG_SETTLEMENT}:${MOD_ENGINE}:ToyHolding`,
-  receipt: `${PKG_SETTLEMENT}:${MOD_ENGINE}:SettlementReceipt`,
+  // The registry's rules contract: the issuer creates it, and the client
+  // discloses it to the parties that exercise its factories. Every other
+  // call goes through a Token Standard V2 interface.
+  rules: `${PKG_TOKEN}:OpenZeppelin.Token.Cip112.V1.Registry:TokenRules`,
+  holding: '#splice-api-token-holding-v2:Splice.Api.Token.HoldingV2:Holding',
+  transferInstruction: '#splice-api-token-transfer-instruction-v2:Splice.Api.Token.TransferInstructionV2:TransferInstruction',
+  allocationFactory: '#splice-api-token-allocation-instruction-v2:Splice.Api.Token.AllocationInstructionV2:AllocationFactory',
+  settlementFactory: '#splice-api-token-allocation-v2:Splice.Api.Token.AllocationV2:SettlementFactory',
   // Splice packages, which LocalNet vets on the app-provider participant. The
   // `#package-name` form resolves to the highest vetted version, so the pin is
   // `OZ_SPLICE_VERSION` of `scripts/ledger.sh`. This client reads the payloads of
@@ -95,11 +100,13 @@ const T = {
   rewardCoupon: '#splice-api-reward-assignment-v1:Splice.Api.RewardAssignmentV1:RewardCoupon',
 }
 
-const FEATURE_FLAG = 'experimental.cip112-settlement.enabled'
 // `SettlementFactory_SettleBatch` rejects a caller that the settlement does not
-// name as an executor with this message.
-const E_EXECUTORS_MISMATCH = 'Cip112Settlement: actors must equal settlement executors'
-const META = { entries: [] }
+// name as an executor with this message, from the actor check of the Splice
+// token standard utilities. The registry fetches every allocation of the batch
+// before it checks the actors, so only a caller that sees the allocations
+// reaches the check.
+const E_NOT_AN_EXECUTOR = "'actors' does not have the same elements as one of 'allowed actors'"
+const META = { values: {} }
 // The `ExtraArgs` of the Splice token metadata API: an empty choice context and
 // empty metadata.
 const EXTRA_ARGS = { context: { values: {} }, meta: { values: {} } }
@@ -230,6 +237,8 @@ async function grantActAs(parties) {
   })
 }
 
+// Submit as `actAs`. Set `mustFail` to the message that the rejection must
+// carry.
 let cmdSeq = 0
 async function submit(actAs, label, commands, { disclosedContracts, mustFail = null } = {}) {
   const commandId = `oz-traffic-rewards-${label}-${++cmdSeq}`
@@ -261,21 +270,21 @@ const createdOf = (result, entity) => {
   return hit.contractId
 }
 
+const ledgerEnd = async () => (await ledgerApi('GET', '/v2/state/ledger-end')).offset
+
 // Read the active contracts of one template, as `party` sees them. Set
 // `withBlob` to also get the created-event blob, which lets the caller give the
-// contract to an other party as a disclosed contract.
-async function acs(party, templateId, { withBlob = false } = {}) {
-  const end = await ledgerApi('GET', '/v2/state/ledger-end')
+// contract to an other party as a disclosed contract. Set `asInterface` to read
+// one Token Standard interface instead, with its views, whatever template the
+// registry uses underneath.
+async function acs(party, templateId, { withBlob = false, asInterface = false } = {}) {
+  const identifierFilter = asInterface
+    ? { InterfaceFilter: { value: { interfaceId: templateId, includeInterfaceView: true, includeCreatedEventBlob: withBlob } } }
+    : { TemplateFilter: { value: { templateId, includeCreatedEventBlob: withBlob } } }
   const res = await ledgerApi('POST', '/v2/state/active-contracts', {
-    filter: {
-      filtersByParty: {
-        [party]: {
-          cumulative: [{ identifierFilter: { TemplateFilter: { value: { templateId, includeCreatedEventBlob: withBlob } } } }],
-        },
-      },
-    },
+    filter: { filtersByParty: { [party]: { cumulative: [{ identifierFilter }] } } },
     verbose: false,
-    activeAtOffset: end.offset,
+    activeAtOffset: await ledgerEnd(),
   })
   const items = Array.isArray(res) ? res : Array.isArray(res?.body) ? res.body : []
   const contracts = []
@@ -287,6 +296,7 @@ async function acs(party, templateId, { withBlob = false } = {}) {
         contractId: ev.contractId,
         templateId: ev.templateId,
         payload: ev.createArgument ?? ev.createArguments,
+        view: ev.interfaceViews?.[0]?.viewValue,
         createdEventBlob: ev.createdEventBlob,
         synchronizerId: entry.synchronizerId,
       })
@@ -298,16 +308,62 @@ async function acs(party, templateId, { withBlob = false } = {}) {
   return contracts
 }
 
+// The transactions that `party` sees in `(beginExclusive, endInclusive]`, as
+// ledger effects, restricted to the exercises of one interface's choices.
+async function exercisesOf(party, interfaceId, beginExclusive, endInclusive) {
+  if (endInclusive <= beginExclusive) return []
+  const res = await ledgerApi('POST', '/v2/updates/flats', {
+    beginExclusive,
+    endInclusive,
+    updateFormat: {
+      includeTransactions: {
+        eventFormat: {
+          filtersByParty: {
+            [party]: {
+              cumulative: [{ identifierFilter: { InterfaceFilter: { value: { interfaceId, includeInterfaceView: false, includeCreatedEventBlob: false } } } }],
+            },
+          },
+          verbose: false,
+        },
+        transactionShape: 'TRANSACTION_SHAPE_LEDGER_EFFECTS',
+      },
+    },
+    verbose: false,
+  })
+  const updates = Array.isArray(res) ? res : Array.isArray(res?.body) ? res.body : []
+  const exercises = []
+  for (const update of updates) {
+    const tx = update?.update?.Transaction?.value
+    for (const event of tx?.events ?? []) {
+      if (event?.ExercisedEvent) exercises.push({ updateId: tx.updateId, ...event.ExercisedEvent })
+    }
+  }
+  return exercises
+}
+
 // --- settlement surface (the traffic that the reward is computed from) -------
 
 const acct = (p) => ({ owner: p, provider: null, id: '' })
-// Wallclock ledger: these settlements have no deadline.
-const settlementInfo = (ref, app) => ({
-  executors: [app],
-  settlementRef: { id: ref, cidText: null },
+const settlementInfo = (ref, app) => ({ executors: [app], id: ref, cid: null, meta: META })
+// Wallclock ledger: these allocations carry no settlement deadline.
+const allocationSpec = (admin, authorizer, sides) => ({
+  admin,
+  authorizer,
+  transferLegSides: sides,
   settlementDeadline: null,
+  nextIterationFunding: null,
+  committed: false,
   meta: META,
 })
+// The registry's storage bounds: a day for a workflow, an hour of lock grace.
+// A `RelTime` is given in microseconds.
+const registryConfig = (admin) => ({
+  admin,
+  maxTTL: { microseconds: String(24 * 3600 * 1_000_000) },
+  lockGrace: { microseconds: String(3600 * 1_000_000) },
+})
+const isoNow = () => new Date().toISOString()
+const isoInAnHour = () => new Date(Date.now() + 3600 * 1000).toISOString()
 const transferLeg = (ref, sender, receiver, amount) => ({
   transferLegId: `${ref}-leg`,
   sender: acct(sender),
@@ -325,33 +381,45 @@ const legSide = (side, leg) => ({
   meta: leg.meta,
 })
 
-async function mintUsd(admin, owner, amount) {
-  const res = await submit([admin, owner], 'mint', [
-    { CreateCommand: { templateId: T.toyHolding, createArguments: {
-      admin,
-      account: acct(owner),
-      instrumentId: { admin, id: 'USD' },
+// Mint the way the registry issues supply across participants: the admin
+// offers the mint, a pending transfer instruction from the CIP-0112 mint
+// account, and the owner accepts it in a submission of its own.
+async function mintUsd(registry, owner, amount) {
+  const now = isoNow()
+  const offered = await submit([registry.admin], 'mint-offer', [
+    { ExerciseCommand: { templateId: T.rules, contractId: registry.rulesCid, choice: 'TokenRules_OfferMint', choiceArgument: {
+      receiver: acct(owner),
+      instrumentId: 'USD',
       amount: String(amount),
-      lock: null,
-      meta: META,
-      featureFlag: FEATURE_FLAG,
+      requestedAt: now,
+      executeBefore: isoInAnHour(),
+      reason: 'traffic rewards mint',
     } } },
   ])
-  return createdOf(res, 'ToyHolding')
+  const offerCid = createdOf(offered, 'TokenTransferInstruction')
+  const accepted = await submit([owner], 'mint-accept', [
+    { ExerciseCommand: { templateId: T.transferInstruction, contractId: offerCid, choice: 'TransferInstruction_Accept', choiceArgument: {
+      actors: [owner],
+      extraArgs: EXTRA_ARGS,
+    } } },
+  ])
+  return createdOf(accepted, 'TokenHolding')
 }
 
-// The executor is not a stakeholder of the factory, so the client reads the
-// factory back with its created-event blob and gives it to the executor as a
-// disclosed contract.
-async function mkFactory(admin) {
-  const res = await submit([admin], 'factory', [
-    { CreateCommand: { templateId: T.factory, createArguments: { admin, requiresComplianceAttestation: null, featureFlag: FEATURE_FLAG } } },
+// Launch the registry: one rules contract, signed by the admin. The other
+// parties are not stakeholders of it, so the client reads it back with its
+// created-event blob and gives it to them as a disclosed contract, which is
+// what a registry's off-ledger API serves on a real network.
+async function mkRegistry(admin) {
+  const res = await submit([admin], 'rules', [
+    { CreateCommand: { templateId: T.rules, createArguments: { config: registryConfig(admin) } } },
   ])
-  const factoryCid = createdOf(res, 'SettlementFactory')
-  const withBlob = (await acs(admin, T.factory, { withBlob: true })).find((c) => c.contractId === factoryCid)
-  if (!withBlob?.createdEventBlob) throw new Error('factory created-event blob not found for disclosure')
+  const rulesCid = createdOf(res, 'TokenRules')
+  const withBlob = (await acs(admin, T.rules, { withBlob: true })).find((c) => c.contractId === rulesCid)
+  if (!withBlob?.createdEventBlob) throw new Error('rules contract created-event blob not found for disclosure')
   return {
-    factoryCid,
+    admin,
+    rulesCid,
     disclosure: {
       templateId: withBlob.templateId,
       contractId: withBlob.contractId,
@@ -361,81 +429,95 @@ async function mkFactory(admin) {
   }
 }
 
-async function createAndAcceptAllocation(admin, factory, settlement, authorizer, sides, inputHoldingCids) {
+// Allocate `sides` for the settlement through the registry's allocation
+// factory, as the authorizer. The factory locks the net funding, returns the
+// change, and creates the ready allocation in that one call.
+async function allocate(registry, settlement, authorizer, sides, inputHoldingCids) {
   const actors = [authorizer]
-  const instruction = await submit(actors, 'instruction', [
-    { ExerciseCommand: { templateId: T.factory, contractId: factory.factoryCid, choice: 'SettlementFactory_CreateAllocationInstruction', choiceArgument: {
-      allocation: { settlement, admin, authorizer: acct(authorizer), transferLegSides: sides, nextIterationFunding: null, committed: false, meta: META },
-      requestedAt: new Date().toISOString(),
+  const res = await submit(actors, 'allocate', [
+    { ExerciseCommand: { templateId: T.allocationFactory, contractId: registry.rulesCid, choice: 'AllocationFactory_Allocate', choiceArgument: {
+      settlement,
+      allocation: allocationSpec(registry.admin, acct(authorizer), sides),
+      requestedAt: isoNow(),
       inputHoldingCids,
-      d1ComplianceHook: null,
+      extraArgs: EXTRA_ARGS,
       actors,
     } } },
-  ], { disclosedContracts: [factory.disclosure] })
-  const instructionCid = createdOf(instruction, 'AllocationInstruction')
-  const accepted = await submit(actors, 'accept', [
-    { ExerciseCommand: { templateId: T.instruction, contractId: instructionCid, choice: 'AllocationInstruction_Accept', choiceArgument: { actors } } },
-  ])
-  return createdOf(accepted, 'Allocation')
+  ], { disclosedContracts: [registry.disclosure] })
+  return createdOf(res, 'TokenAllocation')
 }
 
 // Settle the batch as `executor`. Set `mustFail` to the message that the
 // rejection must carry.
-const settleBatch = (executor, factory, settlement, legs, allocationCids, { mustFail = null } = {}) =>
+const settleBatch = (executor, registry, settlement, legs, allocationCids, { mustFail = null } = {}) =>
   submit([executor], mustFail ? 'settle-rejected' : 'settle', [
-    { ExerciseCommand: { templateId: T.factory, contractId: factory.factoryCid, choice: 'SettlementFactory_SettleBatch', choiceArgument: {
-      settlement, transferLegs: legs, allocationCids, actors: [executor], d1ComplianceRef: null,
+    { ExerciseCommand: { templateId: T.settlementFactory, contractId: registry.rulesCid, choice: 'SettlementFactory_SettleBatch', choiceArgument: {
+      settlement,
+      transferLegs: legs,
+      allocations: allocationCids.map((allocationCid) => ({ allocationCid, extraTransferLegSides: [], nextIterationFunding: null })),
+      actors: [executor],
+      extraArgs: EXTRA_ARGS,
     } } },
-  ], { disclosedContracts: [factory.disclosure], mustFail })
+  ], { disclosedContracts: [registry.disclosure], mustFail })
 
 // One settlement, executed by the featured app-provider. Every command of this
 // function costs traffic, and CIP-0104 attributes the traffic of the settle
 // transaction to the app-provider that confirms it.
 //
-// Set `rejectAs` to a party that the settlement does not name as an executor.
-// The function then submits the batch as that party first and asserts the
-// rejection. This is what makes the traffic of a settle transaction attributable:
-// a party that the settlement does not name cannot produce it. The rejected
-// submission commits nothing, so the same allocations settle afterwards.
+// Set `rejectAs` to a party that sees the allocations but that the settlement
+// does not name as an executor. The function then submits the batch as that
+// party first and asserts the rejection of the actor check. This is what makes
+// the traffic of a settle transaction attributable: a party that the settlement
+// does not name cannot produce it. The rejected submission commits nothing, so
+// the same allocations settle afterwards.
 //
 // Returns the record time of the settle transaction, which is the transaction
 // whose traffic CIP-0104 attributes to the app-provider that confirms it.
-async function settleUsdTransfer(admin, app, sender, receiver, senderHoldingCid, amount, ref, { rejectAs = null } = {}) {
-  const factory = await mkFactory(admin)
+async function settleUsdTransfer(registry, app, sender, receiver, senderHoldingCid, amount, ref, { rejectAs = null } = {}) {
   const settlement = settlementInfo(ref, app)
   const leg = transferLeg(ref, sender, receiver, amount)
-  const senderAlloc = await createAndAcceptAllocation(admin, factory, settlement, sender, [legSide('SenderSide', leg)], [senderHoldingCid])
-  const receiverAlloc = await createAndAcceptAllocation(admin, factory, settlement, receiver, [legSide('ReceiverSide', leg)], [])
+  const senderAlloc = await allocate(registry, settlement, sender, [legSide('SenderSide', leg)], [senderHoldingCid])
+  const receiverAlloc = await allocate(registry, settlement, receiver, [legSide('ReceiverSide', leg)], [])
   const allocationCids = [senderAlloc, receiverAlloc]
   if (rejectAs) {
-    await settleBatch(rejectAs, factory, settlement, [leg], allocationCids, { mustFail: E_EXECUTORS_MISMATCH })
+    await settleBatch(rejectAs, registry, settlement, [leg], allocationCids, { mustFail: E_NOT_AN_EXECUTOR })
   }
-  const settled = await settleBatch(app, factory, settlement, [leg], allocationCids)
+  const settled = await settleBatch(app, registry, settlement, [leg], allocationCids)
   return settled.recordTime
 }
 
-const unlockedUsd = (hs) => hs.filter((h) => !h.payload?.lock && h.payload?.instrumentId?.id === 'USD')
+// Holdings as their `Holding` interface views: the admin co-signs every
+// holding of its instrument, so it sees them all.
+const unlockedUsd = (hs) => hs.filter((h) => !h.view?.lock && h.view?.instrumentId?.id === 'USD')
 
 async function holdingWithAmount(admin, owner, amount) {
-  const holdings = await acs(admin, T.toyHolding)
+  const holdings = await acs(admin, T.holding, { asInterface: true })
   const hit = unlockedUsd(holdings).find(
-    (h) => h.payload.account.owner === owner && Math.abs(Number(h.payload.amount) - amount) < EPS,
+    (h) => h.view.account.owner === owner && Math.abs(Number(h.view.amount) - amount) < EPS,
   )
   if (!hit) throw new Error(`no unlocked holding of ${amount} found for ${owner.slice(0, 24)}...`)
   return hit.contractId
 }
 
-// The settlements that the app-provider confirmed as executor. This is the
-// app-side attribution surface that `SettlementAttribution.daml` specifies, and
-// the client checks it before it waits for the network to measure the traffic
-// of the same settlements.
-async function attributedActivity(app) {
-  const receipts = (await acs(app, T.receipt)).filter((r) => (r.payload.settlement.executors ?? []).includes(app))
-  const refs = new Set(receipts.map((r) => r.payload.settlement.settlementRef.id))
-  const settledVolume = receipts
-    .flatMap((r) => r.payload.settledTransferLegSides ?? [])
-    .filter((s) => s.side === 'SenderSide' && s.instrumentId === 'USD')
-    .reduce((a, s) => a + Number(s.amount), 0)
+// The settlements that the app-provider confirmed as executor, read from the
+// transactions that its participant streams since `beginExclusive`: the
+// `SettlementFactory_SettleBatch` exercises that name it as an acting party
+// and as an executor. This is the app-side attribution surface that
+// `SettlementAttribution.daml` specifies, and the client checks it before it
+// waits for the network to measure the traffic of the same settlements.
+async function attributedActivity(app, beginExclusive) {
+  const exercises = await exercisesOf(app, T.settlementFactory, beginExclusive, await ledgerEnd())
+  const batches = exercises.filter(
+    (e) =>
+      e.choice === 'SettlementFactory_SettleBatch' &&
+      (e.actingParties ?? []).includes(app) &&
+      (e.choiceArgument?.settlement?.executors ?? []).includes(app),
+  )
+  const refs = new Set(batches.map((e) => e.choiceArgument.settlement.id))
+  const settledVolume = batches
+    .flatMap((e) => e.choiceArgument.transferLegs ?? [])
+    .filter((leg) => leg.instrumentId === 'USD')
+    .reduce((a, leg) => a + Number(leg.amount), 0)
   return { settlements: refs.size, settledVolume }
 }
 
@@ -679,41 +761,45 @@ async function main() {
   // Step 3: the settlement parties. The app-provider executes every settlement,
   // so the admin user that this client submits as needs `CanActAs` for the
   // app-provider party too.
-  const [admin, alice, bob, registrar, operator, notApp] = await Promise.all([
+  const [admin, alice, bob, registrar, operator] = await Promise.all([
     allocateParty(`traffic-admin-${RUN_ID}`),
     allocateParty(`traffic-alice-${RUN_ID}`),
     allocateParty(`traffic-bob-${RUN_ID}`),
     allocateParty(`traffic-registrar-${RUN_ID}`),
     allocateParty(`traffic-operator-${RUN_ID}`),
-    allocateParty(`traffic-notapp-${RUN_ID}`),
   ])
-  await grantActAs([provider, admin, alice, bob, registrar, operator, notApp])
+  await grantActAs([provider, admin, alice, bob, registrar, operator])
 
   const roundBefore = await latestRound()
-  log(`starting at round ${roundBefore}`)
+  const offsetBefore = await ledgerEnd()
+  log(`starting at round ${roundBefore}, ledger offset ${offsetBefore}`)
 
-  // Step 4: the traffic. The app-provider settles three CIP-0112 batches as the
-  // executor. No command here mentions CIP-0104. The record times go into the
-  // evidence, because they state when the traffic of the run reached the ledger.
-  // The third batch also proves the structural half of the attribution over this
-  // API: `notApp` submits the same batch first and the participant rejects it,
-  // because the settlement names the app-provider as its only executor.
-  const aliceHolding = await mintUsd(admin, alice, 100.0)
+  // Step 4: the traffic. The issuer launches the registry and mints, and the
+  // app-provider settles three Token Standard V2 batches as the executor. No
+  // command here mentions CIP-0104. The record times go into the evidence,
+  // because they state when the traffic of the run reached the ledger. The
+  // third batch also proves the structural half of the attribution over this
+  // API: the registry admin, which sees both allocations, submits the same
+  // batch first and the participant rejects it, because the settlement names
+  // the app-provider as its only executor.
+  const registry = await mkRegistry(admin)
+  const aliceHolding = await mintUsd(registry, alice, 100.0)
   const recordTimes = []
-  recordTimes.push(await settleUsdTransfer(admin, provider, alice, bob, aliceHolding, 30.0, `traffic-${RUN_ID}-1`))
+  recordTimes.push(await settleUsdTransfer(registry, provider, alice, bob, aliceHolding, 30.0, `traffic-${RUN_ID}-1`))
   const bobHolding = await holdingWithAmount(admin, bob, 30.0)
-  recordTimes.push(await settleUsdTransfer(admin, provider, bob, alice, bobHolding, 10.0, `traffic-${RUN_ID}-2`))
+  recordTimes.push(await settleUsdTransfer(registry, provider, bob, alice, bobHolding, 10.0, `traffic-${RUN_ID}-2`))
   const aliceHolding2 = await holdingWithAmount(admin, alice, 70.0)
   recordTimes.push(
-    await settleUsdTransfer(admin, provider, alice, bob, aliceHolding2, 20.0, `traffic-${RUN_ID}-3`, {
-      rejectAs: notApp,
+    await settleUsdTransfer(registry, provider, alice, bob, aliceHolding2, 20.0, `traffic-${RUN_ID}-3`, {
+      rejectAs: admin,
     }),
   )
   log(`settled at ${recordTimes.join(', ')}`)
 
-  // The app-side attribution of the same settlements. These reads consume no
-  // synchronizer traffic, and they fail before the wait for the round.
-  const activity = await attributedActivity(provider)
+  // The app-side attribution of the same settlements, read from the
+  // app-provider's own transaction stream. These reads consume no synchronizer
+  // traffic, and they fail before the wait for the round.
+  const activity = await attributedActivity(provider, offsetBefore)
   assertEq('settlements confirmed by the app-provider', activity.settlements, 3)
   assertEq('settled volume confirmed by the app-provider', activity.settledVolume, 60)
   log(`app-side attribution: ${activity.settlements} settlements, ${activity.settledVolume} USD`)
