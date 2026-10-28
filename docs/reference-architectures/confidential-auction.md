@@ -528,9 +528,10 @@ funds.
 Each bid has its own application state and funding inputs. Neither submission
 nor registry approval updates the `Round` or makes the bid a member, and the
 completed allocations of a `BidRequest` are bound only during acceptance.
-Abandoning an unaccepted request creates no cancellation ticket for the
-allocations it supplied; otherwise a duplicate request could obtain recovery
-authority over funds that an accepted bid depends on.
+Abandoning an unaccepted request consumes only its auction record. Its
+instructions and allocations follow the registry cleanup in section 3.5.
+[Section 7.1](#71-improvements-to-consider) discusses how unaccepted bids could
+release their funds sooner.
 
 #### Accept a Batch
 
@@ -639,9 +640,11 @@ Account parties complete any pending instructions through the registry's own
 workflows. Opening and admission validate completed allocations from approved
 registries and bind them to the issuer's sale or to an accepted bid. Batch
 acceptance rejects any payment or receipt root that is already bound to an
-accepted bid or that repeats within the batch. These bindings stop one
-reservation from counting toward several bids and tie each recovery ticket to
-its own allocations.
+accepted bid or that repeats within the batch. This prevents one reservation
+from counting toward several accepted bids. Admission must also prevent another
+live preparation or recovery ticket from retaining cancellation authority over
+those allocations. See [section 7.1](#71-improvements-to-consider) for the required
+link between each request and its allocations.
 
 A registry has to keep exactly one active continuation of each allocation.
 Whenever a contract ID changes, the on-ledger checks authenticate the active
@@ -973,17 +976,42 @@ that does not reward trading on that advantage.
 
 Budget from measurements of preparation, batch admission, a maximum-size clear,
 retries, and recovery, and do not assume that batching lowers total traffic
-until it has been measured. Under
-[CIP-0104](https://github.com/canton-foundation/cips/blob/6f37c896a5a76ec3bc1aa67bc045623ae5df41e5/cip-0104/cip-0104.md),
-conformant confirmation responses cost nothing net, but a node still needs
-traffic to cover them until it is reimbursed, and duplicate responses can cost
-more.
+until it has been measured. The amended
+[CIP-0104](https://github.com/canton-foundation/cips/blob/dcb8d834e4a7c833ea8887f6caabbdfa7e0e6c6c/cip-0104/cip-0104.md)
+makes protocol-conformant confirmation responses free when enabled, with no
+traffic balance or reimbursement needed for those responses.
 
-The designated application-provider party is `av`. Rewards are attributed to it
-when it holds an active `FeaturedAppRight` and confirms views in successful
-transactions. Merely observing a view earns nothing, and three hosts are still
-one party for this purpose. Asset admins may earn rewards for their own views.
-Issuance and collection follow whatever the network rules are at the time.
+The table follows the amendment's proposed reward model. It assumes `av` holds
+an active `FeaturedAppRight` at mining-round start and `ao` is registered as its
+**app operations party** through SV governance. Successful `ao` submissions
+then credit all app activity to `av`. If `av` qualifies as a **featured
+asset-moving app**, involved featured assets can also earn asset rewards.
+
+For other submissions, app activity goes to a featured app that confirms and
+submits, directly or through its registered operations party. Otherwise, it is
+shared among featured confirmers according to envelope sizes. The table lists
+potential recipients under these rules. **Registry confirmers** are the asset
+admins and account parties required to confirm by the selected registry. The
+participant submitting for the named party pays the submission traffic.
+
+| Workflow | Submitting party | Potential reward recipients |
+|---|---|---|
+| Start preparation, open, accept bids, close or end a round, or create recovery tickets | Operator (`ao`) | `av` |
+| Request issuer funding | Issuer | `av`, issuer, and registry confirmers |
+| Submit a bid | Bidder | `av`, issuer, bidder, and registry confirmers |
+| Complete account approval or withdraw through the registry | Account party taking the action | Registry confirmers |
+| Clear and settle, or release allocations through a recovery ticket | Operator (`ao`) | `av`, plus eligible featured assets under the asset-moving app rules |
+| Abandon a preparation or request, or withdraw an unaccepted immediate bid | Issuer or bidder | `av` and the acting issuer or bidder |
+| Issue or update a credential, or create a settlement approval | Eligibility provider or attester | The provider or attester, if featured |
+
+Only featured parties qualify, and the listed candidates do not necessarily
+share a reward. Merely observing earns no app rewards, including for `av` during
+registry approval or withdrawal. Hosting `av` on three nodes does not create
+three reward recipients. A failed transaction can consume traffic once
+sequenced, but earns no app rewards.
+
+The amended reward model has a separate network activation schedule. Issuance
+and collection follow the rules in effect, including reward caps and thresholds.
 Governance decides how rewards are shared, and operations have to be funded
 without assuming that rewards will cover the costs.
 
@@ -1043,6 +1071,49 @@ atomic clear. Before opening, record:
 Membership based on synchronizer record time would need a different inclusion
 and audit model; this design uses explicit acceptance after the registry account
 approvals have completed.
+
+### 7.1 Improvements to Consider
+
+- **Replace operators without changing auction contracts.** This design already
+  delegates operations through `av`-signed grants, but the auction contracts also
+  name `ao`. Keeping `ao` only in the grants would let governance replace or add
+  operator parties without changing existing bids and rounds. The restrictions
+  on operator actions and the separate pause controls would still apply.
+  Handover would still need to manage hosting, read access, and any access the
+  former operator keeps. Data already disclosed cannot be taken back.
+- **Return funds sooner when a bid is not accepted.** An abandoned `BidRequest`
+  currently relies on registry withdrawal, which can leave funds locked until
+  the settlement deadline. A consuming `BidRequest_Cancel` choice could release
+  them sooner, subject to registry policy. Acceptance and cancellation would
+  consume the same request, so only one could succeed. Each request first needs
+  a reliable link to its own payment and receipt allocations. Immediate
+  allocations can use the IDs returned by the factory. Custodian approvals need
+  a verified link to the allocations created when approval completes. Whether
+  or not early cancellation is offered, another request must never be able to
+  release an accepted bid's funds. Keep batch reuse checks as an additional
+  safeguard.
+- **Close and clear in one transaction.** This design closes the round in one
+  transaction and clears it in another. Combining them after the bidding
+  deadline could reduce submission overhead. The combined transaction would
+  still need the current round, approvals for the exact result, and all closing
+  and clearing checks. If clearing failed, closing would roll back too.
+  Separate transactions keep the closed round available for a later retry.
+- **Recover funds through the ended round.** The current design uses
+  `RecoveryTicket` records to authorize asset release and track its reason.
+  Instead, a terminal record such as `AbortedRound` could let the operator cancel
+  the ended round's allocations directly. Each cancellation would check the
+  approved registry and full `SettlementInfo`, including the round identity and
+  `av` as executor. This could reduce the number of recovery contracts. Users
+  and auditors would still need evidence of why funds were released and where
+  they went. Keep registry withdrawal after the deadline and explicit archival
+  of expired bid and round records.
+- **Define how the venue is paid.** The current flows deduct no application fee.
+  Before deployment, decide and disclose who pays the venue, how fees are
+  calculated, and when they are collected. Compensation should pay for operating
+  the venue without rewarding trading on private bids
+  ([section 6.1](#61-traffic-and-application-rewards)). If fees are collected
+  through settlement, account consent, funding bounds, and payment calculations
+  need to include them.
 
 ## 8. References
 
