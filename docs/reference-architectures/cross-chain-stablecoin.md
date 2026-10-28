@@ -437,38 +437,6 @@ because no attester statement already carries their content. Each has no
 outcome field: the quorum signing it is the clearance, and a denial signs
 nothing.
 
-**Rejected alternative: lock-and-unlock.** It pays the recipient from liquidity
-held on the destination side, which adds a liquidity-provider role and an
-inventory-imbalance surface that a reference rail does not need.
-
-**Rejected alternative: allocation and settlement batch.** A settlement batch
-makes several legs all-or-nothing, which an exchange needs. An inbound credit
-has no counter-leg on Canton, so a batch only binds unrelated payments
-together, and a pending transfer instruction already gives one credit the
-recipient's signature, a fixed amount and recipient, and a deadline. The
-allocation route also costs more. An offline recipient needs a preapproval
-before it can receive at all. The recipient's participant must confirm the
-batch, so one timed-out recipient fails every payment in it. The wallet shows
-a settlement to assemble instead of a transfer to accept. A credit that funds
-one leg of an atomic exchange settles that exchange over the allocation path,
-with the transfer instruction here as the funding leg.
-
-**Bridge account over a direct mint.** A mint right that names the recipient's
-account would credit it just as well. Minting into the bridge's own account and
-offering the credit as a transfer keeps the recipient's signature on every
-credit, and it narrows the registry's grant to one account the bridge owns
-([section 3.9](#39-registry-integration)). A returned credit lands back in
-the bridge account, so the bridge sees how each offer ended without extra
-visibility from the registry. The offer is a standard transfer instruction, so
-the recipient's wallet accepts it without rail-specific code, a custody
-provider can run its own approval before the accept, and a registry can
-implement seizure on the pending state
-([section 3.6](#36-control-enforcement)).
-
-The cost is that supply exists while an offer is pending, locked in the
-bridge's outgoing instruction or returned to the bridge account. The reserve
-invariant counts it ([section 3.2](#32-reserve-and-lock-attestation)).
-
 **Delivery and retry.** Nothing guarantees that the Canton credit of an
 attested lock executes. Delivery depends on `br` and the attester set, and this
 design adds no automatic cross-chain recovery protocol: re-driving a credit
@@ -610,6 +578,40 @@ sequenceDiagram
     end
     Chain->>Chain: Verify the quorum with the redemption verifier,<br/>then refund the originator once
 ```
+
+#### Alternatives Considered
+
+**Lock-and-unlock.** It pays the recipient from liquidity held on the
+destination side, which adds a liquidity-provider role and an
+inventory-imbalance surface that a reference rail does not need.
+
+**Allocation and settlement batch.** A settlement batch makes several legs
+all-or-nothing, which an exchange needs. An inbound credit has no counter-leg
+on Canton, so a batch only binds unrelated payments together, and a pending
+transfer instruction already gives one credit the recipient's signature, a
+fixed amount and recipient, and a deadline. The allocation route also costs
+more. An offline recipient needs a preapproval before it can receive at all.
+The recipient's participant must confirm the batch, so one timed-out recipient
+fails every payment in it. The wallet shows a settlement to assemble instead of
+a transfer to accept. A credit that funds one leg of an atomic exchange settles
+that exchange over the allocation path, with the transfer instruction here as
+the funding leg.
+
+**Direct mint into the recipient's account.** A mint right that names the
+recipient's account would credit it just as well. Minting into the bridge's own
+account and offering the credit as a transfer keeps the recipient's signature
+on every credit, and it narrows the registry's grant to one account the bridge
+owns ([section 3.9](#39-registry-integration)). A returned credit lands back in
+the bridge account, so the bridge sees how each offer ended without extra
+visibility from the registry. The offer is a standard transfer instruction, so
+the recipient's wallet accepts it without rail-specific code, a custody
+provider can run its own approval before the accept, and a registry can
+implement seizure on the pending state
+([section 3.6](#36-control-enforcement)).
+
+The cost is that supply exists while an offer is pending, locked in the
+bridge's outgoing instruction or returned to the bridge account. The reserve
+invariant counts it ([section 3.2](#32-reserve-and-lock-attestation)).
 
 ### 3.2 Reserve and Lock Attestation
 
