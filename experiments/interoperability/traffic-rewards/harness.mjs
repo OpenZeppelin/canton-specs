@@ -101,13 +101,11 @@ const T = {
 }
 
 // `SettlementFactory_SettleBatch` rejects a caller that the settlement does not
-// name as an executor with one of these fragments: the registry fetches the
-// allocations before it checks the actors, so a party that cannot see them
-// fails as unreadable, and one that can fails the actor check.
-const NOT_AN_EXECUTOR_REJECTIONS = [
-  'CONTRACT_NOT_FOUND',
-  "'actors' does not have the same elements as one of 'allowed actors'",
-]
+// name as an executor with this message, from the actor check of the Splice
+// token standard utilities. The registry fetches every allocation of the batch
+// before it checks the actors, so only a caller that sees the allocations
+// reaches the check.
+const E_NOT_AN_EXECUTOR = "'actors' does not have the same elements as one of 'allowed actors'"
 const META = { values: {} }
 // The `ExtraArgs` of the Splice token metadata API: an empty choice context and
 // empty metadata.
@@ -239,8 +237,8 @@ async function grantActAs(parties) {
   })
 }
 
-// Submit as `actAs`. Set `mustFail` to the fragment, or the list of
-// fragments, one of which the rejection must carry.
+// Submit as `actAs`. Set `mustFail` to the message that the rejection must
+// carry.
 let cmdSeq = 0
 async function submit(actAs, label, commands, { disclosedContracts, mustFail = null } = {}) {
   const commandId = `oz-traffic-rewards-${label}-${++cmdSeq}`
@@ -260,7 +258,7 @@ async function submit(actAs, label, commands, { disclosedContracts, mustFail = n
   } catch (err) {
     if (!mustFail) throw err
     const body = err.body ?? String(err.message)
-    if (![].concat(mustFail).some((fragment) => body.includes(fragment))) throw err
+    if (!body.includes(mustFail)) throw err
     log(`${label}: rejected as expected`)
     return null
   }
@@ -449,8 +447,8 @@ async function allocate(registry, settlement, authorizer, sides, inputHoldingCid
   return createdOf(res, 'TokenAllocation')
 }
 
-// Settle the batch as `executor`. Set `mustFail` to the fragment, or the
-// fragments, one of which the rejection must carry.
+// Settle the batch as `executor`. Set `mustFail` to the message that the
+// rejection must carry.
 const settleBatch = (executor, registry, settlement, legs, allocationCids, { mustFail = null } = {}) =>
   submit([executor], mustFail ? 'settle-rejected' : 'settle', [
     { ExerciseCommand: { templateId: T.settlementFactory, contractId: registry.rulesCid, choice: 'SettlementFactory_SettleBatch', choiceArgument: {
@@ -466,12 +464,12 @@ const settleBatch = (executor, registry, settlement, legs, allocationCids, { mus
 // function costs traffic, and CIP-0104 attributes the traffic of the settle
 // transaction to the app-provider that confirms it.
 //
-// Set `rejectAs` to a party that the settlement does not name as an executor.
-// The function then submits the batch as that party first and asserts the
-// rejection. This is what makes the traffic of a settle transaction attributable:
-// a party that the settlement does not name cannot produce it, whether it sees
-// the allocations or not. The rejected submission commits nothing, so the same
-// allocations settle afterwards.
+// Set `rejectAs` to a party that sees the allocations but that the settlement
+// does not name as an executor. The function then submits the batch as that
+// party first and asserts the rejection of the actor check. This is what makes
+// the traffic of a settle transaction attributable: a party that the settlement
+// does not name cannot produce it. The rejected submission commits nothing, so
+// the same allocations settle afterwards.
 //
 // Returns the record time of the settle transaction, which is the transaction
 // whose traffic CIP-0104 attributes to the app-provider that confirms it.
@@ -482,7 +480,7 @@ async function settleUsdTransfer(registry, app, sender, receiver, senderHoldingC
   const receiverAlloc = await allocate(registry, settlement, receiver, [legSide('ReceiverSide', leg)], [])
   const allocationCids = [senderAlloc, receiverAlloc]
   if (rejectAs) {
-    await settleBatch(rejectAs, registry, settlement, [leg], allocationCids, { mustFail: NOT_AN_EXECUTOR_REJECTIONS })
+    await settleBatch(rejectAs, registry, settlement, [leg], allocationCids, { mustFail: E_NOT_AN_EXECUTOR })
   }
   const settled = await settleBatch(app, registry, settlement, [leg], allocationCids)
   return settled.recordTime
@@ -763,15 +761,14 @@ async function main() {
   // Step 3: the settlement parties. The app-provider executes every settlement,
   // so the admin user that this client submits as needs `CanActAs` for the
   // app-provider party too.
-  const [admin, alice, bob, registrar, operator, notApp] = await Promise.all([
+  const [admin, alice, bob, registrar, operator] = await Promise.all([
     allocateParty(`traffic-admin-${RUN_ID}`),
     allocateParty(`traffic-alice-${RUN_ID}`),
     allocateParty(`traffic-bob-${RUN_ID}`),
     allocateParty(`traffic-registrar-${RUN_ID}`),
     allocateParty(`traffic-operator-${RUN_ID}`),
-    allocateParty(`traffic-notapp-${RUN_ID}`),
   ])
-  await grantActAs([provider, admin, alice, bob, registrar, operator, notApp])
+  await grantActAs([provider, admin, alice, bob, registrar, operator])
 
   const roundBefore = await latestRound()
   const offsetBefore = await ledgerEnd()
@@ -782,8 +779,9 @@ async function main() {
   // command here mentions CIP-0104. The record times go into the evidence,
   // because they state when the traffic of the run reached the ledger. The
   // third batch also proves the structural half of the attribution over this
-  // API: `notApp` submits the same batch first and the participant rejects it,
-  // because the settlement names the app-provider as its only executor.
+  // API: the registry admin, which sees both allocations, submits the same
+  // batch first and the participant rejects it, because the settlement names
+  // the app-provider as its only executor.
   const registry = await mkRegistry(admin)
   const aliceHolding = await mintUsd(registry, alice, 100.0)
   const recordTimes = []
@@ -793,7 +791,7 @@ async function main() {
   const aliceHolding2 = await holdingWithAmount(admin, alice, 70.0)
   recordTimes.push(
     await settleUsdTransfer(registry, provider, alice, bob, aliceHolding2, 20.0, `traffic-${RUN_ID}-3`, {
-      rejectAs: notApp,
+      rejectAs: admin,
     }),
   )
   log(`settled at ${recordTimes.join(', ')}`)

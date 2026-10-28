@@ -12,7 +12,7 @@ data-dependencies:
   - ../../../dars/vendor/openzeppelin-token-cip112-v1-0.1.0.dar
   - ../../../dars/vendor/openzeppelin-scoped-authorization-grant-v1-0.1.0.dar
   - ../../../dars/vendor/openzeppelin-api-pausable-v1-0.1.0.dar
-  - ../../../dars/vendor/openzeppelin-pausable-v1-0.1.0-6a916c1.dar
+  - ../../../dars/vendor/openzeppelin-pausable-v1-0.1.0.dar
   # Splice Token Standard V2 (CIP-0112) release artifacts; never rebuilt.
   - ../../../dars/vendor/splice-api-token-metadata-v1-1.0.0.dar
   - ../../../dars/vendor/splice-api-token-holding-v2-1.0.0.dar

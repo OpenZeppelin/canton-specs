@@ -12,3 +12,13 @@ the artifact selected by each experiment.
 The files under [`vendor/`](vendor/) are referenced through Daml
 `data-dependencies`. Updating one requires updating the manifest and rerunning
 the affected build and test packages.
+
+The manifest holds one build per package name and version. A participant
+rejects a second build with the same name and version with
+`KNOWN_PACKAGE_VERSION`, so two experiments that pin different builds could
+not share a participant. `scripts/check.sh` enforces this rule.
+
+The Splice DARs are byte-identical copies of the Splice release artifacts
+that each record's `upstream` field names. Do not rebuild them from source,
+because a local build yields different package IDs for the same package
+names and versions.

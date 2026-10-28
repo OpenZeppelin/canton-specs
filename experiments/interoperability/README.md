@@ -24,8 +24,11 @@ Splice Token Standard V2 release DARs that the registry implements. All of them
 sit in [`dars/vendor/`](../../dars/vendor/), and
 [`dars/manifest.yaml`](../../dars/manifest.yaml) records their provenance. The
 exemplar adds one app-side template, `AppAllocationRequest`, which implements
-the standard `AllocationRequest` interface, and one ERC-20 allowance record;
-everything else it does is a standard interface choice.
+the standard `AllocationRequest` interface, and one ERC-20 allowance record.
+Wallets, apps, and the allowance move holdings through standard interface
+choices. The issuer uses the registry's own surface to create the rules
+contract and to offer mints with `TokenRules_OfferMint`, and the scenarios
+read holdings through the registry's holding template.
 
 The gates in this area add process-boundary, ledger-connectivity,
 party-authorization, and third-party integration checks to the in-memory Daml

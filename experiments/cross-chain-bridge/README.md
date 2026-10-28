@@ -19,20 +19,19 @@ including where it departs from the proposal.
 
 The six OpenZeppelin DARs are built from `OpenZeppelin/canton-contracts`
 at commit `6a916c174db7d6163ebeea4df1049044cefc7b3c` on `main`:
-`openzeppelin-token-cip112-types-v1`,
-`openzeppelin-token-cip112-utils`, `openzeppelin-token-cip112-v1`,
-`openzeppelin-scoped-authorization-grant-v1`, `openzeppelin-api-pausable-v1`,
-and `openzeppelin-pausable-v1`. The seven
-Splice Token Standard V2 DARs are byte-identical copies of the Splice 0.8.3
-release artifacts that `canton-contracts` vendors. The CIP-112 packages are
-consumed as published and not modified.
+`openzeppelin-token-cip112-types-v1`, `openzeppelin-token-cip112-utils`,
+`openzeppelin-token-cip112-v1`, `openzeppelin-scoped-authorization-grant-v1`,
+`openzeppelin-api-pausable-v1`, and `openzeppelin-pausable-v1`. The
+interoperability exemplar consumes the same three CIP-112 builds, and the
+settlement exemplar the same two pausable builds. The seven Splice Token
+Standard V2 DARs are byte-identical copies of the Splice 0.8.3 release
+artifacts that `canton-contracts` vendors. The CIP-112 packages are consumed
+as published and not modified.
 
 All thirteen DARs sit in [`dars/vendor/`](../../dars/vendor/) at the repository
 root, and [`dars/manifest.yaml`](../../dars/manifest.yaml) records their
-provenance. The `pausable-v1` build from this commit has a different package id
-from the one the settlement exemplar consumes, so its file is
-`openzeppelin-pausable-v1-0.1.0-6a916c1.dar`. The packages build with the
-workspace SDK of [`multi-package.yaml`](../../multi-package.yaml).
+provenance. The packages build with the workspace SDK of
+[`multi-package.yaml`](../../multi-package.yaml).
 
 ## Build and test
 
@@ -142,9 +141,9 @@ Decisions the prototype makes that the proposal does not state:
 - Every party is a single-key party. The N-of-M posture of `ba` is out of scope.
 - Time moves through `setTime` and `passTime`. The ledger time tolerance of
   a real synchronizer is not modeled.
-- The example registry's admin can still mint directly through the
-  transfer factory. No bridge contract checks that the supply right is the
-  instrument's only mint path.
+- The example registry's admin can still mint directly through
+  `TokenRules_OfferMint`. No bridge contract checks that the supply right is
+  the instrument's only mint path.
 
 ## Results
 
@@ -165,7 +164,7 @@ Decisions the prototype makes that the proposal does not state:
 - A leftover compliance attestation stays active until a gateway choice
   consumes it or its signers archive it.
 - With `ba`, `br`, and the wTOK admin each featured, the LocalNet round that
-  held the two credits paid `ba` 65.2%, the wTOK admin 20.5%, and `br` 14.3%
+  held the two credits paid `ba` 64.7%, the wTOK admin 20.7%, and `br` 14.6%
   of its app-reward pool, and the SV minted a `RewardCouponV2` for each. `br`
   signs no bridge contract, so its share comes from being the actor of the
   two gateway exercises. The setup round paid only `ba` and the wTOK admin.

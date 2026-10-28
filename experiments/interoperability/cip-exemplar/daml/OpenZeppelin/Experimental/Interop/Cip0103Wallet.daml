@@ -37,12 +37,15 @@ import Splice.TokenStandard.Utils (accountParties, archiveAndCheckActors, basicA
 import OpenZeppelin.Experimental.Interop.Common
 import OpenZeppelin.Token.Cip112.V1.Allocation (TokenAllocation)
 
--- | The dApp's side of a CIP-0103 allocation request: the app asks the
--- authorizers of a settlement to allocate their legs. The template implements
+-- | The dApp's side of a CIP-0103 allocation request: the app asks one
+-- authorizer of a settlement to allocate its legs. The template implements
 -- the Token Standard V2 `AllocationRequest` interface, so any wallet reads it
 -- through the standard view and answers it through the standard choices.
 --
--- Privacy: only the executors and the requested authorizers see the request.
+-- A request names one authorizer, because every answer consumes it: a request
+-- to several would end at the first answer, and each authorizer would see the
+-- allocations requested of the others.
+-- Privacy: only the executors and the requested authorizer see the request.
 -- Authorization assumptions: accepting a request does not allocate anything;
 -- the wallet allocates through the registry's factory, and the standard lets
 -- it do both in one submission.
@@ -55,7 +58,7 @@ template AppAllocationRequest
   where
     signatory settlement.executors
     observer concatMap (\a -> accountParties a.admin a.authorizer) allocations
-    ensure not (null settlement.executors) && not (null allocations)
+    ensure not (null settlement.executors) && length (dedup (map (.authorizer) allocations)) == 1
 
     interface instance AllocationRequestV2.AllocationRequest for AppAllocationRequest where
       view = AllocationRequestV2.AllocationRequestView with
@@ -240,7 +243,16 @@ test_cip0103_privacyScopedToParticipants = script do
   (usdHoldingsSeenBy outsider) >>= \hs -> length hs === 0
   (erc20BalanceOf outsider bobAcct) >>= \b -> b === 0.0
   _ <- submit app $ withdrawRequestCmd requestCid [app]
-  pure ()
+  -- A request names one authorizer, so neither wallet sees the allocation
+  -- requested of the other.
+  submitMustFail app do
+    createCmd AppAllocationRequest with
+      settlement
+      allocations =
+        [ mkSpec admin bobAcct [senderSide leg] (Some deadline)
+        , mkSpec admin aliceAcct [receiverSide leg] (Some deadline) ]
+      requestedAt = deadline
+      settleAt = Some deadline
 
 -- | CIP-0103 predictable error handling: fail-closed settlement paths surface as
 -- command failures a wallet/dApp can map to errors - here, settling after the

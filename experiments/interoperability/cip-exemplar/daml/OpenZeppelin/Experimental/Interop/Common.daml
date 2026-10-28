@@ -3,13 +3,18 @@
 -- The scenarios run on the CIP-0112 registry of `OpenZeppelin/canton-contracts`
 -- (`openzeppelin-token-cip112-v1`) and drive it through the Token Standard V2
 -- interfaces, the way a wallet or a settlement app drives any registry that
--- implements them.
+-- implements them. The helpers name the registry's own templates in three
+-- places: creating the rules contract, which is the issuer's job, the
+-- admin-only mint offer that issues supply, and the holding query of
+-- `usdHoldingsSeenBy`, which reads the holding template and takes its standard
+-- view.
 module OpenZeppelin.Experimental.Interop.Common where
 
 import Daml.Script
-import DA.Action (when)
+import DA.Action (unless, when)
 import DA.Foldable (forA_)
 import DA.Optional (isNone, optionalToList)
+import DA.Text qualified as T
 import DA.Time (RelTime, addRelTime, days, hours, milliseconds, seconds, subTime)
 
 import Splice.Api.Token.MetadataV1
@@ -71,6 +76,18 @@ allocateInteropParty requestedName = do
       _ <- grantUserRights user.userId [CanActAs party]
       pure ()
   pure party
+
+-- | Submit `cmds`, which must fail with an error whose message contains
+-- `expected`. A failure for another reason, such as a contract the submitter
+-- cannot see, fails the scenario.
+submitMustFailWith : SubmitOptions -> Text -> Commands a -> Script ()
+submitMustFailWith options expected cmds = do
+  err <- submitWithError options cmds
+  let actual = case err of
+        FailureStatusError status -> status.message
+        other -> show other
+  unless (expected `T.isInfixOf` actual) $
+    abort ("interop: expected a failure naming \"" <> expected <> "\", got: " <> actual)
 
 -- | Move the ledger clock past `deadline`.
 --
