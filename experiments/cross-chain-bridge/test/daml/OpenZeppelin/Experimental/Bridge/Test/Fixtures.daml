@@ -13,10 +13,10 @@ import DA.Time (RelTime, addRelTime, days, hours, time)
 import Daml.Script
 
 import OpenZeppelin.ScopedAuthorizationGrantV1
-import OpenZeppelin.TokenCIP112WorkflowsV1.Holding (RegistryConfig(..))
-import OpenZeppelin.TokenCIP112V1.Holding (TokenHolding(..))
-import OpenZeppelin.TokenCIP112V1.Registry (TokenRules(..))
-import OpenZeppelin.TokenCIP112V1.Transfer (TokenTransferInstruction(..))
+import OpenZeppelin.Token.Cip112.TypesV1 (RegistryConfig(..))
+import OpenZeppelin.Token.Cip112.V1.Holding (TokenHolding(..))
+import OpenZeppelin.Token.Cip112.V1.Registry (TokenRules(..))
+import OpenZeppelin.Token.Cip112.V1.Transfer (TokenTransferInstruction(..))
 import Splice.Api.Token.HoldingV2 qualified as HoldingV2
 import Splice.Api.Token.MetadataV1
 import Splice.Api.Token.TransferInstructionV2 qualified as TransferInstructionV2
@@ -149,6 +149,7 @@ setupWith BridgeParties{..} = do
     createCmd NonceRegistry with
       maintainer = ba
       instrumentId = instrument
+      epochSize = testEpochSize
       epoch = 0
       nonces = Map.empty
       successorCreated = False
@@ -162,7 +163,6 @@ setupWith BridgeParties{..} = do
       instrumentId = instrument
       bridgeAccount = basicAccount ba
       supplyRightCid
-      epochSize = testEpochSize
       instructionLifetime = testInstructionLifetime
       maxAttestationValidity = days 1
   redemptionCid <- submit ba do
@@ -171,7 +171,6 @@ setupWith BridgeParties{..} = do
       instrumentId = instrument
       bridgeAccount = basicAccount ba
       supplyRightCid
-      epochSize = testEpochSize
       maxAttestationValidity = days 1
   pure Bridge{..}
 
@@ -237,6 +236,13 @@ lockFor b nonce amount = do
     instrumentId = instrument
     amount
     expiresAt = now `addRelTime` attestationValidity
+
+-- | What the gateway transaction records about a lock.
+recordOf : LockAttestation -> LockRecord
+recordOf lock = LockRecord with
+  amount = lock.amount
+  recipient = lock.recipient
+  reoffered = False
 
 inboundSubject : LockAttestation -> ComplianceSubject
 inboundSubject lock = InboundCredit with

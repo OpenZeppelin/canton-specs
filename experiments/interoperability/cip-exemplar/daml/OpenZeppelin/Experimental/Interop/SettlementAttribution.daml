@@ -8,100 +8,105 @@
 -- LocalNet which runs Amulet, Scan, and an SV.
 --
 -- An app-provider may claim the settlements that it confirmed as executor, and
--- only those. This module shows that the settlement views alone carry that
+-- only those. This module shows that the transactions alone carry that
 -- distinction:
 --
 -- * the ledger functions that an integrator calls
 -- * the balances before and after each action
 -- * how the executor-confirmed activity of the app-provider increases
--- * why the receipts that the app-provider merely observes do not count.
+-- * why a settlement that the app-provider merely observes does not count.
 --
--- The function `attributedActivity` reads only `query` results over
--- `SettlementReceipt` and `SettlementEventLogEntry`. It creates no contract.
+-- The function `attributedActivity` reads only transaction trees: the
+-- `SettlementFactory_SettleBatch` exercises and the `EventLog_HoldingsChange`
+-- events below them, which a participant streams to the app-provider. It
+-- creates no contract and reads no contract.
 --
--- The receipt has the registry admin as its only signatory. The attribution
--- therefore holds against a correct admin. An admin that creates a receipt
--- outside `SettlementFactory_SettleBatch` can name any executor, and the views
--- cannot tell the two receipts apart. What the views do prove is that the
--- app-provider authorized each settlement that the engine recorded, because
--- `SettlementFactory_SettleBatch` makes the executors its controllers.
+-- The registry makes the batch executors the controllers of
+-- `SettlementFactory_SettleBatch`, so the app-provider authorized every batch
+-- that names it as an actor, and its participant records that exercise as the
+-- app-provider's own. A party that the settlement does not name as an executor
+-- cannot produce such an exercise at all: the registry rejects the submission.
 --
 -- Scope: experimental interoperability behavior.
 module OpenZeppelin.Experimental.Interop.SettlementAttribution where
 
 import DA.Assert ((===))
 import DA.List (dedup)
-import DA.Optional (isNone)
 import Daml.Script
 
-import OpenZeppelin.Experimental.Settlement.Cip112
+import Splice.Api.Token.HoldingV2 qualified as HoldingV2
+import Splice.Api.Token.AllocationV2 qualified as AllocationV2
+import Splice.Api.Token.TransferEventsV2 qualified as TransferEventsV2
+import Splice.TokenStandard.Utils (basicAccount, receiverSide, senderSide)
+
 import OpenZeppelin.Experimental.Interop.Common
-import OpenZeppelin.Experimental.TokenStandardFixture.V2.Allocation (TransferSide(..))
-import OpenZeppelin.Experimental.TokenStandardFixture.V2.Holding
 
 -- | The activity of the app-provider as the confirming executor. The data
--- comes only from the two settlement views that the executor observes. No
--- marker contract supplies it.
+-- comes only from the transactions that the executor's participant streams.
+-- No marker contract supplies it.
 data AttributedActivity = AttributedActivity with
-    settlements : Int        -- ^ count of executor-confirmed batches (unique settlement refs)
-    settledVolume : Decimal  -- ^ sum of the confirmed USD sender-leg amounts
-    holdingsChangeEvents : Int -- ^ count of `EventLog_HoldingsChange` entries of confirmed batches
+    settlements : Int        -- ^ count of executor-confirmed batches (unique settlement ids)
+    settledVolume : Decimal  -- ^ sum of the confirmed USD transfer-leg amounts
+    holdingsChangeEvents : Int -- ^ count of `EventLog_HoldingsChange` events of confirmed batches
   deriving (Eq, Show)
 
--- | Off-ledger attribution: read the projection of the app-provider for
--- `SettlementReceipt` and `SettlementEventLogEntry`. Keep only the
--- settlements that the app-provider confirmed as executor. Visibility alone
--- does not attribute: the app-provider also observes receipts as an account
--- party when it sends or receives in a settlement that an other party
--- executes, and the function must not credit those. Each settled batch makes
--- one receipt for each authorizer, and these receipts have the same
--- settlement ref. Thus the function counts batches by unique ref. The sender
--- side of each leg is in exactly one receipt. Thus the function adds the USD
--- sender-side amounts to get the volume. An event names the account that it
--- belongs to, so an event counts only when one of its transfer legs, paired
--- with that account, is in a confirmed receipt.
+-- | A batch settlement as a transaction records it: the argument of the
+-- `SettlementFactory_SettleBatch` exercise and the holdings-change events that
+-- the settlement emitted below it.
+data SettledBatch = SettledBatch with
+    batch : AllocationV2.SettlementFactory_SettleBatch
+    events : [TransferEventsV2.EventLog_HoldingsChange]
+
+-- | The batch settlements of a transaction.
+settledBatches : TransactionTree -> [SettledBatch]
+settledBatches tree = concatMap settledBatchesOf tree.rootEvents
+
+-- | The batch settlements at or below one node of a transaction.
+settledBatchesOf : TreeEvent -> [SettledBatch]
+settledBatchesOf (CreatedEvent _) = []
+settledBatchesOf (ExercisedEvent e) =
+  case fromAnyChoice @AllocationV2.SettlementFactory e.argument of
+    Some batch -> [SettledBatch with batch; events = concatMap holdingsChangeEventsOf e.childEvents]
+    None -> concatMap settledBatchesOf e.childEvents
+
+-- | Off-ledger attribution: read the transactions that the participant of the
+-- app-provider streams, keep the batch settlements that name the app-provider
+-- as an actor and as an executor, and count. Visibility alone does not
+-- attribute: the app-provider also sees the settlement of its own allocation,
+-- and the holdings-change event on its account, when it sends or receives in
+-- a settlement that another party executes, and the function must not credit
+-- those. Each confirmed batch is one `SettlementFactory_SettleBatch` exercise;
+-- its settlement id and transfer legs come from the argument, and its events
+-- from the exercises below it.
 --
--- The settlement ref and the transfer-leg id are free text that the caller of
--- the settlement chooses, and Daml-LF 2.1 has no contract key to make either
--- one unique. The counts above are therefore exact only while the app-provider
--- issues a distinct ref for each batch and a distinct leg id for each leg. A
--- repeated ref merges two confirmed batches into one settlement, and a leg id
--- that a batch of an other executor repeats for the same account counts an
--- event that the app-provider only observes.
-attributedActivity : Party -> Script AttributedActivity
-attributedActivity app = do
-  receipts <- query @SettlementReceipt app
-  events <- query @SettlementEventLogEntry app
-  let confirmed = [r | (_, r) <- receipts, app `elem` r.settlement.executors]
-      refs = dedup [r.settlement.settlementRef.id | r <- confirmed]
-      confirmedLegKeys =
-        dedup [(r.authorizer, s.transferLegId) | r <- confirmed, s <- r.settledTransferLegSides]
-      senderAmounts =
-        [ s.amount
-        | r <- confirmed, s <- r.settledTransferLegSides
-        , s.side == SenderSide, s.instrumentId == usdSymbol
-        ]
-      confirmedEvents =
-        [ e
-        | (_, e) <- events
-        , any (\s -> (e.event.account, s.transferLegId) `elem` confirmedLegKeys) e.event.transferLegSides
-        ]
-  pure AttributedActivity with
-    settlements = length refs
-    settledVolume = sum senderAmounts
-    holdingsChangeEvents = length confirmedEvents
+-- The settlement id is free text that the executors choose, and Daml-LF 2.1
+-- has no contract key to make it unique, so the count of settlements is exact
+-- only while the app-provider issues a distinct id for each batch. A repeated
+-- id merges two confirmed batches into one settlement.
+attributedActivity : Party -> [TransactionTree] -> AttributedActivity
+attributedActivity app trees = AttributedActivity with
+    settlements = length (dedup [b.batch.settlement.id | b <- confirmed])
+    settledVolume = sum
+      [leg.amount | b <- confirmed, leg <- b.batch.transferLegs, leg.instrumentId == usdSymbol]
+    holdingsChangeEvents = sum [length b.events | b <- confirmed]
+  where
+    confirmed =
+      [ b | tree <- trees, b <- settledBatches tree
+      , app `elem` b.batch.actors, app `elem` b.batch.settlement.executors ]
 
 -- * Walkthrough helpers
 
 -- | Write one snapshot to the log: the issuer-view balances and the attributed
--- activity of the app-provider. The function returns the activity, and the
--- walkthrough makes assertions on it.
-logSnapshot : Text -> Party -> Party -> Account -> Account -> Script AttributedActivity
-logSnapshot label admin app aliceAcct bobAcct = do
+-- activity of the app-provider over the transactions it has seen. The function
+-- returns the activity, and the walkthrough makes assertions on it.
+logSnapshot
+  : Text -> Party -> Party -> HoldingV2.Account -> HoldingV2.Account -> [TransactionTree]
+  -> Script AttributedActivity
+logSnapshot label admin app aliceAcct bobAcct trees = do
   aliceBal <- erc20BalanceOf admin aliceAcct
   bobBal <- erc20BalanceOf admin bobAcct
   supply <- erc20TotalSupply admin
-  activity <- attributedActivity app
+  let activity = attributedActivity app trees
   debug $ "== " <> label <> " =="
   debug $ "balances (issuer view): alice=" <> show aliceBal
     <> " USD, bob=" <> show bobBal
@@ -111,30 +116,22 @@ logSnapshot label admin app aliceAcct bobAcct = do
     <> " USD, holdingsChangeEvents=" <> show activity.holdingsChangeEvents
   pure activity
 
--- | Find the unlocked USD holding of `account` that has the given amount, as
--- `reader` sees it. The issuer sees each holding that it signed.
-holdingWithAmount : Party -> Account -> Decimal -> Script (ContractId ToyHolding)
-holdingWithAmount reader account amount = do
-  hs <- query @ToyHolding reader
-  case [cid | (cid, h) <- hs, h.account == account, h.amount == amount, isNone h.lock] of
-    cid :: _ -> pure cid
-    [] -> abort $ "walkthrough: no unlocked holding of " <> show amount <> " found"
-
 -- * Walkthrough
 
 -- | Attribution walkthrough, end to end:
 --
 -- * Step 0 - the issuer mints; no activity is attributable.
--- * Step 1 - the app-provider settles alice -> bob 30 USD; the settle result
---   and the views alone give the attribution.
+-- * Step 1 - the app-provider settles alice -> bob 30 USD; the settle
+--   transaction alone gives the attribution.
 -- * Step 2 - a second settlement (bob -> alice 10 USD) increases the
 --   counters.
--- * Step 3 - a party that is not the executor tries to settle a pending
---   batch; the attempt fails; the counters do not move, because only
---   confirmed executor activity is attributable.
+-- * Step 3 - the registry admin, which sees the allocations but is not the
+--   executor, tries to settle a pending batch; the actor check rejects it;
+--   the counters do not move, because only confirmed executor activity is
+--   attributable.
 -- * Step 4 - the app-provider settles that batch; the counters increase.
--- * Step 5 - an other executor settles a transfer where the app-provider is
---   only the receiver; the app-provider sees the receipt, but the attribution
+-- * Step 5 - another executor settles a transfer where the app-provider is
+--   only the receiver; the app-provider sees its credit, but the attribution
 --   does not change, because visibility alone does not attribute.
 test_attribution_walkthrough : Script ()
 test_attribution_walkthrough = script do
@@ -143,90 +140,85 @@ test_attribution_walkthrough = script do
   alice <- allocateInteropParty "attribution-alice"
   bob <- allocateInteropParty "attribution-bob"
   notApp <- allocateInteropParty "attribution-notapp"
+  registry <- mkRegistry admin
   let aliceAcct = basicAccount alice
       bobAcct = basicAccount bob
 
   -- Step 0: the issuer mints 100 USD to alice. No settlement occurred. Thus
   -- the app-provider has no attributable activity.
-  aliceHolding <- mintUsd [admin, alice] admin aliceAcct 100.0
-  activity0 <- logSnapshot "step 0: minted, nothing settled" admin app aliceAcct bobAcct
+  aliceHolding <- mintUsd registry aliceAcct 100.0
+  activity0 <- logSnapshot "step 0: minted, nothing settled" admin app aliceAcct bobAcct []
   activity0 === AttributedActivity 0 0.0 0
 
   -- Step 1: the app-provider executes a settlement that moves 30 USD from
   -- alice to bob (allocate the two sides, then `SettlementFactory_SettleBatch`).
-  -- The balances change. The app-provider now observes 1 settlement, 30 USD
-  -- volume, and 2 holdings-change events. That is its attribution surface.
-  --
-  -- The settle result carries one receipt for each authorizer, and each
-  -- receipt names the app-provider as the only executor. That field is what
-  -- `attributedActivity` filters on, so the walkthrough asserts it directly
-  -- here, on the result of the choice itself, before it reads anything back
-  -- from the active-contract set.
-  receipts1 <- settleUsdTransfer admin app aliceAcct bobAcct aliceHolding 30.0 "attribution-1"
-  length receipts1 === 2
-  case receipts1 of
-    receiptCid :: _ -> do
-      Some receipt <- queryContractId app receiptCid
-      receipt.settlement.executors === [app]
-    [] -> fail "expected a settlement receipt"
-  activity1 <- logSnapshot "step 1: app settled alice -> bob 30 USD" admin app aliceAcct bobAcct
+  -- The balances change. The settle transaction carries one batch exercise
+  -- that names the app-provider as its actor and only executor, and two
+  -- holdings-change events below it. That is its attribution surface, and the
+  -- walkthrough asserts it on the transaction itself before it counts.
+  t1 <- settleUsdTransfer registry app aliceAcct bobAcct aliceHolding 30.0 "attribution-1"
+  case settledBatches t1 of
+    [b] -> do
+      b.batch.actors === [app]
+      b.batch.settlement.executors === [app]
+      length b.events === 2
+    bs -> abort ("expected one batch settlement, got " <> show (length bs))
+  activity1 <- logSnapshot "step 1: app settled alice -> bob 30 USD" admin app aliceAcct bobAcct [t1]
   activity1 === AttributedActivity 1 30.0 2
 
   -- Step 2: a second settlement (bob -> alice 10 USD) increases the same
   -- off-ledger counters. Each confirmed batch adds to the attributable volume
   -- of the app-provider.
   bobHolding <- holdingWithAmount admin bobAcct 30.0
-  _ <- settleUsdTransfer admin app bobAcct aliceAcct bobHolding 10.0 "attribution-2"
-  activity2 <- logSnapshot "step 2: app settled bob -> alice 10 USD" admin app aliceAcct bobAcct
+  t2 <- settleUsdTransfer registry app bobAcct aliceAcct bobHolding 10.0 "attribution-2"
+  activity2 <- logSnapshot "step 2: app settled bob -> alice 10 USD" admin app aliceAcct bobAcct [t1, t2]
   activity2 === AttributedActivity 2 40.0 4
 
   -- Step 3: the walkthrough allocates a third batch (alice -> bob 20 USD).
-  -- The allocation locks the 70 USD holding of alice. A party that is not the
-  -- executor tries to settle the batch. The attempt fails. The attribution
-  -- counters do not change: an app-provider may claim only the activity that
-  -- it confirmed.
-  (factory, factoryDisc) <- mkFactory admin
-  settlement <- mkSettlementInfo "attribution-3" app
-  let leg = mkUsdLeg "attribution-3" aliceAcct bobAcct 20.0
+  -- The allocation locks 20 USD of alice's 70 USD holding and returns the
+  -- change. The registry admin, which sees both allocations but is not the
+  -- executor, tries to settle the batch. The registry's actor check rejects
+  -- it. The attribution counters do not change: an app-provider may claim
+  -- only the activity that it confirmed.
+  deadline <- deadlineAfter settlementWindow
+  let settlement = mkSettlementInfo "attribution-3" app
+      leg = mkUsdLeg "attribution-3" aliceAcct bobAcct 20.0
   aliceInput <- holdingWithAmount admin aliceAcct 70.0
-  aliceAlloc <- createAndAcceptAllocation admin factory factoryDisc settlement aliceAcct [senderSide leg] [aliceInput]
-  bobAlloc <- createAndAcceptAllocation admin factory factoryDisc settlement bobAcct [receiverSide leg] []
-  submitMustFail (actAs [notApp] <> discloseMany [factoryDisc]) do
-    exerciseCmd factory SettlementFactory_SettleBatch with
-      settlement; transferLegs = [leg]; allocationCids = [aliceAlloc, bobAlloc]
-      actors = [notApp]; d1ComplianceRef = None
-  activity3 <- logSnapshot "step 3: non-executor settle failed (alice's 70 USD locked in the pending allocation)" admin app aliceAcct bobAcct
+  aliceAlloc <- allocate registry settlement (mkSpec admin aliceAcct [senderSide leg] (Some deadline)) [aliceInput]
+  bobAlloc <- allocate registry settlement (mkSpec admin bobAcct [receiverSide leg] (Some deadline)) []
+  submitMustFailWith (actAs admin) eNotAnExecutor $
+    settleBatchCmd registry admin settlement [leg] [aliceAlloc, bobAlloc]
+  activity3 <- logSnapshot "step 3: non-executor settle failed (20 USD of alice locked in the pending allocation)" admin app aliceAcct bobAcct [t1, t2]
   activity3 === activity2
 
-  -- Step 4: the app-provider settles the pending batch. The change returns to
-  -- alice. The counters increase.
-  _ <- submit (actAs [app] <> discloseMany [factoryDisc]) do
-    exerciseCmd factory SettlementFactory_SettleBatch with
-      settlement; transferLegs = [leg]; allocationCids = [aliceAlloc, bobAlloc]
-      actors = [app]; d1ComplianceRef = None
-  activity4 <- logSnapshot "step 4: app settled the pending alice -> bob 20 USD batch" admin app aliceAcct bobAcct
+  -- Step 4: the app-provider settles the pending batch. The counters increase.
+  (_, t3) <- settleBatch registry app settlement [leg] [aliceAlloc, bobAlloc]
+  activity4 <- logSnapshot "step 4: app settled the pending alice -> bob 20 USD batch" admin app aliceAcct bobAcct [t1, t2, t3]
   activity4 === AttributedActivity 3 60.0 6
 
-  -- Step 5: an other executor (notApp) settles a transfer where the
+  -- Step 5: another executor (notApp) settles a transfer where the
   -- app-provider is only the receiver (bob -> app 5 USD). The app-provider
-  -- observes its own receipt and holdings-change event as an account party.
-  -- The attribution does not credit them: only the settlements that the
-  -- app-provider confirmed as executor count. The raw receipt count rises to
-  -- 7 while the attribution stays at 3 settlements and 60 USD.
+  -- observes the settlement of its own allocation, the holdings-change event
+  -- on its account, and its new holding, as an account party. The attribution
+  -- does not credit them: the batch exercise names notApp as its actor, so
+  -- even the complete transaction, which carries more than the app-provider's
+  -- projection of it, adds nothing. The attribution stays at 3 settlements and
+  -- 60 USD.
   let appAcct = basicAccount app
   bobHolding2 <- holdingWithAmount admin bobAcct 20.0
-  _ <- settleUsdTransfer admin notApp bobAcct appAcct bobHolding2 5.0 "attribution-4"
-  rawReceipts <- query @SettlementReceipt app
-  length rawReceipts === 7
-  activity5 <- logSnapshot "step 5: notApp settled bob -> app 5 USD; app attribution unchanged" admin app aliceAcct bobAcct
+  t4 <- settleUsdTransfer registry notApp bobAcct appAcct bobHolding2 5.0 "attribution-4"
+  map (\b -> b.batch.actors) (settledBatches t4) === [[notApp]]
+  (erc20BalanceOf app appAcct) >>= \b -> b === 5.0
+  activity5 <- logSnapshot "step 5: notApp settled bob -> app 5 USD; app attribution unchanged" admin app aliceAcct bobAcct [t1, t2, t3, t4]
   activity5 === activity4
 
   -- Final balance check: settlement kept the supply constant at each step.
-  aliceBal <- erc20BalanceOf admin aliceAcct
-  bobBal <- erc20BalanceOf admin bobAcct
-  appBal <- erc20BalanceOf admin appAcct
-  supply <- erc20TotalSupply admin
-  aliceBal === 60.0
-  bobBal === 35.0
-  appBal === 5.0
-  supply === 100.0
+  (erc20BalanceOf admin aliceAcct) >>= (=== 60.0)
+  (erc20BalanceOf admin bobAcct) >>= (=== 35.0)
+  (erc20BalanceOf admin appAcct) >>= (=== 5.0)
+  (erc20TotalSupply admin) >>= (=== 100.0)
+
+-- | The rejection of the Splice token standard utilities when the actors of a
+-- batch are not the settlement's executors.
+eNotAnExecutor : Text
+eNotAnExecutor = "'actors' does not have the same elements as one of 'allowed actors'"

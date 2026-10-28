@@ -7,9 +7,22 @@ dependencies:
   - daml-stdlib
   - daml-script
 data-dependencies:
-  - ../../settlement/fixtures/token-standard-v2/.daml/dist/openzeppelin-experimental-token-standard-v2-fixture-0.1.0.dar
-  - ../../settlement/cip-0112/.daml/dist/openzeppelin-experimental-cip112-settlement-0.1.0.dar
+  # The OpenZeppelin CIP-0112 registry, built from `OpenZeppelin/canton-contracts`
+  # at 6a916c174db7d6163ebeea4df1049044cefc7b3c; see `dars/manifest.yaml` at the
+  # repository root.
+  - ../../../dars/vendor/openzeppelin-token-cip112-types-v1-0.1.0.dar
+  - ../../../dars/vendor/openzeppelin-token-cip112-utils-0.1.0.dar
+  - ../../../dars/vendor/openzeppelin-token-cip112-v1-0.1.0.dar
+  # Splice Token Standard V2 (CIP-0112) release artifacts; never rebuilt.
+  - ../../../dars/vendor/splice-api-token-metadata-v1-1.0.0.dar
+  - ../../../dars/vendor/splice-api-token-holding-v2-1.0.0.dar
+  - ../../../dars/vendor/splice-api-token-transfer-events-v2-1.0.0.dar
+  - ../../../dars/vendor/splice-api-token-allocation-v2-1.0.0.dar
+  - ../../../dars/vendor/splice-api-token-allocation-request-v2-1.0.0.dar
+  - ../../../dars/vendor/splice-api-token-allocation-instruction-v2-1.0.0.dar
+  - ../../../dars/vendor/splice-api-token-transfer-instruction-v2-1.0.0.dar
+  - ../../../dars/vendor/splice-token-standard-utils-2.0.0.dar
 build-options:
   - --target=2.1
-  # The executable interop experiment contains both its facade template and Daml Script scenarios.
+  # The executable interop experiment contains both its app-side template and Daml Script scenarios.
   - -Wno-template-interface-depends-on-daml-script
