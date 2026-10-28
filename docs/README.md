@@ -13,11 +13,5 @@ research workspace.
 The [reference architecture index](reference-architectures/README.md) explains
 their shared settlement, compliance, identity, and authority assumptions.
 
-## Decisions
-
-- [CIP-0112 promotion boundary](decisions/cip-0112-promotion-boundary.md)
-- [Token Standard V2 dependency source](decisions/cip-0112-dependency-source.md)
-- [Token Standard V2 import evidence](decisions/cip-0112-import-evidence.md)
-
 Executable research, threat models, and experiment-specific documentation live
 with their code under [`experiments/`](../experiments/README.md).
