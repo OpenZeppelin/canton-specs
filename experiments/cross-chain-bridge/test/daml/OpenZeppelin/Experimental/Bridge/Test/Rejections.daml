@@ -42,11 +42,11 @@ testReplayedNonce = do
 
 -- | A nonce whose epoch has no registry yet is rejected. The first write to
 -- an epoch's registry creates the next epoch's registry, and each registry
--- holds only its epoch's nonces.
+-- holds only its epoch's nonces, which its own write checks against its `E`.
 testNonceEpochWithoutRegistry : Script ()
 testNonceEpochWithoutRegistry = do
   b0 <- setup
-  (_, m8, c8) <- attested b0 8 10.0
+  (lock8, m8, c8) <- attested b0 8 10.0
   -- Only epoch 0 exists: nonce 8 belongs to epoch 2.
   submitRelayerMustFail b0 [] (processCmd b0 m8 c8 None)
   -- The first write to epoch 0 creates epoch 1. Epoch 2 still does not exist.
@@ -63,13 +63,17 @@ testNonceEpochWithoutRegistry = do
   let b2' = b2 with nonceRegistryCid = epoch2
   (b3, _) <- process b2' m8 c8 None
   status <- nonceStatus b3 8
-  status === Some Minted
+  status === Some (Minted (recordOf lock8))
   Some registry0 <- queryContractId b3.ba b1.nonceRegistryCid
   Map.keys registry0.nonces === [0]
   Some registry1 <- queryContractId b3.ba b2.nonceRegistryCid
   Map.keys registry1.nonces === [4]
   Some registry2 <- queryContractId b3.ba b3.nonceRegistryCid
   Map.keys registry2.nonces === [8]
+  registry2.epochSize === testEpochSize
+  -- The registry refuses a nonce of another epoch, even from `ba` directly.
+  submitMustFail b3.ba do
+    exerciseCmd b3.nonceRegistryCid NonceRegistry_Record with nonce = 5; status = Closed
 
 -- | An unlisted party cannot create a statement through the attester
 -- registry and cannot sign one it does not observe. A statement it signs
@@ -226,6 +230,7 @@ testRegistryNotMaintainedByBa = do
     createCmd NonceRegistry with
       maintainer = attacker
       instrumentId = instrument
+      epochSize = testEpochSize
       epoch = 0
       nonces = Map.empty
       successorCreated = False
@@ -236,6 +241,7 @@ testRegistryNotMaintainedByBa = do
     createCmd NonceRegistry with
       maintainer = b0.ba
       instrumentId = "OTHER"
+      epochSize = testEpochSize
       epoch = 0
       nonces = Map.empty
       successorCreated = False
@@ -245,6 +251,7 @@ testRegistryNotMaintainedByBa = do
     createCmd NonceRegistry with
       maintainer = b0.ba
       instrumentId = instrument
+      epochSize = testEpochSize
       epoch = 3
       nonces = Map.empty
       successorCreated = False

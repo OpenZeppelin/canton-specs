@@ -13,12 +13,6 @@ research workspace.
 The [reference architecture index](reference-architectures/README.md) explains
 their shared settlement, compliance, identity, and authority assumptions.
 
-## Decisions
-
-- [CIP-0112 promotion boundary](decisions/cip-0112-promotion-boundary.md)
-- [Token Standard V2 dependency source](decisions/cip-0112-dependency-source.md)
-- [Token Standard V2 import evidence](decisions/cip-0112-import-evidence.md)
-
 ## Milestone delivery
 
 - [M1 delivery map](m1-delivery.md) maps every Milestone 1 delivery element and

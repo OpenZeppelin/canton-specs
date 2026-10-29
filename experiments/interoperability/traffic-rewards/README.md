@@ -8,9 +8,9 @@ CIP-0104 pays a featured app-provider for the sequencer and mediator traffic tha
 its transactions cause. The app writes no reward code: the sequencer measures the
 traffic, Scan attributes it to the `FeaturedAppRight` holders of each
 transaction, and the SV mints a `RewardCouponV2` for each rewarded provider when
-a mining round closes. The harness therefore settles ordinary
-[CIP-0112 settlement](../../settlement/cip-0112/) batches and then follows the
-reward that the network computes from them.
+a mining round closes. The harness therefore settles ordinary Token Standard V2 batches on the
+OpenZeppelin CIP-0112 registry that the [area README](../README.md) names, and
+then follows the reward that the network computes from them.
 
 ## Reward path
 
@@ -31,16 +31,19 @@ reward that the network computes from them.
    about three rounds.
 3. The app-provider settles three USD transfers as the settlement executor. These
    settlements are the traffic, and the harness records the ledger record time of
-   each settle transaction. On the third batch a party that the settlement does
-   not name as an executor submits first, and the participant rejects it. Only
-   the named executor produces the traffic that the reward pays for.
+   each settle transaction. On the third batch the registry admin, which sees
+   the allocations but is not an executor, submits first, and the registry's
+   actor check rejects it. Only the named executor produces the traffic that the
+   reward pays for.
 4. The harness asserts the app-side attribution of those settlements from the
-   `SettlementReceipt` views: the settlement count and the settled volume of the
-   property that
+   app-provider's own transaction stream: the `SettlementFactory_SettleBatch`
+   exercises that name it as the acting executor give the settlement count and
+   the settled volume of the property that
    [`SettlementAttribution.daml`](../cip-exemplar/daml/OpenZeppelin/Experimental/Interop/SettlementAttribution.daml)
    specifies. The run has one executor and no second app-provider, so it counts
-   no holdings-change event and does not exercise the negative case of a receipt
-   that the app-provider only observes. The Daml walkthrough covers both.
+   no holdings-change event and does not exercise the negative case of a
+   settlement that the app-provider only observes. The Daml walkthrough covers
+   both.
 5. Scan reports a round, at or after the round of the settlements, with a
    non-zero app activity weight whose confirmed batch of minting allowances names
    the app-provider party.

@@ -17,21 +17,21 @@ including where it departs from the proposal.
 
 ## Dependencies
 
-The five OpenZeppelin DARs are built from `OpenZeppelin/canton-contracts`
-at commit `8a81bc86d7e5b2ec38db4c0c5897ccdb20ac25b8` on branch
-`igingu-cip112-simplification-and-rad`: `openzeppelin-tokenCIP112-v1`,
-`openzeppelin-tokenCIP112-workflows-v1`, `openzeppelin-scoped-authorization-grant-v1`,
-`openzeppelin-api-pausable-v1`, and `openzeppelin-pausable-v1`. The seven
-Splice Token Standard V2 DARs are byte-identical copies of the Splice 0.8.3
-release artifacts that the branch vendors. The CIP-112 packages are consumed
+The six OpenZeppelin DARs are built from `OpenZeppelin/canton-contracts`
+at commit `6a916c174db7d6163ebeea4df1049044cefc7b3c` on `main`:
+`openzeppelin-token-cip112-types-v1`, `openzeppelin-token-cip112-utils`,
+`openzeppelin-token-cip112-v1`, `openzeppelin-scoped-authorization-grant-v1`,
+`openzeppelin-api-pausable-v1`, and `openzeppelin-pausable-v1`. The
+interoperability exemplar consumes the same three CIP-112 builds, and the
+settlement exemplar the same two pausable builds. The seven Splice Token
+Standard V2 DARs are byte-identical copies of the Splice 0.8.3 release
+artifacts that `canton-contracts` vendors. The CIP-112 packages are consumed
 as published and not modified.
 
-All twelve DARs sit in [`dars/vendor/`](../../dars/vendor/) at the repository
+All thirteen DARs sit in [`dars/vendor/`](../../dars/vendor/) at the repository
 root, and [`dars/manifest.yaml`](../../dars/manifest.yaml) records their
-provenance. The `pausable-v1` build from this commit has a different package id
-from the one the settlement exemplar consumes, so its file is
-`openzeppelin-pausable-v1-0.1.0-8a81bc8.dar`. The packages build with the
-workspace SDK of [`multi-package.yaml`](../../multi-package.yaml).
+provenance. The packages build with the workspace SDK of
+[`multi-package.yaml`](../../multi-package.yaml).
 
 ## Build and test
 
@@ -68,14 +68,14 @@ about ten minutes with the container images already pulled.
 
 | Proposal | Prototype |
 |---|---|
-| Mint right and burn right (section 3.9) | `BridgeSupplyRight` in `RegistryAdapter.daml`: the wTOK admin signs it, it names `ba`, and its two choices exercise `TokenRules_Mint` and `TokenRules_Burn` on the bridge account only. Archiving it revokes both rights |
+| Mint right and burn right (section 3.9) | `BridgeSupplyRight` in `RegistryAdapter.daml`: the wTOK admin signs it and it names `ba`. Its mint choice exercises the registry's admin mint offer into the bridge account and accepts it as `ba` in the same choice. Its burn choice completes a transfer through the registry's transfer factory in one step, with `ba` and the wTOK admin as actors, from the bridge account to the CIP-0112 burn account. Archiving it revokes both rights |
 | Attested message with the lock attestation (section 3.1) | `AttestedMessage` in `Attestations.daml`: one co-signed contract per message. The first attester creates it through `AttesterRegistry_AttestLock`, the attesters listed at that moment observe it, each further observer adds itself through `AttestedMessage_Sign`, and only a gateway choice consumes it |
 | Compliance attestation (sections 3.1 and 3.6) | `ComplianceAttestation`, created through `AttesterRegistry_AttestCompliance` and co-signed the same way, bound to an inbound credit or to a redemption request through `ComplianceSubject`, with the KYC assertion, the ledger-stamped `issuedAt`, and an expiry |
 | Attester registry (section 3.6) | `AttesterRegistry` in `Attestations.daml`, with its maintainer field, its read choice, and the two creating choices. A creator may name a subset of at least N listed attesters as observers |
-| Nonce registry and pause state (section 3.4) | `NonceRegistry` and `BridgePauseState` in `Registries.daml`, each with its maintainer and scope fields. The nonce registry's read choice serves a listed attester. Its `Returned` state records the holding a gateway withdraw brought back and the time of that withdraw |
+| Nonce registry and pause state (section 3.4) | `NonceRegistry` and `BridgePauseState` in `Registries.daml`, each with its maintainer and scope fields. The nonce registry carries the epoch size `E`, which caps the number of nonces it holds. Its own write refuses a nonce of another epoch. Its `Minted` and `Returned` states carry a `LockRecord`: the lock's amount and recipient, and whether the credit was offered once more. `Returned` also records the holding a gateway withdraw brought back and the time of that withdraw. The nonce registry's read choice serves a listed attester. |
 | Messaging gateway (section 3.1) | `MessagingGateway` with `_Process`, `_Withdraw`, `_Close`, and `_Reoffer` |
 | Redemption gateway (section 3.3) | `RedemptionGateway` with `_Process`, `_Reject`, `_Refund`, `_Hold`, and `_ArchiveClaim` |
-| Redemption attestation and refund claim (section 3.3) | `BridgeClaim` in `Claims.daml`, with a payout variant for each, and `ReleaseConfirmation`, the co-signed attester contract that lets `br` archive a released claim. The first attester creates the confirmation through `BridgeClaim_Confirm`, under the same observer rule |
+| Redemption claim and refund claim (section 3.3) | `BridgeClaim` in `Claims.daml`, with a payout variant for each, and `ReleaseConfirmation`, the co-signed attester contract that lets `br` archive a released claim. The first attester creates the confirmation through `BridgeClaim_Confirm`, under the same observer rule |
 | Transfer preapproval (section 3.1) | `TransferPreapproval` in `Preapproval.daml`: recipient-signed, bounded by instrument, amount ceiling, expiry, and delegate |
 | Relayer role and pause role (section 3.6) | `AuthorizationGrant` contracts from `openzeppelin-scoped-authorization-grant-v1`, with the scopes in `Policy.daml`. Every `br` choice on both gateways checks the relayer grant |
 
@@ -86,25 +86,26 @@ Decisions the prototype makes that the proposal does not state:
   holding, and a compliance attestation whose `issuedAt` is strictly after
   the withdraw. A refund or a hold of a returned nonce must name the same
   holding.
-- The gateways carry the epoch size `E`, the instruction lifetime, and the
-  maximum attestation validity as fields. The tests use `E = 4`, one hour,
-  and one day.
+- The messaging gateway carries the instruction lifetime, and both gateways
+  carry the maximum attestation validity, as fields. The nonce registry
+  carries `E`.
 
 ## What each test demonstrates
 
 | Module | Script | Demonstrates |
 |---|---|---|
-| `Inbound.daml` | `testInboundLiveAccept` | The gateway transaction mints into the bridge account, records the nonce, and offers the credit with the nonce in its metadata. The first write creates the next epoch's registry. The recipient's accept credits it |
+| `Inbound.daml` | `testInboundLiveAccept` | The gateway transaction mints into the bridge account, records the nonce with the lock's amount and recipient, and offers the credit with the nonce in its metadata. The first write creates the next epoch's registry. The recipient's accept credits it |
 | `Inbound.daml` | `testInboundPreapproval` | The delegated accept runs inside the gateway transaction. The preapproval fails closed above its ceiling, after its expiry, for another recipient, and once the recipient archives it |
 | `Inbound.daml` | `testLateDenialWithdrawAndRefund` | `br` withdraws the offer under `ba`'s authority, then refunds the returned credit: one transaction burns, creates the refund claim, and marks the nonce refunded. An attester reads the claim by disclosure. A refunded nonce never mints and is never refunded twice |
 | `Inbound.daml` | `testLapsedInstruction` | After `executeBefore` the accept fails, the example registry's withdraw still runs, and the credit is refunded |
 | `Inbound.daml` | `testDenialBeforeGateway` | `br` closes the attested message and the nonce is marked closed. A closed nonce never mints. A duplicate message for a minted lock is consumed and the record stays |
+| `Inbound.daml` | `testRefundChecksRecordedAmount` | A credit that came back by the recipient's reject stays minted. A refund or a hold that names a holding of another amount fails |
 | `Inbound.daml` | `testHold` | The returned credit is burned with no claim and the nonce is marked held |
-| `Inbound.daml` | `testReofferAfterPause` | An offer lapses during a pause, and `br` withdraws it during the pause, which records the nonce as returned. After the unpause `br` re-offers it against an attestation issued after the withdraw, and the nonce is minted again |
+| `Inbound.daml` | `testReofferAfterPause` | An offer lapses during a pause, and `br` withdraws it during the pause, which records the nonce as returned. After the unpause an attestation with another amount or recipient fails, and `br` re-offers it against an attestation issued after the withdraw. The nonce is minted again and marked as offered once more |
 | `Inbound.daml` | `testReofferRejectsLeftoverAttestation` | A parallel compliance attestation the gateway did not consume, or one issued in the withdraw's own instant, cannot carry a re-offer. One issued after the withdraw can |
 | `Inbound.daml` | `testReofferRequiresGatewayWithdraw` | A credit that came back by the recipient's reject stays minted, cannot be re-offered, and is refunded |
 | `Inbound.daml` | `testReturnedRecordBindsHolding` | A re-offer or a refund that names another lock's returned holding fails, even at an equal amount |
-| `Inbound.daml` | `testSecondLapseRefunds` | A re-offered credit that lapses again is refunded. A spare attestation from the re-offer round cannot carry a second re-offer |
+| `Inbound.daml` | `testSecondLapseRefunds` | A re-offered credit that lapses again is refunded. No attestation carries a second re-offer, whether it was issued before or after the second withdraw |
 | `Outbound.daml` | `testOutboundRedemption` | The request, the attestation bound to it, the burn with the redemption claim, the attester read by disclosure, and the archive after a co-signed release confirmation |
 | `Outbound.daml` | `testOutboundDenial` | `br` rejects the request through the redemption gateway and the holding returns to the holder. The holder withdraws an undecided request |
 | `Outbound.daml` | `testOutboundBindings` | The attestation must bind the request id, the holder, the instrument, the amount, and the destination. A request without a destination is not processed |
@@ -117,7 +118,7 @@ Decisions the prototype makes that the proposal does not state:
 | `Governance.daml` | `testSignatoriesArchive` | Each bridge template's signatories archive it with the built-in `Archive`: the signing quorum archives an attested message, a compliance attestation, and a release confirmation, and `ba` archives the gateways and the registries |
 | `Governance.daml` | `testSupplyRight` | Neither `ba` nor `br` mints through the registry without the supply right, the right cannot name another account, and archiving it stops mints and refunds |
 | `Rejections.daml` | `testReplayedNonce` | A second attested message for a minted lock is rejected |
-| `Rejections.daml` | `testNonceEpochWithoutRegistry` | A nonce whose epoch has no registry is rejected, and each epoch's registry holds only its own nonces |
+| `Rejections.daml` | `testNonceEpochWithoutRegistry` | A nonce whose epoch has no registry is rejected, and each epoch's registry holds only its own nonces. The registry's own write refuses a nonce of another epoch |
 | `Rejections.daml` | `testUnlistedSigner` | An unlisted party cannot create a statement through the registry or sign one it does not observe. On a statement created outside the registry, unlisted signers do not count toward the quorum and do not invalidate it |
 | `Rejections.daml` | `testQuorumBelowThreshold` | Fewer than N listed signers fail, on either attestation |
 | `Rejections.daml` | `testExpiredAttestation` | An expired attestation fails, and so does one whose expiry lies beyond the maximum attestation validity |
@@ -140,8 +141,9 @@ Decisions the prototype makes that the proposal does not state:
 - Every party is a single-key party. The N-of-M posture of `ba` is out of scope.
 - Time moves through `setTime` and `passTime`. The ledger time tolerance of
   a real synchronizer is not modeled.
-- The example registry's admin can still mint directly. No bridge contract
-  checks that the supply right is the instrument's only mint path.
+- The example registry's admin can still mint directly through
+  `TokenRules_OfferMint`. No bridge contract checks that the supply right is
+  the instrument's only mint path.
 
 ## Results
 
@@ -152,20 +154,17 @@ Decisions the prototype makes that the proposal does not state:
 - Every other mechanism of the proposal is implementable as written on
   Daml-LF 2.1 with the vendored packages, with the decisions listed above.
 - A gateway choice cannot verify that an offer lapsed during a pause or an
-  outage. The on-ledger control of a re-offer is the returned record and an
-  attestation issued after the withdraw. Whether the lapse qualifies is the
-  attesters' decision.
+  outage. The on-ledger control of a re-offer is the returned record, which
+  allows one re-offer, and an attestation issued after the withdraw. Whether
+  the lapse qualifies is the attesters' decision.
 - An attester can still create a statement directly, outside the attester
   registry, with any observers and any `issuedAt`. The re-offer check
   therefore stops `br` from reusing a leftover attestation, not a colluding
   attester quorum.
 - A leftover compliance attestation stays active until a gateway choice
   consumes it or its signers archive it.
-- The gateway does not limit how often a returned credit is re-offered. The
-  proposal's rule of one re-offer, then a refund, is kept by `br` and by the
-  attesters, who decline a second fresh attestation.
 - With `ba`, `br`, and the wTOK admin each featured, the LocalNet round that
-  held the two credits paid `ba` 65.2%, the wTOK admin 20.5%, and `br` 14.2%
+  held the two credits paid `ba` 64.7%, the wTOK admin 20.7%, and `br` 14.6%
   of its app-reward pool, and the SV minted a `RewardCouponV2` for each. `br`
   signs no bridge contract, so its share comes from being the actor of the
   two gateway exercises. The setup round paid only `ba` and the wTOK admin.

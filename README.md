@@ -40,15 +40,14 @@ packages follow the `OpenZeppelin/canton-contracts` lifecycle.
 
 | Area | What it explores |
 |---|---|
-| [Settlement](experiments/settlement/) | CIP-0112-aligned allocation and settlement flows, compliance attestations, seizure handling, and consumer composition |
 | [Compliance](experiments/compliance/) | Alternative shapes for off-ledger checks and on-ledger attestations |
 | [Identity](experiments/identity/) | Identity hooks, credential gating, and Smart Contract Upgrade compatibility |
 | [Interoperability](experiments/interoperability/) | CIP-0086, CIP-0103, and CIP-0104 behavior on LocalNet and against the Canton Wallet Gateway |
 | [Cross-chain bridge](experiments/cross-chain-bridge/) | The Canton side of the attested bridge: gateways, attester quorums, nonce replay protection, redemption, and app-reward attribution on LocalNet |
 
-The [documentation index](docs/README.md) collects the reference architectures
-and durable architecture decisions. The [experiment index](experiments/README.md)
-maps each research question to its code, tests, and evidence.
+The [documentation index](docs/README.md) collects the reference architectures.
+The [experiment index](experiments/README.md) maps each research question to its
+code, tests, and evidence.
 
 ## Repository boundaries
 
@@ -69,14 +68,12 @@ its stable package identity and release lifecycle in `OpenZeppelin/canton-contra
 
 ```text
 docs/
-  decisions/                 Durable architecture and dependency decisions
   reference-architectures/   Application architecture reports
 experiments/
   compliance/                Compliance-check alternatives
   cross-chain-bridge/        Attested bridge prototype on the CIP-0112 registry
   identity/                  Identity, credential, and SCU research
   interoperability/          Live-ledger and third-party compatibility evidence
-  settlement/                Settlement architecture and executable prototypes
 dars/
   vendor/                    Pinned DAR inputs consumed by experiments
 scripts/                     Repository checks and reproducible integration gates

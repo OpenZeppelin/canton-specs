@@ -15,14 +15,14 @@ data ClaimPayout
       holder : Party
       destination : Text
       requestCid : ContractId TransferInstructionV2.TransferInstruction
-        -- ^ The claim's nonce: the redemption request the burn consumed, as
-        -- the compliance attestation binds it.
+        -- ^ The request id: the redemption request the burn consumed, as the
+        -- compliance attestation binds it.
   | RefundPayout with
       nonce : Int
         -- ^ The lock whose originator the escrow refunds, once.
   deriving (Eq, Show)
 
--- | The redemption attestation, or the refund claim. `ba` alone signs it. An
+-- | The redemption claim, or the refund claim. `ba` alone signs it. An
 -- attester reads it by disclosure before it signs it with its external-chain key.
 template BridgeClaim with
     ba : Party

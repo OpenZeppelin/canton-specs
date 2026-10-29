@@ -21,8 +21,8 @@
 #
 # Phases:
 #   1. harness create-wallet        gateway session + external wallet party
-#   2. dpm script setup             factory, request, offers, receiver allocation
-#   3. harness dapp-flow            connect/listAccounts, accept offers/request
+#   2. dpm script setup             registry, request, mint offer, receiver allocation
+#   3. harness dapp-flow            connect/listAccounts, accept mint offer, allocate, accept request
 #                                   via prepareExecute + sign/execute + txChanged
 #   4. dpm script settle            executor settles the batch
 #   5. harness verify-wallet-view   wallet's projection via gateway ledgerApi
@@ -392,7 +392,7 @@ run_script() {
 echo "== Phase 1: create externally-signed wallet party via gateway"
 node "$HARNESS" create-wallet
 
-echo "== Phase 2: on-ledger setup (factory, request, offers, receiver allocation)"
+echo "== Phase 2: on-ledger setup (registry, request, mint offer, receiver allocation)"
 if [ "$EXTERNAL" = 1 ]; then
   node "$HARNESS" setup-external
 else

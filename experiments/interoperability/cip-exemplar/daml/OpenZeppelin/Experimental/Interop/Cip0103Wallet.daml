@@ -1,15 +1,21 @@
 -- | CIP-0103 interoperability scenarios map wallet and dApp actions onto the
--- settlement lifecycle through the account/command/event surface CIP-0103
--- defines, while Canton privacy scopes what the wallet sees:
+-- Token Standard V2 lifecycle of the OpenZeppelin CIP-0112 registry, through
+-- the account/command/event surface CIP-0103 defines, while Canton privacy
+-- scopes what the wallet sees:
 --
 --   * account discovery / selection -> choosing a Token Standard V2 `Account`;
---   * prepareExecute / command       -> request -> accept -> instruction -> accept;
---   * txChanged lifecycle events      -> the wallet observing its own
---                                        `SettlementReceipt` + `EventLog` entry;
---   * V1-wallet compatibility path    -> calling the factory's instruction
---                                        entrypoint directly, with no persisted
+--   * the dApp's request             -> an `AllocationRequest` the app emits;
+--   * prepareExecute / command       -> the wallet allocates through the
+--                                        registry's `AllocationFactory` and
+--                                        accepts the request, in one submission;
+--   * txChanged lifecycle events      -> the wallet's holdings and the
+--                                        `EventLog_HoldingsChange` events that
+--                                        name its account;
+--   * V1-wallet compatibility path    -> calling the registry's allocation
+--                                        factory directly, with no persisted
 --                                        `AllocationRequest`;
---   * predictable error handling      -> fail-closed paths surface as failures;
+--   * predictable error handling      -> fail-closed paths surface as failures,
+--                                        and the wallet recovers its funds;
 --   * privacy                         -> a non-participant wallet sees nothing.
 --
 -- Scope: experimental interoperability behavior. These scenarios make no
@@ -17,96 +23,202 @@
 module OpenZeppelin.Experimental.Interop.Cip0103Wallet where
 
 import DA.Assert ((===))
+import DA.List (dedup)
+import DA.Map qualified as Map
 import DA.Time (addRelTime)
 import Daml.Script
 
-import OpenZeppelin.Experimental.Settlement.Cip112
+import Splice.Api.Token.MetadataV1
+import Splice.Api.Token.AllocationV2 qualified as AllocationV2
+import Splice.Api.Token.AllocationRequestV2 qualified as AllocationRequestV2
+import Splice.Api.Token.TransferEventsV2 qualified as TransferEventsV2
+import Splice.TokenStandard.Utils (accountParties, archiveAndCheckActors, basicAccount, receiverSide, senderSide)
+
 import OpenZeppelin.Experimental.Interop.Common
-import OpenZeppelin.Experimental.TokenStandardFixture.V2.Metadata
-import OpenZeppelin.Experimental.TokenStandardFixture.V2.Holding
-import OpenZeppelin.Experimental.TokenStandardFixture.V2.Allocation
-  ( RequestedAllocation(..)
-  )
+import OpenZeppelin.Token.Cip112.V1.Allocation (TokenAllocation)
+
+-- | The dApp's side of a CIP-0103 allocation request: the app asks one
+-- authorizer of a settlement to allocate its legs. The template implements
+-- the Token Standard V2 `AllocationRequest` interface, so any wallet reads it
+-- through the standard view and answers it through the standard choices.
+--
+-- A request names one authorizer, because every answer consumes it: a request
+-- to several would end at the first answer, and each authorizer would see the
+-- allocations requested of the others.
+-- Privacy: only the executors and the requested authorizer see the request.
+-- Authorization assumptions: accepting a request does not allocate anything;
+-- the wallet allocates through the registry's factory, and the standard lets
+-- it do both in one submission.
+template AppAllocationRequest
+  with
+    settlement : AllocationV2.SettlementInfo
+    allocations : [AllocationV2.AllocationSpecification]
+    requestedAt : Time
+    settleAt : Optional Time
+  where
+    signatory settlement.executors
+    observer concatMap (\a -> accountParties a.admin a.authorizer) allocations
+    ensure not (null settlement.executors) && length (dedup (map (.authorizer) allocations)) == 1
+
+    interface instance AllocationRequestV2.AllocationRequest for AppAllocationRequest where
+      view = AllocationRequestV2.AllocationRequestView with
+        originalRequestCid = None
+        settlement
+        allocations
+        requestedAt
+        settleAt
+        availableActions = Map.fromList
+          [ (AllocationRequestV2.ARA_Accept, authorizerPartySets this)
+          , (AllocationRequestV2.ARA_Reject, authorizerPartySets this)
+          ]
+        meta = emptyMetadata
+      allocationRequest_acceptExtraObservers _ = []
+      allocationRequest_rejectExtraObservers _ = []
+      allocationRequest_withdrawExtraObservers _ = []
+      allocationRequest_acceptImpl self arg = do
+        archiveAndCheckActors self arg.actors (authorizerPartySets this)
+        pure AllocationRequestV2.AllocationRequest_AcceptResult with meta = emptyMetadata
+      allocationRequest_rejectImpl self arg = do
+        archiveAndCheckActors self arg.actors (authorizerPartySets this)
+        pure AllocationRequestV2.AllocationRequest_RejectResult with meta = emptyMetadata
+      allocationRequest_withdrawImpl self arg = do
+        archiveAndCheckActors self arg.actors [settlement.executors]
+        pure AllocationRequestV2.AllocationRequest_WithdrawResult with meta = emptyMetadata
+
+-- | The actor sets that may accept or reject a request: the account parties
+-- of each requested authorizer.
+authorizerPartySets : AppAllocationRequest -> [[Party]]
+authorizerPartySets request =
+  dedup [accountParties a.admin a.authorizer | a <- request.allocations]
+
+-- | The dApp emits a request toward the authorizers of `allocations`.
+requestAllocations
+  : Party -> AllocationV2.SettlementInfo -> [AllocationV2.AllocationSpecification] -> Optional Time
+  -> Script (ContractId AppAllocationRequest)
+requestAllocations app settlement allocations settleAt = do
+  requestedAt <- getTime
+  submit app do
+    createCmd AppAllocationRequest with settlement; allocations; requestedAt; settleAt
+
+-- | The standard answers to a request, as `actors`.
+acceptRequestCmd
+  : ContractId AppAllocationRequest -> [Party]
+  -> Commands AllocationRequestV2.AllocationRequest_AcceptResult
+acceptRequestCmd requestCid actors =
+  exerciseCmd (toInterfaceContractId @AllocationRequestV2.AllocationRequest requestCid)
+    AllocationRequestV2.AllocationRequest_Accept with actors; extraArgs = emptyExtraArgs
+
+rejectRequestCmd
+  : ContractId AppAllocationRequest -> [Party]
+  -> Commands AllocationRequestV2.AllocationRequest_RejectResult
+rejectRequestCmd requestCid actors =
+  exerciseCmd (toInterfaceContractId @AllocationRequestV2.AllocationRequest requestCid)
+    AllocationRequestV2.AllocationRequest_Reject with actors; extraArgs = emptyExtraArgs
+
+withdrawRequestCmd
+  : ContractId AppAllocationRequest -> [Party]
+  -> Commands AllocationRequestV2.AllocationRequest_WithdrawResult
+withdrawRequestCmd requestCid actors =
+  exerciseCmd (toInterfaceContractId @AllocationRequestV2.AllocationRequest requestCid)
+    AllocationRequestV2.AllocationRequest_Withdraw with actors; extraArgs = emptyExtraArgs
 
 -- | Full CIP-0103 lifecycle: the dApp emits an `AllocationRequest`, the wallet
--- accepts it (prepareExecute analogue) and creates + accepts its funding
--- instruction, and the batch settles. The wallet then observes its own
--- txChanged lifecycle artifacts - the `SettlementReceipt` and the
--- `EventLog_HoldingsChange` entry, making the reporting surface visible to the
--- wallet as well as the executor.
+-- reads it through the standard view, funds the requested allocation through
+-- the registry's factory and accepts the request in one submission
+-- (prepareExecute analogue), and the batch settles. The wallet then observes
+-- its own txChanged lifecycle artifacts: its holdings and the
+-- `EventLog_HoldingsChange` event on its account, which the settlement emits
+-- toward the account parties.
 test_cip0103_walletDrivesFullLifecycleAndSeesEvents : Script ()
 test_cip0103_walletDrivesFullLifecycleAndSeesEvents = script do
   admin <- allocateInteropParty "wallet-life-admin"
   app <- allocateInteropParty "wallet-life-app"
   alice <- allocateInteropParty "wallet-life-alice"
   bob <- allocateInteropParty "wallet-life-bob"
+  registry <- mkRegistry admin
+  deadline <- deadlineAfter settlementWindow
 
-  settlement <- mkSettlementInfo "wallet-life" app
-  requestedAt <- getTime
   -- Account discovery / selection: the wallet selects its Token Standard V2 account.
   let aliceAcct = basicAccount alice
       bobAcct = basicAccount bob
+      settlement = mkSettlementInfo "wallet-life" app
       leg = mkUsdLeg "wallet-life" aliceAcct bobAcct 25.0
-  (factory, factoryDisc) <- mkFactory admin
+      aliceSpec = mkSpec admin aliceAcct [senderSide leg] (Some deadline)
+      bobSpec = mkSpec admin bobAcct [receiverSide leg] (Some deadline)
+  aliceHolding <- mintUsd registry aliceAcct 40.0
 
-  -- dApp emits a request; wallet accepts it (prepareExecute analogue).
-  request <- submit (actAs [app] <> discloseMany [factoryDisc]) do
-    exerciseCmd factory SettlementFactory_CreateAllocationRequest with
-      authorizer = aliceAcct
-      settlement
-      allocations =
-        [ RequestedAllocation with
-            admin
-            transferLegSides = [senderSide leg]
-            nextIterationFunding = None
-            committed = False
-            meta = emptyMetadata
-        ]
-      requestedAt
-      settleAt = settlement.settlementDeadline
-      actors = [app]
-  _ <- submit alice do exerciseCmd request AllocationRequest_Accept with actors = [alice]
+  -- The dApp emits a request; the wallet reads it through the standard view.
+  -- (The scenario fetches the contract and takes the view locally, because the
+  -- Daml Script runner of this SDK cannot query interfaces on a LocalNet
+  -- participant; see `usdHoldingsSeenBy`. The harness reads the interface.)
+  requestCid <- requestAllocations app settlement [aliceSpec] (Some deadline)
+  Some request <- queryContractId alice requestCid
+  let requestView = view (toInterface @AllocationRequestV2.AllocationRequest request)
+  requestView.allocations === [aliceSpec]
+  Map.lookup AllocationRequestV2.ARA_Accept requestView.availableActions === Some [[alice]]
 
-  -- Wallet funds + creates its allocation, counterparty creates its side, settle.
-  aliceHolding <- mintUsd [admin, alice] admin aliceAcct 25.0
-  aliceAlloc <- createAndAcceptAllocation admin factory factoryDisc settlement aliceAcct [senderSide leg] [aliceHolding]
-  bobAlloc <- createAndAcceptAllocation admin factory factoryDisc settlement bobAcct [receiverSide leg] []
-  receipts <- submit (actAs [app] <> discloseMany [factoryDisc]) do
-    exerciseCmd factory SettlementFactory_SettleBatch with
-      settlement; transferLegs = [leg]; allocationCids = [aliceAlloc, bobAlloc]
-      actors = [app]; d1ComplianceRef = None
-  length receipts === 2
+  -- prepareExecute: the wallet funds the requested allocation through the
+  -- registry's factory and accepts the request in the same submission, so the
+  -- request cannot be allocated twice. The factory locks the 25 USD leg and
+  -- returns the 15 USD change at once.
+  requestedAt <- getTime
+  allocResult <- submit (actAs alice <> discloseMany [registry.disclosure]) $
+    const
+      <$> allocateCmd registry settlement aliceSpec [aliceHolding] requestedAt [alice]
+      <*> acceptRequestCmd requestCid [alice]
+  aliceAlloc <- completedAllocation allocResult
+  (erc20BalanceOf alice aliceAcct) >>= \b -> b === 15.0
+  requests <- query @AppAllocationRequest app
+  length requests === 0
 
-  -- txChanged: the wallet observes its own lifecycle artifacts.
-  aliceReceipts <- query @SettlementReceipt alice
-  length aliceReceipts === 1
-  aliceEvents <- query @SettlementEventLogEntry alice
-  length aliceEvents === 1
+  -- The counterparty allocates its side, and the dApp settles the batch.
+  bobAlloc <- allocate registry settlement bobSpec []
+  (settleResult, tree) <- settleBatch registry app settlement [leg] [aliceAlloc, bobAlloc]
+  length settleResult.allocationSettleResults === 2
+
+  -- txChanged: the wallet observes its own lifecycle artifacts. The settlement
+  -- emits one `EventLog_HoldingsChange` for each account, naming the leg side
+  -- it settled, and the account parties are informees of the event on their
+  -- account; a wallet reads them from its transaction stream.
+  let events = holdingsChangeEvents tree
+  length events === 2
+  case [e | e <- events, e.account == aliceAcct] of
+    [e] -> do
+      map (.transferLegId) e.transferLegSides === [leg.transferLegId]
+      map (.side) e.transferLegSides === [TransferEventsV2.SenderSide]
+      assertMsg "the wallet is an informee of the event on its account" (alice `elem` e.observers)
+    es -> abort ("expected one holdings-change event for alice, got " <> show (length es))
+  case [e | e <- events, e.account == bobAcct] of
+    [e] -> map (.side) e.transferLegSides === [TransferEventsV2.ReceiverSide]
+    es -> abort ("expected one holdings-change event for bob, got " <> show (length es))
   -- and the value landed for the receiver wallet.
-  (erc20BalanceOf admin bobAcct) >>= \b -> b === 25.0
+  (erc20BalanceOf bob bobAcct) >>= \b -> b === 25.0
+  (erc20BalanceOf admin aliceAcct) >>= \b -> b === 15.0
 
--- | CIP-0103 V1-wallet compatibility: a signing flow may call the factory's
--- allocation-instruction entrypoint directly, without persisting an
--- `AllocationRequest`. `createAndAcceptAllocation` is exactly that direct path;
--- the batch still settles.
+-- | CIP-0103 V1-wallet compatibility: a signing flow may call the registry's
+-- allocation factory directly, without persisting an `AllocationRequest`.
+-- `allocate` is exactly that direct path; the batch still settles.
 test_cip0103_v1WalletDirectFactoryPath : Script ()
 test_cip0103_v1WalletDirectFactoryPath = script do
   admin <- allocateInteropParty "wallet-v1-admin"
   app <- allocateInteropParty "wallet-v1-app"
   alice <- allocateInteropParty "wallet-v1-alice"
   bob <- allocateInteropParty "wallet-v1-bob"
+  registry <- mkRegistry admin
   let aliceAcct = basicAccount alice
       bobAcct = basicAccount bob
-  aliceHolding <- mintUsd [admin, alice] admin aliceAcct 40.0
+  aliceHolding <- mintUsd registry aliceAcct 40.0
   -- No AllocationRequest is created anywhere in this flow.
-  requests <- query @AllocationRequest app
+  requests <- query @AppAllocationRequest app
   length requests === 0
-  receipts <- settleUsdTransfer admin app aliceAcct bobAcct aliceHolding 40.0 "wallet-v1"
-  length receipts === 2
+  tree <- settleUsdTransfer registry app aliceAcct bobAcct aliceHolding 40.0 "wallet-v1"
+  length (holdingsChangeEvents tree) === 2
   (erc20BalanceOf admin bobAcct) >>= \b -> b === 40.0
+  (erc20BalanceOf admin aliceAcct) >>= \b -> b === 0.0
 
 -- | CIP-0103 privacy: a wallet with no role in a settlement has no projection of
--- it. An unrelated wallet party sees neither the allocations nor the receipts.
+-- it. An unrelated wallet party sees neither the holdings, nor the allocations,
+-- nor the request that another wallet was asked to answer.
 test_cip0103_privacyScopedToParticipants : Script ()
 test_cip0103_privacyScopedToParticipants = script do
   admin <- allocateInteropParty "wallet-priv-admin"
@@ -114,39 +226,99 @@ test_cip0103_privacyScopedToParticipants = script do
   alice <- allocateInteropParty "wallet-priv-alice"
   bob <- allocateInteropParty "wallet-priv-bob"
   outsider <- allocateInteropParty "wallet-priv-outsider"
+  registry <- mkRegistry admin
+  deadline <- deadlineAfter settlementWindow
   let aliceAcct = basicAccount alice
       bobAcct = basicAccount bob
-  aliceHolding <- mintUsd [admin, alice] admin aliceAcct 10.0
-  _ <- settleUsdTransfer admin app aliceAcct bobAcct aliceHolding 10.0 "wallet-priv"
-  -- The uninvolved wallet has no projection of the settlement.
-  (query @SettlementReceipt outsider) >>= \rs -> length rs === 0
-  (query @SettlementEventLogEntry outsider) >>= \es -> length es === 0
-  (query @ToyHolding outsider) >>= \hs -> length hs === 0
+  aliceHolding <- mintUsd registry aliceAcct 10.0
+  _ <- settleUsdTransfer registry app aliceAcct bobAcct aliceHolding 10.0 "wallet-priv"
+  let settlement = mkSettlementInfo "wallet-priv-2" app
+      leg = mkUsdLeg "wallet-priv-2" bobAcct aliceAcct 10.0
+  requestCid <- requestAllocations app settlement [mkSpec admin bobAcct [senderSide leg] (Some deadline)] (Some deadline)
+  -- The requested wallet sees the request; the uninvolved wallet has no
+  -- projection of the settlement at all.
+  (query @AppAllocationRequest bob) >>= \rs -> length rs === 1
+  (query @AppAllocationRequest outsider) >>= \rs -> length rs === 0
+  (query @TokenAllocation outsider) >>= \as -> length as === 0
+  (usdHoldingsSeenBy outsider) >>= \hs -> length hs === 0
+  (erc20BalanceOf outsider bobAcct) >>= \b -> b === 0.0
+  _ <- submit app $ withdrawRequestCmd requestCid [app]
+  -- A request names one authorizer, so neither wallet sees the allocation
+  -- requested of the other.
+  submitMustFail app do
+    createCmd AppAllocationRequest with
+      settlement
+      allocations =
+        [ mkSpec admin bobAcct [senderSide leg] (Some deadline)
+        , mkSpec admin aliceAcct [receiverSide leg] (Some deadline) ]
+      requestedAt = deadline
+      settleAt = Some deadline
 
 -- | CIP-0103 predictable error handling: fail-closed settlement paths surface as
 -- command failures a wallet/dApp can map to errors - here, settling after the
--- settlement deadline.
+-- settlement deadline - and the wallet recovers its funds through the standard
+-- withdraw.
 test_cip0103_failClosedSurfacesToWallet : Script ()
 test_cip0103_failClosedSurfacesToWallet = script do
   admin <- allocateInteropParty "wallet-fail-admin"
   app <- allocateInteropParty "wallet-fail-app"
   alice <- allocateInteropParty "wallet-fail-alice"
   bob <- allocateInteropParty "wallet-fail-bob"
+  registry <- mkRegistry admin
   -- This scenario must reach its own deadline, so it takes the short window.
   now <- getTime
   let deadline = addRelTime now expiringSettlementWindow
-      settlement = mkSettlementInfoBy "wallet-fail" app deadline
+      settlement = mkSettlementInfo "wallet-fail" app
       aliceAcct = basicAccount alice
       bobAcct = basicAccount bob
       leg = mkUsdLeg "wallet-fail" aliceAcct bobAcct 10.0
-  aliceHolding <- mintUsd [admin, alice] admin aliceAcct 10.0
-  (factory, factoryDisc) <- mkFactory admin
-  aliceAlloc <- createAndAcceptAllocation admin factory factoryDisc settlement aliceAcct [senderSide leg] [aliceHolding]
-  bobAlloc <- createAndAcceptAllocation admin factory factoryDisc settlement bobAcct [receiverSide leg] []
+  aliceHolding <- mintUsd registry aliceAcct 10.0
+  aliceAlloc <- allocate registry settlement (mkSpec admin aliceAcct [senderSide leg] (Some deadline)) [aliceHolding]
+  bobAlloc <- allocate registry settlement (mkSpec admin bobAcct [receiverSide leg] (Some deadline)) []
   -- Advance past the deadline; the settle command fails closed.
   advancePastDeadline deadline
-  submitMustFail (actAs [app] <> discloseMany [factoryDisc]) do
-    exerciseCmd factory SettlementFactory_SettleBatch with
-      settlement; transferLegs = [leg]; allocationCids = [aliceAlloc, bobAlloc]
-      actors = [app]; d1ComplianceRef = None
-  pure ()
+  submitMustFail (actAs app <> discloseMany [registry.disclosure]) $
+    settleBatchCmd registry app settlement [leg] [aliceAlloc, bobAlloc]
+  -- Predictable recovery: the wallet withdraws its uncommitted allocation, and
+  -- its funds come back unlocked.
+  withdrawn <- submit alice do
+    exerciseCmd aliceAlloc AllocationV2.Allocation_Withdraw with
+      actors = [alice]
+      extraArgs = emptyExtraArgs
+  case withdrawn.output of
+    AllocationV2.AllocationResult_Withdrawn -> pure ()
+    other -> abort ("expected a withdrawn allocation, got: " <> show other)
+  (erc20BalanceOf alice aliceAcct) >>= \b -> b === 10.0
+
+-- | The other answers to a request: a requested wallet rejects, the executors
+-- withdraw, and the app archives a stale request. A party that sees a request
+-- but is not a requested authorizer cannot answer it, and a requested
+-- authorizer cannot withdraw it.
+test_cip0103_requestRejectAndWithdraw : Script ()
+test_cip0103_requestRejectAndWithdraw = script do
+  admin <- allocateInteropParty "wallet-reqs-admin"
+  app <- allocateInteropParty "wallet-reqs-app"
+  alice <- allocateInteropParty "wallet-reqs-alice"
+  bob <- allocateInteropParty "wallet-reqs-bob"
+  deadline <- deadlineAfter settlementWindow
+  let aliceAcct = basicAccount alice
+      bobAcct = basicAccount bob
+      settlement = mkSettlementInfo "wallet-reqs" app
+      leg = mkUsdLeg "wallet-reqs" aliceAcct bobAcct 5.0
+      aliceSpec = mkSpec admin aliceAcct [senderSide leg] (Some deadline)
+      bobSpec = mkSpec admin bobAcct [receiverSide leg] (Some deadline)
+  -- One request per authorizer, as the standard allows.
+  aliceRequest <- requestAllocations app settlement [aliceSpec] (Some deadline)
+  bobRequest <- requestAllocations app settlement [bobSpec] (Some deadline)
+  -- The app sees its own request but is not a requested authorizer.
+  submitMustFail app $ acceptRequestCmd aliceRequest [app]
+  submitMustFail app $ rejectRequestCmd aliceRequest [app]
+  _ <- submit alice $ rejectRequestCmd aliceRequest [alice]
+  -- Only the executors withdraw.
+  submitMustFail bob $ withdrawRequestCmd bobRequest [bob]
+  _ <- submit app $ withdrawRequestCmd bobRequest [app]
+  -- The app cleans up a request that nobody answered.
+  stale <- requestAllocations app settlement [aliceSpec] None
+  submitMustFail alice do exerciseCmd stale Archive
+  submit app do exerciseCmd stale Archive
+  (query @AppAllocationRequest app) >>= \rs -> length rs === 0

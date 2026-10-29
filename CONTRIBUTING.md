@@ -24,13 +24,13 @@ dpm build --all
 Lint an affected package directly with DPM:
 
 ```sh
-DAML_PACKAGE=experiments/settlement/cip-0112 dpm damlc lint
+DAML_PACKAGE=experiments/cross-chain-bridge/bridge dpm damlc lint
 ```
 
 Run an affected test package directly with DPM:
 
 ```sh
-DAML_PACKAGE=experiments/settlement/test dpm test --all --show-coverage
+DAML_PACKAGE=experiments/cross-chain-bridge/test dpm test --all --show-coverage
 ```
 
 Use the corresponding package path from `multi-package.yaml` for another
