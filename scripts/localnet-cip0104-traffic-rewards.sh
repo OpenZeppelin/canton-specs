@@ -2,7 +2,7 @@
 #
 # CIP-0104 traffic-based app rewards on Canton LocalNet. The gate starts
 # LocalNet, uploads the interop exemplar DAR, and runs the Node harness
-# (experiments/interoperability/traffic-rewards/harness.mjs). The harness
+# (exemplars/interoperability/traffic-rewards/harness.mjs). The harness
 # features the app-provider party, switches the network to traffic-based app
 # rewards, settles CIP-0112 batches as the featured app-provider, and follows the
 # reward that the network computes from the traffic of those settlements down to
@@ -43,9 +43,9 @@ export OZ_LOCALNET_TICK_DURATION="${OZ_LOCALNET_TICK_DURATION:-30s}"
 ledger_init cip0104-traffic-rewards "$ROOT" \
 	"${OZ_LEDGER_LOG_DIR:-$ROOT/.cache/cip0104-traffic-rewards}"
 
-PKG_DIR="$ROOT/experiments/interoperability/cip-exemplar"
-DAR="$PKG_DIR/.daml/dist/openzeppelin-experimental-cip-interop-exemplar-0.1.0.dar"
-HARNESS="$ROOT/experiments/interoperability/traffic-rewards/harness.mjs"
+PKG_DIR="$ROOT/exemplars/interoperability/cip-exemplar"
+DAR="$PKG_DIR/.daml/dist/openzeppelin-cip-interop-exemplar-0.1.0.dar"
+HARNESS="$ROOT/exemplars/interoperability/traffic-rewards/harness.mjs"
 
 ledger_require_node
 ledger_require_tools

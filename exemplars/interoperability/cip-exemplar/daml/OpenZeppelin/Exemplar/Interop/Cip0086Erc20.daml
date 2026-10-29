@@ -13,7 +13,7 @@
 -- ERC-20 reads are projection-scoped, which CIP-0086 calls scoped visibility.
 -- The registry conserves supply across transfers and settlements, and only the
 -- issuer changes it.
-module OpenZeppelin.Experimental.Interop.Cip0086Erc20 where
+module OpenZeppelin.Exemplar.Interop.Cip0086Erc20 where
 
 import DA.Assert ((===))
 import DA.Foldable (forA_)
@@ -25,7 +25,7 @@ import Splice.Api.Token.HoldingV2 qualified as HoldingV2
 import Splice.Api.Token.TransferInstructionV2 qualified as TransferInstructionV2
 import Splice.TokenStandard.Utils (accountParties, basicAccount)
 
-import OpenZeppelin.Experimental.Interop.Common
+import OpenZeppelin.Exemplar.Interop.Common
 import OpenZeppelin.Token.Cip112.V1.Registry (TokenRules(..))
 
 -- | ERC-20 `approve` / `allowance` as a delegation record. Mirrors the CIP-0086

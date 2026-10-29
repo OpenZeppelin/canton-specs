@@ -15,7 +15,7 @@ require_file() {
 
 for file in \
 	README.md CONTRIBUTING.md SECURITY.md AGENTS.md LICENSE multi-package.yaml \
-	docs/README.md experiments/README.md dars/README.md dars/manifest.yaml \
+	docs/README.md experiments/README.md exemplars/README.md dars/README.md dars/manifest.yaml \
 	scripts/check-lint.sh scripts/check-tests.sh scripts/check-docs.sh; do
 	require_file "$file"
 done
@@ -42,12 +42,12 @@ while IFS= read -r package_path; do
 	declared_manifests="${declared_manifests}${ROOT}/${package_path}/daml.yaml\n"
 done <<< "$package_paths"
 
-actual_manifests="$(find "$ROOT/experiments" -name daml.yaml -type f -not -path '*/.daml/*' | sort)" ||
-	fail "failed to discover experiment manifests"
-[ -n "$actual_manifests" ] || fail "no experiment manifests found"
+actual_manifests="$(find "$ROOT/experiments" "$ROOT/exemplars" -name daml.yaml -type f -not -path '*/.daml/*' | sort)" ||
+	fail "failed to discover package manifests"
+[ -n "$actual_manifests" ] || fail "no package manifests found"
 
 if [ "$(printf '%b' "$declared_manifests" | sed '/^$/d' | sort)" != "$actual_manifests" ]; then
-	fail "multi-package.yaml must list every experiment package exactly once"
+	fail "multi-package.yaml must list every experiment and exemplar package exactly once"
 fi
 
 while IFS= read -r manifest; do

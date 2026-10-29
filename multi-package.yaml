@@ -14,6 +14,6 @@ packages:
   - experiments/identity/upgrade/test
   - experiments/identity/upgrade/driver-v1
   - experiments/identity/upgrade/driver-v2
-  - experiments/interoperability/cip-exemplar
+  - exemplars/interoperability/cip-exemplar
   - experiments/cross-chain-bridge/bridge
   - experiments/cross-chain-bridge/test
