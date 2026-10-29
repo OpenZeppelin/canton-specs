@@ -39,7 +39,7 @@ then follows the reward that the network computes from them.
    app-provider's own transaction stream: the `SettlementFactory_SettleBatch`
    exercises that name it as the acting executor give the settlement count and
    the settled volume of the property that
-   [`SettlementAttribution.daml`](../cip-exemplar/daml/OpenZeppelin/Experimental/Interop/SettlementAttribution.daml)
+   [`SettlementAttribution.daml`](../cip-exemplar/daml/OpenZeppelin/Exemplar/Interop/SettlementAttribution.daml)
    specifies. The run has one executor and no second app-provider, so it counts
    no holdings-change event and does not exercise the negative case of a
    settlement that the app-provider only observes. The Daml walkthrough covers
@@ -140,6 +140,6 @@ forward from the round it observed before settling, instead of computing the rou
 itself. A quiet round reports zero weight and no rewarded party, so the round it
 finds did measure app traffic.
 
-This experiment gives interoperability evidence on LocalNet. It is not a
+This exemplar gives interoperability evidence on LocalNet. It is not a
 production reward integration, and it does not make the app-provider a featured
 app on TestNet or MainNet, where the Canton Foundation grants that status.

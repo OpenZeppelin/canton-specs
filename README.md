@@ -42,8 +42,16 @@ packages follow the `OpenZeppelin/canton-contracts` lifecycle.
 |---|---|
 | [Compliance](experiments/compliance/) | Alternative shapes for off-ledger checks and on-ledger attestations |
 | [Identity](experiments/identity/) | Identity hooks, credential gating, and Smart Contract Upgrade compatibility |
-| [Interoperability](experiments/interoperability/) | CIP-0086, CIP-0103, and CIP-0104 behavior on LocalNet and against the Canton Wallet Gateway |
 | [Cross-chain bridge](experiments/cross-chain-bridge/) | The Canton side of the attested bridge: gateways, attester quorums, nonce replay protection, redemption, and app-reward attribution on LocalNet |
+
+## Exemplars
+
+Exemplars are executable deliverables that show how the OpenZeppelin CIP-0112
+registry integrates with Canton standards and ecosystem tooling.
+
+| Area | What it shows |
+|---|---|
+| [Interoperability](exemplars/interoperability/) | CIP-0086, CIP-0103, and CIP-0104 behavior on LocalNet and against the Canton Wallet Gateway |
 
 The [documentation index](docs/README.md) collects the reference architectures.
 The [experiment index](experiments/README.md) maps each research question to its
@@ -73,9 +81,10 @@ experiments/
   compliance/                Compliance-check alternatives
   cross-chain-bridge/        Attested bridge prototype on the CIP-0112 registry
   identity/                  Identity, credential, and SCU research
-  interoperability/          Live-ledger and third-party compatibility evidence
+exemplars/
+  interoperability/          CIP-0086, CIP-0103, and CIP-0104 exemplars and live-ledger evidence
 dars/
-  vendor/                    Pinned DAR inputs consumed by experiments
+  vendor/                    Pinned DAR inputs consumed by experiments and exemplars
 scripts/                     Repository checks and reproducible integration gates
 ```
 

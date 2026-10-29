@@ -1,5 +1,5 @@
 sdk-version: 3.4.11
-name: openzeppelin-experimental-cip-interop-exemplar
+name: openzeppelin-cip-interop-exemplar
 source: daml
 version: 0.1.0
 dependencies:
@@ -24,5 +24,5 @@ data-dependencies:
   - ../../../dars/vendor/splice-token-standard-utils-2.0.0.dar
 build-options:
   - --target=2.1
-  # The executable interop experiment contains both its app-side template and Daml Script scenarios.
+  # The interop exemplar contains both its app-side template and Daml Script scenarios.
   - -Wno-template-interface-depends-on-daml-script
