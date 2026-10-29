@@ -12,28 +12,26 @@ invariants.
 | [Cross-chain stablecoin payments](cross-chain-stablecoin.md) | Which attestations and messaging boundaries protect minting and redemption? |
 | [Confidential auction](confidential-auction.md) | Which parties learn bids, who clears them, and how does atomic distribution work? |
 
-## Shared research foundation
+## Shared foundation
 
-The reports draw on executable research in this repository:
+The reports build on these deliverables:
 
-- [CIP-0112 settlement](https://github.com/OpenZeppelin/canton-contracts/tree/7696749737885e25cd88422847105f890f03b00d/experiments/token/tokenCIP112-v1) for allocation,
-  delivery-versus-payment, attestation, and seizure flows;
-- [compliance experiments](../../experiments/compliance/) for alternative
-  off-ledger-check and on-ledger-attestation shapes;
-- [identity experiments](../../experiments/identity/) for claims, credential
-  gates, and Smart Contract Upgrade compatibility;
-- [interoperability experiments](../../experiments/interoperability/) for
-  LocalNet and Canton Wallet Gateway integration evidence;
-- the [cross-chain bridge experiment](../../experiments/cross-chain-bridge/)
+- the [CIP-0112 token package](https://github.com/OpenZeppelin/canton-contracts/tree/6a916c174db7d6163ebeea4df1049044cefc7b3c/packages/token/token-cip112-v1)
+  in `OpenZeppelin/canton-contracts` for holdings, transfer instructions,
+  allocations, and delivery-versus-payment settlement;
+- the [interoperability exemplars](../../exemplars/interoperability/) for
+  CIP-0086, CIP-0103, and CIP-0104 behavior on LocalNet and against the Canton
+  Wallet Gateway;
+- the [cross-chain bridge prototype](../../experiments/cross-chain-bridge/)
   for the bridge gateways, attester quorums, redemption, and app-reward
   attribution.
 
-The experimental code validates specific mechanisms; the reports specify the
-complete target applications that compose them.
+The code validates specific mechanisms; the reports specify the complete
+target applications that compose them.
 
 ## How to read the reports
 
-Each report separates the target design from available experimental evidence and
+Each report separates the target design from available executable evidence and
 upstream dependencies. Code links identify evaluated mechanisms. Reusable
 package commitments follow the `OpenZeppelin/canton-contracts` lifecycle. Open design
 questions identify choices an application implementation must resolve before

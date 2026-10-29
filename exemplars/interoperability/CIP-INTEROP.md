@@ -1,6 +1,6 @@
 # CIP interoperability on a live ledger
 
-This gate runs the CIP-0086 and CIP-0103 experiment scenarios, and the
+This gate runs the CIP-0086 and CIP-0103 exemplar scenarios, and the
 settlement-attribution walkthrough, against a live ledger over the Ledger API. It
 complements the in-memory ledger used by `dpm test`.
 
@@ -13,7 +13,7 @@ complements the in-memory ledger used by `dpm test`.
 | Settlement attribution | Shows which settlements an app-provider may claim for CIP-0104 rewards: the batches it confirmed as executor, read from the transaction trees that its settle submissions return, and not the settlements that it merely observes. The [traffic-rewards gate](traffic-rewards/README.md) reads the same batches from the app-provider's transaction stream |
 
 The executable scripts live in
-[`cip-exemplar/`](cip-exemplar/daml/OpenZeppelin/Experimental/Interop/).
+[`cip-exemplar/`](cip-exemplar/daml/OpenZeppelin/Exemplar/Interop/).
 
 ## Run
 
@@ -71,7 +71,7 @@ variables below.
   script recreates its own ledger for each run. An external ledger must be fresh
   for the same reason.
 
-This experiment provides interoperability evidence for the modeled surfaces. It
+This exemplar provides interoperability evidence for the modeled surfaces. It
 does not establish CIP-0086 conformance or provide a CIP-0103 wallet product. The
 asset is the pinned `openzeppelin-token-cip112-v1` registry that the
 [README](README.md) names, driven through its Token Standard V2

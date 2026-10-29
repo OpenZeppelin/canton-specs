@@ -1,6 +1,6 @@
 # Canton Wallet Gateway interoperability
 
-This experiment runs the OpenZeppelin CIP-0112 registry against the Canton
+This exemplar runs the OpenZeppelin CIP-0112 registry against the Canton
 Wallet Gateway, an independent CIP-0103 implementation distributed as
 [`@canton-network/wallet-gateway-remote`](https://www.npmjs.com/package/@canton-network/wallet-gateway-remote).
 
@@ -36,7 +36,7 @@ the participant (dpm sandbox, or the LocalNet app-provider)
                                   `-- harness.mjs
 ```
 
-- [`WalletGateway.daml`](../cip-exemplar/daml/OpenZeppelin/Experimental/Interop/WalletGateway.daml)
+- [`WalletGateway.daml`](../cip-exemplar/daml/OpenZeppelin/Exemplar/Interop/WalletGateway.daml)
   holds the settlement parameters and the setup, settlement, verification, and
   in-memory rehearsal scripts. It defines no template: the wallet acts through
   the standard interfaces alone.

@@ -8,7 +8,7 @@
 -- admin-only mint offer that issues supply, and the holding query of
 -- `usdHoldingsSeenBy`, which reads the holding template and takes its standard
 -- view.
-module OpenZeppelin.Experimental.Interop.Common where
+module OpenZeppelin.Exemplar.Interop.Common where
 
 import Daml.Script
 import DA.Action (unless, when)

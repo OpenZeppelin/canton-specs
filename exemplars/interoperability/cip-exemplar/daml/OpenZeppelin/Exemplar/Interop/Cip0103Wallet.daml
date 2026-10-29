@@ -18,9 +18,9 @@
 --                                        and the wallet recovers its funds;
 --   * privacy                         -> a non-participant wallet sees nothing.
 --
--- Scope: experimental interoperability behavior. These scenarios make no
+-- Scope: interoperability exemplar. These scenarios make no
 -- CIP-0103 API-conformance or wallet-provider claim.
-module OpenZeppelin.Experimental.Interop.Cip0103Wallet where
+module OpenZeppelin.Exemplar.Interop.Cip0103Wallet where
 
 import DA.Assert ((===))
 import DA.List (dedup)
@@ -34,7 +34,7 @@ import Splice.Api.Token.AllocationRequestV2 qualified as AllocationRequestV2
 import Splice.Api.Token.TransferEventsV2 qualified as TransferEventsV2
 import Splice.TokenStandard.Utils (accountParties, archiveAndCheckActors, basicAccount, receiverSide, senderSide)
 
-import OpenZeppelin.Experimental.Interop.Common
+import OpenZeppelin.Exemplar.Interop.Common
 import OpenZeppelin.Token.Cip112.V1.Allocation (TokenAllocation)
 
 -- | The dApp's side of a CIP-0103 allocation request: the app asks one

@@ -27,8 +27,8 @@
 -- app-provider's own. A party that the settlement does not name as an executor
 -- cannot produce such an exercise at all: the registry rejects the submission.
 --
--- Scope: experimental interoperability behavior.
-module OpenZeppelin.Experimental.Interop.SettlementAttribution where
+-- Scope: interoperability exemplar.
+module OpenZeppelin.Exemplar.Interop.SettlementAttribution where
 
 import DA.Assert ((===))
 import DA.List (dedup)
@@ -39,7 +39,7 @@ import Splice.Api.Token.AllocationV2 qualified as AllocationV2
 import Splice.Api.Token.TransferEventsV2 qualified as TransferEventsV2
 import Splice.TokenStandard.Utils (basicAccount, receiverSide, senderSide)
 
-import OpenZeppelin.Experimental.Interop.Common
+import OpenZeppelin.Exemplar.Interop.Common
 
 -- | The activity of the app-provider as the confirming executor. The data
 -- comes only from the transactions that the executor's participant streams.

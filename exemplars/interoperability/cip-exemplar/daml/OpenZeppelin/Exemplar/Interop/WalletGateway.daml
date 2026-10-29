@@ -1,5 +1,5 @@
 -- | CIP-0103 third-party interop surface: the on-ledger half of the Wallet
--- Gateway exemplar. The off-ledger half is `experiments/interoperability/wallet-gateway/harness.mjs`,
+-- Gateway exemplar. The off-ledger half is `exemplars/interoperability/wallet-gateway/harness.mjs`,
 -- which drives the registry through the Canton Wallet Gateway's CIP-0103 dApp
 -- JSON-RPC API, with the wallet user held as an externally-signed party.
 --
@@ -15,13 +15,13 @@
 -- deterministic settlement parameters that the setup, settle, and verify
 -- phases share, and those phases as Daml Script.
 --
--- This experiment validates the integration boundary and makes no public-API,
+-- This exemplar validates the integration boundary and makes no public-API,
 -- conformance, audit, or production claim. Wallclock-safe by design: the
 -- allocations carry no settlement deadline, so no script here calls `setTime`
 -- and the gate can run against the wallclock LocalNet participant (which the
 -- gateway requires). The mint offer and the registry's storage bounds expire
 -- on their own clock, well after the phases complete.
-module OpenZeppelin.Experimental.Interop.WalletGateway where
+module OpenZeppelin.Exemplar.Interop.WalletGateway where
 
 import DA.Assert ((===))
 import DA.Optional (isNone)
@@ -32,8 +32,8 @@ import Splice.Api.Token.AllocationV2 qualified as AllocationV2
 import Splice.Api.Token.TransferInstructionV2 qualified as TransferInstructionV2
 import Splice.TokenStandard.Utils (basicAccount, receiverSide, senderSide)
 
-import OpenZeppelin.Experimental.Interop.Cip0103Wallet
-import OpenZeppelin.Experimental.Interop.Common
+import OpenZeppelin.Exemplar.Interop.Cip0103Wallet
+import OpenZeppelin.Exemplar.Interop.Common
 import OpenZeppelin.Token.Cip112.V1.Registry (TokenRules(..), TokenRules_OfferMint(..))
 
 -- | Deterministic settlement identifiers shared by the setup script, the

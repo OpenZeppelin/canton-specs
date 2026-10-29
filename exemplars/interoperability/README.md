@@ -1,4 +1,4 @@
-# Interoperability experiments
+# Interoperability exemplars
 
 This area validates how the OpenZeppelin CIP-0112 registry of
 [`OpenZeppelin/canton-contracts`](https://github.com/OpenZeppelin/canton-contracts)
