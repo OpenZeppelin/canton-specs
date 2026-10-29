@@ -164,7 +164,7 @@ the parties above, or it lives on the external chain.
 | Lock escrow | External-chain contract that holds the backing for the bridged funds. It releases against a verified redemption or refund claim, presented by any submitter ([section 3.3](#33-outbound-redemption)). |
 | Relayer backend | Off-Canton process. It watches the external chain and submits every inbound command as `br`, with the gateways attached as disclosed contracts. |
 | Bridge admin backend | Off-Canton process on a participant that hosts `ba`. It serves the active attester registry and nonce registry as disclosed contracts to the attester services, and the bridge account's transfer events to each attester that reads them through it. It serves the first version of each bridge contract, and each new version of the attester registry and the pause state, to the relayer backend ([section 3.4](#34-registry-identity-and-uniqueness)). It serves the active pause state to `pa` as a disclosed contract. It submits nothing. |
-| Attester services | M independent operators on M participants. Each submits as its own attester party, and each runs the compliance and KYC checks before it signs an attested message, a re-offer attestation, or a redemption clearance ([section 3.6](#36-control-enforcement)). Before it signs a return attestation, each reads the bridge account's transfer events from a participant that hosts `ba`: the bridge admin backend, or a host that another organization runs ([section 3.1](#31-inbound-credit)). |
+| Attester services | M independent operators on M participants. Each submits as its own attester party, and each runs the compliance and KYC checks before it signs an attested message, a re-offer attestation, or a redemption clearance ([section 3.6](#36-control-enforcement)). Before it signs a return attestation, each reads the bridge account's transfer events from a participant that hosts `ba`: the bridge admin backend, or another participant that hosts `ba`, operated by a different organization ([section 3.1](#31-inbound-credit)). |
 | KYC providers | Off-ledger services that the attester services consult for D3. They observe no transfer. |
 | Recipient wallet | Off-Canton process. It accepts pending transfer instructions as the recipient, and it may create a transfer preapproval so that `br` can complete a credit without a live accept. |
 | Redemption operator | Off-Canton process. It submits the signed claim to the escrow, and it owns the retry of a stalled release ([section 3.3](#33-outbound-redemption)). |
@@ -534,20 +534,26 @@ offer through the gateway. The withdraw records the returned holding against
 the lock's nonce ([section 3.2](#32-reserve-and-lock-attestation)), and a
 refund or a re-offer of that nonce must name that holding. When the recipient
 rejects or the registry expires the instruction, no bridge contract sees the
-return, so an attester quorum supplies the binding in a **return
-attestation**. Each attester reads the bridge account's transfer events from a
+return. The binding then exists only in the bridge account's transfer events
+on the update stream ([section 2.2](#22-privacy-and-visibility)), so the
+attester services read it there and an attester quorum records it on Canton
+in a **return attestation**. Each attester service reads the events from a
 participant that hosts `ba`, matches the holding that the reject or the expiry
 returned to the instruction the gateway created for the lock's nonce, and
-signs the nonce, the holding's contract id, and its amount. A refund or a hold
-of a nonce recorded as minted consumes a return attestation for the holding it
-names, and checks that the holding carries the lock's recorded amount. A wrong
-binding can therefore only swap two locks of the same amount. It refunds one
-lock with value that the other lock returned, and it can refund a lock whose
-credit stands. It needs a colluding quorum, or false transfer events from the
-participants that host `ba`, so it rests on the trust in the attester set and
-in `ba` ([section 4.2](#42-trust-boundaries)). The reserve still holds,
-because each refund burns its amount before the escrow releases it, so the
-loss falls on the originator whose returned value was spent.
+signs the nonce, the holding's contract id, and its amount. The attesters
+spread their reads over participants that host `ba` and that different
+organizations operate, and no one host should serve N of them, so false events from one host cannot reach a quorum.
+The return attestation is the ledger's record of the return until a refund or
+a hold consumes it. A refund or a hold of a nonce recorded as minted consumes
+a return attestation for the holding it names, and checks that the holding
+carries the lock's recorded amount. A wrong binding can therefore only swap
+two locks of the same amount. It refunds one lock with value that the other
+lock returned, and it can refund a lock whose credit stands. It needs a
+colluding quorum, or false events from hosts of `ba` that together serve N
+attesters, so it rests on the trust in the attester set and in `ba`
+([section 4.2](#42-trust-boundaries)). The reserve still holds, because each
+refund burns its amount before the escrow releases it, so the loss falls on
+the originator whose returned value was spent.
 
 **Inbound refund**
 
@@ -878,8 +884,7 @@ sequenceDiagram
    **Refund of a returned credit.** The refund claim of
    [section 3.1](#31-inbound-credit) runs through the same gateway without a
    request and without a redemption clearance: the attesters sign it against
-   the nonce registry. A holding that a reject or a registry expiry returned
-   also needs the return attestation that binds it to the lock.
+   the nonce registry. A holding that a reject or a registry expiry returned also needs the return attestation that binds it to the lock.
 
 4. **Release on the external chain.** The release is one external-chain
    transaction, and it needs the attesters' signatures on the claim, which
@@ -1370,7 +1375,7 @@ This section separates what the ledger enforces from what stays trusted.
 |---|---|
 | Attester set | Attests only a finalized lock, with the true amount, recipient, and instrument, and never attests a nonce that the nonce registry already holds. It clears compliance only for a recipient or a redeeming holder that passed KYC. It signs a redemption claim only if it matches a redemption clearance it issued, and only once ([section 3.3](#33-outbound-redemption)). It signs a no-mint statement only after it reads the nonce as closed in the nonce registry, and a refund claim only after reading it on Canton. It signs a return attestation only for a holding that the bridge account's transfer events show returning from that lock's instruction ([section 3.1](#31-inbound-credit)). A quorum that attests a lock which does not exist mints unbacked supply, and one that signs a no-mint statement for a minted lock releases backing that live supply still stands on. This is the largest trust surface in the design. |
 | `br` | Submits every attested message, and submits it once. It cannot change the amount or the recipient, so a faulty relayer delays a credit rather than misdirecting it. It closes a deferred offer only after a compliance denial or at the offer's deadline, and it places a hold only when a denial requires a freeze. The gateway closes an attested message with a cleared outcome only after its lock attestation expires, so a faulty relayer turns that lock into a refund only by withholding the gateway transaction until then. The gateway cannot verify a denial reached after the message was consumed, so a faulty relayer can close a deferred offer early, or leave a returned credit's backing held in the escrow. None of these breaks the reserve. |
-| `ba` | Holds the mint and burn rights, owns the bridge account, and keeps one active version of the attester registry and of the nonce registry it maintains. Exercises the rights only through the gateways. A compromised key can mint unbacked supply, move a returned holding out of the bridge account, or create a claim with no burn behind it, which is why the role is N-of-M ([section 2.3](#23-decentralization-and-trust-topology)). The participants that host it serve the transfer events from which the attesters bind a returned credit ([section 3.1](#31-inbound-credit)). |
+| `ba` | Holds the mint and burn rights, owns the bridge account, and keeps one active version of the attester registry and of the nonce registry it maintains. Exercises the rights only through the gateways. A compromised key can mint unbacked supply, move a returned holding out of the bridge account, or create a claim with no burn behind it, which is why the role is N-of-M ([section 2.3](#23-decentralization-and-trust-topology)). The participants that host it serve the transfer events from which the attesters bind a returned credit, and hosts that together serve N attesters can bind one falsely ([section 3.1](#31-inbound-credit)). |
 | wTOK admin | Grants the bridge its rights and mints the instrument only through them ([section 3.9](#39-registry-integration)). A compromised key can issue unbacked supply, because it signs every holding of its own instrument. Its key custody is the registry's. |
 | KYC providers | Report a recipient's KYC status truthfully to the attester services. The KYC check is only as strict as the most permissive provider the attesters accept. |
 | `pa` | Sets the pause state only for an incident, never to grief. A malicious `pa` stops new offers, burns, and refunds until it unpauses or `ba` revokes its grant, and the locks stay creditable or refundable in the meantime. |
@@ -1386,7 +1391,7 @@ This section separates what the ledger enforces from what stays trusted.
 | Fabricated redemption claim | `ba` creates a redemption claim with no burn behind it and drains the backing on the external chain while Canton supply stays untouched. | The attester backend signs a claim only against a redemption clearance it issued, once, so a claim with no burn pays only the destination of a real request, and value leaves twice only if the holder colludes with `ba` ([section 3.3](#33-outbound-redemption)). The rest is the trust in `ba` ([section 4.2](#42-trust-boundaries)). |
 | Replay of a used lock | A consumed message, or a second message for the same lock, is submitted again to mint twice. | One-time message consumption, and then the nonce registry that the gateway writes as it mints. A nonce the registry already holds is rejected even if the attesters misbehave. |
 | Shadowing registry duplicate | Two versions of one registry contract are active, and the submitter presents whichever suits it. The contract may be a nonce registry, an attester registry, or the pause state. | The gateway checks the maintainer and the scope of every registry it is handed, so no party but `ba` can create a version that passes, and a rotation archives the version it replaces ([section 3.4](#34-registry-identity-and-uniqueness)). |
-| Refund of a credited lock | The escrow refunds a lock whose credit stands on Canton, so the same value stands on both chains. | Refund exclusivity ([section 3.1](#31-inbound-credit)): a lock that never minted is refunded only against a no-mint statement, which the attesters sign only after the nonce registry records the nonce as closed, so no mint can follow. A lock that minted is refunded only after its returned amount is burned, and the escrow refunds each lock once. The residual is a wrong binding of a returned holding, which moves value between the originators of two locks of the same amount. It needs a colluding attester quorum or false transfer events from `ba`'s participants ([section 4.2](#42-trust-boundaries)). |
+| Refund of a credited lock | The escrow refunds a lock whose credit stands on Canton, so the same value stands on both chains. | Refund exclusivity ([section 3.1](#31-inbound-credit)): a lock that never minted is refunded only against a no-mint statement, which the attesters sign only after the nonce registry records the nonce as closed, so no mint can follow. A lock that minted is refunded only after its returned amount is burned, and the escrow refunds each lock once. The residual is a wrong binding of a returned holding, which moves value between the originators of two locks of the same amount. It needs a colluding attester quorum, or false transfer events from hosts of `ba` that together serve N attesters ([section 4.2](#42-trust-boundaries)). |
 | Toxic or spam inflow | A sender forces a credit onto an unwilling recipient. | No credit lands without the recipient's accept, live or bounded by its own transfer preapproval ([section 3.1](#31-inbound-credit)). A spammer can still fill a recipient's wallet with pending offers, but each one costs the relayer's traffic and a quorum-signed attested message, so attestation issuance limits the rate. |
 | Unattributable inbound origin | A deposit arrives over a privacy pool or a shielded-provenance path, so no sender can be attributed to it. | Nothing mints without an attestation, so an unresolved origin means the attesters withhold the signature, the deposit stays locked on the external chain, and a refund follows the never-minted rule of [section 3.1](#31-inbound-credit). Resolving the origin is a precondition for issuing the attestation. The bridge stores no flag, score, or threshold for it ([section 1.2](#12-scope)). |
 | Compromised bridge admin key | A compromised `ba` key attempts arbitrary expropriation. | A credited holding sits in its recipient's account and stays beyond `ba`. `ba` can reach only the bridge account: a pending credit through its own withdraw, and a returned credit directly. The N-of-M posture of `ba` protects that account and the authority to change supply ([section 2.3](#23-decentralization-and-trust-topology)). |
