@@ -11,7 +11,8 @@ research workspace.
 - [Confidential auction](reference-architectures/confidential-auction.md)
 
 The [reference architecture index](reference-architectures/README.md) explains
-their shared settlement, compliance, identity, and authority assumptions.
+their shared foundation: the CIP-0112 token package, the interoperability
+exemplars, and the cross-chain bridge prototype.
 
 ## Milestone delivery
 
@@ -20,4 +21,6 @@ their shared settlement, compliance, identity, and authority assumptions.
   artifact and validation command.
 
 Executable research, threat models, and experiment-specific documentation live
-with their code under [`experiments/`](../experiments/README.md).
+with their code under [`experiments/`](../experiments/README.md). The CIP-0086,
+CIP-0103, and CIP-0104 deliverables live under
+[`exemplars/`](../exemplars/README.md).

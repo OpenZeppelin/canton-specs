@@ -8,8 +8,6 @@ lifecycle.
 
 | Area | Contents |
 |---|---|
-| [Compliance](compliance/) | Two compliance-check shapes and their comparison tests |
-| [Identity](identity/) | Identity-hook alternatives, credential gateway, and SCU evidence |
 | [Cross-chain bridge](cross-chain-bridge/) | Bridge package on the CIP-0112 registry, its tests, and the LocalNet app-reward harness |
 
 An experiment documents its question, assumptions, result, and limitations.

@@ -2,7 +2,7 @@
 
 This document maps each Milestone 1 delivery element and acceptance criterion of the [approved proposal](https://github.com/canton-foundation/canton-dev-fund/blob/8651b0feba59c6e6a2bad8fe50da965b66441de4/proposals/2026-04-OpenZeppelin-canton-ecosystem-stack.md) (Quarter 1: 14 May to 13 August 2026) to its artifact and its validation command.
 
-`canton-contracts` links are pinned at [`6a916c1`](https://github.com/OpenZeppelin/canton-contracts/tree/6a916c174db7d6163ebeea4df1049044cefc7b3c), the commit of the DARs that the exemplars in this repository consume. Reference architecture links are pinned at [`62e2bf2`](https://github.com/OpenZeppelin/canton-specs/tree/62e2bf2595a22d6bdb6d227c5c9574465807e9d0/docs/reference-architectures).
+`canton-contracts` links are pinned at [`6a916c1`](https://github.com/OpenZeppelin/canton-contracts/tree/6a916c174db7d6163ebeea4df1049044cefc7b3c), the commit of the DARs that the exemplars in this repository consume. Reference architecture links are pinned at [`ed6eca3`](https://github.com/OpenZeppelin/canton-specs/tree/ed6eca3ee87af521f36aada32c8ed998fe6827e9/docs/reference-architectures).
 
 ## Delivery elements
 
@@ -10,10 +10,10 @@ This document maps each Milestone 1 delivery element and acceptance criterion of
 
 | Proposal item | Delivered as | Location |
 | --- | --- | --- |
-| Research and design: Privacy-Preserving DEX | Reference architecture report | [dex.md](https://github.com/OpenZeppelin/canton-specs/blob/62e2bf2595a22d6bdb6d227c5c9574465807e9d0/docs/reference-architectures/dex.md) |
-| Research and design: Lending Protocol | Reference architecture report | [lending.md](https://github.com/OpenZeppelin/canton-specs/blob/62e2bf2595a22d6bdb6d227c5c9574465807e9d0/docs/reference-architectures/lending.md) |
-| Research and design: Cross-Chain Stablecoin Payment Orchestration | Reference architecture report and a Daml prototype of the Canton side of the bridge | [cross-chain-stablecoin.md](https://github.com/OpenZeppelin/canton-specs/blob/62e2bf2595a22d6bdb6d227c5c9574465807e9d0/docs/reference-architectures/cross-chain-stablecoin.md), [cross-chain-bridge/](../experiments/cross-chain-bridge/) |
-| Research and design: Confidential Auction Launchpad | Reference architecture report | [confidential-auction.md](https://github.com/OpenZeppelin/canton-specs/blob/62e2bf2595a22d6bdb6d227c5c9574465807e9d0/docs/reference-architectures/confidential-auction.md) |
+| Research and design: Privacy-Preserving DEX | Reference architecture report | [dex.md](https://github.com/OpenZeppelin/canton-specs/blob/ed6eca3ee87af521f36aada32c8ed998fe6827e9/docs/reference-architectures/dex.md) |
+| Research and design: Lending Protocol | Reference architecture report | [lending.md](https://github.com/OpenZeppelin/canton-specs/blob/ed6eca3ee87af521f36aada32c8ed998fe6827e9/docs/reference-architectures/lending.md) |
+| Research and design: Cross-Chain Stablecoin Payment Orchestration | Reference architecture report and a Daml prototype of the Canton side of the bridge | [cross-chain-stablecoin.md](https://github.com/OpenZeppelin/canton-specs/blob/ed6eca3ee87af521f36aada32c8ed998fe6827e9/docs/reference-architectures/cross-chain-stablecoin.md), [cross-chain-bridge/](../experiments/cross-chain-bridge/) |
+| Research and design: Confidential Auction Launchpad | Reference architecture report | [confidential-auction.md](https://github.com/OpenZeppelin/canton-specs/blob/ed6eca3ee87af521f36aada32c8ed998fe6827e9/docs/reference-architectures/confidential-auction.md) |
 
 ### Contracts Library
 
@@ -34,16 +34,16 @@ This document maps each Milestone 1 delivery element and acceptance criterion of
 
 ## Acceptance criteria
 
-Validated on 2026-10-29 at canton-specs `62e2bf2` (this branch) and canton-contracts `6a916c1`.
+Validated on 2026-10-29 at canton-specs `main` (`ed6eca3`) and canton-contracts `6a916c1`.
 
 | Criterion | Status | Evidence |
 | --- | --- | --- |
 | All library code compiles against the current Daml SDK and passes CI with 100% test pass rate | ✅ | canton-contracts (SDK 3.5.8) and canton-specs (SDK 3.4.11) build and pass every CI step: structure, lint, tests, examples, coverage, sandbox, and docs checks. `ci` and `choice coverage` workflows pass on `main` |
 | 90% code coverage confirmed via automated test reporting | ✅ 100% | 100% template and choice coverage in both repositories; `openzeppelin-token-cip112-v1` has 5/5 templates and 12/12 choices. The `coverage.yml` workflows run on every push and back the README badges |
-| CIP-56 and CIP-86 implementations demonstrate token creation, transfer, and querying on LocalNet, including backwards compatibility | ✅ | `cip-interop-validation.sh --localnet`: the ERC-20 scripts mint, transfer, approve, spend, and query on the registry on LocalNet. `check-sandbox.sh`: the token package mints, queries, transfers, and burns over the Ledger API. Backwards compatibility: `test_cip0103_v1WalletDirectFactoryPath` (V1 wallet on the V2 factory) on LocalNet and `identity-hook-upgrade-smoke.sh` (v1 contract exercised through v2) |
+| CIP-56 and CIP-86 implementations demonstrate token creation, transfer, and querying on LocalNet, including backwards compatibility | ✅ | `cip-interop-validation.sh --localnet`: the ERC-20 scripts mint, transfer, approve, spend, and query on the registry on LocalNet. `check-sandbox.sh`: the token package mints, queries, transfers, and burns over the Ledger API. Backwards compatibility: `test_cip0103_v1WalletDirectFactoryPath` (V1 wallet on the V2 factory) on LocalNet |
 | CIP-103 library components compatible with at least one existing CIP-103 implementation | ✅ | `wallet-gateway-cip0103-interop.sh --localnet` passes all 6 phases against Canton Wallet Gateway 1.8.1 on the registry. Transcript in [wallet-gateway/evidence/](../exemplars/interoperability/wallet-gateway/evidence/) |
 | CIP-104 library components demonstrate integration with the traffic-based rewards model on LocalNet | ✅ | `localnet-cip0104-traffic-rewards.sh`: the network mints a `RewardCouponV2` from the app-provider's registry settlement traffic and splits it among the beneficiaries; a non-executor settlement is rejected. `localnet-bridge-app-rewards.sh` passes |
-| Architecture documents for Year 1 RIs published and reviewed by Digital Asset | 🟡 review in progress | The four reports are in [reference-architectures/](https://github.com/OpenZeppelin/canton-specs/tree/62e2bf2595a22d6bdb6d227c5c9574465807e9d0/docs/reference-architectures). Digital Asset reviewed all four in [#83](https://github.com/OpenZeppelin/canton-specs/pull/83); per-report rounds: [#205](https://github.com/OpenZeppelin/canton-specs/pull/205) (Lending), [#206](https://github.com/OpenZeppelin/canton-specs/pull/206) (Cross-Chain Stablecoin), [#207](https://github.com/OpenZeppelin/canton-specs/pull/207) (Confidential Auction) |
+| Architecture documents for Year 1 RIs published and reviewed by Digital Asset | ✅ | The four reports are in [reference-architectures/](https://github.com/OpenZeppelin/canton-specs/tree/ed6eca3ee87af521f36aada32c8ed998fe6827e9/docs/reference-architectures). Digital Asset reviewed all four in [#83](https://github.com/OpenZeppelin/canton-specs/pull/83); per-report rounds: [#205](https://github.com/OpenZeppelin/canton-specs/pull/205) (Lending), [#206](https://github.com/OpenZeppelin/canton-specs/pull/206) (Cross-Chain Stablecoin), [#207](https://github.com/OpenZeppelin/canton-specs/pull/207) (Confidential Auction) |
 | Library and RI code published in public GitHub repositories under MIT license; OZ tooling under AGPL 3.0 | ✅ | MIT: [canton-contracts](https://github.com/OpenZeppelin/canton-contracts) (library), [canton-specs](https://github.com/OpenZeppelin/canton-specs) (RIs and exemplars). AGPL 3.0: [daml-lint](https://github.com/OpenZeppelin/daml-lint), [daml-verify](https://github.com/OpenZeppelin/daml-verify) |
 
 The `live-ledger-gates` workflow runs the LocalNet, Wallet Gateway, and reward gates daily.
