@@ -1661,22 +1661,15 @@ This rail earns through traffic-based app rewards
 The super validators must vote them on first, so the rail earns nothing before
 that vote.
 
-**Featured status.** The [featured app
-guidance](https://lists.sync.global/g/tokenomics-announce/message/397) makes a
-protocol that bridges or wraps assets a Featured App, and it requires each
-asset the protocol emits to hold its own Featured Asset status, on its own
-party and behind its own CC lock. The rail therefore holds two statuses. `ba`
-holds the Featured App status as the bridge protocol's party, and the wTOK
-admin holds wTOK's Featured Asset status as the instrument's party. Each
-further instrument the bridge emits needs its own instrument admin party and
-its own Featured Asset status. When another organization runs the wTOK
-registry, that organization applies for the status and locks the CC for it.
-
-[CIP-0116](https://github.com/canton-foundation/cips/blob/main/cip-0116/cip-0116.md)
-sets the lock per party: 25,000,000 CC for an asset issuer, and 5,000,000 CC
-for any other Featured App party. The wTOK admin is the issuer. `ba` issues no
-instrument of its own, so this design assumes the non-issuer lock for it
-([section 6](#6-open-design-questions)). Both locks are a cost of running the
+**Featured status.** The rail holds two statuses, each on its own party and
+behind its own CC lock ([featured app
+guidance](https://lists.sync.global/g/tokenomics-announce/message/397),
+[CIP-0116](https://github.com/canton-foundation/cips/blob/main/cip-0116/cip-0116.md)).
+`ba` holds the Featured App status as the bridge protocol's party, and `ba`'s
+operators fund its lock. The wTOK admin holds wTOK's Featured Asset status as
+the instrument's party, and the organization that runs the wTOK registry
+applies for that status and funds its lock. Each further instrument the bridge
+emits needs its own Featured Asset status. Both locks are a cost of running the
 rail, alongside the attesters' traffic ([section 5.1](#51-traffic-costs)).
 
 Rewards accrue to the parties
@@ -1808,7 +1801,6 @@ activation vote.
 | **Submitter selection.** How the attester services agree which attester submits each gateway transaction and each external-chain release, and the timeout after which another attester takes over ([section 4.4](#44-failure-modes-and-recovery)). | One submitter per step, chosen off-ledger, for example by nonce or by a rotating leader | The attester services' submission automation | Low, it moves traffic and latency and no control |
 | **Expiry of stale instructions.** Whether an attester withdraws each lapsed instruction one by one or batches the withdrawals in one gateway choice ([section 4.4](#44-failure-modes-and-recovery)). | One withdraw per lapsed instruction | The attester services' cleanup automation | Low |
 | **Batch size.** How many messages one gateway transaction processes. A larger batch writes the nonce registry less often, and a failure delays more credits, because the whole batch resubmits ([section 3.1](#31-inbound-credit)). | Unset | The attester services' batching | Low |
-| **Featured status and locks.** Whether `ba` counts as a non-issuer Featured App party under CIP-0116, who funds the two CC locks, and whether a third-party wTOK registry applies for wTOK's Featured Asset status ([section 5.2](#52-app-rewards)). | `ba` holds the Featured App status with the non-issuer lock, and the wTOK admin holds the Featured Asset status with the issuer lock | Featured status, and with it any app reward | **High**, the rail earns no app reward without it |
 | **Fee values.** The fixed fee and the percentage in each direction, how far ahead `ba` announces a change of the fee schedule, and whether a fee account redeems without paying the outbound fee. | A fixed fee to the submitting attester and a percentage to `ba`'s fee account, in each direction, with the values unset ([section 5.3](#53-fees)) | Every deployment | Medium, an economic decision that moves no control |
 
 **Composability with the other reference architectures** needs no new mechanism.
