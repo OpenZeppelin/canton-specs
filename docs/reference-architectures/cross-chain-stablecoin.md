@@ -1389,9 +1389,15 @@ for such a registry throughout this document.
 
 Each registry decides how it grants the two rights, for example a role grant or
 a capability contract that its admin signs and that names `ba`. The registry
-adapter calls them ([section 3.8](#38-extension-points)). A right scoped to the
-bridge account is narrower than one that mints into any account, and the
-bridge needs no more.
+adapter calls them ([section 3.8](#38-extension-points)). The adapter calls
+the registry's own templates, so the bridge package depends on the registry's
+package and has to follow its upgrades. That coupling stays until a Token
+Standard V2 burn-mint interface exists for the adapter to call instead.
+Splice's
+[splice-api-token-burn-mint-v1](https://github.com/canton-network/splice/tree/3568cba96925bf509defcd9078b292808b36a9e9/daml/splice-api-token-burn-mint-v1)
+works on V1 holdings, and the example registry implements only V2 holdings. A
+right scoped to the bridge account is narrower than one that mints into any
+account, and the bridge needs no more.
 
 **What the reserve claim asks of a registry.** The 1:1 backing covers the whole
 instrument only if the bridge's mint right is the instrument's only mint path.
