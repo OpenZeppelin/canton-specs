@@ -151,8 +151,8 @@ key that the escrow's own verifier accepts.
 | Role | Code | Responsibility and visibility |
 |---|---|---|
 | Attesters, M of them | - | The trust role, and the rail's submitters. They sign the attested message, which carries the lock attestation and its compliance outcome. They also sign the re-offer attestation, the redemption clearance, the return attestation, the late denial, each claim, and the no-mint statement. Each attester signs off-ledger with its own signing key ([section 3.6](#36-control-enforcement)). The attester registry lists each attester with its public key. One listed attester, chosen off-ledger, submits each gateway transaction with a quorum of signatures, and the gateway accepts any listed attester as the submitter ([section 4.4](#44-failure-modes-and-recovery)). No attester mints, denies, or freezes alone: each gateway choice that decides an outcome requires a quorum-signed statement, or waits for a deadline or the pause state. They are stakeholders of no transfer instruction. The attester that submits a gateway transaction sees the transfer instruction it creates, and the attesters read the bridge account's transfer events from `ba`'s participants only to bind a returned credit to its lock ([section 3.1](#31-inbound-credit)). |
-| Bridge admin | `ba` | The bridge's own admin, and the sole signatory of the messaging gateway and the redemption gateway. It holds the mint right and the burn right that the token registry grants the bridge. It owns the **bridge account**, the registry account where the gateway mints and from which it offers each credit. It maintains the attester registry and the nonce registry that the gateways read ([section 3.6](#36-control-enforcement), [section 3.2](#32-reserve-and-lock-attestation)). Its own transactions are the setup, each registry rotation, and each handover ([section 2.3](#23-decentralization-and-trust-topology)), and it submits nothing on the payment path. It holds the rail's only `FeaturedAppRight`, receives the rail's app rewards, and pays them out at its own discretion ([section 5.2](#52-app-rewards)). It sees every inbound credit as the sender's account owner. |
-| wTOK admin | - | The instrument admin of the token registry, and not a bridge role. It grants `ba` the mint and burn rights, signs wTOK holdings and transfer instructions as the registry defines them, and therefore sees every wTOK payment. Its key custody and its own mint paths are the registry's ([section 3.9](#39-registry-integration)). |
+| Bridge admin | `ba` | The bridge's own admin, and the sole signatory of the messaging gateway and the redemption gateway. It holds the mint right and the burn right that the token registry grants the bridge. It owns the **bridge account**, the registry account where the gateway mints and from which it offers each credit. It maintains the attester registry and the nonce registry that the gateways read ([section 3.6](#36-control-enforcement), [section 3.2](#32-reserve-and-lock-attestation)). Its own transactions are the setup, each registry rotation, and each handover ([section 2.3](#23-decentralization-and-trust-topology)), and it submits nothing on the payment path. It holds the rail's Featured App status as the bridge protocol's party, receives the protocol's app rewards, and pays them out at its own discretion ([section 5.2](#52-app-rewards)). It sees every inbound credit as the sender's account owner. |
+| wTOK admin | - | The instrument admin of the token registry, and not a bridge role. It grants `ba` the mint and burn rights, signs wTOK holdings and transfer instructions as the registry defines them, and therefore sees every wTOK payment. It holds wTOK's Featured Asset status as the instrument's party ([section 5.2](#52-app-rewards)). Its key custody and its own mint paths are the registry's ([section 3.9](#39-registry-integration)). |
 | Recipient, or Holder outbound | - | Inbound, accepts the transfer instruction that offers its credit, live from its wallet or through a transfer preapproval it signed earlier ([section 3.1](#31-inbound-credit)). Outbound, offers its holding to the bridge account with a standard transfer that names the external-chain destination ([section 3.3](#33-outbound-redemption)). |
 | Pause authority | `pa` | Holds the pause role grant, and through it sets and clears the pause state. A set pause stops new offers, burns, and refunds ([section 3.6](#36-control-enforcement), [section 4.4](#44-failure-modes-and-recovery)). |
 
@@ -1649,7 +1649,25 @@ This rail earns through traffic-based app rewards
 The super validators must vote them on first, so the rail earns nothing before
 that vote.
 
-`ba` holds the rail's only `FeaturedAppRight`. Rewards accrue to the parties
+**Featured status.** The [featured app
+guidance](https://lists.sync.global/g/tokenomics-announce/message/397) makes a
+protocol that bridges or wraps assets a Featured App, and it requires each
+asset the protocol emits to hold its own Featured Asset status, on its own
+party and behind its own CC lock. The rail therefore holds two statuses. `ba`
+holds the Featured App status as the bridge protocol's party, and the wTOK
+admin holds wTOK's Featured Asset status as the instrument's party. Each
+further instrument the bridge emits needs its own instrument admin party and
+its own Featured Asset status. When another organization runs the wTOK
+registry, that organization applies for the status and locks the CC for it.
+
+[CIP-0116](https://github.com/canton-foundation/cips/blob/main/cip-0116/cip-0116.md)
+sets the lock per party: 25,000,000 CC for an asset issuer, and 5,000,000 CC
+for any other Featured App party. The wTOK admin is the issuer. `ba` issues no
+instrument of its own, so this design assumes the non-issuer lock for it
+([section 6](#6-open-design-questions)). Both locks are a cost of running the
+rail, alongside the attesters' traffic ([section 5.1](#51-traffic-costs)).
+
+Rewards accrue to the parties
 that confirm a successful request: the signatories of a create node, and the
 input contract signatories and actors of an exercise node. CIP-0104 divides
 each request's traffic only among the confirmers that hold an active right, so
@@ -1666,7 +1684,8 @@ The split follows from who confirms each node. `ba` signs the gateway, so it
 and the submitter share the root gateway exercise. The attested mint, the
 factory call, and the offer nested inside it carry `ba`'s and the wTOK admin's
 authority and not the submitter's, so those nodes pay `ba` and the wTOK admin.
-The recipient earns nothing, because it holds no right. The exact share
+The recipient earns nothing, because it holds no right. Without its Featured
+Asset status, the wTOK admin's share would go to `ba`. The exact share
 depends on how Canton splits the gateway transaction into views. Measured on
 Canton LocalNet with `scripts/localnet-bridge-app-rewards.sh`, which also
 features the party that submits the gateway transactions and runs one credit
@@ -1684,7 +1703,7 @@ payout, and not an assignment of beneficiaries every reward round. No contract
 enforces the payout, so the attesters trust `ba` to pay, which is less than the
 design already trusts `ba` with ([section 4.2](#42-trust-boundaries)). A
 `FeaturedAppRight` names one provider party, and each holder needs a super
-validator vote. With `ba` as the only holder, a rotation of the attester set
+validator vote. No attester holds one, so a rotation of the attester set
 needs no vote.
 
 This document fixes no fee model, so under it the reward is the only income.
@@ -1720,6 +1739,7 @@ activation vote.
 | **Submitter selection.** How the attester services agree which attester submits each gateway transaction and each external-chain release, and the timeout after which another attester takes over ([section 4.4](#44-failure-modes-and-recovery)). | One submitter per step, chosen off-ledger, for example by nonce or by a rotating leader | The attester services' submission automation | Low, it moves traffic and latency and no control |
 | **Expiry of stale instructions.** Whether an attester withdraws each lapsed instruction one by one or batches the withdrawals in one gateway choice ([section 4.4](#44-failure-modes-and-recovery)). | One withdraw per lapsed instruction | The attester services' cleanup automation | Low |
 | **Batch size.** How many messages one gateway transaction processes. A larger batch writes the nonce registry less often, and a failure delays more credits, because the whole batch resubmits ([section 3.1](#31-inbound-credit)). | Unset | The attester services' batching | Low |
+| **Featured status and locks.** Whether `ba` counts as a non-issuer Featured App party under CIP-0116, who funds the two CC locks, and whether a third-party wTOK registry applies for wTOK's Featured Asset status ([section 5.2](#52-app-rewards)). | `ba` holds the Featured App status with the non-issuer lock, and the wTOK admin holds the Featured Asset status with the issuer lock | Featured status, and with it any app reward | **High**, the rail earns no app reward without it |
 | **Fee model.** Whether the rail charges a fee, and whether it is a fee leg at the gateway, an off-ledger invoice, or an operator subsidy. A fee changes the amount the recipient receives, so the attested message, the instruction, and the preapproval have to carry it. | No fee. The reward is the only income, and `ba` pays the attesters out of it ([section 5.2](#52-app-rewards)) | Whether the attesters' submissions are fundable, and the shape of the preapproval if a fee leg is chosen | Medium, an economic decision that reaches into the preapproval and the attested message |
 
 **Composability with the other reference architectures** needs no new mechanism.
