@@ -131,7 +131,7 @@ complete or audited.
 | Compliance path (D1) | [Section 4.10](#410-control-enforcement) | The whole implementation: the EIP-712 types of the attested message, the re-offer attestation, the redemption clearance, and the late denial, the signature check against the keys in the attester registry, and the gateway checks that use them |
 | Role grants (D4) | [`canton-contracts` `scoped-authorization-grant-v1`](https://github.com/OpenZeppelin/canton-contracts/tree/aeca01d043311d8ccc8ab7cda4d7c16e682429fa/packages/access/scoped-authorization-grant-v1) | The wiring into each privileged bridge choice |
 | Pause state | [`canton-contracts` `pausable-v1`](https://github.com/OpenZeppelin/canton-contracts/tree/aeca01d043311d8ccc8ab7cda4d7c16e682429fa/packages/security/pausable-v1) | The pause state template and its set and clear choices ([section 4.10](#410-control-enforcement)) |
-| Transfer preapproval and delegated accept | [Section 4.5](#45-inbound-credit) | The whole implementation. Its shape is open ([section 8](#8-open-design-questions)) |
+| Transfer preapproval and delegated accept | [Section 4.5](#45-inbound-credit) | The whole implementation |
 | Messaging gateway, including batch processing, the deferred offer, and the registry adapter that calls a registry's mint right | [Section 4.5](#45-inbound-credit) | The whole implementation |
 | Attested message and nonce registry | [Section 4.6](#46-reserve-and-lock-attestation) | The whole implementation |
 | Attested mint, in the gateway transaction | [Section 4.6](#46-reserve-and-lock-attestation) | The whole implementation |
@@ -506,8 +506,7 @@ sequenceDiagram
    Canton Coin only, so the bridge defines its own. It calls only the
    standard accept, so it works with any registry. The preapproval bounds
    what it authorizes: the instrument, an amount ceiling, an expiry, and the
-   party that may exercise it, which is `ba`
-   ([section 8](#8-open-design-questions)). The recipient signs it, so it can
+   party that may exercise it, which is `ba`. The recipient signs it, so it can
    archive it at any time.
 
    The recipient can also reject. A rejected or withdrawn instruction
@@ -1738,6 +1737,14 @@ The cost is that supply exists while an offer is pending, locked in the
 bridge's outgoing instruction or returned to the bridge account. The reserve
 invariant counts it ([section 4.6](#46-reserve-and-lock-attestation)).
 
+**Mint at the accept.** The bridge could offer each credit as a transfer from
+the registry's `cip-112/mint` account, so that the registry's accept mints into
+the recipient's account. The mint right then runs at the accept and reaches the
+recipient's account, not only an account the bridge owns. A mint offer has no
+sender account, so `ba` sees an offer that closes without an accept only as the
+mint account's provider, which departs from the CIP-0112 guidance that the mint
+account has no provider.
+
 **Attester statements co-signed on Canton.** Each statement could be a
 contract that one attester creates and each further attester signs in its own
 transaction, until a quorum has signed it. That costs N transactions per
@@ -1757,6 +1764,13 @@ attributable, because the quorum signs the denied outcome and its reference,
 and the gateway can tell it apart from a cleared credit when an attester closes
 the nonce. The cost of one message is that no lock attestation exists until the
 compliance checks finish, and nothing on Canton can use one before then.
+
+**KYC proven on-ledger.** The gateway could also check an issuer-signed KYC
+credential, which adds a check that the attesters cannot override. It needs a
+trusted-issuer list, a credential format that every KYC issuer adopts, and `ba`
+observing every credential. The KYC check itself is out of scope
+([section 2.2](#22-scope)), so the attesters' clearance asserts it
+([section 4.10](#410-control-enforcement)).
 
 **Contract keys for registry identity.** Canton 3 offers contract keys from
 Daml-LF 2.3, but keys are not unique: two contracts can share one. A key lookup
@@ -1935,14 +1949,11 @@ activation vote.
 |---|---|---|---|
 | **Attester set and quorum shape.** The set size M, the threshold N, who admits or removes a member, and how each attester keeps its signing key. | N separate secp256k1 signatures over one EIP-712 statement, checked against the keys in the attester registry, with M, N, and the admission path unset ([section 4.10](#410-control-enforcement)) | Any production attester set | **High**, the largest trust surface in the design |
 | **Signature verification on an alpha library.** The gateway verifies signatures with `DA.Crypto.Text`, which the Daml standard library marks as alpha, so its functions can change without notice. Open: whether a production deployment waits for it to stabilize, and how a change to it reaches the gateway package. | Verification with `DA.Crypto.Text` ([section 4.10](#410-control-enforcement)) | A production deployment of both gateways | **High**, every statement check depends on it |
-| **Shape of the transfer preapproval.** How the bridge-defined preapproval of [section 4.5](#45-inbound-credit) bounds the instrument, the amount ceiling, the expiry, and the party that may exercise it. | A recipient-signed contract that names `ba`, and that the gateway exercises with `ba`'s authority to run the standard accept | Automated credit for offline recipients. The inbound path itself needs no preapproval | Medium, it sets the offline recipient's experience and not whether a credit is possible |
 | **Multisig for `ba`.** Which of the three N-of-M routes of [section 4.4](#44-decentralization-and-trust-topology) `ba` uses, and its N, M, and confirmation threshold. | N-of-M across independent organizations, with the route, N, and M unset | Party onboarding for `ba` | **High**, the answer sets the key custody of the bridge role that can break the reserve |
 | **Shape of the registry's mint and burn rights.** The grant shape the example registry adds ([section 4.13](#413-registry-integration)), whether it bounds the mint per transaction or per period, and how a registry confirms that the bridge's right is the instrument's only mint path. The grant has to land before the first deployment, because an upgrade cannot drop a choice. | A role grant that the registry admin signs, names `ba`, and scopes to the bridge account, with no bound | The registry adapter, and with it the mint and the refund | **High**, the 1:1 backing claim rests on the sole mint path |
 | **Registry scope fields and rotation.** The exact scope fields of each contract ([section 4.8](#48-registry-identity-and-uniqueness)), the rotation procedure that keeps one active version of each, how the bridge admin backend publishes a new version to the attester services, and the epoch size `E` ([section 4.14](#414-throughput-and-contention)). | The maintainer and scope checks of [section 4.8](#48-registry-identity-and-uniqueness) | The scope fields themselves, because no upgrade adds them | **High**, replay protection and the D1 attester registry rest on them |
-| **Mint at the accept instead of at the gateway.** The alternative offers a transfer from the `cip-112/mint` account, and the registry's accept mints into the recipient's account. It needs a mint right exercised at the accept, and a way for `ba` to see each offer that closed without an accept, because a mint offer has no sender account. Making `ba` the mint account's provider gives that visibility, and it deviates from the CIP-0112 guidance that the mint account has no provider. Open: whether a registry that can give that visibility should run this shape. | Mint into the bridge account at the gateway ([section 4.5](#45-inbound-credit)) | The refund path and what the bridge asks of a registry | Medium, it moves the mint and the refund rule but no control |
 | **Ownership of the compliance policy.** D1 and D3 rest on each attester's off-ledger policy: which KYC providers count, which screening lists apply, and which denials require a freeze. Nothing makes the quorum apply one policy, and nothing lets an auditor check that it was applied. Open: who sets the policy, how attesters adopt a change, and what record each attester keeps per attestation and per denial. | Each attester applies its own policy and keeps its own compliance log ([section 4.10](#410-control-enforcement)) | A production attester set, and any audit of D1 and D3 | **High**, the compliance and KYC controls are only as consistent as the policy behind them |
 | **Redirect of an unpayable claim.** A destination can pass the redemption clearance and become unpayable before the release, for example when the backing token's issuer blocklists it. The burn is final, so the claim stands with no submitter able to release it. Open: whether the holder can name a new destination, who signs that change, and how the escrow and the attesters keep the old destination from being paid too. | No redirect. The attesters deny a destination that is invalid at the request ([section 4.7](#47-outbound-redemption)) | A deployment whose backing token can refuse an address | Medium, it bounds a loss to the redeeming holder and moves no control |
-| **KYC proven on-ledger.** The default lets the attester quorum decide KYC off-ledger. The alternative has the gateway also check an issuer-signed credential, which adds a check that the attesters cannot override. It costs a trusted-issuer list, a credential format every KYC issuer adopts, and `ba` observing every credential. Open: whether a deployment needs KYC proven on-ledger. | KYC asserted in the attesters' clearance ([section 4.10](#410-control-enforcement)) | A gateway identity check, for a deployment that needs one | Medium |
 | **Deadline values.** The instruction lifetime the gateway requests within the registry's ceiling, the lifetime of a deferred offer, the attestation validity, the margin between external-chain finality and Canton ledger time, and the attester turnaround. | The gateway stamps its ceilings at creation ([section 4.9](#49-time-and-deadlines)) | Every deployment, because those ceilings are stamped once | Medium |
 | **Submitter selection.** How the attester services agree which attester submits each gateway transaction and each external-chain release, and the timeout after which another attester takes over ([section 7.4](#74-failure-modes-and-recovery)). | One submitter per step, chosen off-ledger, for example by nonce or by a rotating leader | The attester services' submission automation | Low, it moves traffic and latency and no control |
 | **Expiry of stale instructions.** Whether an attester withdraws each lapsed instruction one by one or batches the withdrawals in one gateway choice ([section 7.4](#74-failure-modes-and-recovery)). | One withdraw per lapsed instruction | The attester services' cleanup automation | Low |
