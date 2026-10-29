@@ -739,6 +739,13 @@ account, and the bridge accepts and burns it once the attesters clear the
 request. The attester quorum then signs the claim, and the escrow releases the
 backing on the external chain.
 
+Four steps carry a redemption request to a release of the backing. Steps 1
+to 3 are Canton transactions, each submitted on its own: the holder submits
+step 1, the attesters submit step 2, and `br` submits step 3. Step 4 is an
+external-chain transaction that any submitter makes, with the claim the
+attesters sign off-ledger. After the release, the attesters confirm it on
+Canton and `br` archives the claim, which is bookkeeping and not a control.
+
 **Outbound redemption**
 
 ```mermaid
@@ -752,11 +759,14 @@ sequenceDiagram
     participant Registry as Token registry
     participant Chain as External chain (lock escrow)
 
-    Holder->>Registry: Transfer the holding to the bridge account,<br/>naming the external-chain destination
-    Registry-->>Relayer: Pending redemption request
     rect rgba(255, 255, 255, .1)
-        Note over Attesters,Relayer: Redemption clearance transaction, submitted by the attesters.
-        Relayer->>Attesters: Hand over the request
+        Note over Holder,Registry: Request transaction, submitted by the holder.
+        Holder->>Registry: Transfer the holding to the bridge account,<br/>naming the external-chain destination
+        Registry-->>Relayer: Pending redemption request
+    end
+    Relayer->>Attesters: Hand over the request
+    rect rgba(255, 255, 255, .1)
+        Note over Attesters,Relayer: Redemption clearance transactions, submitted by the attesters.
         Attesters->>Relayer: Check KYC, validate and screen the destination<br/>off-ledger, then sign the redemption clearance
     end
     rect rgba(255, 255, 255, .1)
@@ -768,12 +778,17 @@ sequenceDiagram
     end
     Attesters->>Redeem: Read the claim, disclosed to them by br, and match it<br/>to the redemption clearance they issued
     Attesters-->>Operator: Hand over the claim, signed off-ledger<br/>with their external-chain keys
-    Note over Operator,Chain: Any submitter can present the signed claim.<br/>The redemption operator owns the retry.
-    Operator->>Chain: Submit the signed claim
-    Chain->>Chain: Release the backing to the named destination<br/>and record the claim as released
     rect rgba(255, 255, 255, .1)
-        Note over Attesters,Redeem: Archive transaction, submitted by br.<br/>Bookkeeping, not a control.
+        Note over Operator,Chain: Release transaction on the external chain, submitted by any submitter.<br/>The redemption operator owns the retry.
+        Operator->>Chain: Submit the signed claim
+        Chain->>Chain: Release the backing to the named destination<br/>and record the claim as released
+    end
+    rect rgba(255, 255, 255, .1)
+        Note over Attesters,Relayer: Release confirmation transactions, submitted by the attesters.
         Attesters->>Relayer: Confirm the release, signed on Canton
+    end
+    rect rgba(255, 255, 255, .1)
+        Note over Relayer,Redeem: Archive transaction, submitted by br.<br/>Bookkeeping, not a control.
         Relayer->>Redeem: Archive the claim
     end
 ```
@@ -791,18 +806,43 @@ sequenceDiagram
 2. **Redemption clearance.** `br` reads each request, which `ba` observes as
    the receiver's account owner, and hands it to the attester services. Each
    attester service checks the holder's KYC, validates and screens the
-   destination off-ledger, and a quorum signs a single-use **redemption
-   clearance** bound to the request: the holder, the amount, the instrument,
-   the destination, and the request's contract id. That is D1 and D3 outbound
-   ([section 3.6](#36-control-enforcement)), and step 3 lists what makes a
-   destination invalid.
-3. **Burn.** `br` exercises the **redemption gateway**, the outbound
-   counterpart of the messaging gateway, which carries `ba`'s authority. In
-   one transaction it checks that the pause state is clear, verifies and
-   consumes the redemption clearance,
-   accepts the request as the receiver, burns the amount under the burn right
-   that the registry grants `ba`, and creates the **redemption claim**,
-   which carries:
+   destination off-ledger, and only then signs. The attesters
+   sign a single-use **redemption clearance** on Canton in their own
+   transactions, as they sign every attester statement
+   ([section 3.6](#36-control-enforcement)), until a quorum has signed it.
+   The clearance binds the request: the holder, the amount, the instrument,
+   the destination, and the request's contract id. It is issued to `br`,
+   which presents it at step 3. That is D1 and D3 outbound
+   ([section 3.6](#36-control-enforcement)).
+
+   **An invalid destination.** The burn is irreversible, so the destination
+   has to be payable before it. The gateway cannot parse an external-chain
+   address, so each attester service checks it before it signs the
+   redemption clearance, and the gateway enforces the result through D1,
+   because the clearance binds the destination the request names. A
+   destination fails the check if it is:
+
+   - malformed for the external chain: the wrong encoding, length, or
+     checksum, or an address format of another chain;
+   - an address the escrow refuses: the null address, the escrow itself, or
+     the backing token's contract;
+   - an address the backing token refuses to pay, such as one on the token
+     issuer's blocklist.
+
+   A destination that fails gets a denial, and the rejection of step 3
+   returns the holding to the holder. The escrow repeats the checks it can
+   make on its own chain, so a release to a refused address reverts and the
+   claim stands. A destination that becomes unpayable after the burn, for
+   example one the token issuer blocklists later, leaves a standing claim
+   that no submitter can release. This design has no path that redirects
+   such a claim ([section 6](#6-open-design-questions)).
+3. **Burn.** Once a quorum has signed the redemption clearance, `br`
+   exercises the **redemption gateway**, the outbound counterpart of the
+   messaging gateway, which carries `ba`'s authority. In one transaction of
+   its own it checks that the pause state is clear, verifies and consumes the
+   redemption clearance, accepts the request as the receiver, burns the
+   amount under the burn right that the registry grants `ba`, and creates the
+   **redemption claim**, which carries:
 
    - the instrument the burn removed supply from;
    - the amount the burn destroyed, which is the amount the escrow releases;
@@ -823,28 +863,6 @@ sequenceDiagram
    signs it as the sender, which also returns the holding. Nothing burns
    without a cleared request.
 
-   **An invalid destination.** The burn is irreversible, so the destination
-   has to be payable before it. The gateway cannot parse an external-chain
-   address, so each attester service checks it before it signs the
-   redemption clearance, and the gateway enforces the result through D1,
-   because the clearance binds the destination the request names. A
-   destination fails the check if it is:
-
-   - malformed for the external chain: the wrong encoding, length, or
-     checksum, or an address format of another chain;
-   - an address the escrow refuses: the null address, the escrow itself, or
-     the backing token's contract;
-   - an address the backing token refuses to pay, such as one on the token
-     issuer's blocklist.
-
-   A destination that fails gets a denial, and the holding returns to the
-   holder. The escrow repeats the checks it can make on its own chain, so a
-   release to a refused address reverts and the claim stands. A destination
-   that becomes unpayable after the burn, for example one the token issuer
-   blocklists later, leaves a standing claim that no submitter can release.
-   This design has no path that redirects such a claim
-   ([section 6](#6-open-design-questions)).
-
    **A claim without a burn.** The escrow relies on a burn behind every claim,
    and the ledger does not enforce it. `ba` alone signs the claim, because the
    holder's authority does not reach the transaction that accepts its request.
@@ -863,20 +881,25 @@ sequenceDiagram
    the nonce registry. A holding that a reject or a registry expiry returned
    also needs the return attestation that binds it to the lock.
 
-4. **Attest.** An N-of-M quorum of listed attesters signs the claim, through
-   the same attester registry path as the lock attestation. The escrow
-   verifies that quorum with its own verifier
-   ([section 2.1](#21-business-roles)). No attester is a stakeholder of the
-   claim. The relayer backend hands each new claim to the attester services as
-   a disclosed contract, and each attester reads it as it reads the registries
-   ([section 3.6](#36-control-enforcement)). An attester therefore signs only
-   an active claim, and the burn never waits on an attester's participant.
-5. **Release on the external chain.** Any submitter presents the signed
-   claim to the escrow. The escrow releases the amount to the
-   external-chain destination and decrements the reserve by the same amount,
-   so the backing and the supply move together. A redemption burns any amount
-   up to the holder's holding, so the escrow releases any part of the pooled
-   backing. A refund releases the whole lock to the address that funded it.
+4. **Release on the external chain.** The release is one external-chain
+   transaction, and it needs the attesters' signatures on the claim, which
+   they give off-ledger and not in a transaction on either chain:
+
+   - **Attest.** An N-of-M quorum of listed attesters signs the claim,
+     through the same attester registry path as the lock attestation. The
+     escrow verifies that quorum with its own verifier
+     ([section 2.1](#21-business-roles)). No attester is a stakeholder of the
+     claim. The relayer backend hands each new claim to the attester services
+     as a disclosed contract, and each attester reads it as it reads the
+     registries ([section 3.6](#36-control-enforcement)). An attester
+     therefore signs only an active claim, and the burn never waits on an
+     attester's participant.
+   - **Release.** Any submitter presents the signed claim to the escrow. The
+     escrow releases the amount to the external-chain destination and
+     decrements the reserve by the same amount, so the backing and the supply
+     move together. A redemption burns any amount up to the holder's holding,
+     so the escrow releases any part of the pooled backing. A refund releases
+     the whole lock to the address that funded it.
 
 **Cross-chain atomicity.** The external-chain release does not sit in the same
 Daml transaction as the Canton burn, so the order is burn first and attested
