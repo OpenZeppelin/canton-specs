@@ -109,12 +109,10 @@ D1 through D4 are local shorthand for four institutional controls.
 
 ## 3. Status Quo
 
-A transfer must credit the recipient with the intended amount or with nothing.
-The [CIP-0112](https://github.com/canton-foundation/cips/blob/main/cip-0112/cip-0112.md)
-**transfer instruction** carries that property: it fixes the sender, the
-recipient, the amount, and the instrument when it is created, and its accept
-credits exactly that amount in one transaction or fails as a whole. Each
-inbound credit is one transfer instruction that its recipient accepts.
+Each inbound credit is one
+[CIP-0112](https://github.com/canton-foundation/cips/blob/main/cip-0112/cip-0112.md)
+**transfer instruction** that its recipient accepts, so a credit lands with
+the attested amount or not at all.
 
 `OpenZeppelin/canton-contracts` holds a [draft registry implementation](https://github.com/OpenZeppelin/canton-contracts/tree/6a916c174db7d6163ebeea4df1049044cefc7b3c/packages/token/token-cip112-v1/daml/OpenZeppelin/Token/Cip112/V1)
 of the Token Standard V2 interfaces, which this document uses as the example
@@ -232,8 +230,7 @@ argument of the gateway transaction that uses it
 ### 4.3 Privacy and Visibility
 
 One row per contract. The first four rows are the token registry's, shown for
-the example registry. A party a row does not name sees the contract only when a
-transaction it witnesses divulges it.
+the example registry.
 
 | Contract | Signatories | Observers |
 |---|---|---|
@@ -255,13 +252,9 @@ Consequences:
   creates and any preapproval it exercises, and the attesters read the bridge
   account's transfer events. Choosing the attesters is a privacy decision as
   well as a compliance one.
-- **Transfer outcomes arrive as events.** The example registry reports each
-  holdings change as a Token Standard V2 `EventLog_HoldingsChange` exercise on
-  a contract it creates and archives in the same transaction, so the data
-  reaches its observers on the update stream and never enters the active
-  contract set. An integrator matches an event to a lock through the nonce in
-  the transfer's metadata, not through the instruction's contract id, because
-  a re-offer creates a new instruction.
+- **Transfer outcomes arrive as events.** An integrator matches a holdings
+  event to a lock through the nonce in the transfer's metadata, not through
+  the instruction's contract id, because a re-offer creates a new instruction.
 - **No personal data on the ledger.** A statement carries the attesters' KYC
   verdict, not personal attributes.
 
@@ -346,19 +339,15 @@ sequenceDiagram
    nonce. The minted holding stays locked in the instruction until it
    resolves.
 
-   `ba`'s authority comes from the gateway it signs and covers both the mint
-   and the sender's side of the transfer, so the recipient's participant
-   confirms nothing at this step, and an offline recipient sees the offer when
-   it returns. The standard's withdraw belongs to the sender, so a listed
-   attester exercises it through a gateway choice, under the rules of
+   The recipient's participant confirms nothing at this step, so an offline
+   recipient sees the offer when it returns. A listed attester withdraws the
+   instruction through a gateway choice, under the rules of
    [section 4.10](#410-attester-statements-and-control-enforcement).
 
-3. **Accept.** The recipient's wallet exercises `TransferInstruction_Accept`,
-   the one choice that credits. It is the registry's own code and runs no
-   bridge check, so any wallet that speaks the standard accepts a bridge credit
-   like any other pending transfer. A rejected or withdrawn instruction returns
-   the locked holding to the bridge account by the standard's own semantics,
-   and a lapsed one stays locked until an attester withdraws it.
+3. **Accept.** The recipient's wallet exercises the registry's own
+   `TransferInstruction_Accept`, which runs no bridge check. A rejected or
+   withdrawn instruction returns the holding to the bridge account, and a
+   lapsed one stays locked until an attester withdraws it.
    [Section 4.6](#46-reserve-replay-and-refunds) sets what happens to a
    returned holding.
 
@@ -379,17 +368,16 @@ in nonce order and submits them in batches. One gateway transaction runs the
 checks of step 2 for every message and writes the nonce registry once
 ([section 4.13](#413-throughput-and-contention)). A check that fails for one
 message fails the batch, and the attester resubmits without that message. A
-recipient's participant can fail a batch too, because a transfer instruction
-makes the recipient an informee, and Canton rejects a transaction when an
-informee's participant has not vetted its packages. The attester then
-resubmits the batch in a second form that creates a **deferred offer** for each
-credit: a contract only `ba` signs that records the nonce, the amount, the
-recipient, and a deadline. That form runs every check, records each nonce as
-deferred, mints nothing, and no recipient sees it. A listed attester later
-converts each deferred offer on its own, through a gateway choice that mints
-and offers as step 2 does, so one recipient's participant delays only its own
-credit. An offer still open at its deadline is closed, and the never-minted
-refund of [section 4.6](#46-reserve-replay-and-refunds) follows.
+recipient's participant that has not vetted the packages fails the batch too.
+The attester then resubmits the batch in a second form that creates a
+**deferred offer** for each credit: a contract only `ba` signs that records
+the nonce, the amount, the recipient, and a deadline. That form runs every
+check, records each nonce as deferred, mints nothing, and no recipient sees
+it. A listed attester later converts each deferred offer on its own, through a
+gateway choice that mints and offers as step 2 does, so one recipient's
+participant delays only its own credit. An offer still open at its deadline is
+closed, and the never-minted refund of
+[section 4.6](#46-reserve-replay-and-refunds) follows.
 
 **Delivery and retry.** Nothing guarantees that the Canton credit of an
 attested lock executes. Delivery depends on the attester set, and the design
@@ -656,21 +644,16 @@ The checks read required fields, and an upgrade adds only `Optional` fields, so
 every scope field exists from the first deployment
 ([section 4.11](#411-smart-contract-upgrade-process)).
 
-**Disclosure.** `ba` signs every version of every bridge contract, so the bridge
-admin backend serves the current version of each to the attester services, as
-the created-event blob a disclosed contract needs. An attester also witnesses
-each version its own submissions create and passes the blob to the others, so
-gateway transactions continue while the backend is down. The ledger rejects a
-disclosed contract that is no longer active, so a stale blob cannot pass. An
-attester reads a registry the same way, through a nonconsuming read choice that
-only `ba` and that attester see.
+**Disclosure.** The bridge admin backend serves the current version of each
+contract to the attester services, and an attester also relays each version
+its own submissions create, so gateway transactions continue while the backend
+is down. An attester reads a registry the same way, through a nonconsuming read
+choice that only `ba` and that attester see.
 
-The attesters are observers of none of these contracts by design. A
-stakeholder's participant that unvets the package blocks every transaction on
-the contract, while a reader's participant fails only its own reads and
-submissions, so no single attester can stall a mint, a refund, a burn, or a
-rotation. In exchange, the attesters do not see a rotation or a second active
-version as observers would.
+The attesters are observers of none of these contracts by design, so no single
+attester's participant can stall a mint, a refund, a burn, or a rotation by
+unvetting the package. In exchange, the attesters do not see a rotation or a
+second active version as observers would.
 
 **Residual.** Nothing stops `ba` from holding two active versions of a registry
 and handing the attesters either. No other party observes them, and `ba`
@@ -678,12 +661,10 @@ already holds the mint right, so the exposure adds nothing to the trust in `ba`.
 
 ### 4.9 Time and Deadlines
 
-CIP-0112 defines the deadline fields and no values. A transfer instruction
-carries an `executeBefore`, after which its accept fails, and each token
-registry sets a maximum instruction lifetime; Canton Coin caps it at 90 days.
-The bridge adds a maximum attestation validity on its gateway, so no attester
-can issue a statement that never expires. The values are open
-([section 8](#8-open-design-questions)).
+The gateway requests each instruction's `executeBefore` inside the registry's
+maximum instruction lifetime, and stamps a maximum attestation validity of its
+own, so no attester can issue a statement that never expires. The values are
+open ([section 8](#8-open-design-questions)).
 
 Each flow's deadline has a floor at the slowest required actor's service level
 and a ceiling at the tighter of the registry's lifetime and how long the
@@ -692,8 +673,7 @@ credit is refundable only once it returns to the bridge account, so a recipient
 that never accepts holds back the originator's refund for the whole
 instruction lifetime, unless a late denial or a pause lets the gateway withdraw
 first. After the burn, a redemption claim is standing and replay-protected, so
-a slow release costs latency only. The tolerance between ledger time and record
-time makes sub-minute deadlines meaningless.
+a slow release costs latency only.
 
 | Flow | Slowest actor | Window |
 |---|---|---|
@@ -785,9 +765,8 @@ more easily than an off-ledger compliance log, which holds the reasoning. A
 registry may add its own compliance check at the accept; the bridge requires
 none.
 
-**D2, left to the registry.** Seizure of a pending credit needs authority over
-the registry's own transfer instruction, and CIP-0112 defines no seizure
-mechanism, so a registry may implement one or not. For the bridge, a seized
+**D2, left to the registry.** A registry may implement seizure of a pending
+credit on its own transfer instruction or not. For the bridge, a seized
 credit is minted supply that never returns: the nonce stays minted, the lock is
 neither credited nor refundable, and the reserve holds because the seized
 holding is backed like any other.
@@ -826,25 +805,20 @@ holdings move to the new party's account.
 
 The rail uses Smart Contract Upgrade (SCU) for additive changes to its own
 gateway and registry packages, under the rules of the
-[Canton SCU guide](https://docs.canton.network/appdev/deep-dives/smart-contract-upgrade):
-the same package name, a higher version, `upgrades:` set to the prior DAR, and
-only appended `Optional` fields. The token registry's packages follow the
-registry's own lineage. Two consequences are specific to the rail. The identity
-checks of [section 4.8](#48-registry-identity-and-uniqueness) read required
-fields, so the nonce registry's epoch and `E` must exist from the first
-deployment. Each statement's EIP-712 type is part of what the attesters sign,
-so a release that changes a statement's fields keeps accepting the previous
-type until every statement signed under it has expired, and a rollout alone
-never voids a signed attestation or drains a lock.
+[Canton SCU guide](https://docs.canton.network/appdev/deep-dives/smart-contract-upgrade).
+The token registry's packages follow the registry's own lineage. Two
+consequences are specific to the rail. The identity checks of
+[section 4.8](#48-registry-identity-and-uniqueness) read required fields, so
+the nonce registry's epoch and `E` must exist from the first deployment. Each
+statement's EIP-712 type is part of what the attesters sign, so a release that
+changes a statement's fields keeps accepting the previous type until every
+statement signed under it has expired, and a rollout alone never voids a signed
+attestation or drains a lock.
 
 Each release defines what each new `Optional` field means for v1 state, with
-`None` meaning the feature is off until configured, and tests v1 state under
-the v2 implementation. Before release the operators run `dpm build` with the
-`upgrades:` lineage and `dpm upgrade-check --both`, vet the DARs at every
-affected participant, and switch wallets, attesters, and gateways together. A
-change to a mint or burn authority, a key shape, the party set, the reserve
-invariant, or a message's meaning gets a separately named package and a
-migration or drain window.
+`None` meaning the feature is off until configured. A change to a mint or burn
+authority, a key shape, the party set, the reserve invariant, or a message's
+meaning gets a separately named package and a migration or drain window.
 
 ### 4.12 Registry Integration
 
@@ -855,10 +829,9 @@ after every bridge check passes, and a **burn right**, which lets `ba` burn
 holdings in the bridge account for a redemption or for the refund of a
 returned credit. It also asks for a **sender-side withdraw that works after the
 deadline**, so that an attester can recover a lapsed credit under `ba`'s
-authority without the wTOK admin. CIP-0112 forbids the accept after
-`executeBefore`, leaves the withdraw without a time condition, and makes the
-registry's expiry optional, and that expiry runs only when the wTOK admin runs
-it. The example registry's withdraw has no deadline check. The registry must
+authority without the wTOK admin. CIP-0112 leaves the withdraw's timing to the
+registry, so the bridge has to ask for it, and the example registry's withdraw
+has no deadline check. The registry must
 also **keep the rights in force**: it re-grants both when `ba` moves to a new
 party, and keeps the burn right while the bridge account holds value or an
 offer is pending. Revoking the mint right fails closed, and revoking the burn
@@ -921,40 +894,29 @@ submission.
 
 ### 4.14 Traffic Costs, App Rewards, and Fees
 
-**Traffic.** Cost scales with the serialized bytes of each sequenced message
-plus a per-recipient delivery surcharge
-([traffic accounting](https://docs.canton.network/overview/reference/tokenomics-of-gs)).
-An inbound payment costs its share of one gateway batch and one accept. The
-gateway transaction is the heaviest: it carries the attested message with its
-N signatures, the nonce registry write, the mint, and the offer. A live accept
-is the registry's plain transfer, paid by the recipient's validator, and a
-delegated accept runs inside the gateway transaction. Every attester statement
-travels inside the transaction that uses it, so no statement costs a
-transaction of its own. The attesters pay for everything but a live accept and
-a redemption request, each for the transactions it submits. A failed
-transaction burns traffic and earns no reward, because
-[CIP-0104](https://github.com/canton-foundation/cips/blob/main/cip-0104/cip-0104.md)
-credits only a successful confirmation. Each attester's validator needs
-configured top-up and balance monitoring, because auto-top-up is off by
-default.
+**Traffic.** An inbound payment costs its share of one gateway batch and one
+accept ([traffic accounting](https://docs.canton.network/overview/reference/tokenomics-of-gs)).
+The gateway transaction is the heaviest: it carries the attested message with
+its N signatures, the nonce registry write, the mint, and the offer. The
+attesters pay for it and for every other transaction but a live accept and a
+redemption request, each for the transactions it submits. Every attester
+statement travels inside the transaction that uses it, so no statement costs a
+transaction of its own.
 
-**App rewards.** The rail earns traffic-based app rewards under CIP-0104, once
-the super validators vote them on. It holds two statuses, each on its own party
-behind its own CC lock ([featured app guidance](https://lists.sync.global/g/tokenomics-announce/message/397),
+**App rewards.** The rail earns traffic-based app rewards
+([CIP-0104](https://github.com/canton-foundation/cips/blob/main/cip-0104/cip-0104.md)),
+once the super validators vote them on. It holds two statuses, each on its own
+party behind its own CC lock ([featured app guidance](https://lists.sync.global/g/tokenomics-announce/message/397),
 [CIP-0116](https://github.com/canton-foundation/cips/blob/main/cip-0116/cip-0116.md)):
 `ba` holds the Featured App status as the bridge protocol's party, and the
 wTOK admin holds wTOK's Featured Asset status, applied for and funded by the
-registry's operator. Rewards accrue to the parties that confirm a successful
-request and hold an active right, so the submitting attester, which holds
-none, earns nothing, and its share goes to `ba`. The mint, the factory call,
-and the offer nested in the gateway exercise carry `ba`'s and the wTOK admin's
-authority, so those nodes pay them. Measured on Canton LocalNet with
+registry's operator. The submitting attester holds no right, so its share of
+each gateway transaction goes to `ba`, and the mint and offer nested inside
+pay `ba` and the wTOK admin. Measured on Canton LocalNet with
 `scripts/localnet-bridge-app-rewards.sh`, with the submitter also featured,
 one round paid `ba` 65%, the wTOK admin 21%, and the submitter 14% of its
 app-reward pool. No attester holds a featured status, so a rotation changes
-none. Network issuance parameters decide how much of the traffic cost the
-reward returns, so the fee carries the attesters' traffic and the reward is
-income on top.
+none. The fee, not the reward, carries the attesters' traffic.
 
 **Fees.** The bridge charges a fee on each inbound credit and each redemption
 and deducts it from the amount the payment carries, as Circle's
@@ -1040,12 +1002,10 @@ different trust model, and this design does not cover it.
   The cost is that no lock attestation exists until the compliance checks
   finish. The re-offer and the redemption each get a statement of their own
   because no existing statement carries their content.
-- **Contract keys for registry identity.** Canton 3 offers contract keys from
-  Daml-LF 2.3, but keys are not unique, and a lookup resolves only against
-  contracts the submitting participant holds or receives as disclosed, so the
-  attester needs the disclosed contract either way. A key built from the
-  maintainer, the instrument, and the epoch would use the values the identity
-  checks already validate. The bridge targets Daml-LF 2.1 and uses no keys.
+- **Contract keys for registry identity.** Keys are not unique and still need
+  the disclosed contract, so a key built from the maintainer, the instrument,
+  and the epoch adds nothing over the identity checks. The bridge targets
+  Daml-LF 2.1 and uses no keys.
 - **A fee outside the payment.** CCIP and LayerZero charge a separate fee in
   the source chain's gas token. An inbound originator has no Canton account and
   the escrow is out of scope, so such a fee needs fee logic in every escrow.
@@ -1165,13 +1125,11 @@ through it, gateway transactions continue until a rotation or a pause flip, and
 the backend restarts on any participant that hosts `ba`.
 
 **Submitter selection.** The gateway accepts any listed attester as the
-submitter, and command deduplication is scoped to the submitting participant,
-so two attesters share no deduplication state. The attester services therefore
-agree off-ledger which attester submits each step, for example by nonce or by a
-rotating leader, and another takes over a step that stays open past a timeout.
-That agreement saves traffic and is not a control: the first gateway
-transaction records the nonce, a second one for the same lock fails the nonce
-check, and the loser treats the rejection as a no-op.
+submitter. The attester services agree off-ledger which attester submits each
+step, for example by nonce or by a rotating leader, and another takes over a
+step that stays open past a timeout. That agreement saves traffic and is not a
+control: the nonce registry rejects a second submission for the same lock, and
+the loser treats the rejection as a no-op.
 
 ---
 
