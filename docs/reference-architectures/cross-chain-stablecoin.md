@@ -348,7 +348,7 @@ the example registry.
 |---|---|---|
 | Inbound transfer instruction | The wTOK admin and `ba`, as the sender's account owner | The recipient |
 | Redemption request, the holder's transfer instruction to the bridge account | The wTOK admin and the holder | `ba`, as the receiver's account owner |
-| Event log contract, created and archived in one transaction | The wTOK admin | None |
+| Event log contract, created and archived in one transaction | The wTOK admin | None as stakeholders. The parties of the transfer, the bridge admin among them as the bridge account's owner, see the event inside the transfer transaction, and that is how the bridge admin's hosts serve the transfer events the attesters read |
 | wTOK holding | The wTOK admin and the account's parties | The lock's observers, while locked |
 | Mint gateway, redemption gateway, attester registry, nonce registry, pause state, fee schedule, deferred offer, redemption claim, refund claim | `ba` | None. A listed attester reads or exercises them through disclosure ([section 6.6](#66-registry-identity-and-uniqueness)) |
 | Pause role grant | `ba` | The current `pa` |
@@ -917,7 +917,10 @@ returned credit. It also asks for a **sender-side withdraw that works after the
 deadline**, so that an attester can recover a lapsed credit under the bridge admin's
 authority without the wTOK admin. CIP-0112 leaves the withdraw's timing to the
 registry, so the bridge has to ask for it, and the example registry's withdraw
-has no deadline check. The registry must
+has no deadline check. The registry must **emit transfer events the sender's
+account owner sees**, because the return attestation of
+[section 6.4](#64-reserve-replay-and-refunds) is built from the bridge
+account's events, and the example registry does. The registry must
 also **keep the rights in force**: it re-grants both when the bridge admin moves to a new
 party, and keeps the burn right while the bridge account holds value or an
 offer is pending. Revoking the mint right fails closed, and revoking the burn
