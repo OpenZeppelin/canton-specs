@@ -989,26 +989,16 @@ over the standard interfaces.
 
 ### 6.10 Throughput and Contention
 
-The nonce registry serializes every inbound mint, because each mint archives
-and recreates the registry of its epoch, and consecutive locks land in the same
-epoch. One contract at a time takes every mint of the instrument, so the
-ceiling is one mint per commit latency of the registry write.
-
-Two things raise it. A batch writes the registry once for all of its
-messages ([section 6.3](#63-inbound-credit)). The epoch caps the registry at
-`E` nonces, so a mint's write is bounded by `E` and not by the rail's history.
-Without it each mint would cost more traffic than the last, and the registry
-would eventually exceed the synchronizer's maximum request size. A smaller `E`
-writes fewer bytes per mint, and a larger one creates fewer registries.
-
-Accepts write no bridge contract, so they run in parallel with each other and
-with new offers. Redemptions write no shared bridge contract either. A refund,
-a gateway withdraw, a re-offer, and the conversion or close of a deferred offer
-each write the nonce registry and contend like a mint, but each follows a
-lapse, a denial, or a failed participant, so they are rare beside mints. A
-rotation archives a registry that in-flight gateway transactions fetched, so
-rotations are scheduled as an operational window, and two attesters that write
-the same registry at once cost one rejected submission.
+Every inbound mint writes the nonce registry of its epoch, so mints of the
+instrument run one at a time. Batching raises that ceiling: one gateway
+transaction writes the registry once for every lock in the batch
+([section 6.3](#63-inbound-credit)). The epoch keeps each registry at no more
+than `E` nonces, so the cost of a write does not grow with the rail's history.
+Accepts and redemptions write no shared bridge contract and run in parallel.
+Refunds, withdraws, re-offers, and deferred-offer conversions also write the
+nonce registry, but each follows a lapse, a denial, or a failed participant,
+so they are rare beside mints. A rotation archives a registry that in-flight
+gateway transactions read, so rotations run in a scheduled window.
 
 ### 6.11 Traffic Costs, App Rewards, and Fees
 
