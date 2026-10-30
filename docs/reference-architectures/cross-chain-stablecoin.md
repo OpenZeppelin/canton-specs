@@ -3,47 +3,60 @@
 This reference architecture defines the Canton side of a stablecoin bridge,
 which this document calls the rail. An attested lock on an external chain mints
 a wrapped instrument on Canton, and a burn on Canton releases the backing on
-that chain. The document is written for a reader who knows Canton: parties and
-participants, signatories and observers, disclosed contracts, package vetting,
-and the Token Standard V2 (CIP-0112) two-step transfer.
+that chain. Sections 1 to 5 give the whole picture. Section 6 is the detailed
+design, and section 7 the threat model and failure recovery.
 
 > NOTE: This document calls the other chain the **external chain** in both
 > directions, and the wrapped instrument **wTOK**. wTOK stands for any
 > instrument whose Token Standard V2 registry grants the bridge a mint right
 > and a burn right ([section 6.10](#610-registry-integration)).
 
----
-
 ## 1. Summary
 
-**Inbound** moves value from the external chain to Canton by lock-and-mint,
-and **outbound** moves it back by burn-and-release. An off-ledger **attester
-set** attests each hop. Two things cross the boundary between the chains: a
-quorum of attester signatures and the nonce of a lock. Everything else is
-Canton.
+This document describes how a stablecoin issued on another blockchain can be
+used on Canton and moved back, without anyone being able to create unbacked
+tokens or lose a payment.
 
-Two contracts that the **bridge admin** `ba` signs carry the design. The
-**messaging gateway** verifies an attested lock, mints into the bridge's own
-account, and offers the credit to the recipient as a standard transfer
-instruction. The **redemption gateway** verifies a cleared redemption request,
-burns the holding, and creates a claim that the escrow pays. Each runs every
-bridge check inside the transaction that mints or burns, and the token
-registry's own accept credits the recipient with no bridge code in the path.
+**Inbound.** A depositor locks tokens in an escrow contract on the external
+chain. A group of independent attesters, of which N out of M must agree,
+confirms the lock and that the recipient has passed KYC. One attester submits
+that confirmation to Canton. A bridge contract checks it, mints the locked
+amount of wTOK, keeps the bridge's fee, and offers the rest to the recipient
+as a standard Token Standard V2 transfer, which the recipient accepts.
 
-Three parties are trusted ([section 4.2](#42-trust-boundaries)): the attester
-quorum, N of M independent organizations, for every external-chain fact and
-every compliance and KYC verdict; `ba`, for the mint and burn rights, the
-bridge account, and the registries every gateway check reads, under an N-of-M
-posture ([section 6.2](#62-decentralization-and-trust-topology)); and the wTOK
-admin, which signs every holding of its instrument and can mint outside the
-bridge.
+**Outbound.** The holder offers wTOK back to the bridge and names a
+destination on the external chain. The attesters clear the request, the
+bridge burns the wTOK, and the attesters sign a claim that the escrow pays
+out.
 
-Two invariants hold the design together. **Reserve**: bridge-minted supply
-never exceeds the backing the escrow holds
+Only two things cross between the chains: the attesters' signatures and the
+identifier of each lock. Everything else is Canton.
+
+**What Canton enforces.** The bridge mints only against a quorum-signed
+attestation. Each lock mints at most once. Every offered credit carries a
+deadline and returns to the bridge if it is not accepted. Nothing burns
+without clearance. Each payment is visible only to its recipient, the bridge
+admin, the attester that submitted it, and the wTOK admin
+([section 4](#4-what-the-ledger-enforces-and-who-is-trusted)).
+
+**Who is trusted.** The attester quorum, for every fact about the other chain
+and every compliance verdict. The bridge admin, a Canton party hosted by
+several organizations with an N-of-M confirmation threshold, for the mint and
+burn rights and the bridge account. The wTOK admin, which signs every holding
+of its instrument and could mint outside the bridge
+([section 4.2](#42-trust-boundaries)).
+
+Two invariants hold the design together. **Reserve**: the wTOK the bridge
+minted never exceeds the backing the escrow holds
 ([section 6.4](#64-reserve-replay-and-refunds)). **Bounded custody**: every
 minted unit is credited, locked in an offer with a deadline, or back in the
 bridge account with a refund path
 ([section 7.2](#72-failure-modes-and-recovery)).
+
+**Not covered.** The escrow and the attester software on the other chain,
+seizure, cross-synchronizer settlement, chains that cannot hold a payout back,
+and Token Standard V1 wallets ([section 2.2](#22-scope),
+[section 5](#5-limitations)).
 
 ---
 
