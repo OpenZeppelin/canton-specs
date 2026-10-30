@@ -20,8 +20,8 @@ tokens or lose a payment.
 **Inbound.** A depositor locks tokens in an escrow contract on the external
 chain. A group of independent attesters, of which N out of M must agree,
 confirms the lock and that the recipient has passed KYC. One attester submits
-that confirmation to Canton. A bridge contract checks it, mints the locked
-amount of wTOK, keeps the bridge's fee, and offers the rest to the recipient
+that confirmation to Canton. A bridge contract checks it and mints the locked
+amount of wTOK. It keeps the bridge's fee and offers the rest to the recipient
 as a standard Token Standard V2 transfer, which the recipient accepts.
 
 **Outbound.** The holder offers wTOK back to the bridge and names a
@@ -64,8 +64,8 @@ and Token Standard V1 wallets ([section 2.2](#22-scope),
 
 - **R1, no stuck or lost funds.** Every deposit locked on the external chain,
   and every holding offered for redemption, ends as value its owner holds on
-  one of the two chains: a credit on Canton, a refund to the originator, or a
-  release to the holder's destination, less the bridge's fee.
+  one of the two chains. That value is a credit on Canton, a refund to the
+  originator, or a release to the holder's destination, less the bridge's fee.
   [Section 5](#5-limitations) lists the cases this does not cover.
 - **R2, no unbacked credits.** The wTOK supply the bridge minted never exceeds
   the backing the escrow holds for it.
@@ -214,18 +214,43 @@ attestation therefore names the Canton recipient explicitly, and the attester
 set carries the trust that it is correct. Each attester holds both credentials:
 a Canton party, and an external-chain key that the escrow's verifier accepts.
 
-| Role | Code | Signs and submits | Sees |
-|---|---|---|---|
-| Attesters, M of them | - | Each signs every attester statement off-ledger with its own key, which the attester registry lists. One listed attester submits each gateway transaction with a quorum of signatures and pays its traffic. No attester mints, denies, or freezes alone: every outcome needs a quorum-signed statement, a deadline, or the pause state | The statements its quorum signs, the transfer instructions it creates as submitter, and the bridge account's transfer events ([section 6.4](#64-reserve-replay-and-refunds)) |
-| Bridge admin | `ba` | Sole signatory of both gateways, the attester registry, the nonce registry, the pause state, and the fee schedule. Holds the mint and burn rights and owns the **bridge account**, where the gateway mints and from which it offers each credit. Submits setup, rotations, handovers, and payouts, and nothing on the payment path. Holds the rail's Featured App status | Every inbound credit, as the sender's account owner |
-| wTOK admin | - | The instrument admin of the token registry, a role the registry defines. Grants `ba` the mint and burn rights, and signs every wTOK holding and transfer instruction. Holds wTOK's Featured Asset status | Every wTOK payment |
-| Recipient, or holder outbound | - | Accepts the transfer instruction that offers its credit, live or through a transfer preapproval. Outbound, offers its holding to the bridge account | Its own transfers |
-| Pause authority | `pa` | Holds the pause role grant and flips the pause state | The pause state |
+**Attesters.** There are M of them, one per organization. Each signs every
+attester statement off-ledger with its own key, which the attester registry
+lists. One listed attester submits each gateway transaction with a quorum of
+signatures and pays its traffic. No attester mints, denies, or freezes alone.
+Every outcome needs a quorum-signed statement, a deadline, or the pause state.
+
+**Bridge admin**, `ba`. The sole signatory of both gateways, the attester
+registry, the nonce registry, the pause state, and the fee schedule. It holds
+the mint and burn rights and owns the **bridge account**, where the gateway
+mints and from which it offers each credit. It submits setup, rotations,
+handovers, and payouts, and nothing on the payment path. It holds the rail's
+Featured App status.
+
+**wTOK admin.** The instrument admin of the token registry, a role the
+registry defines. It grants the bridge admin the mint and burn rights, and it
+signs every wTOK holding and transfer instruction. It holds wTOK's Featured
+Asset status.
+
+**Recipient**, or **holder** outbound. Accepts the transfer instruction that
+offers its credit, live or through a transfer preapproval. Outbound, it offers
+its holding to the bridge account.
+
+**Pause authority**, `pa`. Holds the pause role grant and flips the pause
+state.
+
+| Role | Code | Sees |
+|---|---|---|
+| Attesters | - | The statements its quorum signs, the transfer instructions it submits, and the bridge account's transfer events ([section 6.4](#64-reserve-replay-and-refunds)) |
+| Bridge admin | `ba` | Every inbound credit, as the sender's account owner, and every redemption request, as the receiver's |
+| wTOK admin | - | Every wTOK payment |
+| Recipient or holder | - | Its own transfers |
+| Pause authority | `pa` | The pause state |
 
 Off-ledger, the **lock escrow** is the external-chain contract that holds the
 backing, releases against a verified claim that any submitter presents, and
 refunds each lock once. The **attester services** are M independent operators
-on M participants: each watches the external chain, runs the compliance and
+on M participants. Each watches the external chain, runs the compliance and
 KYC checks against **KYC providers** that observe no transfer, and signs as its
 own attester party. The **bridge admin backend** is a process on a participant
 that hosts the bridge admin. It serves the attester services every bridge contract they
@@ -287,16 +312,47 @@ each:
 
 ### 4.2 Trust Boundaries
 
-| Trusted party | Required behavior, and what breaks otherwise |
-|---|---|
-| Attester set | Attests only a finalized lock with the true amount, recipient, and instrument. Clears only a recipient or holder that passed KYC. Signs a claim only against a clearance it issued, once; a no-mint statement only after reading the nonce as closed; a return attestation only for a holding the bridge account's events show returning from that lock. A colluding quorum mints unbacked supply or releases live backing, and whoever holds N listed keys is the quorum. This is the largest trust surface in the design |
-| Submitting attester | Submits each step once. It cannot change an amount or a recipient, and every outcome needs a quorum statement, a deadline, or the pause, so a faulty submitter delays a step rather than misdirecting it. Withholding a cleared message until its attestation expires turns the lock into a refund, and refunding a returned credit before the re-offer attestation arrives skips the second offer. Neither breaks the reserve |
-| `ba` | Exercises the mint and burn rights only through the gateways, keeps one active version of each registry, and pays the attester pool out each period. N compromised hosts mint unbacked supply, move a returned holding, or create a claim with no burn, which is why the role is N-of-M. Its hosts serve the transfer events the attesters bind returned credits with. A withheld payout is visible on-ledger, but no contract forces it |
-| wTOK admin | Mints the instrument only through the bridge's rights. A compromised key issues unbacked supply, because it signs every holding |
-| KYC providers | Report KYC status truthfully. The check is as strict as the most permissive provider the attesters accept |
-| `pa` | Pauses only for an incident. A malicious `pa` stalls the rail until `ba` revokes its grant, and the locks stay creditable or refundable meanwhile |
-| Lock escrow | Holds the backing, releases only against a verified claim, and refunds each lock once. A broken escrow strands a redemption, and the burn is already final |
-| Canton infrastructure | Keeps the parties hosted, the packages vetted, and transactions confirmable inside each deadline |
+Each trusted party, what it must do, and what breaks if it does not.
+
+**Attester set.** Attests only a finalized lock with the true amount,
+recipient, and instrument. Clears only a recipient or holder that passed KYC.
+Signs a claim only against a clearance it issued, and only once. Signs a
+no-mint statement only after reading the nonce as closed, and a return
+attestation only for a holding that the bridge account's events show returning
+from that lock. A colluding quorum mints unbacked supply or releases live
+backing, and whoever holds N listed keys is the quorum. This is the largest
+trust surface in the design.
+
+**Submitting attester.** Submits each step once. It cannot change an amount or
+a recipient. Every outcome needs a quorum statement, a deadline, or the pause,
+so a faulty submitter delays a step rather than misdirecting it. If it
+withholds a cleared message until the attestation expires, the lock becomes a
+refund. If it refunds a returned credit before the re-offer attestation
+arrives, the second offer is skipped. Neither breaks the reserve.
+
+**Bridge admin.** Exercises the mint and burn rights only through the
+gateways, keeps one active version of each registry, and pays the attester
+pool out each period. N compromised hosts mint unbacked supply, move a returned
+holding, or create a claim with no burn, which is why the role is N-of-M. Its
+hosts serve the transfer events that the attesters use to bind returned
+credits. A withheld payout is visible on-ledger, but no contract forces it.
+
+**wTOK admin.** Mints the instrument only through the bridge's rights. A
+compromised key issues unbacked supply, because it signs every holding.
+
+**KYC providers.** Report KYC status truthfully. The check is as strict as the
+most permissive provider the attesters accept.
+
+**Pause authority.** Pauses only for an incident. A malicious pause authority
+stalls the rail until the bridge admin revokes its grant, and the locks stay
+creditable or refundable meanwhile.
+
+**Lock escrow.** Holds the backing, releases only against a verified claim,
+and refunds each lock once. A broken escrow strands a redemption, and the burn
+is already final.
+
+**Canton infrastructure.** Keeps the parties hosted, the packages vetted, and
+transactions confirmable inside each deadline.
 
 ---
 
@@ -328,10 +384,10 @@ each:
   must carry enough data to route the transfer on Canton. Hiding the link to
   the Canton recipient is out of scope.
 
-**Chains that cannot hold the payout back.** Where the release cannot be made
-conditional on the claim, on a UTXO chain without contracts or under a
-permissioned release the holder cannot submit, a stalled quorum leaves the
-redeemer holding neither asset under burn-first. Such chains need burn-last
+**Chains that cannot hold the payout back.** On some chains the release cannot
+be made conditional on the claim: a UTXO chain without contracts, or a
+permissioned release the holder cannot submit. There, a stalled quorum leaves
+the redeemer holding neither asset under burn-first. Such chains need burn-last
 ordering, with a reserve invariant that allows for the in-flight window. That
 is a different trust model, and this design does not cover it.
 
@@ -1079,7 +1135,7 @@ offer that lapsed during the outage is re-offered before it is refunded. **The
 wTOK admin's participant is down**: no mint, transfer, or burn commits, because
 the wTOK admin signs every holding. **The bridge admin backend is down**: the
 attesters receive no new registry versions, requests, or transfer events
-through it, gateway transactions continue until a rotation or a pause flip, and
+through it. Gateway transactions continue until a rotation or a pause flip, and
 the backend restarts on any participant that hosts the bridge admin. **Fewer
 than N hosts of the bridge admin are available**: no gateway transaction
 commits, because the bridge admin signs both gateways and every registry they
