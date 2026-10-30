@@ -93,14 +93,15 @@ requirement.
 
 ### 2.1 Institutional Controls
 
-D1 through D4 are local shorthand for four institutional controls.
+D1 through D4 are local shorthand for four institutional controls: clearance,
+seizure, KYC, and role binding.
 
 | ID | Control | Where enforced | Invariant |
 |---|---|---|---|
-| **D1** | Compliance clearance from an N-of-M attester quorum, in a single-use statement bound to the credit or the request | The gateways, before any transfer instruction or burn exists ([section 6.8](#68-attester-statements-and-control-enforcement)) | No clearance, no transfer instruction and no burn |
-| **D2** | Seizure of a pending credit | The token registry, at its option. The bridge leaves seizure to the registry | Set by the registry that implements it |
-| **D3** | KYC identity of the recipient, or outbound of the redeeming holder | The attester services, off-ledger, before they sign. The gateways enforce the result through D1 | No KYC, no clearance |
-| **D4** | Operational privileges bind to a grant or a registry entry, not to one party. Submission binds to the attester registry and the pause to a role grant. The bridge admin's own authority is protected by multi-hosting, and moving it is a migration ([section 6.8](#68-attester-statements-and-control-enforcement)) | Each gateway choice, against a role grant or an attester registry entry | Submission and pause rights move without a redeploy |
+| **D1**, clearance | Compliance clearance from an N-of-M attester quorum, in a single-use statement bound to the credit or the request | The gateways, before any transfer instruction or burn exists ([section 6.8](#68-attester-statements-and-control-enforcement)) | No clearance, no transfer instruction and no burn |
+| **D2**, seizure | Seizure of a pending credit | The token registry, at its option. The bridge leaves seizure to the registry | Set by the registry that implements it |
+| **D3**, KYC | KYC identity of the recipient, or outbound of the redeeming holder | The attester services, off-ledger, before they sign. The gateways enforce the result through D1 | No KYC, no clearance |
+| **D4**, role binding | Operational privileges bind to a grant or a registry entry, not to one party. Submission binds to the attester registry and the pause to a role grant. The bridge admin's own authority is protected by multi-hosting, and moving it is a migration ([section 6.8](#68-attester-statements-and-control-enforcement)) | Each gateway choice, against a role grant or an attester registry entry | Submission and pause rights move without a redeploy |
 
 ### 2.2 Scope
 
@@ -293,8 +294,8 @@ rest on a trusted party.
   its returned credit is burned
   ([section 6.4](#64-reserve-replay-and-refunds)). R2 trusts the attester
   quorum, the bridge admin, and the wTOK admin.
-- **R3.** The gateways enforce D1 and D4 on every credit and redemption, and
-  D3 through D1
+- **R3.** The gateways enforce clearance (D1) and role binding (D4) on every
+  credit and redemption, and KYC (D3) through clearance
   ([section 6.8](#68-attester-statements-and-control-enforcement)).
 - **R4.** Per-party projection limits each payment to the parties of
   [section 6.1](#61-privacy-and-visibility).
@@ -502,7 +503,7 @@ sequenceDiagram
    service signs only after it has screened the lock's originator and checked
    the recipient's KYC off-ledger. One signature covers both records, so the
    outcome binds to the lock's content before any transfer instruction exists.
-   That is D1 and D3. The attester services collect signatures until N listed
+   That is clearance (D1) and KYC (D3). The attester services collect signatures until N listed
    attesters have signed
    ([section 6.8](#68-attester-statements-and-control-enforcement)).
 
@@ -745,8 +746,8 @@ sequenceDiagram
    services. Each service checks the holder's KYC and screens the destination
    off-ledger, then signs a **redemption clearance** that binds the holder,
    the amount, the instrument, the destination, and the request's contract
-   id, with an outcome: cleared, or denied with a reference. That is D1 and D3
-   outbound. The burn is irreversible, so the destination must be payable
+   id, with an outcome: cleared, or denied with a reference. That is clearance
+   (D1) and KYC (D3) outbound. The burn is irreversible, so the destination must be payable
    before it, and the gateway cannot parse an external-chain address, so the
    attesters check that it is well formed and that neither the escrow nor the
    backing token refuses it. The escrow repeats the checks it can make on its
@@ -898,7 +899,7 @@ behind stays usable. A statement reaches the ledger only inside the gateway
 transaction that uses it, and no attester is a stakeholder of one
 ([section 6.6](#66-registry-identity-and-uniqueness)).
 
-**D1, enforced by the bridge.** Every inbound credit requires the quorum's
+**D1, clearance, enforced by the bridge.** Every inbound credit requires the quorum's
 compliance clearance, bound to the credit's full content so that a clearance
 for one credit cannot be re-pointed at another: the cleared outcome of the
 attested message for a first offer, and the re-offer attestation for a
@@ -931,21 +932,21 @@ sign the attested message with a denied outcome, and an attester closes the
 nonce with it ([section 6.4](#64-reserve-replay-and-refunds)). A registry may
 add its own compliance check at the accept; the bridge requires none.
 
-**D2, left to the registry.** A registry may implement seizure of a pending
+**D2, seizure, left to the registry.** A registry may implement seizure of a pending
 credit on its own transfer instruction or not. For the bridge, a seized
 credit is minted supply that never returns: the nonce stays minted, the lock is
 neither credited nor refundable, and the reserve holds because the seized
 holding is backed like any other.
 
-**D3, enforced by the attester services.** Before it clears a credit or a
+**D3, KYC, enforced by the attester services.** Before it clears a credit or a
 redemption, each attester service checks off-ledger that the recipient, or the
 redeeming holder, passed KYC with a provider the attesters accept, and its
-clearance asserts it. The gateways enforce D3 through D1. The ledger holds the
+clearance asserts it. The gateways enforce KYC through clearance. The ledger holds the
 verdict, and the evidence sits in the attesters' compliance logs. A revocation
-after the gateway transaction has the same exposure as a late D1 denial. D3
+after the gateway transaction has the same exposure as a late clearance denial. KYC
 applies when value enters or leaves the rail, not to transfers in between.
 
-**D4, enforced by the bridge for its own choices.** Submission binds to a
+**D4, role binding, enforced by the bridge for its own choices.** Submission binds to a
 listing in the attester registry, the pause to the pause role grant, and the
 attested mint, the refund, and both registries to the bridge admin. A permission whose
 holder must move sits on a separate grant or registry entry, so a change of
