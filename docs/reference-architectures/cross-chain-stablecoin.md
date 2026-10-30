@@ -434,13 +434,16 @@ Consequences:
 The design protects `ba` with an N-of-M posture using a **multi-hosted party
 with a confirmation threshold**.
 
-| Role | Target posture | Trusted with | Who submits in its name |
-|---|---|---|---|
-| Attesters | M parties, one per organization, each on its own participant with its own key. Every check requires N of M signatures, never all M | As a quorum, every external-chain fact and every compliance and KYC verdict. One attester alone can only delay a step | Each attester service, as its own party |
-| `ba` | Multi-hosted on M participants of independent organizations, confirmation threshold N. N and M are open | The mint and burn rights, the bridge account, both registries, the fee schedule, and the bridge's income | No one on the payment path: its authority enters each gateway transaction as the gateway's signatory, and N of its hosts confirm every one. One host submits its setup, rotations, and payouts, and N hosts confirm |
-| wTOK admin | Set by the token registry | Every holding of its instrument, so it can mint outside the bridge | The registry |
-| `pa` | One multi-hosted party, confirmation threshold 1, held by organizations outside the attester set | Stopping the supply paths at once, so a party outside the attester set can stop a compromised quorum. A malicious `pa` stalls the rail until `ba` revokes its grant | Any host |
-| Recipients | None | Their own keys | The recipient's wallet, or the gateway under a transfer preapproval |
+What each role is trusted with is in [section 4.2](#42-trust-boundaries). This
+table sets how each role is hosted. N and M are set at deployment.
+
+| Role | Target posture |
+|---|---|
+| Attesters | M parties, one per organization, each on its own participant with its own key. Every check needs N of the M signatures |
+| `ba` | One party hosted on M participants of independent organizations, with confirmation threshold N. N of its hosts confirm every gateway transaction, and one host submits its setup, rotations, and payouts |
+| wTOK admin | Set by the token registry |
+| `pa` | One party hosted by organizations outside the attester set, with confirmation threshold 1, so that a party outside the attester set can stop a compromised quorum |
+| Recipients | No requirement |
 
 The attester set is the main lever. A larger M keeps the rail live through more
 outages, and a larger N spreads the trust. Signatures travel off-ledger and
