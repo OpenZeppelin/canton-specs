@@ -107,6 +107,48 @@ D1 through D4 are local shorthand for four institutional controls.
 | One Canton synchronizer, one external chain, one instrument | Cross-synchronizer settlement, and backing one instrument from several chains |
 | The controls the bridge enforces itself: D1 and D4 | Seizure (D2), the KYC check itself (D3), and any control over a wTOK holding after it is credited |
 
+
+### 2.3 Glossary
+
+| Term | Meaning | Defined in |
+|---|---|---|
+| Rail | The Canton side of the bridge, which this document defines | Preamble |
+| External chain | The other blockchain, in both directions | Preamble |
+| wTOK | The wrapped instrument on Canton; any instrument whose registry grants the bridge a mint right and a burn right | Preamble |
+| Lock, lock escrow | A deposit into the escrow contract on the external chain, and that contract, which holds the backing and pays releases and refunds | [Section 3.2](#32-roles) |
+| Nonce | The escrow's sequence number for a lock. It identifies the lock on both chains | [Section 6.3](#63-inbound-credit) |
+| Attesters, quorum | M independent organizations that watch the external chain and run compliance checks. N of them must sign every statement; N of M is the quorum | [Section 3.2](#32-roles) |
+| Attester statement | A typed message the attesters sign off-ledger. It reaches the ledger only inside the transaction that uses it | [Section 6.8](#68-attester-statements-and-control-enforcement) |
+| Attested message | The statement that attests a lock and carries its compliance outcome | [Section 6.3](#63-inbound-credit) |
+| Bridge admin, `ba` | The Canton party that signs the gateways and the bridge registries, holds the mint and burn rights, and owns the bridge account | [Section 3.2](#32-roles) |
+| Bridge account | The bridge admin's account at the token registry. The gateway mints into it and offers each credit from it | [Section 3.2](#32-roles) |
+| Bridge admin backend | An off-ledger process that serves bridge contracts to the attesters as disclosed contracts. It submits nothing | [Section 3.2](#32-roles) |
+| Messaging gateway | The bridge contract that checks an attested message, mints, and offers the credit | [Section 6.3](#63-inbound-credit) |
+| Redemption gateway | The bridge contract that checks a redemption clearance, burns, and creates a claim | [Section 6.5](#65-outbound-redemption) |
+| Token registry | The Token Standard V2 implementation that issues wTOK and runs its transfers | [Section 3.1](#31-overview) |
+| wTOK admin, instrument admin | The token registry's admin party. It signs every wTOK holding and grants the bridge its rights | [Section 3.2](#32-roles) |
+| Example registry | The OpenZeppelin draft Token Standard V2 registry this document uses as its example | [Section 3.1](#31-overview) |
+| Transfer instruction | A pending Token Standard V2 transfer. The receiver accepts or rejects it, or it expires | [Section 3.1](#31-overview) |
+| Transfer preapproval | A contract the recipient signs that lets the bridge admin run the accept on its behalf | [Section 6.3](#63-inbound-credit) |
+| Deferred offer | A bridge record of a credit whose recipient's participant could not process the offer. It is converted into a mint and an offer later | [Section 6.3](#63-inbound-credit) |
+| Returned credit | A minted holding that came back to the bridge account because its offer was rejected, withdrawn, or expired | [Section 6.4](#64-reserve-replay-and-refunds) |
+| Nonce registry, epoch, `E` | The bridge contract that records each nonce and its state. One registry covers one epoch of `E` consecutive nonces | [Section 6.4](#64-reserve-replay-and-refunds) |
+| No-mint statement | The attesters' statement that a nonce is closed and never minted. The escrow refunds the lock against it | [Section 6.4](#64-reserve-replay-and-refunds) |
+| Return attestation | The attesters' statement that binds a returned credit to its lock | [Section 6.4](#64-reserve-replay-and-refunds) |
+| Re-offer attestation | The attesters' statement that lets a credit whose offer lapsed be offered once more | [Section 6.4](#64-reserve-replay-and-refunds) |
+| Refund claim | The bridge contract that records the burn of a returned credit. The escrow refunds the lock against it | [Section 6.4](#64-reserve-replay-and-refunds) |
+| Redemption request | The holder's transfer instruction to the bridge account, naming an external-chain destination | [Section 6.5](#65-outbound-redemption) |
+| Redemption clearance | The attesters' statement that clears or denies a redemption request | [Section 6.5](#65-outbound-redemption) |
+| Redemption claim | The bridge contract that records a burn. The attesters sign it and the escrow pays it | [Section 6.5](#65-outbound-redemption) |
+| Release confirmation | The attesters' statement that the escrow paid a claim. It lets the claim be archived | [Section 6.5](#65-outbound-redemption) |
+| Late denial | The attesters' statement that withdraws or closes a credit after its offer exists | [Section 6.8](#68-attester-statements-and-control-enforcement) |
+| Attester registry, rotation | The bridge contract that lists the attesters, their keys, and the threshold N. A rotation replaces it with a new version | [Section 6.8](#68-attester-statements-and-control-enforcement) |
+| Pause state, pause authority, `pa` | The bridge contract that stops the supply paths, and the party that flips it | [Section 6.8](#68-attester-statements-and-control-enforcement) |
+| Fee schedule | The bridge contract that sets the fees and how the income is shared | [Section 6.12](#612-traffic-costs-app-rewards-and-fees) |
+| Registry adapter | The module of the bridge package that calls the token registry's mint and burn | [Section 6.10](#610-registry-integration) |
+| Disclosed contract | A Canton contract shared off-ledger with a party that is not one of its stakeholders, so that party can read it or use it in a transaction | Canton term |
+| Reserve, bounded custody | The two invariants of the design | [Section 1](#1-summary) |
+
 ---
 
 ## 3. Architecture at a Glance
