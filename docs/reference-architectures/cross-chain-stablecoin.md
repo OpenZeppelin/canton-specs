@@ -237,7 +237,7 @@ KYC checks against **KYC providers** that observe no transfer, and signs as its
 own attester party. The **bridge admin backend** is a process on a participant
 that hosts the bridge admin. It serves the attester services every bridge contract they
 need as a disclosed contract, and the bridge account's transfer events
-([section 6.6](#66-registry-identity-and-uniqueness)), and it submits nothing.
+([section 6.4](#64-reserve-replay-and-refunds)), and it submits nothing.
 The **recipient wallet** accepts pending transfer instructions and may create a
 transfer preapproval.
 
@@ -796,7 +796,9 @@ choice, which verifies each signature against the key the attester registry
 holds and fails unless N distinct listed attesters signed. Each statement
 carries its type, the deployment, the bridge admin, the instrument, and the escrow under
 the signature, so a signature for one deployment or one statement type never
-verifies for another.
+verifies for another. The gateway verifies each signature on-ledger with the
+Daml standard library's signature-verification functions, which the library
+marks as alpha ([section 5](#5-limitations)).
 
 A signature can be presented any number of times, so each statement binds
 ledger state that the transaction using it changes:
