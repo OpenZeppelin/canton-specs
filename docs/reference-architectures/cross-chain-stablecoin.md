@@ -152,7 +152,6 @@ seizure, KYC, and role binding.
 | Pause state, pause authority, `pa` | The bridge contract that stops the supply paths, and the party that flips it | [Section 6.7](#67-attester-statements-and-control-enforcement) |
 | Fee schedule | The bridge contract that sets the fees and how the income is shared | [Section 6.11](#611-traffic-costs-app-rewards-and-fees) |
 | Registry adapter | The module of the bridge package that calls the token registry's mint and burn | [Section 6.9](#69-registry-integration) |
-| Disclosed contract | A Canton contract shared off-ledger with a party that is not one of its stakeholders, so that party can read it or use it in a transaction | Canton term |
 | Reserve, bounded custody | The two invariants of the design | [Section 1](#1-summary) |
 
 ---
@@ -420,7 +419,7 @@ the example registry.
 |---|---|---|
 | Inbound transfer instruction | The wTOK admin and `ba`, as the sender's account owner | The recipient |
 | Redemption request, the holder's transfer instruction to the bridge account | The wTOK admin and the holder | `ba`, as the receiver's account owner |
-| Event log contract, created and archived in one transaction | The wTOK admin | None as stakeholders. The parties of the transfer, `ba` among them as the bridge account's owner, see the event inside the transfer transaction, and that is how `ba`'s hosts serve the transfer events the attesters read |
+| Event log contract, created and archived in one transaction | The wTOK admin | None |
 | wTOK holding | The wTOK admin and the account's parties | The lock's observers, while locked |
 | Mint gateway, redemption gateway, attester registry, nonce registry, pause state, fee schedule, deferred offer, redemption claim, refund claim | `ba` | None. A listed attester reads or exercises them as disclosed contracts that the bridge admin backend serves |
 | Pause role grant | `ba` | The current `pa` |
@@ -526,10 +525,9 @@ sequenceDiagram
    resolves.
 
    The recipient's participant confirms nothing at this step, so an offline
-   recipient sees the offer when it returns. The recipient is an observer of
-   the instruction, though, so its participant must have vetted the packages
-   even though it does not confirm. The batch rules below cover a participant
-   that has not. A listed attester withdraws the
+   recipient sees the offer when it returns. A recipient whose participant has
+   not vetted the packages gets a deferred offer instead, under the batch rules
+   below. A listed attester withdraws the
    instruction through a gateway choice, under the rules of
    [section 6.7](#67-attester-statements-and-control-enforcement).
 
