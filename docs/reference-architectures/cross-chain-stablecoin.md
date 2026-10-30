@@ -235,7 +235,7 @@ refunds each lock once. The **attester services** are M independent operators
 on M participants: each watches the external chain, runs the compliance and
 KYC checks against **KYC providers** that observe no transfer, and signs as its
 own attester party. The **bridge admin backend** is a process on a participant
-that hosts `ba`. It serves the attester services every bridge contract they
+that hosts the bridge admin. It serves the attester services every bridge contract they
 need as a disclosed contract, and the bridge account's transfer events
 ([section 6.6](#66-registry-identity-and-uniqueness)), and it submits nothing.
 The **recipient wallet** accepts pending transfer instructions and may create a
@@ -261,7 +261,7 @@ rest on a trusted party.
   unrecorded nonce, and a lock is refunded only after its nonce is closed or
   its returned credit is burned
   ([section 6.4](#64-reserve-replay-and-refunds)). R2 trusts the attester
-  quorum, `ba`, and the wTOK admin.
+  quorum, the bridge admin, and the wTOK admin.
 - **R3.** The gateways enforce D1 and D4 on every credit and redemption, and
   D3 through D1
   ([section 6.8](#68-attester-statements-and-control-enforcement)).
@@ -370,8 +370,8 @@ Consequences:
 
 ### 6.2 Decentralization and Trust Topology
 
-`ba` holds everything that decides whether bridge-minted supply is legitimate.
-The design protects `ba` with an N-of-M posture using a **multi-hosted party
+The bridge admin holds everything that decides whether bridge-minted supply is legitimate.
+The design protects the bridge admin with an N-of-M posture using a **multi-hosted party
 with a confirmation threshold**.
 
 | Role | Target posture | Trusted with | Who submits in its name |
@@ -462,9 +462,9 @@ sequenceDiagram
    returned holding.
 
 **Transfer preapproval.** An offline treasury cannot accept interactively. Its
-wallet may pre-establish a recipient-signed bridge contract that lets `ba`
+wallet may pre-establish a recipient-signed bridge contract that lets the bridge admin
 exercise the standard accept with the recipient's authority. The gateway
-exercises it with the `ba` authority it carries, so step 2 accepts the
+exercises it with the bridge admin's authority it carries, so step 2 accepts the
 instruction it creates and the credit lands in one attester-submitted
 transaction. A preapproval that arrives after the offer runs through a gateway
 choice of its own. The preapproval calls only the standard accept, so it works
@@ -478,7 +478,7 @@ checks of step 2 for every message and writes the nonce registry once
 message fails the batch, and the attester resubmits without that message. A
 recipient's participant that has not vetted the packages fails the batch too.
 The attester then resubmits the batch in a second form that creates a
-**deferred offer** for each credit: a contract only `ba` signs that records
+**deferred offer** for each credit: a contract only the bridge admin signs that records
 the nonce, the amount, the recipient, and a deadline. That form runs every
 check, records each nonce as deferred, mints nothing, and no recipient sees
 it. A listed attester later converts each deferred offer on its own, through a
@@ -518,7 +518,7 @@ the recipient, and for a returned nonce the holding the withdraw brought back
 and the late denial it carried, if any. The registry is scoped to one
 instrument and one **epoch** of `E` consecutive nonces, so no registry holds
 more than `E` nonces and the bytes of a mint stay bounded
-([section 6.11](#611-throughput-and-contention)). `ba` creates the first
+([section 6.11](#611-throughput-and-contention)). The bridge admin creates the first
 epoch's registry and fixes `E` there. The first write to a registry creates its
 successor in the same exercise, so each epoch gets exactly one registry, and
 `E` exceeds the locks that can be in flight, so a registry exists before its
@@ -537,10 +537,10 @@ returned value leaves the bridge account promptly.
 The ledger binds a returned holding to its lock only when the gateway withdraws
 the offer. After a reject or an expiry the binding exists only in the bridge
 account's transfer events. The attester services read those events from
-participants that host `ba`, match the holding to the instruction the gateway
+participants that host the bridge admin, match the holding to the instruction the gateway
 created for the nonce, and a quorum signs the nonce, the holding's contract id,
 and its amount as a **return attestation**. The attesters spread their reads
-over hosts of `ba` that different organizations operate, so false events from
+over hosts of the bridge admin that different organizations operate, so false events from
 one host cannot reach a quorum. A refund or a hold of a minted nonce presents
 the return attestation, checks that the holding carries the lock's recorded
 amount, and consumes the holding. A wrong binding can therefore only swap two
@@ -665,7 +665,7 @@ sequenceDiagram
    design assumes the holder's wallet renders the amount and the destination
    in clear before the holder signs.
 
-2. **Redemption clearance.** `ba` observes each request as the receiver's
+2. **Redemption clearance.** The bridge admin observes each request as the receiver's
    account owner, and the bridge admin backend serves it to the attester
    services. Each service checks the holder's KYC and screens the destination
    off-ledger, then signs a **redemption clearance** that binds the holder,
@@ -689,7 +689,7 @@ sequenceDiagram
    each release to one burn and one holder. On a denied clearance the attester
    rejects the request through the same gateway, with the denial reference in
    the rejection's metadata, and the holding returns to the holder. Nothing
-   burns without a cleared request. `ba` alone signs the claim, so the ledger
+   burns without a cleared request. The bridge admin alone signs the claim, so the ledger
    does not enforce a burn behind it, and [section 7.1](#71-threat-model)
    states what limits that. The refund claim of
    [section 6.4](#64-reserve-replay-and-refunds) runs through the same gateway
@@ -726,10 +726,10 @@ extra attester.
 
 **Decision.** Each of the four templates carries its maintainer and its scope
 fields, and the gateway validates every one against a value the caller does not
-control: the maintainer against the gateway's own signatory `ba`, the
+control: the maintainer against the gateway's own signatory the bridge admin, the
 instrument against the attested message, and the nonce registry's epoch against
 the lock's nonce divided by the registry's own `E`. The maintainer signs the
-contract, so only `ba` can create a version that passes.
+contract, so only the bridge admin can create a version that passes.
 
 | Contract | Scope fields beyond the maintainer |
 |---|---|
@@ -745,16 +745,16 @@ every scope field exists from the first deployment
 contract to the attester services, and an attester also relays each version
 its own submissions create, so gateway transactions continue while the backend
 is down. An attester reads a registry the same way, through a nonconsuming read
-choice that only `ba` and that attester see.
+choice that only the bridge admin and that attester see.
 
-`ba` is the only stakeholder of these contracts by design, so an attester's
+The bridge admin is the only stakeholder of these contracts by design, so an attester's
 participant that unvets the package fails only its own reads and submissions
 and stalls no mint, refund, burn, or rotation. In exchange, the attesters learn
 of a rotation or a second active version only through disclosure.
 
-**Residual.** `ba` can hold two active versions of a registry and hand the
-attesters either. No other party observes them, and `ba` already holds the
-mint right, so the exposure adds nothing to the trust in `ba`.
+**Residual.** The bridge admin can hold two active versions of a registry and hand the
+attesters either. No other party observes them, and the bridge admin already holds the
+mint right, so the exposure adds nothing to the trust in the bridge admin.
 
 ### 6.7 Time and Deadlines
 
@@ -782,10 +782,10 @@ a slow release costs latency only.
 ### 6.8 Attester Statements and Control Enforcement
 
 **Attester registry.** The bridge contract that lists the attester parties,
-each one's public signing key, and the threshold N. `ba` signs it and is its
+each one's public signing key, and the threshold N. The bridge admin signs it and is its
 only stakeholder, and every check that verifies a statement reads the signer
-set, the keys, and the threshold from it. `ba` changes any of them by a
-**rotation**: it archives the current version and creates the next. `ba` gains
+set, the keys, and the threshold from it. The bridge admin changes any of them by a
+**rotation**: it archives the current version and creates the next. The bridge admin gains
 nothing by rigging a list that only its own gateway reads, because it already
 holds the mint right, and the escrow verifies attester signatures against its
 own keys, so the Canton registry cannot weaken a release or a refund.
@@ -794,7 +794,7 @@ own keys, so the Canton registry cannot weaken a release or a refund.
 submitter presents the statement and its signatures as arguments of a gateway
 choice, which verifies each signature against the key the attester registry
 holds and fails unless N distinct listed attesters signed. Each statement
-carries its type, the deployment, `ba`, the instrument, and the escrow under
+carries its type, the deployment, the bridge admin, the instrument, and the escrow under
 the signature, so a signature for one deployment or one statement type never
 verifies for another.
 
@@ -834,7 +834,7 @@ the credit by itself. The quorum closes that gap with a **late denial**: a
 statement that names the lock's nonce, the instruction it closes, the denial
 reference, and whether the denial requires a freeze. A listed attester presents
 it to a gateway withdraw, which exercises the standard's
-`TransferInstruction_Withdraw` under `ba`'s authority as the sender's account
+`TransferInstruction_Withdraw` under the bridge admin's authority as the sender's account
 owner, records the nonce as returned with the denial, and puts the reference in
 the withdrawal's metadata. The withdraw needs no confirmation from the
 recipient's participant. The exposure is one instruction deadline, and zero
@@ -867,7 +867,7 @@ applies when value enters or leaves the rail, not to transfers in between.
 
 **D4, enforced by the bridge for its own choices.** Submission binds to a
 listing in the attester registry, the pause to the pause role grant, and the
-attested mint, the refund, and both registries to `ba`. A permission whose
+attested mint, the refund, and both registries to the bridge admin. A permission whose
 holder must move sits on a separate grant or registry entry, so a change of
 holder recreates no gateway. A rotation changes who may submit and whose
 signature counts, and a statement signed before it stays valid while N of its
@@ -877,12 +877,12 @@ signers are still listed with the same keys.
 backing: the mint and offer, the burn, and the refund. Paths that return value
 still run: a withdraw, a reject, and the registry's accept and expiry. A set
 pause also lets the gateway withdraw a pending instruction before its deadline.
-`ba` signs a pause role grant that names the current `pa`, who flips the pause
+The bridge admin signs a pause role grant that names the current pause authority, who flips the pause
 state by presenting it. The gateways check only the pause state and never
-record who `pa` is, so handing the pause to another party is a revocation and a
+record who the pause authority is, so handing the pause to another party is a revocation and a
 new grant.
 
-Moving `ba` to a new party is the one handover the bridge cannot complete
+Moving the bridge admin to a new party is the one handover the bridge cannot complete
 alone: the registry re-grants the mint and burn rights, the attesters withdraw
 every pending offer at its deadline or under a pause, and the bridge account's
 holdings move to the new party's account.
@@ -909,16 +909,16 @@ meaning gets a separately named package and a migration or drain window.
 ### 6.10 Registry Integration
 
 The bridge works with any token registry that implements the Token Standard V2
-transfer interfaces and grants two rights: a **mint right**, which lets `ba`
+transfer interfaces and grants two rights: a **mint right**, which lets the bridge admin
 mint into the bridge account and which the messaging gateway exercises only
-after every bridge check passes, and a **burn right**, which lets `ba` burn
+after every bridge check passes, and a **burn right**, which lets the bridge admin burn
 holdings in the bridge account for a redemption or for the refund of a
 returned credit. It also asks for a **sender-side withdraw that works after the
-deadline**, so that an attester can recover a lapsed credit under `ba`'s
+deadline**, so that an attester can recover a lapsed credit under the bridge admin's
 authority without the wTOK admin. CIP-0112 leaves the withdraw's timing to the
 registry, so the bridge has to ask for it, and the example registry's withdraw
 has no deadline check. The registry must
-also **keep the rights in force**: it re-grants both when `ba` moves to a new
+also **keep the rights in force**: it re-grants both when the bridge admin moves to a new
 party, and keeps the burn right while the bridge account holds value or an
 offer is pending. Revoking the mint right fails closed, and revoking the burn
 right early leaves returned credits with no refund path.
@@ -992,11 +992,11 @@ transaction of its own.
 once the super validators vote them on. It holds two statuses, each on its own
 party behind its own CC lock ([featured app guidance](https://lists.sync.global/g/tokenomics-announce/message/397),
 [CIP-0116](https://github.com/canton-foundation/cips/blob/main/cip-0116/cip-0116.md)):
-`ba` holds the Featured App status as the bridge protocol's party, and the
+the bridge admin holds the Featured App status as the bridge protocol's party, and the
 wTOK admin holds wTOK's Featured Asset status, applied for and funded by the
 registry's operator. The submitting attester holds no right, so its share of
-each gateway transaction goes to `ba`, and the mint and offer nested inside
-pay `ba` and the wTOK admin. No attester holds a featured status, so a rotation
+each gateway transaction goes to the bridge admin, and the mint and offer nested inside
+pay the bridge admin and the wTOK admin. No attester holds a featured status, so a rotation
 changes none. The fee, not the reward, carries the attesters' traffic.
 
 **Fees.** The bridge charges a fee on each inbound credit and each redemption
@@ -1004,16 +1004,16 @@ and deducts it from the amount the payment carries, so neither the originator
 nor the holder needs Canton Coin. The attesters deny a lock or a request that
 does not exceed the fee. A lock that never minted is refunded in full, and a
 credit that comes back keeps its inbound fee, because its gateway transaction
-already ran. One **fee schedule** contract that `ba` maintains sets the values
+already ran. One **fee schedule** contract that the bridge admin maintains sets the values
 and the income shares, and the gateways read it like the pause state. Each fee
 has a **fixed part**, paid in the same transaction to the attester that submits
-it, so the attester that paid the traffic is repaid without depending on `ba`.
+it, so the attester that paid the traffic is repaid without depending on the bridge admin.
 Transactions that move no wTOK, such as a close or a withdraw, carry no fee, so
 the fixed part covers them on average. The **percentage part**, together with
-`ba`'s app rewards, is the bridge's income, split between `ba`, an attester
-pool, and the registry. The gateway pays the shares into accounts of `ba` kept
+the bridge admin's app rewards, is the bridge's income, split between the bridge admin, an attester
+pool, and the registry. The gateway pays the shares into accounts of the bridge admin kept
 apart from the bridge account, so the pool's balance is visible on-ledger, and
-`ba` pays the pool out each period in equal shares to the attesters listed
+the bridge admin pays the pool out each period in equal shares to the attesters listed
 during it. The registry share defaults to zero, because the wTOK admin earns
 its own app rewards, and exists for a third-party registry that carries wTOK's
 issuer lock and asks to be paid. Fees are ordinary wTOK holdings that a deposit
@@ -1075,7 +1075,7 @@ wTOK admin's participant is down**: no mint, transfer, or burn commits, because
 the wTOK admin signs every holding. **The bridge admin backend is down**: the
 attesters receive no new registry versions, requests, or transfer events
 through it, gateway transactions continue until a rotation or a pause flip, and
-the backend restarts on any participant that hosts `ba`.
+the backend restarts on any participant that hosts the bridge admin.
 
 **Submitter selection.** The gateway accepts any listed attester as the
 submitter. The attester services coordinate off-ledger which attester submits
