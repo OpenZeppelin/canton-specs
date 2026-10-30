@@ -32,6 +32,18 @@ out.
 Only two things cross between the chains: the attesters' signatures and the
 identifier of each lock. Everything else is Canton.
 
+```mermaid
+flowchart TB
+    subgraph In["Inbound: lock and mint"]
+        direction LR
+        L["Depositor locks tokens<br/>on the external chain"] --> A1["N of M attesters<br/>sign the lock and the KYC verdict"] --> M["Mint gateway checks,<br/>mints, and offers"] --> Acc["Recipient accepts<br/>the wTOK"]
+    end
+    subgraph Out["Outbound: burn and release"]
+        direction LR
+        O["Holder offers wTOK<br/>to the bridge"] --> A2["N of M attesters<br/>clear the request"] --> B["Redemption gateway<br/>burns and creates a claim"] --> R["Escrow releases tokens<br/>on the external chain"]
+    end
+```
+
 **What Canton enforces.** The bridge mints only against a quorum-signed
 attestation. Each lock mints at most once. Every offered credit carries a
 deadline and returns to the bridge if it is not accepted. Nothing burns
@@ -463,7 +475,7 @@ sequenceDiagram
 
     Chain-->>Attesters: Finalized lock
     Attesters->>Attesters: Check KYC, then sign the attested message off-ledger,<br/>carrying the lock attestation and the compliance outcome
-    rect rgba(255, 255, 255, .1)
+    rect rgba(127, 127, 127, .15)
         Note over Attesters,Registry: Gateway transaction, submitted by one listed attester.<br/>The checks, the mint, and the offer commit together.
         Attesters->>App: Present the attested message with a quorum of signatures
         App->>App: Check the pause state and that the attester registry lists<br/>the submitter, and check the maintainer and scope<br/>of each registry it is handed
@@ -473,7 +485,7 @@ sequenceDiagram
         App->>Registry: Instruct a transfer of that amount<br/>from the bridge account to the recipient
         Registry-->>Recipient: Pending transfer instruction
     end
-    rect rgba(255, 255, 255, .1)
+    rect rgba(127, 127, 127, .15)
         Note over Recipient,Registry: Accept transaction, submitted by the recipient's wallet,<br/>or run inside the gateway transaction under a transfer preapproval.
         Recipient->>Registry: Accept the transfer instruction
         Registry-->>Recipient: Private credit and transfer events
@@ -688,13 +700,13 @@ sequenceDiagram
     participant Registry as Token registry
     participant Chain as External chain (lock escrow)
 
-    rect rgba(255, 255, 255, .1)
+    rect rgba(127, 127, 127, .15)
         Note over Holder,Registry: Request transaction, submitted by the holder.
         Holder->>Registry: Transfer the holding to the bridge account,<br/>naming the external-chain destination
     end
     Registry-->>Attesters: Pending redemption request,<br/>disclosed to them by the bridge admin backend
     Attesters->>Attesters: Check KYC, validate and screen the destination,<br/>then sign the redemption clearance off-ledger
-    rect rgba(255, 255, 255, .1)
+    rect rgba(127, 127, 127, .15)
         Note over Attesters,Registry: Burn transaction, submitted by one listed attester.<br/>The check, the burn, and the claim commit together.
         Attesters->>Redeem: Present the request and the signed clearance
         Redeem->>Redeem: Verify the signatures on the cleared redemption clearance (D1, D3)
@@ -703,13 +715,13 @@ sequenceDiagram
     end
     Attesters->>Redeem: Read the claim and match it<br/>to the redemption clearance they issued
     Attesters->>Attesters: Sign the claim off-ledger<br/>with their external-chain keys
-    rect rgba(255, 255, 255, .1)
+    rect rgba(127, 127, 127, .15)
         Note over Attesters,Chain: Release transaction on the external chain, submitted by one attester,<br/>or by any other submitter. The attesters own the retry.
         Attesters->>Chain: Submit the signed claim
         Chain->>Chain: Release the backing to the named destination<br/>and record the claim as released
     end
     Attesters->>Attesters: Sign the release confirmation off-ledger
-    rect rgba(255, 255, 255, .1)
+    rect rgba(127, 127, 127, .15)
         Note over Attesters,Redeem: Archive transaction, submitted by one listed attester.<br/>Bookkeeping, not a control.
         Attesters->>Redeem: Archive the claim with the signed confirmation
     end
