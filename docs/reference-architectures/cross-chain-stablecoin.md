@@ -220,10 +220,9 @@ flowchart LR
 
 ### 3.2 Roles
 
-Canton identifies an actor by a party and the external chain by an address,
-and neither chain records that the two name the same actor. The lock
-attestation therefore names the Canton recipient explicitly, and the attester
-set carries the trust that it is correct. Each attester holds both credentials:
+The lock attestation names the Canton recipient explicitly, because nothing
+links an external-chain address to a Canton party, and the attester set
+carries the trust that it is correct. Each attester holds both credentials:
 a Canton party, and an external-chain key that the escrow's verifier accepts.
 
 **Attesters.** There are M of them, one per organization. Each signs every
@@ -1046,8 +1045,8 @@ invariant holds.
 | N compromised hosts of `ba` attempt expropriation | A credited holding sits beyond `ba`. `ba` reaches only the bridge account, and the confirmation threshold protects that |
 | The attesters deny a credit after the offer, and the recipient accepts first | The accepted downside of D1 at the gateway. The late denial withdraws the offer as soon as the quorum signs it, and the exposure is one deadline |
 | An upgrade changes how live gateway or instruction state is interpreted | The release rules of [section 6.8](#68-smart-contract-upgrade-process) |
-| A new version in the gateway lineage adds a choice that mints without an attestation, and the hosts vet it. SCU checks a package's shape, not what a choice does | Vetting. Every host of `ba` vets only audited DARs under a published policy, and `ba` cannot use a package that fewer than N of its hosts have vetted |
-| A stakeholder's participant unvets the rail's package | Unvetting freezes contracts rather than freeing them. No attester is a stakeholder of any bridge contract, so its unvetting fails only its own reads and submissions. A recipient whose participant has not vetted gets a deferred offer. Holder-side unvetting of a credited holding is inherent to Canton |
+| A new version in the gateway lineage adds a choice that mints without an attestation, and the hosts vet it | Vetting. Every host of `ba` vets only audited DARs under a published policy, and `ba` cannot use a package that fewer than N of its hosts have vetted |
+| A stakeholder's participant unvets the rail's package | No attester is a stakeholder of any bridge contract, so its unvetting fails only its own reads and submissions. A recipient whose participant has not vetted gets a deferred offer. Holder-side unvetting of a credited holding is an exception to R1 ([section 5](#5-limitations)) |
 
 ### 7.2 Failure Modes and Recovery
 
