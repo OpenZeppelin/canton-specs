@@ -54,7 +54,7 @@ each:
   instruction deadline of exposure
   ([section 4.10](#410-attester-statements-and-control-enforcement));
 - one compliance policy across the attester set
-  ([section 8](#8-open-design-questions)).
+  ([section 7.2](#72-trust-boundaries)).
 
 ---
 
@@ -579,7 +579,7 @@ sequenceDiagram
    release to a refused address reverts and the claim stands. A destination
    that becomes unpayable after the burn leaves a standing claim that no
    submitter can release, and the design has no path that redirects it
-   ([section 8](#8-open-design-questions)).
+   ([section 2](#2-requirements)).
 
 3. **Burn.** A listed attester exercises the **redemption gateway**, which
    checks the pause state and the submitter's listing, verifies the
@@ -664,7 +664,7 @@ already holds the mint right, so the exposure adds nothing to the trust in `ba`.
 The gateway requests each instruction's `executeBefore` inside the registry's
 maximum instruction lifetime, and stamps a maximum attestation validity of its
 own, so no attester can issue a statement that never expires. The values are
-open ([section 8](#8-open-design-questions)).
+set at deployment.
 
 Each flow's deadline has a floor at the slowest required actor's service level
 and a ceiling at the tighter of the registry's lifetime and how long the
@@ -706,8 +706,7 @@ unless N distinct listed attesters signed. The EIP-712 domain names the
 deployment, `ba`, the instrument, and the escrow, so a signature for one
 deployment or one statement type never verifies for another. The gateway
 verifies with the `keccak256` and secp256k1 functions of `DA.Crypto.Text`,
-which the Daml standard library marks as alpha
-([section 8](#8-open-design-questions)).
+which the Daml standard library marks as alpha.
 
 A signature can be presented any number of times, so each statement binds
 ledger state that the transaction using it changes:
@@ -1112,7 +1111,7 @@ external chain.
 | Outbound: clearance | The attesters deny the redemption | The gateway rejects the request, and the holding returns unburned | R1, R3 |
 | Outbound: burn | The submitting attester stalls | Another attester submits after the timeout. Nothing burns until one does | R1 |
 | Outbound: release | The release stalls | Any submitter, the holder included, presents the signed claim, and the escrow pays each claim once | R1, R2 |
-| Outbound: release | The destination becomes unpayable after the burn | None. This is an exception to R1 ([section 8](#8-open-design-questions)) | - |
+| Outbound: release | The destination becomes unpayable after the burn | None. This is an exception to R1 ([section 2](#2-requirements)) | - |
 
 Four failures cut across every stage. **The pause state is set**: new offers,
 burns, and refunds stop, paths that return value still run, and clearing the
@@ -1130,25 +1129,3 @@ step, for example by nonce or by a rotating leader, and another takes over a
 step that stays open past a timeout. That agreement saves traffic and is not a
 control: the nonce registry rejects a second submission for the same lock, and
 the loser treats the rejection as a no-op.
-
----
-
-## 8. Open Design Questions
-
-Each question is a decision to settle before implementation starts. The
-default is what the design above assumes, and the severity is how much of the
-design the answer moves. The internal team owns every question, and the super
-validators own the app-reward activation vote.
-
-| Question | Design default | Severity |
-|---|---|---|
-| **Attester set and quorum shape.** M, N, and how each attester keeps its signing key | N secp256k1 signatures over one EIP-712 statement, checked against the attester registry. M and N are unset | **High**, the largest trust surface in the design |
-| **Signature verification on an alpha library.** Whether a production deployment waits for `DA.Crypto.Text` to stabilize, and how a change to it reaches the gateway package | Verification with `DA.Crypto.Text` ([section 4.10](#410-attester-statements-and-control-enforcement)) | **High**, every statement check depends on it |
-| **Shape of the registry's mint and burn rights.** The grant shape that `token-cip112-v1` adds, and whether it bounds the mint per transaction or per period | A role grant the registry admin signs, naming `ba` and scoped to the bridge account, with no bound ([section 4.12](#412-registry-integration)) | **High**, the 1:1 backing claim rests on the sole mint path |
-| **Ownership of the compliance policy.** Which KYC providers count, which lists apply, which denials require a freeze, who sets that, how attesters adopt a change, and what record each keeps. Nothing makes the quorum apply one policy or lets an auditor check it | Each attester applies its own policy and keeps its own log | **High**, D1 and D3 are only as consistent as the policy behind them |
-| **Redirect of an unpayable claim.** Whether the holder can name a new destination after the burn, who signs that change, and how the old destination is kept from being paid too | No redirect. The attesters deny a destination that is invalid at the request ([section 4.7](#47-outbound-redemption)) | Medium, it bounds a loss to the redeeming holder |
-| **Deadline values.** The instruction lifetime, the deferred-offer lifetime, the attestation validity, the margin between external-chain finality and ledger time, and the attester turnaround | The gateway stamps its ceilings at creation ([section 4.9](#49-time-and-deadlines)) | Medium, the ceilings are stamped once |
-| **Fee and income values.** The fixed fee and the percentage in each direction, the income shares, the payout period, and how far ahead `ba` announces a change | A fixed fee to the submitting attester, a percentage split between `ba`, the attester pool, and a registry share of zero ([section 4.14](#414-traffic-costs-app-rewards-and-fees)) | Medium, an economic decision that moves no control |
-| **Submitter selection.** How the attester services pick the submitter of each step, and the takeover timeout | One submitter per step, chosen off-ledger ([section 7.4](#74-failure-modes-and-recovery)) | Low |
-| **Expiry of stale instructions.** One withdraw per lapsed instruction, or a batched gateway choice | One withdraw per instruction | Low |
-| **Throughput parameters.** How many messages one gateway transaction processes, and the epoch size `E`. A larger batch writes the nonce registry less often, and a failure delays more credits. A smaller `E` writes fewer bytes per mint, and a larger one creates fewer registries ([section 4.13](#413-throughput-and-contention)) | Unset. The first nonce registry fixes `E` | Low, it moves throughput and traffic and no control |
