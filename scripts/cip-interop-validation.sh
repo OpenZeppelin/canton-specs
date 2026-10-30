@@ -30,8 +30,8 @@ ledger_parse_args "$@"
 ledger_init cip-interop "$ROOT" \
 	"${OZ_LEDGER_LOG_DIR:-$ROOT/.cache/cip-interop-validation}"
 
-PKG_DIR="$ROOT/experiments/interoperability/cip-exemplar"
-DAR="$PKG_DIR/.daml/dist/openzeppelin-experimental-cip-interop-exemplar-0.1.0.dar"
+PKG_DIR="$ROOT/exemplars/interoperability/cip-exemplar"
+DAR="$PKG_DIR/.daml/dist/openzeppelin-cip-interop-exemplar-0.1.0.dar"
 
 ledger_require_command dpm
 ledger_require_java
@@ -73,7 +73,7 @@ SCRIPTS=(
 
 fail=0
 for s in "${SCRIPTS[@]}"; do
-	name="OpenZeppelin.Experimental.Interop.$s"
+	name="OpenZeppelin.Exemplar.Interop.$s"
 	log="$LEDGER_LOG_DIR/${s##*:}.log"
 	if (cd "$PKG_DIR" && dpm script --dar "$DAR" --script-name "$name" \
 		"${LEDGER_SCRIPT_ARGS[@]}" > "$log" 2>&1); then

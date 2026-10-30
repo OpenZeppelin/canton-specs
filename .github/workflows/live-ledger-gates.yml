@@ -60,7 +60,7 @@ jobs:
         with:
           node-version: "24"
           cache: npm
-          cache-dependency-path: experiments/interoperability/wallet-gateway/package-lock.json
+          cache-dependency-path: exemplars/interoperability/wallet-gateway/package-lock.json
 
       - name: Run Canton Wallet Gateway interoperability
         run: scripts/wallet-gateway-cip0103-interop.sh --localnet

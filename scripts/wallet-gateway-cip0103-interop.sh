@@ -2,7 +2,7 @@
 # CIP-0103 third-party interop gate: validates the OpenZeppelin CIP-0112
 # settlement surface against the Canton Wallet Gateway (the CIP-0103
 # implementation distributed through the published npm package), running as a
-# separate process from the experiment harness.
+# separate process from the exemplar harness.
 #
 #   scripts/wallet-gateway-cip0103-interop.sh              # dpm sandbox
 #   scripts/wallet-gateway-cip0103-interop.sh --localnet   # Canton LocalNet
@@ -13,10 +13,10 @@
 #        ^ JSON Ledger API
 #        |
 #   Wallet Gateway (@canton-network/wallet-gateway-remote, installed from the
-#   lockfile of experiments/interoperability/wallet-gateway)
+#   lockfile of exemplars/interoperability/wallet-gateway)
 #        ^ CIP-0103 dApp + user JSON-RPC on 3030
 #        |
-#   experiments/interoperability/wallet-gateway/harness.mjs (the dApp; wallet party is an
+#   exemplars/interoperability/wallet-gateway/harness.mjs (the dApp; wallet party is an
 #   externally-signed party held by the gateway's wallet-kernel signer)
 #
 # Phases:
@@ -92,10 +92,10 @@ ledger_require_java
 ledger_require_node
 ledger_require_tools
 
-PKG_DIR="$ROOT/experiments/interoperability/cip-exemplar"
-DAR="$PKG_DIR/.daml/dist/openzeppelin-experimental-cip-interop-exemplar-0.1.0.dar"
-MODULE="OpenZeppelin.Experimental.Interop.WalletGateway"
-GATEWAY_DIR="$ROOT/experiments/interoperability/wallet-gateway"
+PKG_DIR="$ROOT/exemplars/interoperability/cip-exemplar"
+DAR="$PKG_DIR/.daml/dist/openzeppelin-cip-interop-exemplar-0.1.0.dar"
+MODULE="OpenZeppelin.Exemplar.Interop.WalletGateway"
+GATEWAY_DIR="$ROOT/exemplars/interoperability/wallet-gateway"
 HARNESS="$GATEWAY_DIR/harness.mjs"
 
 GATEWAY_PORT="${OZ_GATEWAY_PORT:-3030}"

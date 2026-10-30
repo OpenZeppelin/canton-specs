@@ -25,7 +25,7 @@
 //   dapp-flow          connect, accept the mint offer, allocate + accept the request
 //   verify-wallet-view assert the wallet's post-settlement projection
 //
-// Scope: experimental interoperability validation. The harness makes no
+// Scope: interoperability exemplar. The harness makes no
 // conformance or production claim.
 
 import { createPublicKey, verify as cryptoVerify } from 'node:crypto'
@@ -51,9 +51,9 @@ const ADMIN_TOKEN = process.env.OZ_LEDGER_TOKEN_FILE
   ? readFileSync(process.env.OZ_LEDGER_TOKEN_FILE, 'utf8').trim()
   : null
 
-const PKG_INTEROP = '#openzeppelin-experimental-cip-interop-exemplar'
+const PKG_INTEROP = '#openzeppelin-cip-interop-exemplar'
 const PKG_TOKEN = '#openzeppelin-token-cip112-v1'
-const MOD_WALLET = 'OpenZeppelin.Experimental.Interop.Cip0103Wallet'
+const MOD_WALLET = 'OpenZeppelin.Exemplar.Interop.Cip0103Wallet'
 // The two templates that the dApp side creates or discloses, and the Token
 // Standard V2 interfaces, which are the wallet's whole surface: it never
 // names a template of the registry.
