@@ -107,21 +107,6 @@ D1 through D4 are local shorthand for four institutional controls.
 
 ---
 
-## 3. Status Quo
-
-Each inbound credit is one
-[CIP-0112](https://github.com/canton-foundation/cips/blob/main/cip-0112/cip-0112.md)
-**transfer instruction** that its recipient accepts, so a credit lands with
-the attested amount or not at all.
-
-`OpenZeppelin/canton-contracts` holds a [draft registry implementation](https://github.com/OpenZeppelin/canton-contracts/tree/6a916c174db7d6163ebeea4df1049044cefc7b3c/packages/token/token-cip112-v1/daml/OpenZeppelin/Token/Cip112/V1)
-of the Token Standard V2 interfaces, which this document uses as the example
-wTOK registry. Its transfers are private through per-party projection, with one
-exception: the **instrument admin** signs every holding and transfer
-instruction of its instrument.
-
----
-
 ## 4. Design
 
 ### 4.1 Overview
@@ -133,6 +118,16 @@ no Canton check can validate. Between the two, the token registry creates and
 completes every wTOK transfer, and the accept that credits the recipient is the
 registry's own choice. The attester services decide off-ledger which listed
 attester submits each step ([section 7.4](#74-failure-modes-and-recovery)).
+
+Each inbound credit is one
+[CIP-0112](https://github.com/canton-foundation/cips/blob/main/cip-0112/cip-0112.md)
+**transfer instruction** that its recipient accepts, so a credit lands with
+the attested amount or not at all. The **example registry** of this document
+is the [draft registry implementation](https://github.com/OpenZeppelin/canton-contracts/tree/6a916c174db7d6163ebeea4df1049044cefc7b3c/packages/token/token-cip112-v1/daml/OpenZeppelin/Token/Cip112/V1)
+of the Token Standard V2 interfaces in `OpenZeppelin/canton-contracts`. Its
+transfers are private through per-party projection, with one exception: the
+**instrument admin** signs every holding and transfer instruction of its
+instrument.
 
 **Happy path.** Inbound, the escrow locks a deposit on the external chain. The
 attesters sign one statement that attests the lock and clears it for
