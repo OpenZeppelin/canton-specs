@@ -123,7 +123,7 @@ D1 through D4 are local shorthand for four institutional controls.
 | Bridge admin, `ba` | The Canton party that signs the gateways and the bridge registries, holds the mint and burn rights, and owns the bridge account | [Section 3.2](#32-roles) |
 | Bridge account | The bridge admin's account at the token registry. The gateway mints into it and offers each credit from it | [Section 3.2](#32-roles) |
 | Bridge admin backend | An off-ledger process that serves bridge contracts to the attesters as disclosed contracts. It submits nothing | [Section 3.2](#32-roles) |
-| Messaging gateway | The bridge contract that checks an attested message, mints, and offers the credit | [Section 6.3](#63-inbound-credit) |
+| Mint gateway | The bridge contract that checks an attested message, mints, and offers the credit | [Section 6.3](#63-inbound-credit) |
 | Redemption gateway | The bridge contract that checks a redemption clearance, burns, and creates a claim | [Section 6.5](#65-outbound-redemption) |
 | Token registry | The Token Standard V2 implementation that issues wTOK and runs its transfers | [Section 3.1](#31-overview) |
 | wTOK admin, instrument admin | The token registry's admin party. It signs every wTOK holding and grants the bridge its rights | [Section 3.2](#32-roles) |
@@ -175,7 +175,7 @@ instrument.
 
 **Happy path.** Inbound, the escrow locks a deposit on the external chain. The
 attesters sign one statement that attests the lock and clears it for
-compliance, and one attester submits it to the messaging gateway. The gateway
+compliance, and one attester submits it to the mint gateway. The gateway
 checks the signatures, mints the amount into the bridge account, and offers it,
 less the fee, to the recipient as a transfer instruction, which the recipient
 accepts. Outbound, the holder offers its holding to the bridge account and
@@ -194,7 +194,7 @@ flowchart LR
         Backend["Bridge admin backend<br/>serves disclosed contracts"]
     end
     subgraph Canton["Canton"]
-        MG["Messaging gateway<br/>signed by ba"]
+        MG["Mint gateway<br/>signed by ba"]
         RG["Redemption gateway<br/>signed by ba"]
         Regs["Attester registry, nonce registry,<br/>pause state, fee schedule"]
         Reg["Token registry<br/>mint and burn rights, transfers"]
@@ -350,7 +350,7 @@ the example registry.
 | Redemption request, the holder's transfer instruction to the bridge account | The wTOK admin and the holder | `ba`, as the receiver's account owner |
 | Event log contract, created and archived in one transaction | The wTOK admin | None |
 | wTOK holding | The wTOK admin and the account's parties | The lock's observers, while locked |
-| Messaging gateway, redemption gateway, attester registry, nonce registry, pause state, fee schedule, deferred offer, redemption claim, refund claim | `ba` | None. A listed attester reads or exercises them through disclosure ([section 6.6](#66-registry-identity-and-uniqueness)) |
+| Mint gateway, redemption gateway, attester registry, nonce registry, pause state, fee schedule, deferred offer, redemption claim, refund claim | `ba` | None. A listed attester reads or exercises them through disclosure ([section 6.6](#66-registry-identity-and-uniqueness)) |
 | Pause role grant | `ba` | The current `pa` |
 | Transfer preapproval | The recipient | `ba`, the party it names to exercise it |
 
@@ -398,7 +398,7 @@ sequenceDiagram
     autonumber
     actor Attesters as ATTESTERS
     actor Recipient as RECIPIENT
-    participant App as Messaging gateway
+    participant App as Mint gateway
     participant Registry as Token registry
     participant Chain as External chain (lock escrow)
 
@@ -434,7 +434,7 @@ sequenceDiagram
    attesters have signed
    ([section 6.8](#68-attester-statements-and-control-enforcement)).
 
-2. **Gateway transaction.** A listed attester exercises the **messaging
+2. **Gateway transaction.** A listed attester exercises the **mint
    gateway**, which runs every bridge check in one choice, each failing
    closed: the pause state is clear and the attester registry lists the
    submitter; N listed attesters signed the message and its outcome is
@@ -569,7 +569,7 @@ redemption release.
 
 | Case | Condition | Path |
 |---|---|---|
-| Never minted | The attesters never signed, the message carries a denied outcome, the attestation expired, or a deferred offer was never converted | An attester presents the message to a close choice of the messaging gateway, which records the nonce as closed: at once for a denied outcome, after expiry for a cleared one, and at its deadline or against a late denial for a deferred offer. For a lock with no message, the attesters sign one with a denied outcome. A closed nonce never mints. Each attester then reads the nonce as closed and signs a **no-mint statement**, against which the escrow refunds the whole deposit |
+| Never minted | The attesters never signed, the message carries a denied outcome, the attestation expired, or a deferred offer was never converted | An attester presents the message to a close choice of the mint gateway, which records the nonce as closed: at once for a denied outcome, after expiry for a cleared one, and at its deadline or against a late denial for a deferred offer. For a lock with no message, the attesters sign one with a denied outcome. A closed nonce never mints. Each attester then reads the nonce as closed and signs a **no-mint statement**, against which the escrow refunds the whole deposit |
 | Minted, then returned | The holding is back in the bridge account | The redemption gateway burns the lock's recorded amount, marks the nonce refunded, and creates a **refund claim** that names the nonce, in one transaction. The escrow pays it only to the address that funded the lock, and once |
 | Held | A denial requires a freeze, for example a sanctions hit on the originator | The attesters withhold the no-mint statement or the refund claim, so the backing stays in the escrow. A returned credit under such a denial is still burned and the nonce marked held, with no claim. Releasing a held lock is a decision outside the bridge |
 
@@ -583,7 +583,7 @@ sequenceDiagram
 
     alt Never minted
         Note over Attesters,Chain: A denial, or the lock attestation expires with no mint.
-        Attesters->>Reg: Close the nonce through the messaging gateway
+        Attesters->>Reg: Close the nonce through the mint gateway
         Attesters->>Reg: Read the nonce of the lock
         Reg-->>Attesters: The nonce is closed
         Attesters->>Attesters: Sign the no-mint statement
@@ -910,7 +910,7 @@ meaning gets a separately named package and a migration or drain window.
 
 The bridge works with any token registry that implements the Token Standard V2
 transfer interfaces and grants two rights: a **mint right**, which lets the bridge admin
-mint into the bridge account and which the messaging gateway exercises only
+mint into the bridge account and which the mint gateway exercises only
 after every bridge check passes, and a **burn right**, which lets the bridge admin burn
 holdings in the bridge account for a redemption or for the refund of a
 returned credit. It also asks for a **sender-side withdraw that works after the
