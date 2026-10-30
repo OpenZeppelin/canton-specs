@@ -471,7 +471,7 @@ sequenceDiagram
     rect rgba(127, 127, 127, .15)
         Note over Attesters,Registry: Gateway transaction, submitted by one listed attester.<br/>The checks, the mint, and the offer commit together.
         Attesters->>App: Present the attested message with a quorum of signatures
-        App->>App: Check the pause state and that the attester registry lists<br/>the submitter, and check the owner and scope<br/>of each registry it is handed
+        App->>App: Check the pause state and that the attester registry lists<br/>the submitter, and check that ba signed<br/>each registry it is handed for this instrument
         App->>App: Verify the signatures against the registry's keys,<br/>and check the cleared outcome (D1, D3) and the lock attestation
         App->>App: Record the nonce in the nonce registry
         App->>Registry: Mint the attested amount into the<br/>bridge account, under the mint right
