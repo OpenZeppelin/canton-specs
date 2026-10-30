@@ -65,15 +65,8 @@ and Token Standard V1 wallets ([section 2.2](#22-scope),
 - **R1, no stuck or lost funds.** Every deposit locked on the external chain,
   and every holding offered for redemption, ends as value its owner holds on
   one of the two chains: a credit on Canton, a refund to the originator, or a
-  release to the holder's destination, less the bridge's fee. The exceptions:
-  - a lock or a returned credit held under a freeze that a compliance denial
-    requires, whose release is a decision outside the bridge;
-  - a redemption whose destination becomes unpayable after the burn;
-  - a pending credit that a registry seizes, under that registry's rules;
-  - a credited holding whose holder's participant unvets the registry's
-    packages;
-  - a trusted party that fails or misbehaves
-    ([section 4.2](#42-trust-boundaries)).
+  release to the holder's destination, less the bridge's fee.
+  [Section 5](#5-limitations) lists the cases this does not cover.
 - **R2, no unbacked credits.** The wTOK supply the bridge minted never exceeds
   the backing the escrow holds for it.
 - **R3, compliance.** No value enters or leaves the rail without the controls
@@ -309,8 +302,15 @@ each:
 
 ## 5. Limitations
 
-- **Exceptions to R1.** [Section 2](#2-requirements) lists the cases in
-  which value stays held or lost.
+- **Exceptions to R1.** Value stays held or is lost in five cases:
+  - a lock or a returned credit held under a freeze that a compliance denial
+    requires, whose release is a decision outside the bridge;
+  - a redemption whose destination becomes unpayable after the burn;
+  - a pending credit that a registry seizes, under that registry's rules;
+  - a credited holding whose holder's participant unvets the registry's
+    packages;
+  - a trusted party that fails or misbehaves
+    ([section 4.2](#42-trust-boundaries)).
 - **Late compliance denial.** A denial reached after the offer exists leaves
   one instruction deadline of exposure
   ([section 6.8](#68-attester-statements-and-control-enforcement)).
@@ -678,7 +678,7 @@ sequenceDiagram
    own chain, so a release to a refused address reverts and the claim stands.
    A destination that becomes unpayable after the burn leaves a standing claim
    that no submitter can release, and the design has no path that redirects it
-   ([section 2](#2-requirements)).
+   ([section 5](#5-limitations)).
 
 3. **Burn.** A listed attester exercises the **redemption gateway**, which
    checks the pause state and the submitter's listing, verifies the
@@ -1070,7 +1070,7 @@ external chain.
 | Outbound: clearance | The attesters deny the redemption | The gateway rejects the request, and the holding returns unburned | R1, R3 |
 | Outbound: burn | The submitting attester stalls | Another attester submits after the timeout. Nothing burns until one does | R1 |
 | Outbound: release | The release stalls | Any submitter, the holder included, presents the signed claim, and the escrow pays each claim once | R1, R2 |
-| Outbound: release | The destination becomes unpayable after the burn | None. This is an exception to R1 ([section 2](#2-requirements)) | - |
+| Outbound: release | The destination becomes unpayable after the burn | None. This is an exception to R1 ([section 5](#5-limitations)) | - |
 
 Five failures cut across every stage. **The pause state is set**: new offers,
 burns, and refunds stop, paths that return value still run, and clearing the
