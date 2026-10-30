@@ -45,19 +45,6 @@ minted unit is credited, locked in an offer with a deadline, or back in the
 bridge account with a refund path
 ([section 7.2](#72-failure-modes-and-recovery)).
 
-The ledger does not enforce four things, and a trusted party stands in for
-each:
-
-- that a redemption claim has a burn behind it
-  ([section 7.1](#71-threat-model));
-- that a holding a reject or an expiry returned belongs to the lock the
-  attesters bind it to ([section 6.4](#64-reserve-replay-and-refunds));
-- a compliance denial reached after the offer exists, which leaves one
-  instruction deadline of exposure
-  ([section 6.8](#68-attester-statements-and-control-enforcement));
-- one compliance policy across the attester set
-  ([section 4.2](#42-trust-boundaries)).
-
 ---
 
 ## 2. Requirements
@@ -236,6 +223,19 @@ rest on a trusted party.
 | Replay protection | One lock mints at most once, provided the nonce registry is the one `ba` maintains |
 | Privacy partitioning | A credited transfer projects only to its recipient, `ba`, the submitting attester, and the wTOK admin. No KYC provider observes a transfer |
 | Non-custodial recipient binding | No credit lands without the recipient's signature, live or carried by a preapproval. Until then the amount sits locked in the bridge's outgoing instruction, and no instruction exists without a deadline |
+
+The ledger does not enforce four things, and a trusted party stands in for
+each:
+
+- that a redemption claim has a burn behind it
+  ([section 7.1](#71-threat-model));
+- that a holding a reject or an expiry returned belongs to the lock the
+  attesters bind it to ([section 6.4](#64-reserve-replay-and-refunds));
+- a compliance denial reached after the offer exists, which leaves one
+  instruction deadline of exposure
+  ([section 6.8](#68-attester-statements-and-control-enforcement));
+- one compliance policy across the attester set
+  ([section 4.2](#42-trust-boundaries)).
 
 ### 4.2 Trust Boundaries
 
