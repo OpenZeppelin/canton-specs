@@ -3,16 +3,12 @@
 This directory contains durable architecture material produced by the Canton
 research workspace.
 
-## Reference architectures
+## [Reference architectures](reference-architectures/README.md)
 
 - [Privacy-preserving DEX](reference-architectures/dex.md)
 - [Institutional lending](reference-architectures/lending.md)
 - [Cross-chain stablecoin payments](reference-architectures/cross-chain-stablecoin.md)
 - [Confidential auction](reference-architectures/confidential-auction.md)
-
-The [reference architecture index](reference-architectures/README.md) explains
-their shared foundation: the CIP-0112 token package, the interoperability
-exemplars, and the cross-chain bridge prototype.
 
 ## Milestone delivery
 
