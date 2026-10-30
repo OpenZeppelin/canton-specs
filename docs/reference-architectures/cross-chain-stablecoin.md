@@ -101,7 +101,7 @@ D1 through D4 are local shorthand for four institutional controls.
 | The Canton side of the bridge: attested mint, private transfer, attested burn | The attester services, the lock escrow, external oracles, external-chain validator sets, and light-client proofs |
 | The mint and burn rights the bridge asks of a token registry | The token registry itself, its admin's key custody, and any mint path outside the bridge's grant |
 | The gateway checks that deny a credit or a redemption without the attesters' clearance | The compliance and KYC checks the attester services run before they sign |
-| CIP-0112 two-step transfers: the transfer instruction, its accept, and a transfer preapproval that automates the accept | Token Standard V1 (CIP-0056), and the CIP-0112 allocation and settlement-batch path ([section 6](#6-alternatives-considered)) |
+| CIP-0112 two-step transfers: the transfer instruction, its accept, and a transfer preapproval that automates the accept | Token Standard V1 (CIP-0056), and the CIP-0112 allocation and settlement-batch path |
 | One Canton synchronizer, one external chain, one instrument | Cross-synchronizer settlement, and backing one instrument from several chains |
 | The controls the bridge enforces itself: D1 and D4 | Seizure (D2), the KYC check itself (D3), and any control over a wTOK holding after it is credited |
 
@@ -674,20 +674,13 @@ nothing by rigging a list that only its own gateway reads, because it already
 holds the mint right, and the escrow verifies attester signatures against its
 own keys, so the Canton registry cannot weaken a release or a refund.
 
-**Signed statements.** Every attester statement is an
-[EIP-712](https://eips.ethereum.org/EIPS/eip-712) typed message, not a
-contract: the attested message, the re-offer attestation, the redemption
-clearance, the return attestation, the late denial, and the release
-confirmation. Each attester signs with its secp256k1 key, and the attester
-services pass the signatures among themselves until N listed attesters have
-signed. The submitter presents the statement and its signatures as arguments
-of a gateway choice, and the gateway checks that the attester registry lists
-the submitter, verifies each signature against the registered key, and fails
-unless N distinct listed attesters signed. The EIP-712 domain names the
-deployment, `ba`, the instrument, and the escrow, so a signature for one
-deployment or one statement type never verifies for another. The gateway
-verifies with the `keccak256` and secp256k1 functions of `DA.Crypto.Text`,
-which the Daml standard library marks as alpha.
+**Signed statements.** The attesters collect N signatures off-ledger, and the submitter
+presents the statement and its signatures as arguments of a gateway choice,
+which verifies each signature against the key the attester registry holds and
+fails unless N distinct listed attesters signed. Each statement carries its
+type, the deployment, `ba`, the instrument, and the escrow under the
+signature, so a signature for one deployment or one statement type never
+verifies for another.
 
 A signature can be presented any number of times, so each statement binds
 ledger state that the transaction using it changes:
@@ -790,7 +783,7 @@ The token registry's packages follow the registry's own lineage. Two
 consequences are specific to the rail. The identity checks of
 [section 4.8](#48-registry-identity-and-uniqueness) read required fields, so
 the nonce registry's epoch and `E` must exist from the first deployment. Each
-statement's EIP-712 type is part of what the attesters sign, so a release that
+statement's type is part of what the attesters sign, so a release that
 changes a statement's fields keeps accepting the previous type until every
 statement signed under it has expired, and a rollout alone never voids a signed
 attestation or drains a lock.
@@ -933,6 +926,9 @@ the reserve invariant holds.
 - **Registry coupling.** The registry adapter calls the registry's own
   templates until a Token Standard V2 burn-mint interface exists
   ([section 4.12](#412-registry-integration)).
+- **Alpha cryptography.** On-ledger verification of the attester signatures
+  depends on functions the Daml standard library marks as alpha
+  ([section 4.10](#410-attester-statements-and-control-enforcement)).
 - **One synchronizer, one external chain, one instrument.**
 - **Privacy on the external chain.** The lock is a public transaction that
   must carry enough data to route the transfer on Canton. Hiding the link to
@@ -999,7 +995,7 @@ different trust model, and this design does not cover it.
 | A mint with no lock behind it | The mint checks ([section 4.6](#46-reserve-replay-and-refunds)). Only the quorum, `ba`, and the wTOK admin can still mint unbacked supply ([section 7.2](#72-trust-boundaries)) |
 | `ba` creates a redemption claim with no burn behind it | An attester signs a claim only against a clearance it issued, once, so such a claim pays only a real request's destination, and value leaves twice only if the holder colludes with `ba` |
 | A used message is submitted again, or the attesters sign a second one for the same lock | The nonce registry rejects a recorded nonce, whatever the attesters sign |
-| A signature is reused for another statement type, deployment, or use | The EIP-712 domain and the single-use binding ([section 4.10](#410-attester-statements-and-control-enforcement)) |
+| A signature is reused for another statement type, deployment, or use | The deployment and type binding and the single-use binding ([section 4.10](#410-attester-statements-and-control-enforcement)) |
 | Two versions of a registry are active and the submitter picks one | The maintainer and scope checks ([section 4.8](#48-registry-identity-and-uniqueness)), and a rotation archives the version it replaces |
 | The escrow refunds a lock whose credit stands on Canton | Refund exclusivity ([section 4.6](#46-reserve-replay-and-refunds)). The residual is a wrong return-attestation binding, which swaps value between two locks of the same amount and needs a colluding quorum or hosts of `ba` that serve N attesters false events |
 | A credit is forced onto an unwilling recipient | No credit lands without the accept. Pending offers can fill a wallet, but each costs a quorum-signed message and the submitter's traffic |
