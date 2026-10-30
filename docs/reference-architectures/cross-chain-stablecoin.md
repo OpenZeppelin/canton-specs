@@ -1002,46 +1002,30 @@ gateway transactions read, so rotations run in a scheduled window.
 
 ### 6.11 Traffic Costs, App Rewards, and Fees
 
-**Traffic.** An inbound payment costs its share of one gateway batch and one
-accept ([traffic accounting](https://docs.canton.network/overview/reference/tokenomics-of-gs)).
-The gateway transaction is the heaviest: it carries the attested message with
-its N signatures, the nonce registry write, the mint, and the offer. The
-attesters pay for it and for every other transaction but a live accept and a
-redemption request, each for the transactions it submits. Every attester
-statement travels inside the transaction that uses it, so no statement costs a
-transaction of its own.
+**Traffic.** Each party pays for the transactions it submits
+([traffic accounting](https://docs.canton.network/overview/reference/tokenomics-of-gs)).
+The attesters submit the gateway transactions, which are the heaviest, and
+every other step except a live accept and a redemption request. Attester
+statements travel inside the transactions that use them, so no statement costs
+a transaction of its own.
 
-**App rewards.** The rail earns traffic-based app rewards
+**App rewards.** Under traffic-based app rewards
 ([CIP-0104](https://github.com/canton-foundation/cips/blob/main/cip-0104/cip-0104.md)),
-once the super validators vote them on. It holds two statuses, each on its own
-party behind its own CC lock ([featured app guidance](https://lists.sync.global/g/tokenomics-announce/message/397),
-[CIP-0116](https://github.com/canton-foundation/cips/blob/main/cip-0116/cip-0116.md)):
-`ba` holds the Featured App status as the bridge protocol's party, and the
-wTOK admin holds wTOK's Featured Asset status, applied for and funded by the
-registry's operator. The submitting attester holds no right, so its share of
-each gateway transaction goes to `ba`, and the mint and offer nested inside
-pay `ba` and the wTOK admin. No attester holds a featured status, so a rotation
-changes none. The fee, not the reward, carries the attesters' traffic.
+`ba` holds the Featured App status for the bridge, and the wTOK admin holds
+wTOK's Featured Asset status, each on its own party behind its own CC lock
+([featured app guidance](https://lists.sync.global/g/tokenomics-announce/message/397),
+[CIP-0116](https://github.com/canton-foundation/cips/blob/main/cip-0116/cip-0116.md)).
+No attester holds a featured status, so a rotation changes no reward setup.
 
-**Fees.** The bridge charges a fee on each inbound credit and each redemption
-and deducts it from the amount the payment carries, so neither the originator
-nor the holder needs Canton Coin. The attesters deny a lock or a request that
-does not exceed the fee. A lock that never minted is refunded in full, and a
-credit that comes back keeps its inbound fee, because its gateway transaction
-already ran. One **fee schedule** contract that `ba` maintains sets the values
-and the income shares, and the gateways read it like the pause state. Each fee
-has a **fixed part**, paid in the same transaction to the attester that submits
-it, so the attester that paid the traffic is repaid without depending on `ba`.
-Transactions that move no wTOK, such as a close or a withdraw, carry no fee, so
-the fixed part covers them on average. The **percentage part**, together with
-`ba`'s app rewards, is the bridge's income, split between `ba`, an attester
-pool, and the registry. The gateway pays the shares into accounts of `ba` kept
-apart from the bridge account, so the pool's balance is visible on-ledger, and
-`ba` pays the pool out each period in equal shares to the attesters listed
-during it. The registry share defaults to zero, because the wTOK admin earns
-its own app rewards, and exists for a third-party registry that carries wTOK's
-issuer lock and asks to be paid. Fees are ordinary wTOK holdings that a deposit
-backs, so the reserve invariant holds.
+**Fees.** The bridge deducts a fee from each inbound credit and each
+redemption, so neither the originator nor the holder needs Canton Coin. A
+**fee schedule** contract that `ba` maintains sets the values. The **fixed
+part** of each fee goes to the submitting attester in the same transaction and
+repays its traffic. The **percentage part**, together with `ba`'s app rewards,
+is the bridge's income. It is shared between `ba`, an attester pool that `ba`
+pays out each period, and optionally the registry. A lock that never minted is
+refunded in full. Fees are ordinary wTOK that a deposit backs, so the reserve
+invariant holds.
 
 ---
 
