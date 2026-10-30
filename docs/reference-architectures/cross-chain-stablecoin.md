@@ -927,22 +927,15 @@ holdings move to the new party's account.
 
 ### 6.8 Smart Contract Upgrade Process
 
-The rail uses Smart Contract Upgrade (SCU) for additive changes to its own
-gateway and registry packages, under the rules of the
-[Canton SCU guide](https://docs.canton.network/appdev/deep-dives/smart-contract-upgrade).
-The token registry's packages follow the registry's own lineage. Two
-consequences are specific to the rail. The gateway's checks on the bridge
-contracts it reads use required fields, so the nonce registry's epoch and `E`
-must exist from the first deployment. Each
-statement's type is part of what the attesters sign, so a release that
-changes a statement's fields keeps accepting the previous type until every
-statement signed under it has expired, and a rollout alone never voids a signed
-attestation or drains a lock.
-
-Each release defines what each new `Optional` field means for v1 state, with
-`None` meaning the feature is off until configured. A change to a mint or burn
-authority, a key shape, the party set, the reserve invariant, or a message's
-meaning gets a separately named package and a migration or drain window.
+The rail's own packages take additive changes through Smart Contract Upgrade,
+under the [Canton SCU guide](https://docs.canton.network/appdev/deep-dives/smart-contract-upgrade).
+The token registry's packages follow the registry's own releases. Two rules
+are specific to the rail. The nonce registry's epoch and `E` exist from the
+first deployment, because the gateway checks them. A release that changes a
+statement's fields keeps accepting the previous statement type until every
+statement signed under it has expired. A change to the mint or burn rights,
+the party set, the reserve invariant, or what a statement means is a new
+package with a migration window.
 
 ### 6.9 Registry Integration
 
