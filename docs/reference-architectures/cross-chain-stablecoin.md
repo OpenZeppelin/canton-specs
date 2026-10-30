@@ -377,7 +377,7 @@ with a confirmation threshold**.
 | Role | Target posture | Trusted with | Who submits in its name |
 |---|---|---|---|
 | Attesters | M parties, one per organization, each on its own participant with its own key. Every check requires N of M signatures, never all M | As a quorum, every external-chain fact and every compliance and KYC verdict. One attester alone can only delay a step | Each attester service, as its own party |
-| `ba` | Multi-hosted on M participants of independent organizations, confirmation threshold N. N and M are open | The mint and burn rights, the bridge account, both registries, the fee schedule, and the bridge's income | Nothing on the payment path: its authority enters each gateway transaction as the gateway's signatory. One host submits its setup, rotations, and payouts, and N hosts confirm |
+| `ba` | Multi-hosted on M participants of independent organizations, confirmation threshold N. N and M are open | The mint and burn rights, the bridge account, both registries, the fee schedule, and the bridge's income | No one on the payment path: its authority enters each gateway transaction as the gateway's signatory, and N of its hosts confirm every one. One host submits its setup, rotations, and payouts, and N hosts confirm |
 | wTOK admin | Set by the token registry | Every holding of its instrument, so it can mint outside the bridge | The registry |
 | `pa` | One multi-hosted party, confirmation threshold 1, held by organizations outside the attester set | Stopping the supply paths at once, so a party outside the attester set can stop a compromised quorum. A malicious `pa` stalls the rail until `ba` revokes its grant | Any host |
 | Recipients | None | Their own keys | The recipient's wallet, or the gateway under a transfer preapproval |
@@ -1067,7 +1067,7 @@ external chain.
 | Outbound: release | The release stalls | Any submitter, the holder included, presents the signed claim, and the escrow pays each claim once | R1, R2 |
 | Outbound: release | The destination becomes unpayable after the burn | None. This is an exception to R1 ([section 2](#2-requirements)) | - |
 
-Four failures cut across every stage. **The pause state is set**: new offers,
+Five failures cut across every stage. **The pause state is set**: new offers,
 burns, and refunds stop, paths that return value still run, and clearing the
 pause resumes the rail. **The synchronizer is down**: nothing commits, and an
 offer that lapsed during the outage is re-offered before it is refunded. **The
@@ -1075,7 +1075,12 @@ wTOK admin's participant is down**: no mint, transfer, or burn commits, because
 the wTOK admin signs every holding. **The bridge admin backend is down**: the
 attesters receive no new registry versions, requests, or transfer events
 through it, gateway transactions continue until a rotation or a pause flip, and
-the backend restarts on any participant that hosts the bridge admin.
+the backend restarts on any participant that hosts the bridge admin. **Fewer
+than N hosts of the bridge admin are available**: no gateway transaction
+commits, because the bridge admin signs both gateways and every registry they
+read. The registry's own accept, reject, and expiry still run, and an offer
+that lapses meanwhile is re-offered before it is refunded, as after a
+synchronizer outage.
 
 **Submitter selection.** The gateway accepts any listed attester as the
 submitter. The attester services coordinate off-ledger which attester submits
