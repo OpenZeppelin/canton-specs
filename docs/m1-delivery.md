@@ -2,7 +2,7 @@
 
 This document maps each Milestone 1 delivery element and acceptance criterion of the [approved proposal](https://github.com/canton-foundation/canton-dev-fund/blob/8651b0feba59c6e6a2bad8fe50da965b66441de4/proposals/2026-04-OpenZeppelin-canton-ecosystem-stack.md) (Quarter 1: 14 May to 13 August 2026) to its artifact and its validation command.
 
-`canton-contracts` links are pinned at [`6a916c1`](https://github.com/OpenZeppelin/canton-contracts/tree/6a916c174db7d6163ebeea4df1049044cefc7b3c), the commit of the DARs that the exemplars in this repository consume. Reference architecture links are pinned at [`00ea2e7`](https://github.com/OpenZeppelin/canton-specs/tree/main/docs/reference-architectures).
+`canton-contracts` links are pinned at [`6a916c1`](https://github.com/OpenZeppelin/canton-contracts/tree/6a916c174db7d6163ebeea4df1049044cefc7b3c), the commit of the DARs that the exemplars in this repository consume. Reference architecture links point to the canton-specs [`main`](https://github.com/OpenZeppelin/canton-specs/tree/main/docs/reference-architectures) branch.
 
 ## Delivery elements
 
