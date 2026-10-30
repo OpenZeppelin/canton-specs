@@ -522,7 +522,10 @@ sequenceDiagram
    resolves.
 
    The recipient's participant confirms nothing at this step, so an offline
-   recipient sees the offer when it returns. A listed attester withdraws the
+   recipient sees the offer when it returns. The recipient is an observer of
+   the instruction, though, so its participant must have vetted the packages
+   even though it does not confirm. The batch rules below cover a participant
+   that has not. A listed attester withdraws the
    instruction through a gateway choice, under the rules of
    [section 6.8](#68-attester-statements-and-control-enforcement).
 
