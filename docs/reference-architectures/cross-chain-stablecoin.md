@@ -379,6 +379,9 @@ transactions confirmable inside each deadline.
 - **Alpha cryptography.** On-ledger verification of the attester signatures
   depends on functions the Daml standard library marks as alpha
   ([section 6.8](#68-attester-statements-and-control-enforcement)).
+- **Token Standard V2 only.** Recipients and holders need a wallet that
+  supports Token Standard V2 transfers. A wallet that supports only V1
+  (CIP-0056) cannot accept a credit or redeem wTOK through this rail.
 - **One synchronizer, one external chain, one instrument.**
 - **Privacy on the external chain.** The lock is a public transaction that
   must carry enough data to route the transfer on Canton. Hiding the link to
