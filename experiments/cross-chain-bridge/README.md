@@ -66,18 +66,26 @@ about ten minutes with the container images already pulled.
 
 ## Design mapping
 
+The prototype predates two changes to the proposal. The proposal has merged
+the relayer role `br` into the attesters, so a listed attester submits each
+gateway transaction, and it has moved attester statements off-ledger, so a
+statement travels as a signed argument of the gateway choice. The prototype
+still has `br` as the submitter, with a relayer grant where the proposal has
+an attester registry listing, and it keeps co-signed attestation contracts on
+the ledger. The left column names the proposal's current terms and sections.
+
 | Proposal | Prototype |
 |---|---|
-| Mint right and burn right (section 4.13) | `BridgeSupplyRight` in `RegistryAdapter.daml`: the wTOK admin signs it and it names `ba`. Its mint choice exercises the registry's admin mint offer into the bridge account and accepts it as `ba` in the same choice. Its burn choice completes a transfer through the registry's transfer factory in one step, with `ba` and the wTOK admin as actors, from the bridge account to the CIP-0112 burn account. Archiving it revokes both rights |
-| Attested message with the lock attestation (section 4.5) | `AttestedMessage` in `Attestations.daml`: one co-signed contract per message. The first attester creates it through `AttesterRegistry_AttestLock`, the attesters listed at that moment observe it, each further observer adds itself through `AttestedMessage_Sign`, and only a gateway choice consumes it |
-| Compliance attestation (sections 4.5 and 4.10) | `ComplianceAttestation`, created through `AttesterRegistry_AttestCompliance` and co-signed the same way, bound to an inbound credit or to a redemption request through `ComplianceSubject`, with the KYC assertion, the ledger-stamped `issuedAt`, and an expiry |
-| Attester registry (section 4.10) | `AttesterRegistry` in `Attestations.daml`, with its maintainer field, its read choice, and the two creating choices. A creator may name a subset of at least N listed attesters as observers |
-| Nonce registry and pause state (section 4.8) | `NonceRegistry` and `BridgePauseState` in `Registries.daml`, each with its maintainer and scope fields. The nonce registry carries the epoch size `E`, which caps the number of nonces it holds. Its own write refuses a nonce of another epoch. Its `Minted` and `Returned` states carry a `LockRecord`: the lock's amount and recipient, and whether the credit was offered once more. `Returned` also records the holding a gateway withdraw brought back and the time of that withdraw. The nonce registry's read choice serves a listed attester. |
-| Messaging gateway (section 4.5) | `MessagingGateway` with `_Process`, `_Withdraw`, `_Close`, and `_Reoffer` |
-| Redemption gateway (section 4.7) | `RedemptionGateway` with `_Process`, `_Reject`, `_Refund`, `_Hold`, and `_ArchiveClaim` |
-| Redemption claim and refund claim (section 4.7) | `BridgeClaim` in `Claims.daml`, with a payout variant for each, and `ReleaseConfirmation`, the co-signed attester contract that lets `br` archive a released claim. The first attester creates the confirmation through `BridgeClaim_Confirm`, under the same observer rule |
-| Transfer preapproval (section 4.5) | `TransferPreapproval` in `Preapproval.daml`: recipient-signed, bounded by instrument, amount ceiling, expiry, and delegate |
-| Relayer role and pause role (section 4.10) | `AuthorizationGrant` contracts from `openzeppelin-scoped-authorization-grant-v1`, with the scopes in `Policy.daml`. Every `br` choice on both gateways checks the relayer grant |
+| Mint right and burn right (section 6.10) | `BridgeSupplyRight` in `RegistryAdapter.daml`: the wTOK admin signs it and it names `ba`. Its mint choice exercises the registry's admin mint offer into the bridge account and accepts it as `ba` in the same choice. Its burn choice completes a transfer through the registry's transfer factory in one step, with `ba` and the wTOK admin as actors, from the bridge account to the CIP-0112 burn account. Archiving it revokes both rights |
+| Attested message with the lock attestation (section 6.3) | `AttestedMessage` in `Attestations.daml`: one co-signed contract per message. The first attester creates it through `AttesterRegistry_AttestLock`, the attesters listed at that moment observe it, each further observer adds itself through `AttestedMessage_Sign`, and only a gateway choice consumes it |
+| Compliance outcome and redemption clearance (sections 6.3, 6.5, and 6.8) | `ComplianceAttestation`, created through `AttesterRegistry_AttestCompliance` and co-signed the same way, bound to an inbound credit or to a redemption request through `ComplianceSubject`, with the KYC assertion, the ledger-stamped `issuedAt`, and an expiry |
+| Attester registry (section 6.8) | `AttesterRegistry` in `Attestations.daml`, with its maintainer field, its read choice, and the two creating choices. A creator may name a subset of at least N listed attesters as observers |
+| Nonce registry and pause state (sections 6.4 and 6.6) | `NonceRegistry` and `BridgePauseState` in `Registries.daml`, each with its maintainer and scope fields. The nonce registry carries the epoch size `E`, which caps the number of nonces it holds. Its own write refuses a nonce of another epoch. Its `Minted` and `Returned` states carry a `LockRecord`: the lock's amount and recipient, and whether the credit was offered once more. `Returned` also records the holding a gateway withdraw brought back and the time of that withdraw. The nonce registry's read choice serves a listed attester. |
+| Mint gateway (section 6.3) | `MessagingGateway` with `_Process`, `_Withdraw`, `_Close`, and `_Reoffer` |
+| Redemption gateway (section 6.5) | `RedemptionGateway` with `_Process`, `_Reject`, `_Refund`, `_Hold`, and `_ArchiveClaim` |
+| Redemption claim and refund claim (sections 6.4 and 6.5) | `BridgeClaim` in `Claims.daml`, with a payout variant for each, and `ReleaseConfirmation`, the co-signed attester contract that lets `br` archive a released claim. The first attester creates the confirmation through `BridgeClaim_Confirm`, under the same observer rule |
+| Transfer preapproval (section 6.3) | `TransferPreapproval` in `Preapproval.daml`: recipient-signed, bounded by instrument, amount ceiling, expiry, and delegate |
+| Submitter listing and pause role (section 6.8) | `AuthorizationGrant` contracts from `openzeppelin-scoped-authorization-grant-v1`, with the scopes in `Policy.daml`. Every `br` choice on both gateways checks the relayer grant |
 
 Decisions the prototype makes that the proposal does not state:
 
