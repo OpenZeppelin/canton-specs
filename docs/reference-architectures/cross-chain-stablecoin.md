@@ -4,8 +4,7 @@ This reference architecture defines the Canton side of a stablecoin bridge,
 which this document calls the rail. An attested lock on an external chain mints
 a wrapped instrument on Canton, and a burn on Canton releases the backing on
 that chain. Sections 1 to 5 give the whole picture. Section 6 is the detailed
-design, section 7 the threat model and failure recovery, and section 8 the
-values a deployment sets.
+design, and section 7 the threat model and failure recovery.
 
 > NOTE: This document calls the other chain the **external chain** in both
 > directions, and the wrapped instrument **wTOK**. wTOK stands for any
@@ -1169,21 +1168,3 @@ synchronizer outage.
 **Submitter selection.** The gateway accepts any listed attester as the
 submitter. The attester services coordinate off-ledger which attester submits
 each step.
-
----
-
-## 8. Parameters
-
-The design leaves these values to the deployment.
-
-| Parameter | Meaning | Section |
-|---|---|---|
-| M | The number of attesters | [6.2](#62-decentralization-and-trust-topology) |
-| N | How many attesters must sign a statement, and how many of `ba`'s hosts must confirm a transaction | [6.2](#62-decentralization-and-trust-topology) |
-| `E` | How many consecutive nonces one nonce registry covers | [6.4](#64-reserve-replay-and-refunds) |
-| Instruction deadline | How long a recipient has to accept an offer, within the registry's maximum instruction lifetime | [6.7](#67-time-and-deadlines) |
-| Deferred-offer deadline | How long a deferred offer waits for the recipient's participant | [6.7](#67-time-and-deadlines) |
-| Maximum attestation validity | The longest any attester statement stays usable | [6.8](#68-attester-statements-and-control-enforcement) |
-| Request deadline and release window | How long a redemption request waits for clearance, and how long a release may take | [6.7](#67-time-and-deadlines) |
-| Fees | The fixed part, the percentage part, and the income shares of `ba`, the attester pool, and the registry | [6.12](#612-traffic-costs-app-rewards-and-fees) |
-| Pause authority | The party that holds the pause role grant | [6.8](#68-attester-statements-and-control-enforcement) |
