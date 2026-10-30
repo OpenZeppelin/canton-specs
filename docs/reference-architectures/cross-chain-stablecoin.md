@@ -267,23 +267,9 @@ Consequences:
 
 ### 4.4 Decentralization and Trust Topology
 
-Canton offers three routes to an N-of-M party, and the choice is open
-([section 8](#8-open-design-questions)): an **on-ledger approval workflow**, a
-[Multiple Party Agreement](https://docs.canton.network/appdev/modules/m3-design-patterns#multiple-party-agreement)
-in Daml whose approvals are auditable on-ledger; an **external party with
-threshold signing keys**, where N of M keys held by independent organizations
-sign each transaction and the Daml code never sees it, with the
-[Bitsafe decentralization-manager](https://github.com/DLC-link/decentralization-manager)
-as one candidate; and a **multi-hosted party with a confirmation threshold**,
-where M participants host the party and N must confirm, so the trust sits with
-the participant operators.
-
-**Decision.** `ba` holds everything that decides whether bridge-minted supply
-is legitimate: the mint right, the attester registry that every gateway check
-reads, and the nonce registry that limits each lock to one mint. Moving either
-registry to another party would add a second key that can break the reserve
-without being able to mint, so the design keeps all three with `ba` and
-protects `ba` with an N-of-M posture.
+`ba` holds everything that decides whether bridge-minted supply is legitimate.
+The design protects `ba` with an N-of-M posture using **multi-hosted party with
+a confirmation threshold**.
 
 | Role | Target posture | Trusted with | Who submits in its name |
 |---|---|---|---|
@@ -1200,7 +1186,6 @@ validators own the app-reward activation vote.
 |---|---|---|
 | **Attester set and quorum shape.** M, N, and how each attester keeps its signing key | N secp256k1 signatures over one EIP-712 statement, checked against the attester registry. M and N are unset | **High**, the largest trust surface in the design |
 | **Signature verification on an alpha library.** Whether a production deployment waits for `DA.Crypto.Text` to stabilize, and how a change to it reaches the gateway package | Verification with `DA.Crypto.Text` ([section 4.10](#410-attester-statements-and-control-enforcement)) | **High**, every statement check depends on it |
-| **Multisig for `ba`.** Which of the three routes of [section 4.4](#44-decentralization-and-trust-topology), and its N, M, and confirmation threshold | N-of-M across independent organizations, route unset | **High**, it sets the key custody of the role that can break the reserve |
 | **Shape of the registry's mint and burn rights.** The grant shape that `token-cip112-v1` adds, and whether it bounds the mint per transaction or per period | A role grant the registry admin signs, naming `ba` and scoped to the bridge account, with no bound ([section 4.12](#412-registry-integration)) | **High**, the 1:1 backing claim rests on the sole mint path |
 | **Ownership of the compliance policy.** Which KYC providers count, which lists apply, which denials require a freeze, who sets that, how attesters adopt a change, and what record each keeps. Nothing makes the quorum apply one policy or lets an auditor check it | Each attester applies its own policy and keeps its own log | **High**, D1 and D3 are only as consistent as the policy behind them |
 | **Redirect of an unpayable claim.** Whether the holder can name a new destination after the burn, who signs that change, and how the old destination is kept from being paid too | No redirect. The attesters deny a destination that is invalid at the request ([section 4.7](#47-outbound-redemption)) | Medium, it bounds a loss to the redeeming holder |
