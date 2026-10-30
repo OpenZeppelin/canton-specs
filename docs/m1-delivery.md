@@ -34,7 +34,7 @@ This document maps each Milestone 1 delivery element and acceptance criterion of
 
 ## Acceptance criteria
 
-Validated on 2026-10-29 at canton-specs `main` (`00ea2e7`) and canton-contracts `6a916c1`.
+Validated on 2026-10-29 at canton-specs `main` and canton-contracts `6a916c1`.
 
 | Criterion | Status | Evidence |
 | --- | --- | --- |
