@@ -268,13 +268,13 @@ Consequences:
 ### 4.4 Decentralization and Trust Topology
 
 `ba` holds everything that decides whether bridge-minted supply is legitimate.
-The design protects `ba` with an N-of-M posture using **multi-hosted party with
-a confirmation threshold**.
+The design protects `ba` with an N-of-M posture using a **multi-hosted party
+with a confirmation threshold**.
 
 | Role | Target posture | Trusted with | Who submits in its name |
 |---|---|---|---|
 | Attesters | M parties, one per organization, each on its own participant with its own key. Every check requires N of M signatures, never all M | As a quorum, every external-chain fact and every compliance and KYC verdict. One attester alone can only delay a step | Each attester service, as its own party |
-| `ba` | N-of-M across independent organizations, by one of the routes above. Route, N, and M are open | The mint and burn rights, the bridge account, both registries, the fee schedule, and the bridge's income | Nothing on the payment path: its authority enters each gateway transaction as the gateway's signatory. Setup, rotations, and payouts are its own transactions |
+| `ba` | Multi-hosted on M participants of independent organizations, confirmation threshold N. N and M are open | The mint and burn rights, the bridge account, both registries, the fee schedule, and the bridge's income | Nothing on the payment path: its authority enters each gateway transaction as the gateway's signatory. One host submits its setup, rotations, and payouts, and N hosts confirm |
 | wTOK admin | Set by the token registry | Every holding of its instrument, so it can mint outside the bridge | The registry |
 | `pa` | One multi-hosted party, confirmation threshold 1, held by organizations outside the attester set | Stopping the supply paths at once, so a party outside the attester set can stop a compromised quorum. A malicious `pa` stalls the rail until `ba` revokes its grant | Any host |
 | Recipients | None | Their own keys | The recipient's wallet, or the gateway under a transfer preapproval |
@@ -1103,7 +1103,7 @@ different trust model, and this design does not cover it.
 |---|---|
 | Attester set | Attests only a finalized lock with the true amount, recipient, and instrument. Clears only a recipient or holder that passed KYC. Signs a claim only against a clearance it issued, once; a no-mint statement only after reading the nonce as closed; a return attestation only for a holding the bridge account's events show returning from that lock. A colluding quorum mints unbacked supply or releases live backing, and whoever holds N listed keys is the quorum. This is the largest trust surface in the design |
 | Submitting attester | Submits each step once. It cannot change an amount or a recipient, and every outcome needs a quorum statement, a deadline, or the pause, so a faulty submitter delays a step rather than misdirecting it. Withholding a cleared message until its attestation expires turns the lock into a refund, and refunding a returned credit before the re-offer attestation arrives skips the second offer. Neither breaks the reserve |
-| `ba` | Exercises the mint and burn rights only through the gateways, keeps one active version of each registry, and pays the attester pool out each period. A compromised quorum of its keys mints unbacked supply, moves a returned holding, or creates a claim with no burn, which is why the role is N-of-M. Its hosts serve the transfer events the attesters bind returned credits with. A withheld payout is visible on-ledger, but no contract forces it |
+| `ba` | Exercises the mint and burn rights only through the gateways, keeps one active version of each registry, and pays the attester pool out each period. N compromised hosts mint unbacked supply, move a returned holding, or create a claim with no burn, which is why the role is N-of-M. Its hosts serve the transfer events the attesters bind returned credits with. A withheld payout is visible on-ledger, but no contract forces it |
 | wTOK admin | Mints the instrument only through the bridge's rights. A compromised key issues unbacked supply, because it signs every holding |
 | KYC providers | Report KYC status truthfully. The check is as strict as the most permissive provider the attesters accept |
 | `pa` | Pauses only for an incident. A malicious `pa` stalls the rail until `ba` revokes its grant, and the locks stay creditable or refundable meanwhile |
@@ -1124,10 +1124,10 @@ different trust model, and this design does not cover it.
 | A credit is forced onto an unwilling recipient | No credit lands without the accept. Pending offers can fill a wallet, but each costs a quorum-signed message and the submitter's traffic |
 | A single attester cancels, closes, holds, or rejects alone | Each needs a quorum-signed late denial or denied clearance, or the pause state |
 | A deposit arrives with no attributable sender, for example from a privacy pool | The attesters withhold the attestation, the deposit stays locked, and the never-minted refund follows. The bridge stores no score for it |
-| A compromised `ba` key attempts expropriation | A credited holding sits beyond `ba`. `ba` reaches only the bridge account, and its N-of-M posture protects that |
+| N compromised hosts of `ba` attempt expropriation | A credited holding sits beyond `ba`. `ba` reaches only the bridge account, and the confirmation threshold protects that |
 | The attesters deny a credit after the offer, and the recipient accepts first | The accepted downside of D1 at the gateway. The late denial withdraws the offer as soon as the quorum signs it, and the exposure is one deadline |
 | An upgrade changes how live gateway or instruction state is interpreted | The release rules of [section 4.11](#411-smart-contract-upgrade-process) |
-| A new version in the gateway lineage adds a choice that mints without an attestation, and the hosts vet it. SCU checks a package's shape, not what a choice does | Vetting. Every host of `ba` vets only audited DARs under a published policy, a multi-hosted `ba` cannot use a package fewer than N hosts vetted, and under the key-based routes the key holders approve each upgrade |
+| A new version in the gateway lineage adds a choice that mints without an attestation, and the hosts vet it. SCU checks a package's shape, not what a choice does | Vetting. Every host of `ba` vets only audited DARs under a published policy, and `ba` cannot use a package that fewer than N of its hosts have vetted |
 | A stakeholder's participant unvets the rail's package | Unvetting freezes contracts rather than freeing them. No attester is a stakeholder of any bridge contract, so its unvetting fails only its own reads and submissions. A recipient whose participant has not vetted gets a deferred offer. Holder-side unvetting of a credited holding is inherent to Canton |
 
 ### 7.4 Failure Modes and Recovery
