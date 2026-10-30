@@ -38,12 +38,6 @@ Each experiment answers a bounded design, compatibility, or upgrade question.
 Its Daml packages provide executable research evidence. Reusable release
 packages follow the `OpenZeppelin/canton-contracts` lifecycle.
 
-| Area | What it explores |
-|---|---|
-| [Compliance](experiments/compliance/) | Alternative shapes for off-ledger checks and on-ledger attestations |
-| [Identity](experiments/identity/) | Identity hooks, credential gating, and Smart Contract Upgrade compatibility |
-| [Cross-chain bridge](experiments/cross-chain-bridge/) | The Canton side of the attested bridge: gateways, attester quorums, nonce replay protection, redemption, and app-reward attribution on LocalNet |
-
 ## Exemplars
 
 Exemplars are executable deliverables that show how the OpenZeppelin CIP-0112
@@ -77,10 +71,7 @@ its stable package identity and release lifecycle in `OpenZeppelin/canton-contra
 ```text
 docs/
   reference-architectures/   Application architecture reports
-experiments/
-  compliance/                Compliance-check alternatives
-  cross-chain-bridge/        Attested bridge prototype on the CIP-0112 registry
-  identity/                  Identity, credential, and SCU research
+experiments/                 Prototypes and research projects
 exemplars/
   interoperability/          CIP-0086, CIP-0103, and CIP-0104 exemplars and live-ledger evidence
 dars/
