@@ -479,7 +479,7 @@ sequenceDiagram
     rect rgba(127, 127, 127, .15)
         Note over Attesters,Registry: Gateway transaction, submitted by one listed attester.<br/>The checks, the mint, and the offer commit together.
         Attesters->>App: Present the attested message with a quorum of signatures
-        App->>App: Check the pause state and that the attester registry lists<br/>the submitter, and check the maintainer and scope<br/>of each registry it is handed
+        App->>App: Check the pause state and that the attester registry lists<br/>the submitter, and check the owner and scope<br/>of each registry it is handed
         App->>App: Verify the signatures against the registry's keys,<br/>and check the cleared outcome (D1, D3) and the lock attestation
         App->>App: Record the nonce in the nonce registry
         App->>Registry: Mint the attested amount into the<br/>bridge account, under the mint right
@@ -796,14 +796,17 @@ contract and passes its contract id into the gateway choice. A caller that
 supplies the ids could substitute a registry that omits a nonce or lists an
 extra attester.
 
-**Decision.** Each of the four templates carries its maintainer and its scope
+**Decision.** Each of the four templates carries an owner field and its scope
 fields, and the gateway validates every one against a value the caller does not
-control: the maintainer against the gateway's own signatory the bridge admin, the
+control: the owner against the gateway's own signatory, the bridge admin, the
 instrument against the attested message, and the nonce registry's epoch against
-the lock's nonce divided by the registry's own `E`. The maintainer signs the
-contract, so only the bridge admin can create a version that passes.
+the lock's nonce divided by the registry's own `E`. The owner signs the
+contract, so only the bridge admin can create a version that passes. Each
+gateway choice takes all four contract ids as required arguments and fetches
+each one, so a caller cannot leave one out. A rotation or a pause flip archives
+the version it replaces, so a stale version fails the fetch.
 
-| Contract | Scope fields beyond the maintainer |
+| Contract | Scope fields beyond the owner |
 |---|---|
 | Nonce registry | The instrument, the epoch, and the epoch size `E` |
 | Attester registry | None |
@@ -897,7 +900,7 @@ compliance clearance, bound to the credit's full content so that a clearance
 for one credit cannot be re-pointed at another: the cleared outcome of the
 attested message for a first offer, and the re-offer attestation for a
 re-offer. The gateway verifies it before any transfer instruction exists,
-against the attester registry whose maintainer is the gateway's own signatory,
+against the attester registry whose owner is the gateway's own signatory,
 so no caller input decides which registry the statement is checked against.
 Outbound, the redemption gateway runs the same check before the burn, against
 the redemption clearance.
@@ -1109,7 +1112,7 @@ backs, so the reserve invariant holds.
 | `ba` creates a redemption claim with no burn behind it | An attester signs a claim only against a clearance it issued, once, so such a claim pays only a real request's destination, and value leaves twice only if the holder colludes with `ba` |
 | A used message is submitted again, or the attesters sign a second one for the same lock | The nonce registry rejects a recorded nonce, whatever the attesters sign |
 | A signature is reused for another statement type, deployment, or use | The deployment and type binding and the single-use binding ([section 6.8](#68-attester-statements-and-control-enforcement)) |
-| Two versions of a registry are active and the submitter picks one | The maintainer and scope checks ([section 6.6](#66-registry-identity-and-uniqueness)), and a rotation archives the version it replaces |
+| Two versions of a registry are active and the submitter picks one | The owner and scope checks ([section 6.6](#66-registry-identity-and-uniqueness)), and a rotation archives the version it replaces |
 | The escrow refunds a lock whose credit stands on Canton | Refund exclusivity ([section 6.4](#64-reserve-replay-and-refunds)). The residual is a wrong return-attestation binding, which swaps value between two locks of the same amount and needs a colluding quorum or hosts of `ba` that serve N attesters false events |
 | A credit is forced onto an unwilling recipient | No credit lands without the accept. Pending offers can fill a wallet, but each costs a quorum-signed message and the submitter's traffic |
 | A single attester cancels, closes, holds, or rejects alone | Each needs a quorum-signed late denial or denied clearance, or the pause state |
