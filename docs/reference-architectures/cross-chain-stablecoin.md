@@ -303,12 +303,12 @@ each:
 
 - that a redemption claim has a burn behind it
   ([section 7.1](#71-threat-model));
-- that a holding a reject or an expiry returned belongs to the lock the
+- that a credit returned by a reject or an expiry belongs to the lock the
   attesters bind it to ([section 6.4](#64-reserve-replay-and-refunds));
-- a compliance denial reached after the offer exists, which leaves one
-  instruction deadline of exposure
-  ([section 6.7](#67-attester-statements-and-control-enforcement));
-- one compliance policy across the attester set
+- that a compliance denial reached after the offer exists stops the credit.
+  The attesters withdraw the offer, and the exposure is one instruction
+  deadline ([section 6.7](#67-attester-statements-and-control-enforcement));
+- that every attester applies the same compliance policy
   ([section 4.2](#42-trust-boundaries)).
 
 ### 4.2 Trust Boundaries
@@ -321,8 +321,9 @@ Signs a claim only against a clearance it issued, and only once. Signs a
 no-mint statement only after reading the nonce as closed, and a return
 attestation only for a holding that the bridge account's events show returning
 from that lock. A colluding quorum mints unbacked supply or releases live
-backing, and whoever holds N listed keys is the quorum. This is the largest
-trust surface in the design.
+backing, and whoever holds N listed keys is the quorum. The attesters agree on
+one compliance policy off-ledger, and no contract checks that each of them
+applies it. This is the largest trust surface in the design.
 
 **Submitting attester.** Submits each step once. It cannot change an amount or
 a recipient. Every outcome needs a quorum statement, a deadline, or the pause,
