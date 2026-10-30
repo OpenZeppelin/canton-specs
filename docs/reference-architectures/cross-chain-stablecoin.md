@@ -194,14 +194,13 @@ Off-ledger, the **lock escrow** is the external-chain contract that holds the
 backing, releases against a verified claim that any submitter presents, and
 refunds each lock once. The **attester services** are M independent operators
 on M participants: each watches the external chain, runs the compliance and
-KYC checks against **KYC providers** that observe no transfer, signs as its own
-attester party, exchanges signatures with the others, and agrees with them
-which attester submits each step. The **bridge admin backend** is a process on
-a participant that hosts `ba`. It serves the attester services every bridge
-contract they need as a disclosed contract, and the bridge account's transfer
-events ([section 4.8](#48-registry-identity-and-uniqueness)), and it submits
-nothing. The **recipient wallet** accepts pending transfer instructions and may
-create a transfer preapproval.
+KYC checks against **KYC providers** that observe no transfer, and signs as its
+own attester party. The **bridge admin backend** is a process on a participant
+that hosts `ba`. It serves the attester services every bridge contract they
+need as a disclosed contract, and the bridge account's transfer events
+([section 4.8](#48-registry-identity-and-uniqueness)), and it submits nothing.
+The **recipient wallet** accepts pending transfer instructions and may create a
+transfer preapproval.
 
 The gateways and the registries are contracts. Each attester statement is a
 typed message signed off-ledger that reaches the ledger only as an argument of
@@ -228,11 +227,9 @@ Consequences:
 - **No recipient sees another recipient's credit.** Each transfer instruction
   projects to its one recipient.
 - **The wTOK admin sees every wTOK payment**, as any issuer sees its own
-  instrument, and the design treats it as a trust assumption. `ba` sees every
-  inbound credit, the submitting attester sees the transfer instruction it
-  creates and any preapproval it exercises, and the attesters read the bridge
-  account's transfer events. Choosing the attesters is a privacy decision as
-  well as a compliance one.
+  instrument, and the design treats it as a trust assumption. Given what the
+  attesters see ([section 4.2](#42-roles)), choosing them is a privacy decision
+  as well as a compliance one.
 - **Transfer outcomes arrive as events.** An integrator matches a holdings
   event to a lock through the nonce in the transfer's metadata, not through
   the instruction's contract id, because a re-offer creates a new instruction.
@@ -338,11 +335,9 @@ exercise the standard accept with the recipient's authority. The gateway
 exercises it with the `ba` authority it carries, so step 2 accepts the
 instruction it creates and the credit lands in one attester-submitted
 transaction. A preapproval that arrives after the offer runs through a gateway
-choice of its own. It is an optimization: a recipient without one is credited
-when it accepts. Canton Coin's preapproval covers Canton Coin only, so the
-bridge defines its own, which calls only the standard accept and so works with
-any registry. It bounds the instrument, an amount ceiling, an expiry, and the
-party that may exercise it, and the recipient can archive it at any time.
+choice of its own. The preapproval calls only the standard accept, so it works
+with any registry. It bounds the instrument, an amount ceiling, an expiry, and
+the party that may exercise it, and the recipient can archive it at any time.
 
 **Batches and deferred offers.** The submitting attester takes the open locks
 in nonce order and submits them in batches. One gateway transaction runs the
@@ -360,13 +355,9 @@ participant delays only its own credit. An offer still open at its deadline is
 closed, and the never-minted refund of
 [section 4.6](#46-reserve-replay-and-refunds) follows.
 
-**Delivery and retry.** The attester set carries delivery: the Canton credit
-of an attested lock executes when a listed attester submits it, and recovery
-is a resubmission by the attesters rather than an automatic cross-chain
-protocol. An attester service derives its next step from the statements the
-quorum has signed and from the bridge's active contracts, keyed by nonce, so
-after a restart it re-reads them and continues. Duplicate submissions are safe
-because the nonce registry records each nonce once
+**Delivery and retry.** The attester set carries delivery: a credit executes
+when a listed attester submits it, and the attesters resubmit a failed step,
+safely, because the nonce registry records each nonce once
 ([section 7.4](#74-failure-modes-and-recovery)).
 
 ### 4.6 Reserve, Replay, and Refunds
@@ -402,10 +393,7 @@ successor in the same exercise, so each epoch gets exactly one registry, and
 first lock arrives. A settled epoch's registry stays active for later refunds
 and closes. The gateway checks that the registry it is handed carries the epoch
 of the nonce it processes
-([section 4.8](#48-registry-identity-and-uniqueness)). Attesters read the
-registry before they sign and decline a nonce it holds, but the gateway's check
-is the safety control, so an attester that cannot reach the registry still
-signs.
+([section 4.8](#48-registry-identity-and-uniqueness)).
 
 **Returned credits.** The registry records mints, not credits. A reject or a
 registry expiry returns the holding to the bridge account and leaves the nonce
@@ -553,13 +541,11 @@ sequenceDiagram
    id, with an outcome: cleared, or denied with a reference. That is D1 and D3
    outbound. The burn is irreversible, so the destination must be payable
    before it, and the gateway cannot parse an external-chain address, so the
-   attesters check it. A destination fails if it is malformed for the external
-   chain, one the escrow refuses such as the null address or the escrow
-   itself, or one the backing token refuses to pay such as a blocklisted
-   address. The escrow repeats the checks it can make on its own chain, so a
-   release to a refused address reverts and the claim stands. A destination
-   that becomes unpayable after the burn leaves a standing claim that no
-   submitter can release, and the design has no path that redirects it
+   attesters check that it is well formed and that neither the escrow nor the
+   backing token refuses it. The escrow repeats the checks it can make on its
+   own chain, so a release to a refused address reverts and the claim stands.
+   A destination that becomes unpayable after the burn leaves a standing claim
+   that no submitter can release, and the design has no path that redirects it
    ([section 2](#2-requirements)).
 
 3. **Burn.** A listed attester exercises the **redemption gateway**, which
@@ -570,12 +556,12 @@ sequenceDiagram
    the holder, the destination, and the request id, so an auditor can match
    each release to one burn and one holder. On a denied clearance the attester
    rejects the request through the same gateway, with the denial reference in
-   the rejection's metadata, and the holding returns to the holder. A request
-   nobody decides is withdrawn by the holder. Nothing burns without a cleared
-   request. `ba` alone signs the claim, so the ledger does not enforce a burn
-   behind it, and [section 7.3](#73-threat-model) states what limits that.
-   The refund claim of [section 4.6](#46-reserve-replay-and-refunds) runs
-   through the same gateway without a request or a clearance.
+   the rejection's metadata, and the holding returns to the holder. Nothing
+   burns without a cleared request. `ba` alone signs the claim, so the ledger
+   does not enforce a burn behind it, and [section 7.3](#73-threat-model)
+   states what limits that. The refund claim of
+   [section 4.6](#46-reserve-replay-and-refunds) runs through the same gateway
+   without a request or a clearance.
 
 4. **Release.** An N-of-M quorum signs the claim off-ledger with its
    external-chain keys. Each attester reads the claim as a disclosed
@@ -603,10 +589,8 @@ The gateway reads four bridge contracts at execution time: the pause state, the
 attester registry, the nonce registry, and the fee schedule. The submitting
 attester is a stakeholder of none of them, so it attaches each as a disclosed
 contract and passes its contract id into the gateway choice. A caller that
-supplies the ids can substitute another contract for each: a second nonce
-registry that omits a lock's nonce lets the gateway mint against that lock
-again, and a second attester registry with an extra member passes a check the
-real one refuses.
+supplies the ids could substitute a registry that omits a nonce or lists an
+extra attester.
 
 **Decision.** Each of the four templates carries its maintainer and its scope
 fields, and the gateway validates every one against a value the caller does not
@@ -674,12 +658,12 @@ nothing by rigging a list that only its own gateway reads, because it already
 holds the mint right, and the escrow verifies attester signatures against its
 own keys, so the Canton registry cannot weaken a release or a refund.
 
-**Signed statements.** The attesters collect N signatures off-ledger, and the submitter
-presents the statement and its signatures as arguments of a gateway choice,
-which verifies each signature against the key the attester registry holds and
-fails unless N distinct listed attesters signed. Each statement carries its
-type, the deployment, `ba`, the instrument, and the escrow under the
-signature, so a signature for one deployment or one statement type never
+**Signed statements.** The attesters collect N signatures off-ledger, and the
+submitter presents the statement and its signatures as arguments of a gateway
+choice, which verifies each signature against the key the attester registry
+holds and fails unless N distinct listed attesters signed. Each statement
+carries its type, the deployment, `ba`, the instrument, and the escrow under
+the signature, so a signature for one deployment or one statement type never
 verifies for another.
 
 A signature can be presented any number of times, so each statement binds
@@ -720,11 +704,11 @@ reference, and whether the denial requires a freeze. A listed attester presents
 it to a gateway withdraw, which exercises the standard's
 `TransferInstruction_Withdraw` under `ba`'s authority as the sender's account
 owner, records the nonce as returned with the denial, and puts the reference in
-the withdrawal's metadata under the Token Standard reason key. The withdraw
-needs no confirmation from the recipient's participant. The exposure is one
-instruction deadline, and zero under a transfer preapproval. The same statement
-closes a deferred offer, and a hold of a credit that a reject or an expiry
-returned presents one that requires a freeze.
+the withdrawal's metadata. The withdraw needs no confirmation from the
+recipient's participant. The exposure is one instruction deadline, and zero
+under a transfer preapproval. The same statement closes a deferred offer, and a
+hold of a credit that a reject or an expiry returned presents one that requires
+a freeze.
 
 The gateway withdraws a lapsed instruction at any time after its deadline, and
 a pending one before it only against a late denial or while the pause state is
@@ -732,11 +716,8 @@ set. It closes a deferred offer before its deadline only against a late denial.
 A single attester therefore cannot cancel, close, or freeze a credit on its own
 word. A denial before the gateway leaves nothing to withdraw: the attesters
 sign the attested message with a denied outcome, and an attester closes the
-nonce with it ([section 4.6](#46-reserve-replay-and-refunds)). The denial is
-recorded on the ledger because an organization reads its own ledger projection
-more easily than an off-ledger compliance log, which holds the reasoning. A
-registry may add its own compliance check at the accept; the bridge requires
-none.
+nonce with it ([section 4.6](#46-reserve-replay-and-refunds)). A registry may
+add its own compliance check at the accept; the bridge requires none.
 
 **D2, left to the registry.** A registry may implement seizure of a pending
 credit on its own transfer instruction or not. For the bridge, a seized
@@ -860,10 +841,8 @@ a gateway withdraw, a re-offer, and the conversion or close of a deferred offer
 each write the nonce registry and contend like a mint, but each follows a
 lapse, a denial, or a failed participant, so they are rare beside mints. A
 rotation archives a registry that in-flight gateway transactions fetched, so
-rotations are scheduled as an operational window. The off-ledger submitter
-agreement keeps two attesters from writing the same registry at once, and the
-loser of a race retries against the new version at the cost of one rejected
-submission.
+rotations are scheduled as an operational window, and two attesters that write
+the same registry at once cost one rejected submission.
 
 ### 4.14 Traffic Costs, App Rewards, and Fees
 
@@ -889,27 +868,24 @@ pay `ba` and the wTOK admin. No attester holds a featured status, so a rotation
 changes none. The fee, not the reward, carries the attesters' traffic.
 
 **Fees.** The bridge charges a fee on each inbound credit and each redemption
-and deducts it from the amount the payment carries, as Circle's
-[CCTP](https://developers.circle.com/cctp/concepts/fees) and
-[Axelar](https://docs.axelar.dev/dev/reference/pricing) do, so neither the
-originator nor the holder needs Canton Coin. The attesters deny a lock or a
-request that does not exceed the fee. A lock that never minted is refunded in
-full, and a credit that comes back keeps its inbound fee, because its gateway
-transaction already ran. One **fee schedule** contract that `ba` maintains sets
-the values and the income shares, and the gateways read it like the pause
-state. Each fee has a **fixed part**, paid in the same transaction to the
-attester that submits it, so the attester that paid the traffic is repaid
-without depending on `ba`, as LayerZero pays its verifiers. Transactions that
-move no wTOK, such as a close or a withdraw, carry no fee, so the fixed part
-covers them on average. The **percentage part**, together with `ba`'s app
-rewards, is the bridge's income, split between `ba`, an attester pool, and the
-registry. The gateway pays the shares into accounts of `ba` kept apart from the
-bridge account, so the pool's balance is visible on-ledger, and `ba` pays the
-pool out each period in equal shares to the attesters listed during it. The
-registry share defaults to zero, because the wTOK admin earns its own app
-rewards, and exists for a third-party registry that carries wTOK's issuer lock
-and asks to be paid. Fees are ordinary wTOK holdings that a deposit backs, so
-the reserve invariant holds.
+and deducts it from the amount the payment carries, so neither the originator
+nor the holder needs Canton Coin. The attesters deny a lock or a request that
+does not exceed the fee. A lock that never minted is refunded in full, and a
+credit that comes back keeps its inbound fee, because its gateway transaction
+already ran. One **fee schedule** contract that `ba` maintains sets the values
+and the income shares, and the gateways read it like the pause state. Each fee
+has a **fixed part**, paid in the same transaction to the attester that submits
+it, so the attester that paid the traffic is repaid without depending on `ba`.
+Transactions that move no wTOK, such as a close or a withdraw, carry no fee, so
+the fixed part covers them on average. The **percentage part**, together with
+`ba`'s app rewards, is the bridge's income, split between `ba`, an attester
+pool, and the registry. The gateway pays the shares into accounts of `ba` kept
+apart from the bridge account, so the pool's balance is visible on-ledger, and
+`ba` pays the pool out each period in equal shares to the attesters listed
+during it. The registry share defaults to zero, because the wTOK admin earns
+its own app rewards, and exists for a third-party registry that carries wTOK's
+issuer lock and asks to be paid. Fees are ordinary wTOK holdings that a deposit
+backs, so the reserve invariant holds.
 
 ---
 
@@ -934,16 +910,12 @@ the reserve invariant holds.
   must carry enough data to route the transfer on Canton. Hiding the link to
   the Canton recipient is out of scope.
 
-**Chains that cannot hold the payout back.** Some chains cannot make the payout
-conditional on the attestation. On a UTXO chain without contracts the release
-is a plain threshold-signed transaction, so a quorum that stalls looks the same
-as a loss, and under burn-first the redeemer holds neither asset. A
-permissioned release on a contract chain fails the same way, because the holder
-cannot submit the claim itself. The sound ordering there is burn-last: lock the
-wrapped holding, authorize the payout on-ledger, broadcast, confirm, and burn
-last. The reserve invariant then has to allow for the in-flight window, because
-the backing is spent while the wrapped holding still exists. Burn-last is a
-different trust model, and this design does not cover it.
+**Chains that cannot hold the payout back.** Where the release cannot be made
+conditional on the claim, on a UTXO chain without contracts or under a
+permissioned release the holder cannot submit, a stalled quorum leaves the
+redeemer holding neither asset under burn-first. Such chains need burn-last
+ordering, with a reserve invariant that allows for the in-flight window. That
+is a different trust model, and this design does not cover it.
 
 ---
 
@@ -1042,8 +1014,5 @@ through it, gateway transactions continue until a rotation or a pause flip, and
 the backend restarts on any participant that hosts `ba`.
 
 **Submitter selection.** The gateway accepts any listed attester as the
-submitter. The attester services agree off-ledger which attester submits each
-step, for example by nonce or by a rotating leader, and another takes over a
-step that stays open past a timeout. That agreement saves traffic and is not a
-control: the nonce registry rejects a second submission for the same lock, and
-the loser treats the rejection as a no-op.
+submitter. The attester services coordinate off-ledger which attester submits
+each step.
