@@ -160,13 +160,14 @@ seizure, KYC, and role binding.
 
 ### 3.1 Overview
 
-Each Canton step is its own transaction, and no transaction spans both chains.
-Supply enters at the attested mint and leaves at the burn, each behind a
-gateway check against an attester signature over an external-chain fact that
-no Canton check can validate. Between the two, the token registry creates and
-completes every wTOK transfer, and the accept that credits the recipient is the
-registry's own choice. The attester services decide off-ledger which listed
-attester submits each step ([section 7.2](#72-failure-modes-and-recovery)).
+No transaction spans both chains. On Canton, wTOK comes into existence only at
+the mint gateway and leaves only at the redemption gateway. Each gateway acts
+only on a statement the attesters signed, because no Canton contract can see
+the external chain. Everything in between is ordinary Token Standard V2
+transfers that the token registry runs. The recipient's accept is the
+registry's own choice, with no bridge code in it. The attester services agree
+off-ledger which listed attester submits each step
+([section 7.2](#72-failure-modes-and-recovery)).
 
 Each inbound credit is one
 [CIP-0112](https://github.com/canton-foundation/cips/blob/main/cip-0112/cip-0112.md)
@@ -177,17 +178,6 @@ of the Token Standard V2 interfaces in `OpenZeppelin/canton-contracts`. Its
 transfers are private through per-party projection, with one exception: the
 **instrument admin** signs every holding and transfer instruction of its
 instrument.
-
-**Happy path.** Inbound, the escrow locks a deposit on the external chain. The
-attesters sign one statement that attests the lock and clears it for
-compliance, and one attester submits it to the mint gateway. The gateway
-checks the signatures, mints the amount into the bridge account, and offers it,
-less the fee, to the recipient as a transfer instruction, which the recipient
-accepts. Outbound, the holder offers its holding to the bridge account and
-names an external-chain destination. The attesters clear the request, and one
-attester submits it to the redemption gateway, which burns the holding and
-creates a claim. The attesters sign the claim, and the escrow releases the
-backing to the destination.
 
 ```mermaid
 flowchart LR
