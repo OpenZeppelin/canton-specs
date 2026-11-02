@@ -15,8 +15,12 @@
 // The client then assigns beneficiaries to that coupon
 // (`RewardCoupon_AssignBeneficiaries`), which is where an app divides its reward.
 // The assignment replaces the coupon with one coupon for each beneficiary, and
-// the client asserts those coupons. Collection of a coupon into Canton Coin is
-// validator-wallet automation on its own schedule, and it is outside this client.
+// the client asserts those coupons. The client mints no Canton Coin from them.
+//
+// The app-provider is a dedicated party that the client allocates on the
+// participant of the validator, and no wallet runs for it. The validator wallet
+// mints the unassigned coupons of the validator party into Canton Coin, which
+// would race the assignment.
 //
 // `scripts/localnet-cip0104-traffic-rewards.sh` starts the LocalNet that this
 // client needs and then this client.
@@ -32,15 +36,13 @@
 //   OZ_LEDGER_TOKEN_FILE     file with the token of the participant admin user
 //   OZ_LEDGER_TOKEN          the same token, given directly
 //   OZ_LEDGER_USER_ID        Ledger API user that the client submits as
-//   OZ_VALIDATOR_API_URL     validator (wallet) API of the app-provider
 //   OZ_SV_API_URL            SV app API
 //   OZ_SCAN_API_URL          Scan API
 //   OZ_LOCALNET_AUTH_SECRET  HS256 secret that the Splice apps accept
 //   OZ_LOCALNET_AUTH_AUDIENCE  audience that the Splice apps accept
-//   OZ_WALLET_ADMIN_USER     wallet admin user of the app-provider validator
 //   OZ_SV_USER               wallet admin user of the SV
 //   OZ_REWARD_TIMEOUT_S      seconds to wait for the rounds and the coupon
-//   OZ_TRAFFIC_TIMEOUT_S     seconds to wait for validator traffic and a round
+//   OZ_TRAFFIC_TIMEOUT_S     seconds to wait for validator traffic
 //   OZ_EVIDENCE_FILE         file for the JSON evidence of the run
 
 import { readFileSync, writeFileSync } from 'node:fs'
@@ -49,13 +51,11 @@ import { createHmac } from 'node:crypto'
 const trimSlash = (url) => url.replace(/\/+$/, '')
 
 const JSON_API = trimSlash(process.env.OZ_JSON_API_URL ?? 'http://127.0.0.1:3975')
-const VALIDATOR_API = trimSlash(process.env.OZ_VALIDATOR_API_URL ?? 'http://wallet.localhost:3000/api/validator')
 const SV_API = trimSlash(process.env.OZ_SV_API_URL ?? 'http://sv.localhost:4000/api/sv')
 const SCAN_API = trimSlash(process.env.OZ_SCAN_API_URL ?? 'http://scan.localhost:4000/api/scan')
 
 const AUTH_SECRET = process.env.OZ_LOCALNET_AUTH_SECRET ?? 'unsafe'
 const AUTH_AUDIENCE = process.env.OZ_LOCALNET_AUTH_AUDIENCE ?? 'https://canton.network.global'
-const WALLET_ADMIN_USER = process.env.OZ_WALLET_ADMIN_USER ?? 'app-provider'
 const SV_USER = process.env.OZ_SV_USER ?? 'sv'
 const LEDGER_USER = process.env.OZ_LEDGER_USER_ID ?? 'ledger-api-user'
 const EVIDENCE_FILE = process.env.OZ_EVIDENCE_FILE ?? null
@@ -98,6 +98,8 @@ const T = {
   rewardCouponV2: '#splice-amulet:Splice.Amulet:RewardCouponV2',
   // https://github.com/canton-network/splice/blob/8460154135f39019b8bb370c9c1321ff13c9bb10/daml/splice-api-reward-assignment-v1/daml/Splice/Api/RewardAssignmentV1.daml#L40
   rewardCoupon: '#splice-api-reward-assignment-v1:Splice.Api.RewardAssignmentV1:RewardCoupon',
+  // https://github.com/canton-network/splice/blob/8460154135f39019b8bb370c9c1321ff13c9bb10/daml/splice-amulet/daml/Splice/AmuletRules.daml#L420
+  amuletRules: '#splice-amulet:Splice.AmuletRules:AmuletRules',
 }
 
 // `SettlementFactory_SettleBatch` rejects a caller that the settlement does not
@@ -161,20 +163,20 @@ async function http(method, url, { token = null, body = undefined, label = url }
   return text ? JSON.parse(text) : undefined
 }
 
-// LocalNet publishes the SV app, Scan, and the wallet API behind one nginx that
-// routes on the `Host` header, and the first server block of the port answers
-// every name that it does not know. A name that does not resolve therefore gives
-// a 404 from the wrong service, so the run stops before that.
+// LocalNet publishes the SV app and Scan behind one nginx that routes on the
+// `Host` header, and the first server block of the port answers every name that
+// it does not know. A name that does not resolve therefore gives a 404 from the
+// wrong service, so the run stops before that.
 async function requireResolvableHosts() {
   const { lookup } = await import('node:dns/promises')
-  for (const url of [VALIDATOR_API, SV_API, SCAN_API]) {
+  for (const url of [SV_API, SCAN_API]) {
     const { hostname } = new URL(url)
     try {
       await lookup(hostname)
     } catch (err) {
       fail(
         `${hostname} does not resolve (${err.code}). Add "127.0.0.1 ${hostname}" to /etc/hosts, ` +
-          'or point OZ_VALIDATOR_API_URL, OZ_SV_API_URL, and OZ_SCAN_API_URL at names that resolve.',
+          'or point OZ_SV_API_URL and OZ_SCAN_API_URL at names that resolve.',
       )
     }
   }
@@ -190,8 +192,6 @@ function spliceToken(subject) {
   return `${header}.${payload}.${signature}`
 }
 
-const walletApi = (method, path, body) =>
-  http(method, `${VALIDATOR_API}${path}`, { token: spliceToken(WALLET_ADMIN_USER), body, label: `validator ${path}` })
 const svApi = (method, path, body) =>
   http(method, `${SV_API}${path}`, { token: spliceToken(SV_USER), body, label: `sv ${path}` })
 const scanApi = (method, path, body) => http(method, `${SCAN_API}${path}`, { body, label: `scan ${path}` })
@@ -224,10 +224,9 @@ async function allocateParty(hint) {
 }
 
 // Each submission carries a user id, and that user may submit for a party only
-// if a `CanActAs` right names the party. Party allocation grants no right, and
-// the app-provider party belongs to the validator, so the client grants the
-// rights that it needs to the admin user that it submits as. On a real network
-// the validator operator does this setup through its IAM.
+// if a `CanActAs` right names the party. Party allocation grants no right, so
+// the client grants the rights that it needs to the admin user that it submits
+// as. On a real network the validator operator does this setup through its IAM.
 async function grantActAs(parties) {
   const rights = parties.map((party) => ({ kind: { CanActAs: { value: { party } } } }))
   await ledgerApi('POST', `/v2/users/${LEDGER_USER}/rights`, {
@@ -523,55 +522,58 @@ async function attributedActivity(app, beginExclusive) {
 
 // --- Splice: featuring, reward configuration, rewards ------------------------
 
-// LocalNet runs with `SPLICE_SV_IS_DEVNET=true`, so the app-provider grants
-// itself the `FeaturedAppRight` that CIP-0078 requires for any app reward. On
-// TestNet and MainNet the Canton Foundation grants it instead.
-async function selfFeature() {
-  const status = await waitFor(
-    'the wallet of the app-provider',
+// A fresh validator holds no synchronizer traffic and buys it from the SV on its
+// own interval. Every submission of the participant costs traffic, so the run
+// waits until Scan reports a purchase that the sequencer has applied.
+async function waitForValidatorTraffic() {
+  const dso = await scanApi('GET', '/v0/dso')
+  const { participantId } = await ledgerApi('GET', '/v2/parties/participant-id')
+  const path = `/v0/domains/${dso.amulet_rules.domain_id}/members/PAR::${participantId}/traffic-status`
+  await waitFor(
+    'synchronizer traffic for the app-provider validator',
     async () => {
-      const current = await walletApi('GET', '/v0/wallet/user-status')
-      return current.user_onboarded && current.user_wallet_installed ? current : null
+      const { actual, target } = (await scanApi('GET', path)).traffic_status
+      const purchased = Number(target.total_purchased)
+      return purchased > 0 && Number(actual.total_limit) >= purchased ? purchased : null
     },
     TRAFFIC_TIMEOUT_MS,
   )
-  let contractId = null
-  if (!status.has_featured_app_right) {
-    // A fresh validator holds no synchronizer traffic and buys it from the SV on
-    // its own interval, and it answers 429 until then.
-    const granted = await waitFor(
-      'synchronizer traffic for the app-provider validator',
-      async () => {
-        try {
-          return await walletApi('POST', '/v0/wallet/self-grant-feature-app-right', {})
-        } catch (err) {
-          if (err.status === 429) return null
-          throw err
-        }
-      },
-      TRAFFIC_TIMEOUT_MS,
-    )
-    contractId = granted.contract_id
-    log(`self-granted the featured app right (${contractId.slice(0, 16)}...)`)
-  } else {
-    log('the app-provider already holds a featured app right')
-  }
-  // The wallet answers once the validator has committed the right, and Scan
-  // ingests it from the SV participant later, so the check on Scan polls. A
-  // right granted here matches on its contract id; a right from an earlier run
-  // matches on the provider.
-  const matches = (a) => (contractId ? a.contract_id === contractId : a.payload?.provider === status.party_id)
+}
+
+// LocalNet runs with `SPLICE_SV_IS_DEVNET=true`, so the app-provider grants
+// itself the `FeaturedAppRight` that CIP-0078 requires for any app reward, with
+// the DevNet choice of the amulet rules. The DSO signs the amulet rules, so the
+// client gives them to the app-provider as a disclosed contract, as Scan serves
+// them. On TestNet and MainNet the Canton Foundation grants the right instead.
+// Returns the latest round at the time of the grant.
+async function selfFeature(provider) {
+  const { amulet_rules: rules } = await scanApi('GET', '/v0/dso')
+  const granted = await submit([provider], 'feature-app', [
+    { ExerciseCommand: { templateId: T.amuletRules, contractId: rules.contract.contract_id, choice: 'AmuletRules_DevNet_FeatureApp', choiceArgument: {
+      provider,
+      activityWeight: null,
+    } } },
+  ], { disclosedContracts: [{
+    templateId: rules.contract.template_id,
+    contractId: rules.contract.contract_id,
+    createdEventBlob: rules.contract.created_event_blob,
+    synchronizerId: rules.domain_id,
+  }] })
+  const contractId = createdOf(granted, 'FeaturedAppRight')
+  log(`self-granted the featured app right (${contractId.slice(0, 16)}...)`)
+  // Scan ingests the right from the SV participant after the app-provider's
+  // participant has committed it, so the check on Scan polls.
   const mine = await waitFor(
     'Scan to list the featured app right of the app-provider',
     async () => {
       const featured = await scanApi('GET', '/v0/featured-apps')
-      const hits = (featured.featured_apps ?? []).filter(matches)
+      const hits = (featured.featured_apps ?? []).filter((a) => a.payload?.provider === provider)
       return hits.length > 0 ? hits : null
     },
     SCAN_TIMEOUT_MS,
   )
   assertEq('Scan reports one featured app right for the app-provider', mine.length, 1)
-  return status.party_id
+  return latestRound()
 }
 
 const trafficRewardConfig = (rewardCouponThreshold) => ({
@@ -648,11 +650,33 @@ const latestRound = async () => {
   return Number(dso.latest_mining_round.contract.payload.round.number)
 }
 
+const earliestOpenRound = async () => {
+  const res = await scanApi('POST', '/v0/open-and-issuing-mining-rounds', {
+    cached_open_mining_round_contract_ids: [],
+    cached_issuing_round_contract_ids: [],
+  })
+  const rounds = Object.values(res.open_mining_rounds ?? {}).map((r) => Number((r.contract ?? r).payload.round.number))
+  return rounds.length > 0 ? Math.min(...rounds) : null
+}
+
+// On Splice 0.8.3 a round that already existed when the app-provider was
+// featured pays it nothing for traffic that the round takes later, and any open
+// round, the oldest included, can take the traffic of a settlement. The run
+// therefore waits until every open round is younger than the grant. A fresh
+// network passes this wait during the vote. On a network that already runs
+// traffic-based app rewards, the client skips the vote and waits here.
+async function waitForRoundsAfterGrant(grantRound) {
+  await waitFor(`every open round to follow round ${grantRound} of the featured app right`, async () => {
+    const earliest = await earliestOpenRound()
+    return earliest !== null && earliest > grantRound ? earliest : null
+  })
+}
+
 // Splice keeps several mining rounds open at once and fills its reward accounting
 // behind them. Which round accounts for the traffic of a transaction is internal
 // to Splice, and the CIP-0104 endpoints of Scan carry a "subject to change" note,
-// so the client makes no assumption about it: it searches forward from the round
-// that it saw before its settlements.
+// so the client makes no assumption about it: it searches forward from the
+// oldest round that is open before its settlements, which can take their traffic.
 async function waitForAttributedRound(fromRound, provider) {
   return waitFor('a round that rewards the app-provider', async () => {
     const latest = await latestRound()
@@ -694,21 +718,8 @@ const couponsOf = async (provider) =>
 // activity together.
 async function waitForUnassignedCoupon(provider, round) {
   return waitFor(`the reward coupon of round ${round}`, async () => {
-    const forRound = (await couponsOf(provider)).filter(
-      (c) => String(c.payload.round.number) === String(round),
-    )
-    const unassigned = forRound.find((c) => !c.payload.beneficiary)
-    if (unassigned) return unassigned
-    // The coupon of the round exists and already names a beneficiary. The wallet
-    // automation of the validator took it first, and no wait recovers it, so the
-    // run stops here instead of timing out against the network.
-    if (forRound.length > 0) {
-      fail(
-        `round ${round}: the coupon of the app-provider already names a beneficiary. ` +
-          'The wallet automation of the validator reached it before this run did.',
-      )
-    }
-    return null
+    const coupons = await couponsOf(provider)
+    return coupons.find((c) => String(c.payload.round.number) === String(round) && !c.payload.beneficiary) ?? null
   })
 }
 
@@ -716,26 +727,13 @@ async function waitForUnassignedCoupon(provider, round) {
 // percentages. The choice archives the coupon and creates one coupon for each
 // beneficiary, with the amount scaled by the percentage.
 async function assignBeneficiaries(provider, couponCid, beneficiaries) {
-  try {
-    await submit([provider], 'assign-beneficiaries', [
-      { ExerciseCommand: { templateId: T.rewardCoupon, contractId: couponCid, choice: 'RewardCoupon_AssignBeneficiaries', choiceArgument: {
-        additionalCoupons: [],
-        newBeneficiaries: beneficiaries.map(([beneficiary, percentage]) => ({ beneficiary, percentage })),
-        extraArgs: EXTRA_ARGS,
-      } } },
-    ])
-  } catch (err) {
-    // The same race as in `waitForUnassignedCoupon`, one step later: the wallet
-    // automation archived the coupon between the read and this submission.
-    const body = err.body ?? String(err.message)
-    if (body.includes('CONTRACT_NOT_FOUND')) {
-      fail(
-        'the reward coupon was archived between the read and the assignment. ' +
-          'The wallet automation of the validator collected it first.',
-      )
-    }
-    throw err
-  }
+  await submit([provider], 'assign-beneficiaries', [
+    { ExerciseCommand: { templateId: T.rewardCoupon, contractId: couponCid, choice: 'RewardCoupon_AssignBeneficiaries', choiceArgument: {
+      additionalCoupons: [],
+      newBeneficiaries: beneficiaries.map(([beneficiary, percentage]) => ({ beneficiary, percentage })),
+      extraArgs: EXTRA_ARGS,
+    } } },
+  ])
 }
 
 // --- the run -----------------------------------------------------------------
@@ -747,20 +745,22 @@ const RUN_ID = Date.now().toString(36)
 
 async function main() {
   if (!LEDGER_TOKEN) fail('this gate needs the participant admin token (OZ_LEDGER_TOKEN_FILE or OZ_LEDGER_TOKEN)')
-  log(`JSON Ledger API ${JSON_API}, validator ${VALIDATOR_API}, SV ${SV_API}, Scan ${SCAN_API} (run ${RUN_ID})`)
+  log(`JSON Ledger API ${JSON_API}, SV ${SV_API}, Scan ${SCAN_API} (run ${RUN_ID})`)
   await requireResolvableHosts()
 
-  // Step 1: the app-provider becomes a featured app.
-  const provider = await selfFeature()
+  // Step 1: the client allocates the app-provider party, and the app-provider
+  // becomes a featured app.
+  await waitForValidatorTraffic()
+  const provider = await allocateParty(`traffic-provider-${RUN_ID}`)
+  await grantActAs([provider])
+  const grantRound = await selfFeature(provider)
   log(`app-provider party: ${provider}`)
 
   // Step 2: the network switches to traffic-based app rewards, and every open
   // round carries that configuration.
   const openRounds = await enableTrafficBasedRewards()
 
-  // Step 3: the settlement parties. The app-provider executes every settlement,
-  // so the admin user that this client submits as needs `CanActAs` for the
-  // app-provider party too.
+  // Step 3: the settlement parties.
   const [admin, alice, bob, registrar, operator] = await Promise.all([
     allocateParty(`traffic-admin-${RUN_ID}`),
     allocateParty(`traffic-alice-${RUN_ID}`),
@@ -768,9 +768,10 @@ async function main() {
     allocateParty(`traffic-registrar-${RUN_ID}`),
     allocateParty(`traffic-operator-${RUN_ID}`),
   ])
-  await grantActAs([provider, admin, alice, bob, registrar, operator])
+  await grantActAs([admin, alice, bob, registrar, operator])
 
-  const roundBefore = await latestRound()
+  await waitForRoundsAfterGrant(grantRound)
+  const roundBefore = await earliestOpenRound()
   const offsetBefore = await ledgerEnd()
   log(`starting at round ${roundBefore}, ledger offset ${offsetBefore}`)
 
