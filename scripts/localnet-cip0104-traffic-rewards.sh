@@ -78,8 +78,7 @@ export OZ_LEDGER_TOKEN_FILE="$LEDGER_TOKEN_FILE"
 export OZ_LEDGER_USER_ID="$LEDGER_USER_ID"
 export OZ_EVIDENCE_FILE="$LEDGER_LOG_DIR/traffic-rewards-evidence.json"
 # The LocalNet secret that the Splice apps accept. The harness mints its own
-# token for each Splice app user that it calls as: the wallet admin user of the
-# app-provider and the SV.
+# token for the Splice app user that it calls as: the SV.
 export OZ_LOCALNET_AUTH_SECRET="$LEDGER_AUTH_SECRET"
 export OZ_LOCALNET_AUTH_AUDIENCE="$LEDGER_AUTH_AUDIENCE"
 
